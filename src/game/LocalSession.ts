@@ -1,0 +1,195 @@
+import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity } from '../core/sim/WorldSim';
+import { WorldGenerator } from '../core/worldgen/WorldGenerator';
+import { MOBS, MobType } from '../core/sim/mobs';
+import { ENT_KIND } from '../core/protocol';
+import { sanitizeInv, InvOp } from '../core/inventory';
+import type { ChunkManager } from './ChunkManager';
+import type { GameSession, SessionEvents, SessionInfo } from './Session';
+import { WorldStorage, WorldMeta, WorldState } from '../storage/WorldStorage';
+import type { GenBlockEntity } from '../core/worldgen/WorldGenerator';
+import { chunkKey } from '../core/chunk';
+import type { Appearance } from '../core/sim/WorldSim';
+
+export class LocalSession implements GameSession {
+  readonly info: SessionInfo;
+  readonly sim: WorldSim;
+  readonly me: SimPlayer;
+  private ev: SessionEvents;
+  private meta: WorldMeta;
+  private acc = 0;
+  private beChunks: Set<string>;
+  private chunks: ChunkManager;
+  private playStart = Date.now();
+  flying = false;
+
+  constructor(meta: WorldMeta, state: WorldState | null, chunks: ChunkManager, ev: SessionEvents, name: string, appearance: Appearance) {
+    this.meta = meta;
+    this.ev = ev;
+    this.chunks = chunks;
+    const gen = new WorldGenerator(meta.seed);
+    this.sim = new WorldSim({
+      seed: meta.seed, store: chunks, gen, difficulty: meta.difficulty, emit: (e) => this.onEvent(e),
+      validateMoves: false, authoritative: true, spawn: state?.spawn ?? undefined,
+    });
+    this.sim.settings.cheats = state?.cheats ?? meta.mode === 'creative';
+    this.sim.settings.dayCycle = state?.dayCycle ?? true;
+    this.beChunks = new Set(state?.beChunks ?? []);
+    if (state) {
+      this.sim.time = state.time;
+      this.sim.weather = state.weather;
+      this.sim.weatherTimer = state.weatherTimer;
+      for (const [k, be] of state.blockEntities) {
+        this.sim.blockEntities.set(k, be);
+        if (be.type === 'furnace') this.sim.activeFurnaces.add(k);
+      }
+    }
+    const p = newPlayer('local', name, meta.mode, this.sim.spawn);
+    p.appearance = appearance;
+    p.op = true;
+    if (state?.player) {
+      const s = state.player;
+      Object.assign(p, { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, mode: s.mode, health: s.health, food: s.food, sat: s.sat, air: s.air, xp: s.xp, dead: s.dead, spawn: s.spawn, peakY: s.y });
+      p.inv = sanitizeInv(s.inv);
+      this.flying = s.flying;
+    }
+    this.me = p;
+    this.pendingMobs = state?.mobs ?? [];
+    this.info = { kind: 'local', name: meta.name, seed: meta.seed, mode: p.mode, difficulty: meta.difficulty, spawn: this.sim.spawn, isOwner: true };
+  }
+
+  private pendingMobs: WorldState['mobs'];
+
+  async start(): Promise<void> {
+    this.sim.addPlayer(this.me);
+    this.ev.time(this.sim.time, this.sim.settings.dayCycle);
+    this.ev.weather(this.sim.weather);
+    this.ev.inventory(this.me.inv);
+    this.emitVitals();
+  }
+
+  onGenerated(cx: number, cz: number, ents: GenBlockEntity[]): void {
+    const k = chunkKey(cx, cz);
+    if (this.beChunks.has(k)) return;
+    this.beChunks.add(k);
+    for (const e of ents) this.sim.addGeneratedChest(cx * 16 + e.x, e.y, cz * 16 + e.z, e.items);
+  }
+
+  private emitVitals(): void {
+    const p = this.me;
+    this.ev.vitals({ health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, mode: p.mode });
+  }
+
+  private onEvent(e: SimEvent): void {
+    const ev = this.ev;
+    switch (e.e) {
+      case 'block': ev.block(e.x, e.y, e.z, e.v, e.old); return;
+      case 'sound': if (!e.to || e.to === this.me.id) ev.sound(e.s, e.x, e.y, e.z, e.vol, e.pitch); return;
+      case 'particles': ev.fx(e.k, e.x, e.y, e.z, e.d); return;
+      case 'spawn': {
+        const x = e.ent;
+        ev.entity(String(x.id), x.kind, x.kind === 'mob' ? MOBS[x.type as MobType].code : x.kind === 'item' ? x.item!.id : 0, x.x, x.y, x.z, x.yaw, x.flags, x.kind === 'item' ? x.item!.count : x.health);
+        return;
+      }
+      case 'remove': ev.entityRemove(String(e.id), e.why === 'death', e.by); return;
+      case 'vitals': if (e.p === this.me) this.emitVitals(); return;
+      case 'inv': if (e.p === this.me) ev.inventory(this.me.inv); return;
+      case 'container': {
+        const be = this.sim.blockEntities.get(e.key);
+        const sc = this.me.screen;
+        if (be && sc.type && `${sc.x},${sc.y},${sc.z}` === e.key) {
+          if (be.type === 'furnace') ev.container(e.key, 'furnace', be.items, be.burn, be.burnMax, be.cook);
+          else ev.container(e.key, 'chest', be.items);
+        }
+        return;
+      }
+      case 'screen': {
+        const sc = e.p.screen;
+        ev.screen(sc.type, sc.x, sc.y, sc.z);
+        if (sc.type === 'chest' || sc.type === 'furnace') this.onEvent({ e: 'container', key: `${sc.x},${sc.y},${sc.z}` });
+        return;
+      }
+      case 'hurt': ev.hurt(e.amount, e.cause, e.fx, e.fz); return;
+      case 'death': ev.death(e.msg); return;
+      case 'respawn': ev.respawn(e.p.x, e.p.y, e.p.z); return;
+      case 'tp': ev.teleport(e.p.x, e.p.y, e.p.z); return;
+      case 'msg': ev.chat(null, e.text, e.kind === 'death' ? 'death' : e.kind === 'error' ? 'error' : 'info', Date.now()); return;
+      case 'lightning': ev.lightning(e.x, e.y, e.z); return;
+      case 'weather': ev.weather(e.w); return;
+      case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;
+      case 'mode': this.info.mode = e.p.mode; ev.mode(e.p.mode); return;
+      case 'crafted': ev.crafted(e.recipe.id, e.times); return;
+      case 'reject': return;
+    }
+  }
+
+  tick(dt: number, nowMs: number): void {
+    this.acc += Math.min(dt, 0.25);
+    let n = 0;
+    while (this.acc >= 0.05 && n < 5) {
+      this.acc -= 0.05;
+      this.sim.setNow(nowMs);
+      if (this.pendingMobs.length && this.chunks.isLoaded(Math.floor(this.me.x), Math.floor(this.me.z))) {
+        for (const m of this.pendingMobs) if (this.chunks.isLoaded(Math.floor(m.x), Math.floor(m.z))) { const e = this.sim.spawnMob(m.type, m.x, m.y, m.z); e.health = m.health; }
+        this.pendingMobs = [];
+      }
+      this.sim.tick();
+      n++;
+    }
+    for (const e of this.sim.entities.values()) {
+      const type = e.kind === 'mob' ? MOBS[e.type as MobType].code : e.kind === 'item' ? e.item!.id : 0;
+      this.ev.entity(String(e.id), e.kind, type, e.x, e.y, e.z, e.yaw, e.flags, e.kind === 'item' ? e.item!.count : e.health);
+    }
+    void ENT_KIND;
+  }
+
+  move(x: number, y: number, z: number, yaw: number, pitch: number, flags: number): void { this.sim.setNow(performance.now()); this.sim.move(this.me, x, y, z, yaw, pitch, flags); }
+  digStart(x: number, y: number, z: number): void { this.sim.setNow(performance.now()); this.sim.digStart(this.me, x, y, z); }
+  digAbort(): void { this.sim.digAbort(this.me); }
+  digDone(x: number, y: number, z: number): void { this.sim.setNow(performance.now()); this.sim.digFinish(this.me, x, y, z); }
+  use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false): void { this.sim.use(this.me, x, y, z, nx, ny, nz, force); }
+  eat(): void { this.sim.setNow(performance.now()); this.sim.eat(this.me); }
+  attack(id: string): void { this.sim.setNow(performance.now()); this.sim.attack(this.me, Number(id)); }
+  attackPlayer(): void { /* single player */ }
+  invOp(op: InvOp): void { this.sim.invOp(this.me, op); this.ev.inventory(this.me.inv); }
+  respawn(): void { this.sim.respawn(this.me); }
+  getBlockEntity(key: string): BlockEntity | undefined { return this.sim.blockEntities.get(key); }
+
+  chat(text: string): void {
+    const t = text.trim();
+    if (!t) return;
+    if (t.startsWith('/')) {
+      const out = this.sim.command(this.me, t);
+      if (out) this.ev.chat(null, out, out.startsWith('Unknown') || out.startsWith('You do not') ? 'error' : 'info', Date.now());
+      return;
+    }
+    this.ev.chat({ id: this.me.id, name: this.me.name }, t, 'chat', Date.now());
+  }
+
+  setDifficulty(d: WorldMeta['difficulty']): void {
+    this.meta.difficulty = d;
+    this.sim.difficulty = d;
+    this.info.difficulty = d;
+  }
+
+  async save(_manual: boolean): Promise<void> {
+    const p = this.me;
+    const chunks = this.chunks.collectDirtySaves();
+    await WorldStorage.saveChunks(this.meta.id, chunks);
+    const mobs: WorldState['mobs'] = [];
+    for (const e of this.sim.entities.values()) if (e.kind === 'mob' && !MOBS[e.type as MobType].hostile) mobs.push({ type: e.type as MobType, x: e.x, y: e.y, z: e.z, health: e.health });
+    const now = Date.now();
+    this.meta.playTime += now - this.playStart;
+    this.playStart = now;
+    this.meta.mode = this.me.mode;
+    await WorldStorage.saveState(this.meta, {
+      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, flying: this.flying, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn },
+      time: this.sim.time, weather: this.sim.weather, weatherTimer: this.sim.weatherTimer, spawn: this.sim.spawn,
+      blockEntities: [...this.sim.blockEntities.entries()], beChunks: [...this.beChunks], mobs,
+      dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
+    });
+  }
+
+  close(): void { /* nothing to tear down */ }
+  stats() { return { rtt: 0, inRate: 0, outRate: 0, state: 'local' }; }
+  get worldMeta(): WorldMeta { return this.meta; }
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.log
+.DS_Store
+# Never commit Mojang/Microsoft resource packs
+*vanilla*.zip
+*.mcpack

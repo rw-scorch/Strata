@@ -1,0 +1,521 @@
+import { WORLD_HEIGHT } from '../core/constants';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS } from '../core/blocks';
+import { fluidHeight } from '../core/sim/fluids';
+import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
+import type { AtlasData } from '../resources/TextureAtlas';
+import { hash2 } from '../core/rng';
+
+const H = WORLD_HEIGHT;
+const R = 48;
+const RA = R * R;
+const VOL = RA * H;
+const FS = 8;
+
+export interface MeshBuffers { pos: Float32Array; uv: Float32Array; light: Uint8Array; tint: Uint8Array; idx: Uint32Array; }
+export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; }
+
+const RENDER: number[] = [];
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11 };
+const CULLSELF = new Uint8Array(256);
+for (const b of BLOCKS) if (b) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
+const ORIENT = new Uint8Array(256);
+for (const b of BLOCKS) if (b && b.orientable && b.render === 'cube') ORIENT[b.id] = 1;
+const OFFSET_PLANT = new Uint8Array(256);
+for (const id of [B.TALL_GRASS, B.FERN, B.DANDELION, B.POPPY, B.DEAD_BUSH]) OFFSET_PLANT[id] = 1;
+
+class Builder {
+  pos = new Float32Array(4096 * 3);
+  uv = new Float32Array(4096 * 4);
+  light = new Uint8Array(4096 * 4);
+  tint = new Uint8Array(4096 * 4);
+  idx = new Uint32Array(4096 * 1.5);
+  nv = 0;
+  ni = 0;
+  reset(): void { this.nv = 0; this.ni = 0; }
+  private grow(): void {
+    const g = <T extends Float32Array | Uint8Array | Uint32Array>(a: T): T => { const n = new (a.constructor as new (n: number) => T)(a.length * 2); n.set(a); return n; };
+    this.pos = g(this.pos); this.uv = g(this.uv); this.light = g(this.light); this.tint = g(this.tint);
+  }
+  private growIdx(): void { const n = new Uint32Array(this.idx.length * 2); n.set(this.idx); this.idx = n; }
+  vert(x: number, y: number, z: number, u: number, v: number, tile: number, ov: number, sky: number, blk: number, ao: number, shade: number, r: number, g: number, b: number, flags: number): void {
+    if ((this.nv + 1) * 4 > this.uv.length) this.grow();
+    const i = this.nv;
+    this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
+    this.uv[i * 4] = u; this.uv[i * 4 + 1] = v; this.uv[i * 4 + 2] = tile; this.uv[i * 4 + 3] = ov;
+    this.light[i * 4] = sky; this.light[i * 4 + 1] = blk; this.light[i * 4 + 2] = ao; this.light[i * 4 + 3] = shade;
+    this.tint[i * 4] = r; this.tint[i * 4 + 1] = g; this.tint[i * 4 + 2] = b; this.tint[i * 4 + 3] = flags;
+    this.nv++;
+  }
+  quad(reverse: boolean, alt = false): void {
+    if (this.ni + 6 > this.idx.length) this.growIdx();
+    const b = this.nv - 4;
+    const o = alt ? 1 : 0;
+    const v0 = b + o, v1 = b + ((1 + o) & 3), v2 = b + ((2 + o) & 3), v3 = b + ((3 + o) & 3);
+    const I = this.idx;
+    if (!reverse) { I[this.ni++] = v0; I[this.ni++] = v1; I[this.ni++] = v2; I[this.ni++] = v0; I[this.ni++] = v2; I[this.ni++] = v3; }
+    else { I[this.ni++] = v0; I[this.ni++] = v2; I[this.ni++] = v1; I[this.ni++] = v0; I[this.ni++] = v3; I[this.ni++] = v2; }
+  }
+  finish(): MeshBuffers | null {
+    if (!this.ni) return null;
+    return {
+      pos: this.pos.slice(0, this.nv * 3), uv: this.uv.slice(0, this.nv * 4), light: this.light.slice(0, this.nv * 4),
+      tint: this.tint.slice(0, this.nv * 4), idx: this.idx.slice(0, this.ni),
+    };
+  }
+}
+
+const region = new Uint16Array(VOL);
+const sky = new Uint8Array(VOL);
+const blk = new Uint8Array(VOL);
+const queue = new Int32Array(VOL);
+const builders = [new Builder(), new Builder(), new Builder()];
+
+const SHADE = [153, 153, 255, 128, 204, 204];
+const NORMALS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const TANG: [number, number][] = [[2, 1], [2, 1], [0, 2], [0, 2], [0, 1], [0, 1]];
+const UVMAP: [number, number, number, number][] = [[2, -1, 1, -1], [2, 1, 1, -1], [0, 1, 2, 1], [0, 1, 2, -1], [0, 1, 1, -1], [0, -1, 1, -1]];
+const FLIPWIND: boolean[] = [];
+for (let d = 0; d < 6; d++) {
+  const [a, b] = TANG[d];
+  const e1 = [0, 0, 0], e2 = [0, 0, 0];
+  e1[a] = 1; e2[b] = 1;
+  const cx = e1[1] * e2[2] - e1[2] * e2[1], cy = e1[2] * e2[0] - e1[0] * e2[2], cz = e1[0] * e2[1] - e1[1] * e2[0];
+  const n = NORMALS[d];
+  FLIPWIND[d] = cx * n[0] + cy * n[1] + cz * n[2] < 0;
+}
+
+export interface MesherContext { atlas: AtlasData; gen: WorldGenerator; }
+
+function ridx(x: number, y: number, z: number): number { return (y * R + z) * R + x; }
+
+function buildRegion(chunks: (Uint16Array | null)[]): number {
+  let maxY = 0;
+  for (let cz = 0; cz < 3; cz++) for (let cx = 0; cx < 3; cx++) {
+    const c = chunks[cz * 3 + cx];
+    const ox = cx * 16, oz = cz * 16;
+    for (let y = 0; y < H; y++) for (let z = 0; z < 16; z++) {
+      const ro = (y * R + oz + z) * R + ox;
+      const co = (y * 16 + z) * 16;
+      if (!c) { region.fill(0, ro, ro + 16); continue; }
+      for (let x = 0; x < 16; x++) {
+        const v = c[co + x];
+        region[ro + x] = v;
+        if (v !== 0 && y > maxY) maxY = y;
+      }
+    }
+  }
+  return Math.min(H - 1, maxY + 1);
+}
+
+function computeLight(maxY: number): void {
+  sky.fill(0); blk.fill(0);
+  for (let z = 0; z < R; z++) for (let x = 0; x < R; x++) {
+    let level = 15;
+    for (let y = H - 1; y >= 0; y--) {
+      const i = ridx(x, y, z);
+      if (level > 0) {
+        const f = LIGHT_FILTER[region[i] & 255];
+        if (f >= 15) level = 0; else if (f > 0) level = Math.max(0, level - f);
+      }
+      sky[i] = level;
+    }
+  }
+  let qh = 0, qt = 0;
+  for (let y = 0; y <= maxY; y++) for (let z = 0; z < R; z++) for (let x = 0; x < R; x++) {
+    const i = ridx(x, y, z);
+    const L = sky[i];
+    if (L <= 1) continue;
+    const need = L - 1;
+    if ((x > 0 && sky[i - 1] < need && !OPAQUE[region[i - 1] & 255]) || (x < R - 1 && sky[i + 1] < need && !OPAQUE[region[i + 1] & 255])
+      || (z > 0 && sky[i - R] < need && !OPAQUE[region[i - R] & 255]) || (z < R - 1 && sky[i + R] < need && !OPAQUE[region[i + R] & 255])
+      || (y > 0 && sky[i - RA] < need && !OPAQUE[region[i - RA] & 255])) queue[qt++] = i;
+  }
+  const spread = (arr: Uint8Array) => {
+    while (qh < qt) {
+      const i = queue[qh++];
+      const L = arr[i];
+      if (L <= 1) continue;
+      const y = (i / RA) | 0, rem = i - y * RA, z = (rem / R) | 0, x = rem - z * R;
+      const tryN = (n: number) => {
+        const id = region[n] & 255;
+        if (OPAQUE[id]) return;
+        const nl = L - Math.max(1, LIGHT_FILTER[id]);
+        if (nl > arr[n]) { arr[n] = nl; if (qt < VOL) queue[qt++] = n; }
+      };
+      if (x > 0) tryN(i - 1);
+      if (x < R - 1) tryN(i + 1);
+      if (z > 0) tryN(i - R);
+      if (z < R - 1) tryN(i + R);
+      if (y > 0) tryN(i - RA);
+      if (y < H - 1) tryN(i + RA);
+    }
+  };
+  spread(sky);
+  qh = 0; qt = 0;
+  for (let y = 0; y <= maxY; y++) for (let z = 0; z < R; z++) for (let x = 0; x < R; x++) {
+    const i = ridx(x, y, z);
+    const e = LIGHT_EMIT[region[i] & 255];
+    if (e) { blk[i] = e; queue[qt++] = i; }
+  }
+  spread(blk);
+}
+
+function cellOpaque(x: number, y: number, z: number): number {
+  if (y < 0) return 1;
+  if (y >= H) return 0;
+  return OPAQUE[region[ridx(x, y, z)] & 255];
+}
+
+function cellSky(x: number, y: number, z: number): number { return y >= H ? 15 : y < 0 ? 0 : sky[ridx(x, y, z)]; }
+function cellBlk(x: number, y: number, z: number): number { return y >= H || y < 0 ? 0 : blk[ridx(x, y, z)]; }
+
+const cornerSky = new Float32Array(4), cornerBlk = new Float32Array(4), cornerAo = new Uint8Array(4);
+
+function faceCorners(rx: number, y: number, rz: number, d: number, smooth: boolean): void {
+  const n = NORMALS[d];
+  const qx = rx + n[0], qy = y + n[1], qz = rz + n[2];
+  const baseS = cellSky(qx, qy, qz), baseB = cellBlk(qx, qy, qz);
+  if (!smooth) {
+    for (let k = 0; k < 4; k++) { cornerSky[k] = baseS; cornerBlk[k] = baseB; cornerAo[k] = 3; }
+    return;
+  }
+  const [a, b] = TANG[d];
+  const t1 = [0, 0, 0], t2 = [0, 0, 0];
+  for (let k = 0; k < 4; k++) {
+    const su = k === 1 || k === 2 ? 1 : -1;
+    const sv = k === 2 || k === 3 ? 1 : -1;
+    t1[0] = t1[1] = t1[2] = 0; t2[0] = t2[1] = t2[2] = 0;
+    t1[a] = su; t2[b] = sv;
+    const s1x = qx + t1[0], s1y = qy + t1[1], s1z = qz + t1[2];
+    const s2x = qx + t2[0], s2y = qy + t2[1], s2z = qz + t2[2];
+    const cx = qx + t1[0] + t2[0], cy = qy + t1[1] + t2[1], cz = qz + t1[2] + t2[2];
+    const inR = (x: number, z: number) => x >= 0 && x < R && z >= 0 && z < R;
+    const o1 = inR(s1x, s1z) ? cellOpaque(s1x, s1y, s1z) : 0;
+    const o2 = inR(s2x, s2z) ? cellOpaque(s2x, s2y, s2z) : 0;
+    const oc = inR(cx, cz) ? cellOpaque(cx, cy, cz) : 0;
+    cornerAo[k] = o1 && o2 ? 0 : 3 - (o1 + o2 + oc);
+    let ss = baseS, sb = baseB, cnt = 1;
+    if (!o1 && inR(s1x, s1z)) { ss += cellSky(s1x, s1y, s1z); sb += cellBlk(s1x, s1y, s1z); cnt++; }
+    if (!o2 && inR(s2x, s2z)) { ss += cellSky(s2x, s2y, s2z); sb += cellBlk(s2x, s2y, s2z); cnt++; }
+    if (!oc && !(o1 && o2) && inR(cx, cz)) { ss += cellSky(cx, cy, cz); sb += cellBlk(cx, cy, cz); cnt++; }
+    cornerSky[k] = ss / cnt; cornerBlk[k] = sb / cnt;
+  }
+}
+
+const biomeGrid = new Float32Array(5 * 5 * 9);
+
+function computeBiomeGrid(ctx: MesherContext, cx: number, cz: number): void {
+  for (let gz = 0; gz < 5; gz++) for (let gx = 0; gx < 5; gx++) {
+    const bi = ctx.gen.biomeIndex(cx * 16 + gx * 4, cz * 16 + gz * 4);
+    const col = ctx.atlas.biomeColors[bi];
+    for (let k = 0; k < 9; k++) biomeGrid[(gz * 5 + gx) * 9 + k] = col[k];
+  }
+}
+
+const tintOut = [0, 0, 0];
+function tintAt(lx: number, lz: number, code: number): void {
+  if (code === 3) { tintOut[0] = 128; tintOut[1] = 167; tintOut[2] = 85; return; }
+  if (code === 4) { tintOut[0] = 97; tintOut[1] = 153; tintOut[2] = 97; return; }
+  const off = code === 1 ? 0 : code === 2 ? 3 : 6;
+  const fx = Math.min(3.999, lx / 4), fz = Math.min(3.999, lz / 4);
+  const gx = Math.floor(fx), gz = Math.floor(fz), tx = fx - gx, tz = fz - gz;
+  for (let k = 0; k < 3; k++) {
+    const a = biomeGrid[(gz * 5 + gx) * 9 + off + k], b = biomeGrid[(gz * 5 + gx + 1) * 9 + off + k];
+    const c = biomeGrid[((gz + 1) * 5 + gx) * 9 + off + k], d = biomeGrid[((gz + 1) * 5 + gx + 1) * 9 + off + k];
+    tintOut[k] = ((a + (b - a) * tx) + ((c + (d - c) * tx) - (a + (b - a) * tx)) * tz) & 0xf8;
+  }
+}
+
+const maskTex = new Int32Array(160 * 16), maskLight = new Int32Array(160 * 16), maskAo = new Int32Array(160 * 16), maskTint = new Int32Array(160 * 16);
+
+function cubePass(code: number): number {
+  return code === 1 ? 0 : code === 4 ? 2 : 1;
+}
+
+function faceVisible(id: number, code: number, nv: number, ny: number): boolean {
+  if (ny < 0) return false;
+  if (ny >= H) return true;
+  const nid = nv & 255;
+  if (OPAQUE[nid]) return false;
+  if (nid === id && CULLSELF[id]) return false;
+  return true;
+}
+
+export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (Uint16Array | null)[], smooth: boolean): MeshResult {
+  const maxY = buildRegion(chunks);
+  computeLight(maxY);
+  computeBiomeGrid(ctx, cx, cz);
+  for (const b of builders) b.reset();
+  const tiles = ctx.atlas.blockTiles;
+  const tintT = ctx.atlas.tintTable;
+  const top = Math.min(H, maxY + 1);
+
+  for (let d = 0; d < 6; d++) {
+    const n = NORMALS[d];
+    const [ua, va] = TANG[d];
+    const axis = n[0] ? 0 : n[1] ? 1 : 2;
+    const dimU = ua === 1 ? top : 16, dimV = va === 1 ? top : 16;
+    const slices = axis === 1 ? top : 16;
+    for (let s = 0; s < slices; s++) {
+      let any = false;
+      for (let v = 0; v < dimV; v++) for (let u = 0; u < dimU; u++) {
+        const p = [0, 0, 0];
+        p[axis] = s; p[ua] = u; p[va] = v;
+        const x = p[0], y = p[1], z = p[2];
+        const mi = v * dimU + u;
+        maskTex[mi] = 0;
+        const rx = x + 16, rz = z + 16;
+        const bv = region[ridx(rx, y, rz)];
+        const id = bv & 255;
+        const code = RENDER[id];
+        if (code < 1 || code > 4) continue;
+        const ny = y + n[1];
+        const nv = ny >= 0 && ny < H ? region[ridx(rx + n[0], ny, rz + n[2])] : 0;
+        if (!faceVisible(id, code, nv, ny)) continue;
+        let tile = tiles[id * FS + d];
+        if (ORIENT[id]) {
+          const f = (bv >>> 8) & 3;
+          const fd = f === 0 ? 5 : f === 1 ? 0 : f === 2 ? 4 : 1;
+          if (fd === d && tiles[id * FS + 6] >= 0) tile = tiles[id * FS + 6];
+        }
+        const ovTile = d !== 2 && d !== 3 ? tiles[id * FS + 7] : -1;
+        const tcode = tintT[id * 2];
+        const tintBase = tcode && (!tintT[id * 2 + 1] || d === 2) ? 1 : 0;
+        faceCorners(rx, y, rz, d, smooth);
+        let lk = 0, ak = 0;
+        for (let k = 0; k < 4; k++) {
+          lk |= (Math.round(cornerSky[k]) & 15) << (k * 4);
+          lk |= (Math.round(cornerBlk[k]) & 15) << (16 + k * 4);
+          ak |= cornerAo[k] << (k * 2);
+        }
+        let tk = 0;
+        if (tcode && (tintBase || ovTile >= 0)) { tintAt(x, z, tcode); tk = (tintOut[0] << 16) | (tintOut[1] << 8) | tintOut[2]; }
+        maskTex[mi] = (tile + 1) | ((ovTile + 1) << 12) | (cubePass(code) << 24) | (tintBase << 26);
+        maskLight[mi] = lk;
+        maskAo[mi] = ak;
+        maskTint[mi] = tk;
+        any = true;
+      }
+      if (!any) continue;
+      for (let v = 0; v < dimV; v++) {
+        for (let u = 0; u < dimU;) {
+          const mi = v * dimU + u;
+          const t = maskTex[mi];
+          if (!t) { u++; continue; }
+          const L = maskLight[mi], A = maskAo[mi], T = maskTint[mi];
+          let w = 1;
+          while (u + w < dimU) {
+            const j = mi + w;
+            if (maskTex[j] !== t || maskLight[j] !== L || maskAo[j] !== A || maskTint[j] !== T) break;
+            w++;
+          }
+          let h = 1;
+          outer: while (v + h < dimV) {
+            const row = (v + h) * dimU + u;
+            for (let k = 0; k < w; k++) {
+              const j = row + k;
+              if (maskTex[j] !== t || maskLight[j] !== L || maskAo[j] !== A || maskTint[j] !== T) break outer;
+            }
+            h++;
+          }
+          for (let dv = 0; dv < h; dv++) maskTex.fill(0, (v + dv) * dimU + u, (v + dv) * dimU + u + w);
+          const tile = (t & 0xfff) - 1, ov = ((t >> 12) & 0xfff) - 1, pass = (t >> 24) & 3, tb = (t >> 26) & 1;
+          emitQuad(builders[pass], d, axis, s, ua, u, w, va, v, h, tile, ov, L, A, T, tb);
+          u += w;
+        }
+      }
+    }
+  }
+
+  for (let y = 0; y < top; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
+    const rx = x + 16, rz = z + 16;
+    const v = region[ridx(rx, y, rz)];
+    const id = v & 255;
+    const code = RENDER[id];
+    if (code < 5) continue;
+    special(ctx, code, id, v, x, y, z, rx, rz, smooth);
+  }
+  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish() };
+}
+
+function emitQuad(bd: Builder, d: number, axis: number, s: number, ua: number, u0: number, w: number, va: number, v0: number, h: number, tile: number, ov: number, L: number, A: number, T: number, tb: number): void {
+  const n = NORMALS[d];
+  const plane = s + (n[axis] > 0 ? 1 : 0);
+  const [uAx, uS, vAx, vS] = UVMAP[d];
+  const r = (T >> 16) & 255, g = (T >> 8) & 255, b = T & 255;
+  const shade = SHADE[d];
+  const aos = [A & 3, (A >> 2) & 3, (A >> 4) & 3, (A >> 6) & 3];
+  for (let k = 0; k < 4; k++) {
+    const su = k === 1 || k === 2 ? w : 0;
+    const sv = k === 2 || k === 3 ? h : 0;
+    const p = [0, 0, 0];
+    p[axis] = plane; p[ua] = u0 + su; p[va] = v0 + sv;
+    const tu = p[uAx] * uS, tv = p[vAx] * vS;
+    const skyL = ((L >> (k * 4)) & 15) * 17, blkL = ((L >> (16 + k * 4)) & 15) * 17;
+    bd.vert(p[0], p[1], p[2], tu, tv, tile, ov + 1, skyL, blkL, aos[k] * 85, shade, r, g, b, tb);
+  }
+  bd.quad(FLIPWIND[d], aos[0] + aos[2] < aos[1] + aos[3]);
+}
+
+function quadRaw(bd: Builder, pts: number[][], uvs: number[][], tile: number, sk: number, bl: number, shade: number, r: number, g: number, b: number, flags: number, both: boolean): void {
+  for (let k = 0; k < 4; k++) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, sk, bl, 255, shade, r, g, b, flags);
+  bd.quad(false);
+  if (both) {
+    for (let k = 3; k >= 0; k--) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, sk, bl, 255, shade, r, g, b, flags);
+    bd.quad(false);
+  }
+}
+
+function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tileFor: (d: number) => number, sk: number, bl: number, r: number, g: number, b: number, skip?: (d: number) => boolean, uvOverride?: (d: number) => number[][] | null): void {
+  const faces: number[][][] = [
+    [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
+    [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
+    [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]],
+    [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+    [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+    [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]],
+  ];
+  for (let d = 0; d < 6; d++) {
+    if (skip?.(d)) continue;
+    const pts = faces[d];
+    const [uAx, uS, vAx, vS] = UVMAP[d];
+    const uvs = uvOverride?.(d) ?? pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
+    quadRaw(bd, pts, uvs, tileFor(d), sk, bl, SHADE[d], r, g, b, 0, false);
+  }
+}
+
+function special(ctx: MesherContext, code: number, id: number, v: number, x: number, y: number, z: number, rx: number, rz: number, smooth: boolean): void {
+  const tiles = ctx.atlas.blockTiles;
+  const sp = ctx.atlas.special;
+  const sk = sky[ridx(rx, y, rz)] * 17, bl = blk[ridx(rx, y, rz)] * 17;
+  const meta = v >>> 8;
+  const tcode = ctx.atlas.tintTable[id * 2];
+  let r = 255, g = 255, b = 255;
+  if (tcode) { tintAt(x, z, tcode); r = tintOut[0]; g = tintOut[1]; b = tintOut[2]; }
+  const cut = builders[1];
+  switch (code) {
+    case 5: {
+      const water = id === B.WATER;
+      const bd = water ? builders[2] : builders[0];
+      const tile = water ? sp.water : sp.lava;
+      if (water) { tintAt(x, z, 0); r = tintOut[0]; g = tintOut[1]; b = tintOut[2]; } else { r = g = b = 255; }
+      const above = y + 1 < H ? region[ridx(rx, y + 1, rz)] & 255 : 0;
+      const ht = above === id ? 1 : fluidHeight(v);
+      const neigh = (dx: number, dy: number, dz: number) => (y + dy < 0 || y + dy >= H) ? (dy < 0 ? B.STONE : 0) : region[ridx(rx + dx, y + dy, rz + dz)] & 255;
+      for (let d = 0; d < 6; d++) {
+        const nn = NORMALS[d];
+        const nid = neigh(nn[0], nn[1], nn[2]);
+        if (nid === id) continue;
+        if (OPAQUE[nid] && d !== 2) continue;
+        if (d === 2 && OPAQUE[nid] && ht >= 1) continue;
+        if (water && nid === B.ICE) continue;
+        const nsk = cellSky(rx + nn[0], y + nn[1], rz + nn[2]) * 17, nbl = Math.max(cellBlk(rx + nn[0], y + nn[1], rz + nn[2]), water ? 0 : 15) * 17;
+        const y1 = y + ht;
+        const P: number[][][] = [
+          [[x + 1, y, z + 1], [x + 1, y, z], [x + 1, y1, z], [x + 1, y1, z + 1]],
+          [[x, y, z], [x, y, z + 1], [x, y1, z + 1], [x, y1, z]],
+          [[x, y1, z + 1], [x + 1, y1, z + 1], [x + 1, y1, z], [x, y1, z]],
+          [[x, y, z], [x + 1, y, z], [x + 1, y, z + 1], [x, y, z + 1]],
+          [[x, y, z + 1], [x + 1, y, z + 1], [x + 1, y1, z + 1], [x, y1, z + 1]],
+          [[x + 1, y, z], [x, y, z], [x, y1, z], [x + 1, y1, z]],
+        ];
+        const [uAx, uS, vAx, vS] = UVMAP[d];
+        const pts = P[d];
+        const uvs = pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
+        const flags = (water && d === 2 && ht < 1 ? 2 : 0) | (water ? 1 : 0);
+        for (let k = 0; k < 4; k++) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, nsk, nbl, 255, SHADE[d], r, g, b, flags);
+        bd.quad(false);
+        if (water && d === 2) {
+          for (let k = 3; k >= 0; k--) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, nsk, nbl, 255, 128, r, g, b, 1);
+          bd.quad(false);
+        }
+      }
+      return;
+    }
+    case 6: case 7: {
+      let ox = 0, oz = 0;
+      if (OFFSET_PLANT[id]) {
+        const hh = hash2(x + 7919 * 0, z, y * 31 + 17);
+        ox = ((hh & 15) / 15 - 0.5) * 0.35; oz = (((hh >> 4) & 15) / 15 - 0.5) * 0.35;
+      }
+      const tile = code === 7 ? sp[`wheat${meta & 7}`] : tiles[id * FS + 4];
+      const flags = (id === B.TALL_GRASS || id === B.FERN || code === 7 ? 4 : 0) | (tcode ? 1 : 0);
+      const bx = x + ox, bz = z + oz;
+      if (code === 6) {
+        const a = 0.15, c = 0.85, top2 = y + (id === B.SUGAR_CANE ? 1 : 0.95);
+        quadRaw(cut, [[bx + a, y, bz + a], [bx + c, y, bz + c], [bx + c, top2, bz + c], [bx + a, top2, bz + a]], [[0, 1], [1, 1], [1, 0], [0, 0]], tile, sk, bl, 230, r, g, b, flags, true);
+        quadRaw(cut, [[bx + a, y, bz + c], [bx + c, y, bz + a], [bx + c, top2, bz + a], [bx + a, top2, bz + c]], [[0, 1], [1, 1], [1, 0], [0, 0]], tile, sk, bl, 230, r, g, b, flags, true);
+      } else {
+        for (const k of [0.25, 0.75]) {
+          quadRaw(cut, [[x + k, y - 1 / 16, z], [x + k, y - 1 / 16, z + 1], [x + k, y + 15 / 16, z + 1], [x + k, y + 15 / 16, z]], [[0, 1], [1, 1], [1, 0], [0, 0]], tile, sk, bl, 220, 255, 255, 255, flags, true);
+          quadRaw(cut, [[x, y - 1 / 16, z + k], [x + 1, y - 1 / 16, z + k], [x + 1, y + 15 / 16, z + k], [x, y + 15 / 16, z + k]], [[0, 1], [1, 1], [1, 0], [0, 0]], tile, sk, bl, 220, 255, 255, 255, flags, true);
+        }
+      }
+      return;
+    }
+    case 8: {
+      const tile = tiles[id * FS + 4];
+      const p0 = 7 / 16, p1 = 9 / 16;
+      const sideUV = [[p0, 1], [p1, 1], [p1, 6 / 16], [p0, 6 / 16]];
+      if (meta === 0) {
+        boxFaces(cut, x + p0, y, z + p0, x + p1, y + 10 / 16, z + p1, () => tile, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]] : sideUV);
+      } else {
+        const [dx, dz] = FACING_DIRS[(meta - 1) & 3];
+        const shift = 5.5 / 16, lean = 3 / 16;
+        const bx0 = x + p0 + dx * shift, bz0 = z + p0 + dz * shift;
+        const y0 = y + 3 / 16, y1 = y + 13 / 16;
+        const w = 2 / 16;
+        const base = [[bx0, bz0], [bx0 + w, bz0], [bx0 + w, bz0 + w], [bx0, bz0 + w]];
+        const topP = base.map(([a, c]) => [a - dx * lean, c - dz * lean]);
+        const B0 = base.map(([a, c]) => [a, y0, c]), T0 = topP.map(([a, c]) => [a, y1, c]);
+        const sides: [number, number][] = [[1, 2], [3, 0], [2, 3], [0, 1]];
+        for (const [i, j] of sides) quadRaw(cut, [B0[i], B0[j], T0[j], T0[i]], sideUV, tile, sk, bl, 220, 255, 255, 255, 0, true);
+        quadRaw(cut, [T0[3], T0[2], T0[1], T0[0]], [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]], tile, sk, bl, 255, 255, 255, 255, 0, false);
+      }
+      return;
+    }
+    case 9: {
+      let f = doorFacing(meta);
+      if (meta & DOOR_OPEN) f = (f + 1) & 3;
+      const bb = edgeBox(f, 3 / 16);
+      const tile = meta & DOOR_UPPER ? sp.doorTop : sp.doorBottom;
+      boxFaces(cut, x + bb[0], y + bb[1], z + bb[2], x + bb[3], y + bb[4], z + bb[5], () => tile, sk, bl, 255, 255, 255);
+      return;
+    }
+    case 10: {
+      const tile = tiles[id * FS + 4];
+      if (id === B.LILY_PAD) {
+        const yy = y + 1 / 64;
+        const rot = meta & 3;
+        const uv = [[0, 1], [1, 1], [1, 0], [0, 0]];
+        const ruv = uv.map((_, k) => uv[(k + rot) & 3]);
+        quadRaw(cut, [[x, yy, z + 1], [x + 1, yy, z + 1], [x + 1, yy, z], [x, yy, z]], ruv, tile, sk, bl, 255, r, g, b, tcode ? 1 : 0, true);
+        return;
+      }
+      const f = meta & 3;
+      const t = 1 / 16;
+      const pts: Record<number, number[][]> = {
+        0: [[x + 1, y, z + t], [x, y, z + t], [x, y + 1, z + t], [x + 1, y + 1, z + t]],
+        1: [[x + 1 - t, y, z + 1], [x + 1 - t, y, z], [x + 1 - t, y + 1, z], [x + 1 - t, y + 1, z + 1]],
+        2: [[x, y, z + 1 - t], [x + 1, y, z + 1 - t], [x + 1, y + 1, z + 1 - t], [x, y + 1, z + 1 - t]],
+        3: [[x + t, y, z], [x + t, y, z + 1], [x + t, y + 1, z + 1], [x + t, y + 1, z]],
+      };
+      quadRaw(cut, pts[f], [[0, 1], [1, 1], [1, 0], [0, 0]], tile, sk, bl, 220, 255, 255, 255, 0, true);
+      return;
+    }
+    case 11: {
+      const t = 1 / 16;
+      const above = y + 1 < H ? region[ridx(rx, y + 1, rz)] & 255 : 0;
+      const below = y > 0 ? region[ridx(rx, y - 1, rz)] & 255 : 1;
+      boxFaces(cut, x + t, y, z + t, x + 1 - t, y + 1, z + 1 - t, (d) => tiles[id * FS + d], sk, bl, 255, 255, 255,
+        (d) => (d === 2 && (above === id || OPAQUE[above] === 1)) || (d === 3 && (below === id || OPAQUE[below] === 1)),
+        (d) => {
+          if (d === 2 || d === 3) return null;
+          const pts = [[0, 1], [1, 1], [1, 0], [0, 0]];
+          return pts;
+        });
+      void smooth;
+      return;
+    }
+  }
+}

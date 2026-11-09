@@ -1,0 +1,29 @@
+{
+  "name": "strata",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Strata - multiplayer voxel sandbox for the browser, deployed on Cloudflare Workers + Durable Objects",
+  "scripts": {
+    "dev": "vite",
+    "dev:worker": "wrangler dev",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p workers/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "build": "npm run typecheck && vite build",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261108.1",
+    "@types/node": "^26.6.6",
+    "@types/three": "^0.187.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "*",
+    "wrangler": "^4.158.0"
+  }
+}
