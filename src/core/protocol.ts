@@ -1,3 +1,6 @@
+import type { ArenaKind } from './minigames/arena';
+import type { GameState } from './minigames/Minigame';
+import type { ScreenType } from './sim/WorldSim';
 import type { GameMode, Difficulty } from './constants';
 import type { Appearance } from './sim/WorldSim';
 import type { PlayerInv, ItemStack, InvOp } from './inventory';
@@ -25,6 +28,7 @@ export interface RoomMeta {
   pack: PackRef | null;
   settings: RoomSettings;
   region: string;
+  arena?: ArenaKind | null;
 }
 
 export interface RoomInfo {
@@ -38,6 +42,7 @@ export interface RoomInfo {
   players?: { id: string; name: string }[];
   version?: number;
   pack?: PackRef | null;
+  arena?: ArenaKind | null;
 }
 
 export interface PublicPlayer { id: string; name: string; appearance: Appearance; op: boolean; mode: GameMode; muted?: boolean; }
@@ -64,7 +69,8 @@ export type C2S =
   | { t: 'kick'; pid: string }
   | { t: 'mute'; pid: string; on: boolean }
   | { t: 'ping'; c: number }
-  | { t: 'resync' };
+  | { t: 'resync' }
+  | { t: 'buy'; k: string };
 
 export type S2C =
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number } }
@@ -79,7 +85,7 @@ export type S2C =
   | { t: 'inv'; inv: PlayerInv }
   | { t: 'ack'; s: number; ok: boolean; h: number }
   | { t: 'cont'; k: string; type: 'chest' | 'furnace'; items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number }
-  | { t: 'scr'; type: 'chest' | 'furnace' | 'workbench' | null; x: number; y: number; z: number }
+  | { t: 'scr'; type: ScreenType | null; x: number; y: number; z: number }
   | { t: 'snd'; s: string; x: number; y: number; z: number; v?: number; p?: number }
   | { t: 'fx'; k: string; x: number; y: number; z: number; d?: number }
   | { t: 'hurt'; a: number; c: string; fx: number; fz: number }
@@ -93,7 +99,9 @@ export type S2C =
   | { t: 'room'; room: RoomMeta; players: PublicPlayer[] }
   | { t: 'pong'; c: number; s: number }
   | { t: 'mode'; mode: GameMode }
-  | { t: 'crafted'; r: string; n: number };
+  | { t: 'crafted'; r: string; n: number }
+  | { t: 'game'; s: GameState }
+  | { t: 'title'; text: string; sub: string };
 
 export const ENT_KIND = { mob: 0, item: 1, arrow: 2 } as const;
 

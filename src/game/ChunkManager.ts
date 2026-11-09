@@ -1,3 +1,4 @@
+import type { ArenaKind } from '../core/minigames/arena';
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../core/constants';
 import { ChunkData, chunkKey } from '../core/chunk';
 import { OPAQUE, LIGHT_EMIT, blockId } from '../core/blocks';
@@ -55,7 +56,7 @@ export class ChunkManager implements WorldStore {
   meshTimes: number[] = [];
   private seed: number;
 
-  constructor(seed: number, atlas: AtlasData, hooks: ChunkSourceHooks, remote: boolean) {
+  constructor(seed: number, arena: ArenaKind | null, atlas: AtlasData, hooks: ChunkSourceHooks, remote: boolean) {
     this.seed = seed;
     this.hooks = hooks;
     this.remote = remote;
@@ -64,7 +65,7 @@ export class ChunkManager implements WorldStore {
       const w = new Worker(new URL('../workers/ChunkWorker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (e) => this.onWorker(i, e.data);
       w.onerror = (e) => console.error('chunk worker error', e.message);
-      w.postMessage({ t: 'init', seed, atlas });
+      w.postMessage({ t: 'init', seed, arena, atlas });
       this.workers.push(w);
       this.busy.push(false);
     }

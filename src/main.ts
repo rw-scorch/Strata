@@ -3,7 +3,7 @@ import { Menus } from './ui/Menus';
 import { Game } from './game/Game';
 import { TextureAtlas } from './resources/TextureAtlas';
 import { ResourcePackManager } from './resources/ResourcePackManager';
-import { getSettings, isTouchDevice } from './storage/Settings';
+import { loginSeen, getSettings, isTouchDevice } from './storage/Settings';
 import { showSettings } from './ui/SettingsUI';
 import { showResourcePacks } from './ui/ResourcePackUI';
 import { h, toast, modal } from './ui/dom';
@@ -53,7 +53,8 @@ class App {
       else toast('That invitation link has an invalid room code.', 'error');
       return;
     }
-    this.menus.title();
+    if (!loginSeen()) this.menus.login();
+    else this.menus.title();
   }
 
   activePackRef(): { name: string; hash: string } | null {

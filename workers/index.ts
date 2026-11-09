@@ -1,7 +1,8 @@
 import { WorldRoom, Env } from './rooms/WorldRoom';
+import { Accounts } from './accounts/Accounts';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode, PROTOCOL_VERSION } from '../src/core/constants';
 
-export { WorldRoom };
+export { WorldRoom, Accounts };
 
 const REGIONS = new Set(['wnam', 'enam', 'sam', 'weur', 'eeur', 'apac', 'oc', 'afr', 'me']);
 
@@ -51,6 +52,15 @@ export default {
     if (path === '/api/health') return json({ ok: true, protocol: PROTOCOL_VERSION });
 
     if (path === '/api/rooms' && req.method === 'POST') return createRoom(req, env);
+
+    const auth = path.match(/^\/api\/auth\/(register|login|password)$/);
+    if (auth) {
+      if (!env.ACCOUNTS) return json({ error: 'Accounts are not enabled on this server.' }, 503);
+      if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+      const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName('global'));
+      const res = await stub.fetch(`https://accounts/${auth[1]}`, { method: 'POST', body: (await req.text()).slice(0, 2048), headers: { 'cf-connecting-ip': req.headers.get('cf-connecting-ip') ?? 'local' } });
+      return new Response(res.body, { status: res.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    }
 
     const roomMatch = path.match(/^\/api\/rooms\/([A-Za-z0-9]+)(\/delete)?$/);
     if (roomMatch) {

@@ -11,7 +11,9 @@ const RA = R * R;
 const VOL = RA * H;
 const FS = 8;
 
-export interface MeshBuffers { pos: Float32Array; uv: Float32Array; light: Uint8Array; tint: Uint8Array; idx: Uint32Array; }
+export interface MeshBuffers { pos: Int16Array; uv: Int16Array; light: Uint8Array; tint: Uint8Array; idx: Uint16Array | Uint32Array; }
+export const POS_SCALE = 64;
+export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_GLOW = 32, F_WATER = 64;
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; }
 
 const RENDER: number[] = [];
@@ -22,10 +24,16 @@ const ORIENT = new Uint8Array(256);
 for (const b of BLOCKS) if (b && b.orientable && b.render === 'cube') ORIENT[b.id] = 1;
 const OFFSET_PLANT = new Uint8Array(256);
 for (const id of [B.TALL_GRASS, B.FERN, B.DANDELION, B.POPPY, B.DEAD_BUSH]) OFFSET_PLANT[id] = 1;
+const EXTRA = new Uint8Array(256);
+for (const b of BLOCKS) if (b) {
+  if (b.render === 'leaves') EXTRA[b.id] |= F_LEAF;
+  if (b.lightEmit >= 12 && b.id !== B.FURNACE_LIT) EXTRA[b.id] |= F_EMIT;
+}
+for (const id of [B.GOLD_ORE, B.AETHERITE_ORE, B.IRON_ORE, B.FURNACE_LIT]) EXTRA[id] |= F_GLOW;
 
 class Builder {
-  pos = new Float32Array(4096 * 3);
-  uv = new Float32Array(4096 * 4);
+  pos = new Int16Array(4096 * 3);
+  uv = new Int16Array(4096 * 4);
   light = new Uint8Array(4096 * 4);
   tint = new Uint8Array(4096 * 4);
   idx = new Uint32Array(4096 * 1.5);
@@ -33,15 +41,15 @@ class Builder {
   ni = 0;
   reset(): void { this.nv = 0; this.ni = 0; }
   private grow(): void {
-    const g = <T extends Float32Array | Uint8Array | Uint32Array>(a: T): T => { const n = new (a.constructor as new (n: number) => T)(a.length * 2); n.set(a); return n; };
+    const g = <T extends Int16Array | Uint8Array | Uint32Array>(a: T): T => { const n = new (a.constructor as new (n: number) => T)(a.length * 2); n.set(a); return n; };
     this.pos = g(this.pos); this.uv = g(this.uv); this.light = g(this.light); this.tint = g(this.tint);
   }
   private growIdx(): void { const n = new Uint32Array(this.idx.length * 2); n.set(this.idx); this.idx = n; }
   vert(x: number, y: number, z: number, u: number, v: number, tile: number, ov: number, sky: number, blk: number, ao: number, shade: number, r: number, g: number, b: number, flags: number): void {
     if ((this.nv + 1) * 4 > this.uv.length) this.grow();
     const i = this.nv;
-    this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
-    this.uv[i * 4] = u; this.uv[i * 4 + 1] = v; this.uv[i * 4 + 2] = tile; this.uv[i * 4 + 3] = ov;
+    this.pos[i * 3] = Math.round(x * POS_SCALE); this.pos[i * 3 + 1] = Math.round(y * POS_SCALE); this.pos[i * 3 + 2] = Math.round(z * POS_SCALE);
+    this.uv[i * 4] = Math.round(u * POS_SCALE); this.uv[i * 4 + 1] = Math.round(v * POS_SCALE); this.uv[i * 4 + 2] = tile; this.uv[i * 4 + 3] = ov;
     this.light[i * 4] = sky; this.light[i * 4 + 1] = blk; this.light[i * 4 + 2] = ao; this.light[i * 4 + 3] = shade;
     this.tint[i * 4] = r; this.tint[i * 4 + 1] = g; this.tint[i * 4 + 2] = b; this.tint[i * 4 + 3] = flags;
     this.nv++;
@@ -59,7 +67,7 @@ class Builder {
     if (!this.ni) return null;
     return {
       pos: this.pos.slice(0, this.nv * 3), uv: this.uv.slice(0, this.nv * 4), light: this.light.slice(0, this.nv * 4),
-      tint: this.tint.slice(0, this.nv * 4), idx: this.idx.slice(0, this.ni),
+      tint: this.tint.slice(0, this.nv * 4), idx: this.nv <= 65535 ? Uint16Array.from(this.idx.subarray(0, this.ni)) : this.idx.slice(0, this.ni),
     };
   }
 }
@@ -290,7 +298,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
         }
         let tk = 0;
         if (tcode && (tintBase || ovTile >= 0)) { tintAt(x, z, tcode); tk = (tintOut[0] << 16) | (tintOut[1] << 8) | tintOut[2]; }
-        maskTex[mi] = (tile + 1) | ((ovTile + 1) << 12) | (cubePass(code) << 24) | (tintBase << 26);
+        maskTex[mi] = (tile + 1) | ((ovTile + 1) << 12) | (cubePass(code) << 24) | (tintBase << 26) | ((EXTRA[id] >> 3) << 27);
         maskLight[mi] = lk;
         maskAo[mi] = ak;
         maskTint[mi] = tk;
@@ -319,7 +327,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
             h++;
           }
           for (let dv = 0; dv < h; dv++) maskTex.fill(0, (v + dv) * dimU + u, (v + dv) * dimU + u + w);
-          const tile = (t & 0xfff) - 1, ov = ((t >> 12) & 0xfff) - 1, pass = (t >> 24) & 3, tb = (t >> 26) & 1;
+          const tile = (t & 0xfff) - 1, ov = ((t >> 12) & 0xfff) - 1, pass = (t >> 24) & 3, tb = ((t >> 26) & 1) | (((t >> 27) & 7) << 3);
           emitQuad(builders[pass], d, axis, s, ua, u, w, va, v, h, tile, ov, L, A, T, tb);
           u += w;
         }
@@ -366,7 +374,7 @@ function quadRaw(bd: Builder, pts: number[][], uvs: number[][], tile: number, sk
   }
 }
 
-function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tileFor: (d: number) => number, sk: number, bl: number, r: number, g: number, b: number, skip?: (d: number) => boolean, uvOverride?: (d: number) => number[][] | null): void {
+function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tileFor: (d: number) => number, sk: number, bl: number, r: number, g: number, b: number, skip?: (d: number) => boolean, uvOverride?: (d: number) => number[][] | null, flags = 0): void {
   const faces: number[][][] = [
     [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
     [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
@@ -380,7 +388,7 @@ function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y
     const pts = faces[d];
     const [uAx, uS, vAx, vS] = UVMAP[d];
     const uvs = uvOverride?.(d) ?? pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
-    quadRaw(bd, pts, uvs, tileFor(d), sk, bl, SHADE[d], r, g, b, 0, false);
+    quadRaw(bd, pts, uvs, tileFor(d), sk, bl, SHADE[d], r, g, b, flags, false);
   }
 }
 
@@ -422,11 +430,11 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         const [uAx, uS, vAx, vS] = UVMAP[d];
         const pts = P[d];
         const uvs = pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
-        const flags = (water && d === 2 && ht < 1 ? 2 : 0) | (water ? 1 : 0);
+        const flags = (water && d === 2 && ht < 1 ? F_WAVE : 0) | (water ? F_TINT | F_WATER : F_EMIT);
         for (let k = 0; k < 4; k++) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, nsk, nbl, 255, SHADE[d], r, g, b, flags);
         bd.quad(false);
         if (water && d === 2) {
-          for (let k = 3; k >= 0; k--) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, nsk, nbl, 255, 128, r, g, b, 1);
+          for (let k = 3; k >= 0; k--) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, nsk, nbl, 255, 128, r, g, b, F_TINT | F_WATER | (ht < 1 ? F_WAVE : 0));
           bd.quad(false);
         }
       }
@@ -458,7 +466,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       const p0 = 7 / 16, p1 = 9 / 16;
       const sideUV = [[p0, 1], [p1, 1], [p1, 6 / 16], [p0, 6 / 16]];
       if (meta === 0) {
-        boxFaces(cut, x + p0, y, z + p0, x + p1, y + 10 / 16, z + p1, () => tile, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]] : sideUV);
+        boxFaces(cut, x + p0, y, z + p0, x + p1, y + 10 / 16, z + p1, () => tile, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]] : sideUV, F_EMIT);
       } else {
         const [dx, dz] = FACING_DIRS[(meta - 1) & 3];
         const shift = 5.5 / 16, lean = 3 / 16;
@@ -469,8 +477,8 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         const topP = base.map(([a, c]) => [a - dx * lean, c - dz * lean]);
         const B0 = base.map(([a, c]) => [a, y0, c]), T0 = topP.map(([a, c]) => [a, y1, c]);
         const sides: [number, number][] = [[1, 2], [3, 0], [2, 3], [0, 1]];
-        for (const [i, j] of sides) quadRaw(cut, [B0[i], B0[j], T0[j], T0[i]], sideUV, tile, sk, bl, 220, 255, 255, 255, 0, true);
-        quadRaw(cut, [T0[3], T0[2], T0[1], T0[0]], [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]], tile, sk, bl, 255, 255, 255, 255, 0, false);
+        for (const [i, j] of sides) quadRaw(cut, [B0[i], B0[j], T0[j], T0[i]], sideUV, tile, sk, bl, 220, 255, 255, 255, F_EMIT, true);
+        quadRaw(cut, [T0[3], T0[2], T0[1], T0[0]], [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]], tile, sk, bl, 255, 255, 255, 255, F_EMIT, false);
       }
       return;
     }

@@ -1,3 +1,4 @@
+import type { ArenaKind } from '../core/minigames/arena';
 import { dbGet, dbPut, dbDelete, dbKeys, dbAll, dbPutMany, prefixRange } from './db';
 import { encodeRLE, decodeRLE, u16ToBase64, base64ToU16 } from '../core/chunk';
 import { SAVE_VERSION, GameMode, Difficulty } from '../core/constants';
@@ -15,6 +16,7 @@ export interface WorldMeta {
   lastPlayed: number;
   version: number;
   playTime: number;
+  arena?: ArenaKind | null;
 }
 
 export interface SavedPlayer {
@@ -63,8 +65,8 @@ export const WorldStorage = {
     return all.map((r) => migrate(r).meta).sort((a, b) => b.lastPlayed - a.lastPlayed);
   },
 
-  async create(name: string, seed: number, mode: GameMode, difficulty: Difficulty): Promise<WorldMeta> {
-    const meta: WorldMeta = { id: newId(), name: name.slice(0, 32) || 'New World', seed, mode, difficulty, createdAt: Date.now(), lastPlayed: Date.now(), version: SAVE_VERSION, playTime: 0 };
+  async create(name: string, seed: number, mode: GameMode, difficulty: Difficulty, arena: ArenaKind | null = null): Promise<WorldMeta> {
+    const meta: WorldMeta = { id: newId(), name: name.slice(0, 32) || 'New World', seed, mode, difficulty, createdAt: Date.now(), lastPlayed: Date.now(), version: SAVE_VERSION, playTime: 0, arena };
     await dbPut('worlds', meta.id, { meta, state: null } satisfies WorldRecord);
     return meta;
   },

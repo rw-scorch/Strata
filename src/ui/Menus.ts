@@ -1,6 +1,7 @@
+import { ARENA_KINDS, ARENA_INFO, ArenaKind } from '../core/minigames/arena';
 import { h, clear, toast, modal, confirmDialog, promptDialog, toggle, segmented, slider, select, copyText, fmtDate, fmtTime, download } from './dom';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
-import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord } from '../storage/Settings';
+import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord, getAccount, setAccount, accountRequest, markLoginSeen } from '../storage/Settings';
 import { GAME_VERSION, MODE_TITLES, GameMode, Difficulty, DIFFICULTIES, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, isValidRoomCode, normalizeRoomCode, PROTOCOL_VERSION } from '../core/constants';
 import { seedFromInput } from '../core/rng';
 import { drawAvatar } from './avatar';
@@ -60,19 +61,74 @@ export class Menus {
         h('div', { class: 'menu-buttons' },
           h('button', { class: 'btn primary', onclick: () => this.worlds() }, 'Singleplayer'),
           h('button', { class: 'btn teal', onclick: () => this.multiplayer() }, 'Multiplayer'),
+          h('button', { class: 'btn', onclick: () => this.createWorld(false, 'spires') }, 'Arena games'),
           h('div', { class: 'menu-row' }, h('button', { class: 'btn', onclick: () => this.app.openSettings() }, 'Settings'), h('button', { class: 'btn', onclick: () => this.app.openPacks() }, 'Resource Packs')),
           h('div', { class: 'menu-row' }, h('button', { class: 'btn ghost', onclick: () => this.credits() }, 'Credits'), this.app.canInstall() ? h('button', { class: 'btn ghost', onclick: () => this.app.install() }, 'Install app') : h('button', { class: 'btn ghost', onclick: () => this.profile() }, 'Profile')),
         ),
         vanillaSlot,
-        h('div', { class: 'profile-chip', onclick: () => this.profile() }, avatar, h('span', {}, s.playerName || 'Set your name')),
+        h('div', { class: 'profile-chip', onclick: () => (getAccount() ? this.profile() : this.login()) }, avatar, h('span', {}, getAccount() ? getAccount()!.name : `${s.playerName || 'Guest'} (sign in)`)),
       ),
       h('div', { class: 'title-foot' }, h('span', {}, `Strata ${GAME_VERSION}`), h('span', {}, 'Not affiliated with Mojang or Microsoft')),
     );
     this.show(el);
   }
 
+  login(after: () => void = () => this.title(), startTab: 'in' | 'new' = 'in'): void {
+    let tab = startTab;
+    const name = h('input', { class: 'input', maxlength: 16, placeholder: 'Your name', autocomplete: 'username', autocapitalize: 'off', spellcheck: 'false' }) as HTMLInputElement;
+    const pw = h('input', { class: 'input', type: 'password', maxlength: 128, placeholder: 'Password', autocomplete: 'current-password' }) as HTMLInputElement;
+    const pw2 = h('input', { class: 'input', type: 'password', maxlength: 128, placeholder: 'Repeat password', autocomplete: 'new-password' }) as HTMLInputElement;
+    const guestName = h('input', { class: 'input', maxlength: 16, placeholder: 'Wayfarer', value: getSettings().playerName }) as HTMLInputElement;
+    const err = h('div', { class: 'form-error', role: 'alert' });
+    const go = h('button', { class: 'btn primary block' }) as HTMLButtonElement;
+    const tabs = h('div', { class: 'segmented' });
+    const repeatRow = h('label', { class: 'field' }, h('span', {}, 'Repeat password'), pw2);
+    const draw = () => {
+      clear(tabs);
+      for (const [k, label] of [['in', 'Sign in'], ['new', 'Create account']] as const) tabs.appendChild(h('button', { class: tab === k ? 'on' : '', onclick: () => { tab = k; draw(); } }, label));
+      go.textContent = tab === 'in' ? 'Sign in' : 'Create account';
+      repeatRow.style.display = tab === 'new' ? '' : 'none';
+      pw.autocomplete = tab === 'in' ? 'current-password' : 'new-password';
+      err.textContent = '';
+    };
+    const submit = async () => {
+      const n = name.value.trim();
+      err.textContent = '';
+      if (!/^[A-Za-z0-9_]{3,16}$/.test(n)) { err.textContent = 'Names are 3 to 16 letters, numbers or underscores.'; return; }
+      if (pw.value.length < 6) { err.textContent = 'Passwords need at least 6 characters.'; return; }
+      if (tab === 'new' && pw.value !== pw2.value) { err.textContent = 'The two passwords do not match.'; return; }
+      go.disabled = true;
+      go.textContent = tab === 'in' ? 'Signing in...' : 'Creating...';
+      const r = await accountRequest(tab === 'in' ? 'login' : 'register', { name: n, password: pw.value });
+      go.disabled = false;
+      draw();
+      if (!r.ok) { err.textContent = r.error; return; }
+      setAccount(r.account!);
+      markLoginSeen();
+      toast(tab === 'in' ? `Welcome back, ${r.account!.name}.` : `Account created. Welcome, ${r.account!.name}.`, 'info');
+      after();
+    };
+    go.addEventListener('click', () => void submit());
+    for (const i of [name, pw, pw2]) i.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') void submit(); });
+    draw();
+    this.show(card('Your account', () => { markLoginSeen(); after(); },
+      h('p', { class: 'small muted' }, 'An account keeps your name and your progress in multiplayer worlds on every device. Your password is never stored in the game.'),
+      tabs,
+      h('label', { class: 'field' }, h('span', {}, 'Name'), name),
+      h('label', { class: 'field' }, h('span', {}, 'Password'), pw),
+      repeatRow,
+      err,
+      go,
+      h('div', { class: 'section-title' }, 'Or play as a guest'),
+      h('div', { class: 'row' }, guestName, h('button', { class: 'btn', onclick: () => { const g = guestName.value.replace(/[<>~]/g, '').trim().slice(0, 16); if (g) updateSettings({ playerName: g }); markLoginSeen(); after(); } }, 'Play as guest')),
+      h('p', { class: 'small muted' }, 'Guests keep progress only on this device. Registered names are protected, so a guest using one appears with a ~ in front.'),
+    ));
+    setTimeout(() => name.focus({ preventScroll: true }), 50);
+  }
+
   profile(): void {
     const s = getSettings();
+    const acc = getAccount();
     const name = h('input', { class: 'input', value: s.playerName, maxlength: 16, placeholder: 'Wayfarer' }) as HTMLInputElement;
     const prev = h('div', { class: 'player-preview', style: 'width:110px;height:170px' });
     const redraw = () => { clear(prev); prev.appendChild(drawAvatar(getSettings().appearance, 5, true)); };
@@ -83,9 +139,31 @@ export class Menus {
       return h('div', { class: 'row' }, h('span', { style: 'width:70px' }, label), btn(-1), val, btn(1));
     };
     this.show(card('Your wayfarer', () => this.title(),
-      h('label', { class: 'field' }, h('span', {}, 'Name shown to other players'), name),
+      acc
+        ? h('div', { class: 'account-box' }, h('div', {}, 'Signed in as ', h('b', {}, acc.name)), h('div', { class: 'row' },
+            h('button', { class: 'btn small', onclick: () => this.changePassword(acc.name) }, 'Change password'),
+            h('button', { class: 'btn small danger', onclick: () => { setAccount(null); toast('Signed out. You are playing as a guest.', 'info'); this.profile(); } }, 'Sign out')))
+        : h('div', { class: 'account-box' }, h('div', { class: 'small muted' }, 'Playing as a guest.'), h('button', { class: 'btn small primary', onclick: () => this.login(() => this.profile()) }, 'Sign in or create account')),
+      acc ? h('div', { class: 'small muted' }, 'Your account name is shown to other players.') : h('label', { class: 'field' }, h('span', {}, 'Name shown to other players'), name),
       h('div', { class: 'row', style: 'align-items:flex-start;gap:18px' }, prev, h('div', { class: 'stack' }, pick('Skin', 'skin', 8), pick('Hair', 'hair', 8), pick('Shirt', 'shirt', 12), pick('Trousers', 'pants', 12))),
-      h('button', { class: 'btn primary', onclick: () => { updateSettings({ playerName: name.value.replace(/[<>]/g, '').trim().slice(0, 16) }); this.title(); } }, 'Save'),
+      h('button', { class: 'btn primary', onclick: () => { if (!acc) updateSettings({ playerName: name.value.replace(/[<>~]/g, '').trim().slice(0, 16) }); this.title(); } }, 'Save'),
+    ));
+  }
+
+  changePassword(accName: string): void {
+    const cur = h('input', { class: 'input', type: 'password', autocomplete: 'current-password' }) as HTMLInputElement;
+    const next = h('input', { class: 'input', type: 'password', autocomplete: 'new-password' }) as HTMLInputElement;
+    const err = h('div', { class: 'form-error' });
+    this.show(card('Change password', () => this.profile(),
+      h('label', { class: 'field' }, h('span', {}, 'Current password'), cur),
+      h('label', { class: 'field' }, h('span', {}, 'New password'), next),
+      err,
+      h('button', { class: 'btn primary', onclick: async () => {
+        const r = await accountRequest('password', { name: accName, password: cur.value, next: next.value });
+        if (!r.ok) { err.textContent = r.error; return; }
+        toast('Password changed.', 'info');
+        this.profile();
+      } }, 'Change password'),
     ));
   }
 
@@ -134,8 +212,9 @@ export class Menus {
     ), [{ label: 'Close', kind: 'ghost' }]);
   }
 
-  createWorld(multi: boolean): void {
+  createWorld(multi: boolean, preset: ArenaKind | null = null): void {
     const s = getSettings();
+    let arena: ArenaKind | null = preset;
     let mode: GameMode = 'survival';
     let difficulty: Difficulty = s.difficulty;
     let maxPlayers = DEFAULT_MAX_PLAYERS;
@@ -155,12 +234,28 @@ export class Menus {
       }
     };
     renderModes();
+    const types = h('div', { class: 'mode-cards three' });
+    const modeBlock = h('div');
+    const renderTypes = () => {
+      clear(types);
+      const opts: [ArenaKind | null, string, string, string][] = [
+        [null, 'Open World', 'Endless', 'The full seeded world. Explore, build and survive.'],
+        ...ARENA_KINDS.map((k) => [k, ARENA_INFO[k].name, ARENA_INFO[k].alt, ARENA_INFO[k].desc] as [ArenaKind, string, string, string]),
+      ];
+      for (const [k, title, sub, desc] of opts) {
+        types.appendChild(h('button', { class: `mode-card${arena === k ? ' on' : ''}`, onclick: () => { arena = k; if (k) { mode = 'survival'; pvp = true; } renderTypes(); } },
+          h('b', {}, title), h('span', { class: 'badge' }, sub), h('small', {}, desc)));
+      }
+      modeBlock.style.display = arena ? 'none' : '';
+      if (arena && name.value.match(/World$/)) name.value = ARENA_INFO[arena].name;
+    };
+    renderTypes();
     const create = h('button', { class: 'btn primary block' }, multi ? 'Create online world' : 'Create and play') as HTMLButtonElement;
     create.addEventListener('click', async () => {
       clear(err);
       const sd = seedFromInput(seed.value);
       if (!multi) {
-        const meta = await WorldStorage.create(name.value.trim() || 'New World', sd, mode, difficulty);
+        const meta = await WorldStorage.create(name.value.trim() || 'New World', sd, mode, difficulty, arena);
         this.app.playLocal(meta);
         return;
       }
@@ -173,7 +268,7 @@ export class Menus {
           body: JSON.stringify({
             name: name.value.trim() || 'Untitled World', seed: sd, mode, difficulty, maxPlayers, ownerId: id.id, ownerSecret: id.secret,
             ownerName: s.playerName || 'Wayfarer', region: region === 'auto' ? undefined : region,
-            settings: { pvp, guestsBuild, cheats, personalPacks }, pack: sharePack ? this.app.activePackRef() : null,
+            settings: { pvp: pvp || !!arena, guestsBuild, cheats, personalPacks }, pack: sharePack ? this.app.activePackRef() : null, arena,
           }),
         });
         const j = await res.json() as { code?: string; room?: RoomMeta; error?: string };
@@ -186,6 +281,7 @@ export class Menus {
         create.textContent = 'Create online world';
       }
     });
+    modeBlock.append(h('div', { class: 'section-title' }, 'Game mode'), modes);
     const mpOptions = multi ? [
       slider('Maximum players', 1, MAX_PLAYERS_LIMIT, 1, maxPlayers, (v) => `${v}`, (v) => { maxPlayers = v; }),
       select('Server region', REGIONS as [string, string][], region, (v) => { region = v; }),
@@ -196,8 +292,9 @@ export class Menus {
     ] : [];
     this.show(card(multi ? 'Create online world' : 'Create world', () => (multi ? this.multiplayer() : this.worlds()),
       h('label', { class: 'field' }, h('span', {}, 'World name'), name),
+      h('div', { class: 'section-title' }, 'World type'), types,
       h('label', { class: 'field' }, h('span', {}, 'Seed'), seed),
-      h('div', { class: 'section-title' }, 'Game mode'), modes,
+      modeBlock,
       h('div', { class: 'section-title' }, 'Difficulty'),
       segmented(DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), difficulty, (d) => { difficulty = d; }),
       toggle('Allow commands', cheats, (v) => { cheats = v; }, '/time, /weather, /give, /tp and the World Shaper.'),

@@ -1,0 +1,51 @@
+// Protocol check for arena rooms and admin commands against a running server (npm run preview).
+// Start the server with ADMIN_KEY set in .dev.vars for the /admin check.
+const base = process.argv[2] ?? 'http://127.0.0.1:8787';
+const adminKey = process.argv[3] ?? 'local-test-key';
+const wsBase = base.replace(/^http/, 'ws');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const created = await (await fetch(base + '/api/rooms', { method: 'POST', body: JSON.stringify({ name: 'Arena', mode: 'survival', difficulty: 'normal', maxPlayers: 8, ownerId: 'owner-arena-001', ownerSecret: 'owner-secret-arena-0000', ownerName: 'Alpha', arena: 'hearthfall' }) })).json();
+const code = created.code;
+console.log('room', code, 'arena', created.room?.arena);
+function client(id, secret, name) {
+  const ws = new WebSocket(`${wsBase}/ws/${code}`);
+  const c = { ws, msgs: [], welcome: null };
+  ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome') c.welcome = m; };
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 4, id, secret, name, appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
+  c.send = (m) => ws.send(JSON.stringify(m));
+  c.chat = () => c.msgs.filter((m) => m.t === 'chat').map((m) => m.text);
+  c.game = () => c.msgs.filter((m) => m.t === 'game').at(-1)?.s;
+  return c;
+}
+const a = client('owner-arena-001', 'owner-secret-arena-0000', 'Alpha');
+await sleep(800);
+const b = client('guest-arena-002', 'guest-secret-arena-0000', 'Bravo');
+await sleep(1500);
+console.log('welcome A', !!a.welcome, 'op', a.welcome?.you.op, 'arena', a.welcome?.room.arena, 'spawn y', a.welcome?.you.y);
+console.log('B op before', b.welcome?.you.op);
+b.send({ t: 'chat', text: '/admin wrong-key' });
+await sleep(300);
+b.send({ t: 'chat', text: `/admin ${adminKey}` });
+await sleep(500);
+console.log('B admin replies', b.chat().slice(-2));
+b.send({ t: 'chat', text: '/game bots 2' });
+await sleep(300);
+console.log('B /game bots', b.chat().slice(-1));
+a.send({ t: 'chat', text: '/deop Bravo' });
+await sleep(300);
+console.log('A deop', a.chat().slice(-1));
+console.log('game phase', a.game()?.phase, 'timer', a.game()?.timer);
+await sleep(16500);
+const g = a.game();
+console.log('after countdown', g?.phase, 'players', g?.players.map((p) => `${p.name}:${p.team}${p.bot ? ':bot' : ''}`).join(' '));
+console.log('titles', a.msgs.filter((m) => m.t === 'title').map((m) => m.text).slice(-3));
+const ents = a.msgs.filter((m) => m.t === 'ent').flatMap((m) => m.a);
+console.log('spawned entity kinds/types', [...new Set(ents.map((e) => `${e[1]}:${e[2]}`))].join(' '));
+const tps = a.msgs.filter((m) => m.t === 'tp');
+console.log('A teleported to base', JSON.stringify(tps.at(-1)));
+a.send({ t: 'buy', k: 'wool' });
+await sleep(300);
+console.log('buy without shop', a.chat().slice(-1));
+a.ws.close(); b.ws.close();
+await fetch(`${base}/api/rooms/${code}/delete`, { method: 'POST', body: JSON.stringify({ ownerId: 'owner-arena-001', ownerSecret: 'owner-secret-arena-0000' }) });
+process.exit(0);

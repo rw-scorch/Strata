@@ -1,7 +1,7 @@
 import { I } from '../items';
 import { B } from '../blocks';
 
-export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver';
+export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster';
 
 export interface MobDrop { item: number; min: number; max: number; chance?: number; }
 
@@ -21,6 +21,7 @@ export interface MobDef {
   burnsInDay?: boolean;
   ranged?: boolean;
   climbs?: boolean;
+  npc?: boolean;
   desc: string;
 }
 
@@ -54,6 +55,14 @@ export const MOBS: Record<MobType, MobDef> = {
     type: 'duskweaver', code: 5, name: 'Duskweaver', hostile: true, health: 16, speed: 3.2, hw: 0.65, h: 0.9, damage: 2,
     drops: [{ item: I.STRING, min: 0, max: 2 }], xp: 5, climbs: true,
     desc: 'A many-eyed spider that pounces from the gloom. Calm in daylight unless provoked.',
+  },
+  rival: {
+    type: 'rival', code: 6, name: 'Rival', hostile: false, health: 20, speed: 3.9, hw: 0.3, h: 1.8, damage: 1, drops: [], xp: 0, npc: true,
+    desc: 'An arena challenger who bridges, brawls and hunts hearths.',
+  },
+  quartermaster: {
+    type: 'quartermaster', code: 7, name: 'Quartermaster', hostile: false, health: 1000, speed: 0, hw: 0.3, h: 1.9, damage: 0, drops: [], xp: 0, npc: true,
+    desc: 'Trades ingots for gear. Hit or use to open the shop.',
   },
 };
 

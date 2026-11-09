@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { WORLD_HEIGHT } from '../core/constants';
-import { createWorldUniforms, createChunkMaterial, chunkGeometry, DEPTH_MATERIAL, WorldUniforms } from './ChunkMaterial';
+import { createWorldUniforms, createChunkMaterial, chunkGeometry, DEPTH_MATERIAL, WorldUniforms, createTerrainDepthMaterial, setChunkFx, FX_LOW } from './ChunkMaterial';
+import { PostFX } from './PostFX';
+import { deriveGfx, GfxConfig } from './Graphics';
+import type { Settings } from '../storage/Settings';
+import { POS_SCALE } from './Mesher';
 import type { MeshResult } from './Mesher';
 import { Sky, computeSky, SkyState } from './Sky';
 import { Particles } from './Particles';
@@ -8,6 +12,7 @@ import { Weather } from './Weather';
 import { EntityRenderer, LightProbe } from './EntityRenderer';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { getItem } from '../core/items';
+import { firstPersonArmMatrix } from './VanillaModels';
 
 interface ChunkMeshes { meshes: THREE.Mesh[]; }
 
@@ -19,6 +24,9 @@ export interface FrameEnv {
   inLava: boolean;
   renderDistance: number;
   flash: number;
+  cave?: number;
+  lensRain?: number;
+  wind?: number;
 }
 
 export class Renderer {
@@ -43,9 +51,20 @@ export class Renderer {
   private handItem: THREE.Object3D | null = null;
   private handItemId = -2;
   private handSkin = 0;
+  private armVanilla = false;
   private shadowRT: THREE.WebGLRenderTarget | null = null;
   private shadowCam = new THREE.OrthographicCamera(-48, 48, 48, -48, 1, 400);
+  private terrainDepth: THREE.ShaderMaterial;
   shadows = false;
+  private gfx: GfxConfig;
+  private post: PostFX | null = null;
+  private postKey = '';
+  private pressure = 0;
+  private slowT = 0;
+  private settingsRef: Settings | null = null;
+  private tmpV = new THREE.Vector3();
+  private viewW = 1;
+  private viewH = 1;
   private resScale = 1;
   maxResScale = 1;
   adaptive = true;
@@ -64,6 +83,7 @@ export class Renderer {
   constructor(canvas: HTMLCanvasElement, atlas: TextureAtlas, probe: LightProbe, overlay: HTMLDivElement) {
     this.overlay = overlay;
     this.gl = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false, stencil: false, preserveDrawingBuffer: false });
+    this.gfx = { post: null, fx: FX_LOW, shadowRes: 0, shadowDist: 48, entityShadows: false, lodScale: 1, lensRain: false };
     this.gl.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.gl.toneMapping = THREE.NoToneMapping;
     this.gl.autoClear = false;
@@ -75,6 +95,7 @@ export class Renderer {
     this.uniforms = createWorldUniforms();
     this.applyAtlasUniforms();
     this.mats = { opaque: createChunkMaterial(this.uniforms, 'opaque'), cutout: createChunkMaterial(this.uniforms, 'cutout'), trans: createChunkMaterial(this.uniforms, 'trans') };
+    this.terrainDepth = createTerrainDepthMaterial(this.uniforms);
     this.sky = new Sky(atlas);
     this.particles = new Particles(this.uniforms);
     this.weather = new Weather();
@@ -97,6 +118,9 @@ export class Renderer {
     this.crack.visible = false;
     this.crack.renderOrder = 9;
     this.scene.add(this.outline, this.crack);
+    for (const o of [this.outline, this.crack, this.particles.points]) o.layers.set(2);
+    this.weather.group.traverse((o) => o.layers.set(2));
+    this.uniforms.uCloudMap.value = atlas.cloudTexture;
     this.handScene.add(this.hand);
     this.handScene.add(new THREE.AmbientLight(0xffffff, 1));
     this.resize();
@@ -107,7 +131,32 @@ export class Renderer {
     this.uniforms.uAtlas.value = this.atlas.texture;
     this.uniforms.uAtlasGrid.value.set(d.cols, d.rows);
     this.uniforms.uTexel.value = 0.5 / d.tileSize;
+    this.uniforms.uCloudMap.value = this.atlas.cloudTexture;
   }
+
+  applyGraphics(s: Settings): void {
+    this.settingsRef = s;
+    this.gfx = deriveGfx(s, this.pressure);
+    const g = this.gfx;
+    this.shadows = g.shadowRes > 0;
+    setChunkFx(this.mats.opaque, g.fx, 'opaque');
+    setChunkFx(this.mats.cutout, g.fx, 'cutout');
+    setChunkFx(this.mats.trans, g.fx, 'trans');
+    this.uniforms.uLodScale.value = g.lodScale;
+    this.uniforms.uCloudShadow.value = g.fx.cloudShadows ? 1 : 0;
+    if (this.shadowRT && this.shadowRT.width !== g.shadowRes) { this.shadowRT.dispose(); this.shadowRT = null; }
+    const key = g.post ? `${g.post.msaa}|${g.post.sceneTextures}` : '';
+    if (key !== this.postKey) {
+      this.post?.dispose();
+      this.post = g.post ? new PostFX(this.gl, g.post) : null;
+      this.postKey = key;
+    } else if (this.post && g.post) this.post.cfg = g.post;
+    this.uniforms.uEmitBoost.value = this.post?.hdr ? 1.6 : 1.0;
+    this.resize();
+  }
+
+  get postActive(): boolean { return !!this.post; }
+  get pressureLevel(): number { return this.pressure; }
 
   setAtlas(a: TextureAtlas): void {
     const old = this.atlas;
@@ -121,9 +170,20 @@ export class Renderer {
 
   resize(): void {
     const w = window.innerWidth, h = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    this.gl.setPixelRatio(dpr * this.resScale * this.maxResScale);
-    this.gl.setSize(w, h, false);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const scale = dpr * this.resScale * this.maxResScale;
+    if (this.post) {
+      this.gl.setPixelRatio(dpr);
+      this.gl.setSize(w, h, false);
+      this.post.setSize(w * scale, h * scale);
+      this.viewW = this.post.width; this.viewH = this.post.height;
+    } else {
+      this.gl.setPixelRatio(scale);
+      this.gl.setSize(w, h, false);
+      const v = this.gl.getDrawingBufferSize(new THREE.Vector2());
+      this.viewW = v.x; this.viewH = v.y;
+    }
+    this.uniforms.uResolution.value.set(this.viewW, this.viewH);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.handCam.aspect = w / h;
@@ -140,10 +200,12 @@ export class Renderer {
       if (!b) return;
       const m = new THREE.Mesh(chunkGeometry(b, WORLD_HEIGHT), mat);
       m.position.set(cx * 16, 0, cz * 16);
+      m.scale.setScalar(1 / POS_SCALE);
       m.matrixAutoUpdate = false;
       m.updateMatrix();
       m.renderOrder = order;
       if (castShadow) m.layers.enable(1);
+      if (order === 2) m.layers.set(2);
       this.terrain.add(m);
       meshes.push(m);
     };
@@ -186,12 +248,14 @@ export class Renderer {
     if (this.handItem) { this.hand.remove(this.handItem); this.handItem.traverse((o) => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); }); }
     if (id < 0) {
       const m = this.entities.armModel(skin);
-      m.obj.position.set(0.56, -0.62, -0.78);
-      m.obj.rotation.set(-1.15, 0.18, 0.32);
+      this.armVanilla = m.vanilla;
+      if (m.vanilla) { m.obj.matrixAutoUpdate = false; firstPersonArmMatrix(0, m.obj.matrix); }
+      else { m.obj.position.set(0.5, -0.5, -0.62); m.obj.rotation.set(1.2, 0.1, 0.25); }
       for (const mat of m.mats) { mat.uniforms.uFogFar = { value: 1e9 }; mat.uniforms.uFogNear = { value: 1e9 }; }
       this.handItem = m.obj;
       (this.handItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] }).mats = m.mats;
     } else {
+      this.armVanilla = false;
       const m = this.entities.itemModel(id);
       const it = getItem(id);
       const isBlock = it?.kind === 'block' && it.blockIcon;
@@ -207,6 +271,16 @@ export class Renderer {
 
   private updateHand(dt: number, light: number): void {
     const swing = this.handSwing;
+    if (this.armVanilla && this.handItem) {
+      const prog = swing > 0 ? 1 - swing : 0;
+      firstPersonArmMatrix(prog, this.handItem.matrix);
+      this.hand.position.set(Math.sin(this.handBob) * 0.012, -Math.abs(Math.cos(this.handBob)) * 0.015, 0);
+      this.hand.rotation.set(0, 0, 0);
+      if (this.handSwing > 0) this.handSwing = Math.max(0, this.handSwing - dt * 3.6);
+      const mats = (this.handItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] }).mats;
+      if (mats) for (const m of mats) m.uniforms.uLight.value = Math.max(0.12, light);
+      return;
+    }
     const s = Math.sin(swing * Math.PI);
     this.hand.position.set(-s * 0.18 + Math.sin(this.handBob) * 0.012, -s * 0.12 - Math.abs(Math.cos(this.handBob)) * 0.015 + (this.handEat > 0 ? Math.sin(this.handEat * 30) * 0.03 - 0.06 : 0), -s * 0.05);
     this.hand.rotation.set(-s * 0.9, -s * 0.25, s * 0.15);
@@ -216,33 +290,48 @@ export class Renderer {
   }
 
   private updateShadows(): void {
-    if (!this.shadows || this.skyState.sunDir.y < 0.08) { this.uniforms.uShadowOn.value = 0; return; }
+    const g = this.gfx;
+    if (!g.shadowRes || this.skyState.sunDir.y < 0.08) { this.uniforms.uShadowOn.value = 0; return; }
+    const size = g.shadowRes;
     if (!this.shadowRT) {
-      const size = 2048;
       this.shadowRT = new THREE.WebGLRenderTarget(size, size, { depthBuffer: true });
       this.shadowRT.depthTexture = new THREE.DepthTexture(size, size, THREE.UnsignedIntType);
-      this.uniforms.uShadowTexel.value = 0.6 / size;
     }
+    this.uniforms.uShadowTexel.value = 1 / size;
+    const range = g.shadowDist;
+    const cam = this.shadowCam;
+    if (cam.right !== range) { cam.left = -range; cam.right = range; cam.top = range; cam.bottom = -range; cam.updateProjectionMatrix(); }
     const c = this.camera.position;
     const sd = this.skyState.sunDir;
-    const texel = 96 / 2048;
-    const snap = (v: number) => Math.round(v / texel) * texel;
-    const center = new THREE.Vector3(snap(c.x), snap(c.y), snap(c.z));
-    this.shadowCam.position.copy(center).addScaledVector(sd, 180);
-    this.shadowCam.up.set(0, 0, 1);
-    this.shadowCam.lookAt(center);
-    this.shadowCam.updateMatrixWorld();
-    this.shadowCam.layers.set(1);
-    this.scene.overrideMaterial = DEPTH_MATERIAL;
-    const bg = this.scene.background;
+    const texel = (range * 2) / size;
+    const center = this.tmpV.set(Math.round(c.x / texel) * texel, Math.round(c.y / texel) * texel, Math.round(c.z / texel) * texel);
+    cam.position.copy(center).addScaledVector(sd, 180);
+    cam.up.set(0, 0, 1);
+    cam.lookAt(center);
+    cam.updateMatrixWorld();
+    const hide = [this.sky.group, this.sky.cloudMesh, this.particles.points, this.weather.group, this.outline, this.crack];
+    const was = hide.map((o) => o.visible);
+    for (const o of hide) o.visible = false;
+    const entVis = this.entities.group.visible;
+    this.entities.group.visible = false;
     this.gl.setRenderTarget(this.shadowRT);
     this.gl.clear(true, true, false);
-    this.gl.render(this.scene, this.shadowCam);
-    this.gl.setRenderTarget(null);
+    cam.layers.set(1);
+    this.scene.overrideMaterial = this.terrainDepth;
+    this.gl.render(this.scene, cam);
+    if (g.entityShadows && entVis) {
+      this.terrain.visible = false;
+      this.entities.group.visible = true;
+      cam.layers.set(0);
+      this.scene.overrideMaterial = DEPTH_MATERIAL;
+      this.gl.render(this.scene, cam);
+      this.terrain.visible = true;
+    }
+    this.entities.group.visible = entVis;
+    hide.forEach((o, i) => { o.visible = was[i]; });
     this.scene.overrideMaterial = null;
-    this.scene.background = bg;
-    const m = new THREE.Matrix4().multiplyMatrices(this.shadowCam.projectionMatrix, this.shadowCam.matrixWorldInverse);
-    this.uniforms.uShadowMatrix.value.copy(m);
+    this.gl.setRenderTarget(null);
+    this.uniforms.uShadowMatrix.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.uniforms.uShadowMap.value = this.shadowRT.depthTexture;
     this.uniforms.uShadowOn.value = 1;
   }
@@ -253,9 +342,14 @@ export class Renderer {
     const st = this.skyState;
     u.uDay.value = st.day;
     u.uSkyColor.value.copy(st.skyLight);
+    u.uSkyTop.value.copy(st.skyTop);
     u.uSunDir.value.copy(st.sunDir);
     u.uTime.value += dt;
     u.uFlash.value = env.flash;
+    u.uRain.value = env.rain;
+    u.uWind.value = env.wind ?? env.rain * 0.8 + env.thunder * 0.6;
+    u.uUnderwater.value = env.underwater ? 1 : 0;
+    u.uCloudShift.value = env.time * 0.03;
     const fogFar = Math.max(24, env.renderDistance * 16 - 6);
     if (env.inLava) { u.uFogColor.value.setRGB(0.9, 0.35, 0.05); u.uFogNear.value = 0; u.uFogFar.value = 2.5; }
     else if (env.underwater) { u.uFogColor.value.setRGB(0.05, 0.16, 0.35).multiplyScalar(0.3 + st.day * 0.7); u.uFogNear.value = 1; u.uFogFar.value = 22; }
@@ -264,22 +358,68 @@ export class Renderer {
       u.uFogNear.value = fogFar * (env.rain > 0.3 ? 0.35 : 0.62);
       u.uFogFar.value = fogFar * (env.rain > 0.3 ? 0.85 : 1);
     }
-    this.gl.setClearColor(u.uFogColor.value, 1);
+    this.camera.updateMatrixWorld();
+    u.uProj.value.copy(this.camera.projectionMatrix);
+    u.uCamNear.value = this.camera.near;
+    u.uCamFar.value = this.camera.far;
     this.sky.update(this.camera, st, env.time, env.rain);
     this.sky.group.visible = !env.underwater && !env.inLava;
     this.updateShadows();
-    this.gl.setRenderTarget(null);
-    this.gl.clear(true, true, false);
-    this.camera.layers.enableAll();
-    this.gl.render(this.scene, this.camera);
-    this.drawCalls = this.gl.info.render.calls;
-    this.triangles = this.gl.info.render.triangles;
-    if (this.showHand && !this.thirdPerson) {
-      this.updateHand(dt, playerLight);
-      this.gl.clearDepth();
-      this.gl.render(this.handScene, this.handCam);
+    const post = this.post;
+    const hand = this.showHand && !this.thirdPerson;
+    if (hand) this.updateHand(dt, playerLight);
+    if (!post) {
+      this.gl.setRenderTarget(null);
+      this.gl.setClearColor(u.uFogColor.value, 1);
+      this.gl.clear(true, true, false);
+      this.camera.layers.enableAll();
+      this.gl.render(this.scene, this.camera);
+      this.drawCalls = this.gl.info.render.calls;
+      this.triangles = this.gl.info.render.triangles;
+      if (hand) { this.gl.clearDepth(); this.gl.render(this.handScene, this.handCam); }
+      this.overlay.style.background = env.underwater ? 'rgba(20,60,140,0.28)' : env.inLava ? 'rgba(255,90,10,0.55)' : 'transparent';
+      this.adapt(dt);
+      return;
     }
-    this.overlay.style.background = env.underwater ? 'rgba(20,60,140,0.28)' : env.inLava ? 'rgba(255,90,10,0.55)' : 'transparent';
+    this.overlay.style.background = 'transparent';
+    this.gl.setRenderTarget(post.sceneRT);
+    this.gl.setClearColor(u.uFogColor.value, 1);
+    this.gl.clear(true, true, false);
+    let calls = 0, tris = 0;
+    if (post.cfg.sceneTextures) {
+      this.camera.layers.set(0);
+      this.gl.render(this.scene, this.camera);
+      calls += this.gl.info.render.calls; tris += this.gl.info.render.triangles;
+      u.uSceneColor.value = post.sceneRT.texture;
+      u.uSceneDepth.value = post.sceneRT.depthTexture;
+      this.gl.setRenderTarget(post.sceneRT);
+      this.camera.layers.set(2);
+      this.gl.render(this.scene, this.camera);
+      calls += this.gl.info.render.calls; tris += this.gl.info.render.triangles;
+    } else {
+      this.camera.layers.enableAll();
+      this.gl.render(this.scene, this.camera);
+      calls += this.gl.info.render.calls; tris += this.gl.info.render.triangles;
+    }
+    this.camera.layers.enableAll();
+    this.drawCalls = calls;
+    this.triangles = tris;
+    const sharpen = this.effectiveScale < 0.95 ? 0.35 : 0;
+    const needFinal = post.cfg.fxaa || sharpen > 0;
+    const sunColor = new THREE.Color(1, 0.92, 0.78).lerp(new THREE.Color(1, 0.55, 0.3), Math.max(0, 1 - Math.abs(st.sunDir.y) * 4));
+    post.process({
+      camera: this.camera, sunDir: st.sunDir, sunColor, fogColor: u.uFogColor.value, day: st.day, night: st.night, rain: env.rain,
+      underwater: env.underwater ? 1 : 0, lava: env.inLava ? 1 : 0, flash: env.flash, time: u.uTime.value, dt,
+      cave: env.cave ?? 0, lensRain: this.gfx.lensRain && !this.thirdPerson ? env.lensRain ?? 0 : 0,
+    }, !needFinal && !hand);
+    if (needFinal || hand) {
+      if (hand) {
+        this.gl.setRenderTarget(post.ldrRT);
+        this.gl.clearDepth();
+        this.gl.render(this.handScene, this.handCam);
+      }
+      post.final(sharpen);
+    }
     this.adapt(dt);
   }
 
@@ -291,10 +431,14 @@ export class Renderer {
     if (now - this.lastAdapt < 1500 || this.frameTimes.length < 40) return;
     const sorted = [...this.frameTimes].sort((a, b) => a - b);
     const p50 = sorted[Math.floor(sorted.length * 0.5)];
+    const floor = 0.6;
     let changed = false;
-    if (p50 > 1 / 27 && this.resScale > 0.5) { this.resScale = Math.max(0.5, this.resScale - 0.1); changed = true; }
+    if (p50 > 1 / 27 && this.resScale > floor) { this.resScale = Math.max(floor, this.resScale - 0.08); changed = true; }
     else if (p50 < 1 / 52 && this.resScale < 1) { this.resScale = Math.min(1, this.resScale + 0.05); changed = true; }
-    if (changed) { this.lastAdapt = now; this.frameTimes.length = 0; this.resize(); }
+    if (p50 > 1 / 24 && this.resScale <= floor) this.slowT += (now - this.lastAdapt) / 1000; else this.slowT = 0;
+    if (this.slowT > 4 && this.pressure < 3 && this.settingsRef) { this.pressure++; this.slowT = 0; this.applyGraphics(this.settingsRef); changed = false; }
+    this.lastAdapt = now;
+    if (changed) { this.frameTimes.length = 0; this.resize(); }
   }
 
   get effectiveScale(): number { return this.resScale * this.maxResScale; }

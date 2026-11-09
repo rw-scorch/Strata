@@ -18,6 +18,8 @@ export interface AnimatedTile {
   frametime: number;
   current: number;
   scratch: THREE.CanvasTexture;
+  mipFrames: HTMLCanvasElement[][];
+  scratchMips: THREE.CanvasTexture[];
 }
 
 export interface AtlasData {
@@ -182,15 +184,21 @@ export class TextureAtlas {
         fcs.push(fc);
       }
       const order = src.anim.frames?.length ? src.anim.frames.filter((x) => x < frames) : fcs.map((_, i) => i);
+      const levels = mipLevels(tileSize);
+      const mipFrames = fcs.map((fc) => buildMips(fc.getContext('2d')!.getImageData(0, 0, tileSize, tileSize), tileSize, levels).slice(1).map(toCanvasData));
       const scratch = new THREE.CanvasTexture(fcs[0]);
       scratch.magFilter = scratch.minFilter = THREE.NearestFilter;
       scratch.generateMipmaps = false;
       scratch.flipY = false;
-      this.anims.push({ tile: idx, frames: fcs, order, frametime: Math.max(1, src.anim.frametime), current: -1, scratch });
+      const scratchMips = mipFrames[0].map((c) => { const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.flipY = false; return t; });
+      this.anims.push({ tile: idx, frames: fcs, order, frametime: Math.max(1, src.anim.frametime), current: -1, scratch, mipFrames, scratchMips });
     }
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.magFilter = THREE.NearestFilter;
-    this.texture.minFilter = THREE.NearestFilter;
+    const levels = mipLevels(tileSize);
+    const mips = buildMips(g.getImageData(0, 0, this.canvas.width, this.canvas.height), tileSize, levels);
+    this.texture.mipmaps = [this.canvas, ...mips.slice(1).map(toCanvasData)];
+    this.texture.minFilter = THREE.NearestMipmapLinearFilter;
     this.texture.generateMipmaps = false;
     this.texture.flipY = false;
     this.texture.colorSpace = THREE.NoColorSpace;
@@ -214,8 +222,9 @@ export class TextureAtlas {
       const c = toCanvas(src);
       if (c.width !== 64 || (c.height !== 64 && c.height !== 32)) continue;
       const t = new THREE.CanvasTexture(c);
-      t.magFilter = t.minFilter = THREE.NearestFilter;
-      t.generateMipmaps = false;
+      t.magFilter = THREE.NearestFilter;
+      t.minFilter = THREE.NearestMipmapLinearFilter;
+      t.generateMipmaps = true;
       t.flipY = false;
       t.colorSpace = THREE.NoColorSpace;
       this.entityTextures.set(k.slice(4), t);
@@ -478,17 +487,73 @@ export class TextureAtlas {
       a.scratch.needsUpdate = true;
       const ts = this.data.tileSize;
       const pos = new THREE.Vector2((a.tile % ATLAS_COLS) * ts, Math.floor(a.tile / ATLAS_COLS) * ts);
-      try { renderer.copyTextureToTexture(a.scratch, this.texture, null, pos); } catch { /* first frame before upload */ }
+      try {
+        renderer.copyTextureToTexture(a.scratch, this.texture, null, pos);
+        for (let l = 0; l < a.scratchMips.length; l++) {
+          const t = a.scratchMips[l];
+          t.image = a.mipFrames[f][l];
+          t.needsUpdate = true;
+          renderer.copyTextureToTexture(t, this.texture, null, new THREE.Vector2(pos.x >> (l + 1), pos.y >> (l + 1)), 0, l + 1);
+        }
+      } catch { /* first frame before upload */ }
     }
   }
 
   dispose(): void {
     this.texture.dispose();
     this.iconTexture.dispose();
-    for (const a of this.anims) a.scratch.dispose();
+    for (const a of this.anims) { a.scratch.dispose(); for (const t of a.scratchMips) t.dispose(); }
     this.sunTexture?.dispose();
     this.moonTexture?.dispose();
     this.cloudTexture?.dispose();
     for (const t of this.entityTextures.values()) t.dispose();
   }
+}
+
+function mipLevels(tileSize: number): number {
+  return Math.max(1, Math.round(Math.log2(tileSize)) + 1);
+}
+
+function toCanvasData(d: ImageData): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = d.width; c.height = d.height;
+  c.getContext('2d')!.putImageData(d, 0, 0);
+  return c;
+}
+
+export function buildMips(base: ImageData, tileSize: number, levels: number): ImageData[] {
+  const out = [base];
+  const tilesX = base.width / tileSize, tilesY = base.height / tileSize;
+  const binary = new Uint8Array(tilesX * tilesY);
+  for (let ty = 0; ty < tilesY; ty++) for (let tx = 0; tx < tilesX; tx++) {
+    let holes = false, partial = false;
+    for (let y = 0; y < tileSize && !partial; y++) for (let x = 0; x < tileSize; x++) {
+      const a = base.data[((ty * tileSize + y) * base.width + tx * tileSize + x) * 4 + 3];
+      if (a === 0) holes = true; else if (a < 250) { partial = true; break; }
+    }
+    binary[ty * tilesX + tx] = holes && !partial ? 1 : 0;
+  }
+  let prev = base, ts = tileSize;
+  for (let l = 1; l < levels; l++) {
+    const w = Math.max(1, prev.width >> 1), h = Math.max(1, prev.height >> 1);
+    const next = new ImageData(w, h);
+    const s = prev.data, d = next.data, pw = prev.width;
+    ts >>= 1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let r = 0, g = 0, b = 0, a = 0, n = 0;
+      for (let k = 0; k < 4; k++) {
+        const i = (((y * 2 + (k >> 1)) * pw) + x * 2 + (k & 1)) * 4;
+        const al = s[i + 3];
+        if (al) { r += s[i] * al; g += s[i + 1] * al; b += s[i + 2] * al; n += al; }
+        a += al;
+      }
+      const o = (y * w + x) * 4;
+      if (n) { d[o] = r / n; d[o + 1] = g / n; d[o + 2] = b / n; }
+      const cut = binary[Math.floor(y / Math.max(1, ts)) * tilesX + Math.floor(x / Math.max(1, ts))];
+      d[o + 3] = cut ? (a / 4 >= 96 ? 255 : 0) : a / 4;
+    }
+    out.push(next);
+    prev = next;
+  }
+  return out;
 }

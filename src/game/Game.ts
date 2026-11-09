@@ -15,7 +15,10 @@ import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { GameSession, SessionEvents, Vitals } from './Session';
 import { LocalSession } from './LocalSession';
 import { RemoteSession } from '../multiplayer/RemoteSession';
-import { getSettings, onSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
+import { ArenaUI } from '../ui/ArenaUI';
+import type { ArenaKind } from '../core/minigames/arena';
+import type { ScreenType } from '../core/sim/WorldSim';
+import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
 import { getBlock, blockId } from '../core/blocks';
@@ -85,7 +88,10 @@ export class Game {
   private moveSendT = 0;
   private lastPlace = 0;
 
+  private arena!: ArenaUI;
+  private caveFx = 0;
   constructor(app: AppHooks, atlas: TextureAtlas) {
+    if (import.meta.env.DEV) Object.assign(window, { __strata: this, __settings: updateSettings });
     this.app = app;
     this.atlas = atlas;
     this.canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -93,12 +99,12 @@ export class Game {
     this.hurtEl = document.getElementById('hurt-flash')!;
   }
 
-  private setupCommon(seed: number, remote: boolean): void {
+  private setupCommon(seed: number, remote: boolean, arena: ArenaKind | null = null): void {
     const s = getSettings();
     const tint = document.getElementById('tint') as HTMLDivElement;
     this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, tint);
-    this.gen = new WorldGenerator(seed);
-    this.chunks = new ChunkManager(seed, this.atlas.data, {
+    this.gen = new WorldGenerator(seed, arena);
+    this.chunks = new ChunkManager(seed, arena, this.atlas.data, {
       loadStored: (cx, cz) => this.storedKeys?.has(`${cx},${cz}`) && this.worldMeta ? WorldStorage.loadChunk(this.worldMeta.id, cx, cz) : null,
       requestRemote: (cx, cz) => this.session?.requestChunk?.(cx, cz),
       onGenerated: (cx, cz, ents) => { if (this.session instanceof LocalSession) this.session.onGenerated(cx, cz, ents); },
@@ -110,6 +116,8 @@ export class Game {
     this.hud = new HUD(hudRoot, this.atlas);
     this.inv = new InventoryUI(this.screens, this.atlas);
     this.inv.onClose = () => { if (this.state === 'inventory') this.setState('playing'); };
+    this.arena = new ArenaUI(hudRoot, this.screens, this.atlas);
+    this.arena.onShopClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
     this.chatUI = new ChatUI(this.hud.chatBox, hudRoot);
     this.chatUI.onSend = (t) => this.session.chat(t);
     this.chatUI.onClose = () => { if (this.state === 'chat') this.setState('playing'); };
@@ -175,6 +183,8 @@ export class Game {
     inventory: () => this.onInventory(),
     container: (k, t, items, b, bm, c) => this.onContainer(k, t, items, b, bm, c),
     screen: (t) => this.onScreen(t),
+    game: (st) => { this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
+    title: (t, s) => this.arena?.title(t, s),
     hurt: (a, c, fx, fz) => this.onHurt(a, c, fx, fz),
     death: (m) => this.onDeath(m),
     respawn: (x, y, z) => this.onRespawn(x, y, z),
@@ -198,7 +208,7 @@ export class Game {
     if (!rec) throw new Error('World not found');
     this.worldMeta = rec.meta;
     this.storedKeys = await WorldStorage.chunkKeys(meta.id);
-    this.setupCommon(rec.meta.seed, false);
+    this.setupCommon(rec.meta.seed, false, rec.meta.arena ?? null);
     const s = getSettings();
     const local = new LocalSession(rec.meta, rec.state, this.chunks, this.ev, s.playerName || 'Wayfarer', s.appearance);
     this.session = local;
@@ -225,7 +235,7 @@ export class Game {
       else { packIds = room.settings.personalPacks ? s.activePacks : []; packNote = `This world suggests the resource pack "${room.pack.name}". You do not have it installed, so ${room.settings.personalPacks ? 'your own packs' : 'default textures'} are used. Gameplay is unaffected.`; }
     } else if (!room.settings.personalPacks) { packIds = []; if (s.activePacks.length) packNote = 'This world uses default textures for everyone.'; }
     this.atlas = await this.app.rebuildAtlas(packIds);
-    this.setupCommon(room.seed, true);
+    this.setupCommon(room.seed, true, room.arena ?? null);
     this.session = remote;
     remote.attach(this.chunks, this.ev, welcome);
     const p = remote.me;
@@ -287,10 +297,9 @@ export class Game {
   private applySettings(s: Settings): void {
     if (!this.renderer) return;
     this.renderer.setFov(s.fov);
-    this.renderer.shadows = s.shadows;
     this.renderer.adaptive = s.adaptiveResolution;
     this.renderer.maxResScale = s.resolutionScale;
-    this.renderer.resize();
+    this.renderer.applyGraphics(s);
     this.renderer.particles.level = s.particles;
     this.renderer.sky.cloudsEnabled = s.clouds;
     this.renderer.uniforms.uBrightness.value = s.brightness;
@@ -454,6 +463,7 @@ export class Game {
     if (!this.hud) return;
     this.hud.updateInventory(this.session.me.inv);
     this.inv.refresh();
+    this.arena?.refreshShop(this.session.me.inv);
     this.setHeld();
   }
 
@@ -461,8 +471,15 @@ export class Game {
     this.inv?.setContainer(items as never, burn, burnMax, cook);
   }
 
-  onScreen(type: 'chest' | 'furnace' | 'workbench' | null): void {
+  onScreen(type: ScreenType | null): void {
     if (!this.inv) return;
+    if (type === 'shop') {
+      this.desktop.unlock();
+      this.setState('inventory');
+      this.arena.openShop(this.session.me.inv, (k) => this.session.buy?.(k));
+      return;
+    }
+    if (!type && this.arena?.shopOpen) { this.arena.closeShop(true); if (this.state === 'inventory') this.setState('playing'); return; }
     if (type) {
       this.desktop.unlock();
       this.setState('inventory');
@@ -566,6 +583,8 @@ export class Game {
   private frame(t: number): void {
     if (!this.running) return;
     requestAnimationFrame((tt) => this.frame(tt));
+    const lim = getSettings().fpsLimit;
+    if (lim > 0 && t - this.last < 1000 / lim - 1.5) return;
     const dt = Math.min(0.1, Math.max(0.0001, (t - this.last) / 1000));
     this.last = t;
     try { this.step(dt, t); } catch (e) { console.error(e); }
@@ -645,6 +664,7 @@ export class Game {
     this.renderer.entities.interpDelay = local ? 60 : 110;
     this.renderer.entities.update(dt, performance.now());
     this.renderer.particles.update(dt, this.chunks);
+    if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12 }, this.chunks);
     const biomeAt = (x: number, z: number) => this.gen!.column(x, z).biome;
     this.renderer.weather.intensity = this.rain;
     this.renderer.weather.splash = (x, y, z) => this.renderer.particles.puff(x, y, z, 0.6, 0.7, 0.9, 2, 1.2, 6, 0.04, 0.3);
@@ -662,10 +682,13 @@ export class Game {
     audio.tickMusic(dt, this.renderer.skyState.night > 0.5, underground);
     if (underground) { this.caveT -= dt; if (this.caveT <= 0) { this.caveT = 25 + Math.random() * 60; audio.ambientCave(); } }
     this.atlas.updateAnimations(this.renderer.gl, Math.floor(now / 50));
-    const env: FrameEnv = { time: this.time, rain: this.rain, thunder: this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash };
+    this.caveFx += ((underground ? 1 : 0) - this.caveFx) * Math.min(1, dt * 0.8);
+    const wetSky = precip.rain && !precip.cold && !sheltered && !underwater ? this.rain : 0;
+    this.renderer.sky.aurora += ((precip.cold ? 1 : 0) - this.renderer.sky.aurora) * Math.min(1, dt * 0.3);
+    const env: FrameEnv = { time: this.time, rain: this.rain, thunder: this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
     const pl = this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day);
     if (this.interaction.eating > 0) this.renderer.handEat = this.interaction.eating; else if (this.renderer.handEat > 0 && this.interaction.eating === 0) this.renderer.handEat = 0;
-    this.renderer.render(dt, env, pl);
+    if (!loading) this.renderer.render(dt, env, pl);
 
     this.hud.tick(dt);
     this.chatUI.tick();

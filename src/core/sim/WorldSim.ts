@@ -38,7 +38,7 @@ export interface SimPlayer {
   health: number; food: number; sat: number; exh: number; air: number; xp: number;
   dead: boolean;
   spawn: { x: number; y: number; z: number };
-  screen: { type: 'chest' | 'furnace' | 'workbench' | null; x: number; y: number; z: number };
+  screen: { type: ScreenType | null; x: number; y: number; z: number };
   dig: { x: number; y: number; z: number; t: number } | null;
   hurtCd: number; fireT: number; peakY: number;
   t: { lava: number; drown: number; cactus: number; void: number; starve: number; regen: number; fire: number };
@@ -48,6 +48,30 @@ export interface SimPlayer {
 }
 
 export type EntityKind = 'mob' | 'item' | 'arrow';
+export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop';
+
+export interface GameHooks {
+  tick(): void;
+  onJoin(p: SimPlayer): void;
+  onLeave(p: SimPlayer): void;
+  onKill(p: SimPlayer, cause: string, killer?: string): boolean;
+  allowRespawn(p: SimPlayer): boolean;
+  onRespawn(p: SimPlayer): void;
+  canBreak(p: SimPlayer, x: number, y: number, z: number, v: number): boolean;
+  canPlace(p: SimPlayer, x: number, y: number, z: number): boolean;
+  onBroken(by: string | null, x: number, y: number, z: number, v: number): void;
+  onAttackMob(p: SimPlayer, e: Entity): boolean;
+  canHurtPlayer(a: SimPlayer, t: SimPlayer): boolean;
+  protectedPlayer(p: SimPlayer): boolean;
+  damageBonus(p: SimPlayer): number;
+  damageScale(p: SimPlayer): number;
+  tickNpc(e: Entity): boolean;
+  mobInvulnerable(e: Entity): boolean;
+  onMobDeath(e: Entity, by: string | null): void;
+  command(p: SimPlayer, parts: string[]): string | null;
+  buy(p: SimPlayer, key: string): string | null;
+  state(): unknown;
+}
 
 export interface Entity extends Body {
   id: number;
@@ -103,7 +127,9 @@ export type SimEvent =
   | { e: 'weather'; w: Weather }
   | { e: 'time' }
   | { e: 'mode'; p: SimPlayer }
-  | { e: 'crafted'; p: SimPlayer; recipe: Recipe; times: number };
+  | { e: 'crafted'; p: SimPlayer; recipe: Recipe; times: number }
+  | { e: 'game'; state: unknown }
+  | { e: 'title'; text: string; sub: string; to?: string };
 
 export interface SimOptions {
   seed: number;
@@ -183,6 +209,7 @@ export class WorldSim {
   readonly authoritative: boolean;
   settings: SimSettings = { pvp: false, cheats: true, guestsBuild: true, dayCycle: true, weatherCycle: true };
   spawn: { x: number; y: number; z: number };
+  game: GameHooks | null = null;
 
   players = new Map<string, SimPlayer>();
   entities = new Map<number, Entity>();
@@ -414,13 +441,20 @@ export class WorldSim {
 
   addPlayer(p: SimPlayer): void {
     this.players.set(p.id, p);
-    this.makeSafe(p);
+    if (this.game) this.game.onJoin(p); else this.makeSafe(p);
+  }
+
+  buy(p: SimPlayer, key: string): void {
+    if (!this.game) return;
+    const err = this.game.buy(p, String(key).slice(0, 32));
+    if (err) this.emit({ e: 'msg', text: err, kind: 'error', to: p.id });
   }
 
   removePlayer(id: string): void {
     const p = this.players.get(id);
     if (!p) return;
     if (p.screen.type) this.closeScreen(p);
+    this.game?.onLeave(p);
     this.players.delete(id);
   }
 
@@ -482,6 +516,7 @@ export class WorldSim {
 
   damage(p: SimPlayer, amount: number, cause: string, fx: number, fz: number, knock = true, bypassArmor = false, killer?: string): void {
     if (p.dead || p.mode === 'creative' || amount <= 0) return;
+    if (this.game) { if (this.game.protectedPlayer(p)) return; amount *= this.game.damageScale(p); }
     if (p.hurtCd > 0 && cause !== 'void' && cause !== 'drown' && cause !== 'starve') return;
     let dmg = amount;
     if (!bypassArmor) {
@@ -511,6 +546,13 @@ export class WorldSim {
     const text = `${p.name} ${mob ? `was slain by a ${mob.name}` : msgs[cause] ?? 'died'}`;
     if (p.screen.type) this.closeScreen(p);
     applyInvOp(this.invCtx(p), { t: 'close' });
+    if (this.game?.onKill(p, cause, killer)) {
+      this.emit({ e: 'inv', p });
+      this.emit({ e: 'death', p, msg: text });
+      this.emit({ e: 'msg', text, kind: 'death' });
+      this.emit({ e: 'vitals', p });
+      return;
+    }
     for (const s of allStacks(p.inv)) {
       this.spawnItem(p.x, p.y + 1, p.z, s, (this.rng.next() - 0.5) * 5, 4, (this.rng.next() - 0.5) * 5, 40);
     }
@@ -526,11 +568,13 @@ export class WorldSim {
 
   respawn(p: SimPlayer): void {
     if (!p.dead) return;
+    if (this.game && !this.game.allowRespawn(p)) return;
     p.dead = false;
     p.health = 20; p.food = 20; p.sat = 5; p.exh = 0; p.air = 300; p.fireT = 0;
     p.x = p.spawn.x; p.y = p.spawn.y; p.z = p.spawn.z; p.peakY = p.y;
     p.hurtCd = 40;
-    this.makeSafe(p);
+    if (!this.game) this.makeSafe(p);
+    this.game?.onRespawn(p);
     this.emit({ e: 'respawn', p });
     this.emit({ e: 'vitals', p });
   }
@@ -592,11 +636,11 @@ export class WorldSim {
     this.emit({ e: 'inv', p });
   }
 
-  openScreen(p: SimPlayer, type: 'chest' | 'furnace' | 'workbench', x: number, y: number, z: number): void {
+  openScreen(p: SimPlayer, type: ScreenType, x: number, y: number, z: number): void {
     if (p.screen.type) applyInvOp(this.invCtx(p), { t: 'close' });
     p.screen = { type, x, y, z };
     p.inv.craftSize = type === 'workbench' ? 3 : 2;
-    if (type !== 'workbench') this.ensureBlockEntity(x, y, z);
+    if (type === 'chest' || type === 'furnace') this.ensureBlockEntity(x, y, z);
     this.emit({ e: 'screen', p });
     this.emit({ e: 'inv', p });
     if (type === 'chest') this.emit({ e: 'sound', s: 'chest.open', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
@@ -628,8 +672,10 @@ export class WorldSim {
         if ((this.now - started) / 1000 < need * 0.7 - 0.15) return fail();
       }
     } else if (blockId(v) === B.BEDROCK && !p.op) return fail();
+    if (this.game && !this.game.canBreak(p, x, y, z, v)) return fail();
     p.dig = null;
     this.breakBlock(x, y, z, p);
+    this.game?.onBroken(p.name, x, y, z, v);
     return true;
   }
 
@@ -743,6 +789,7 @@ export class WorldSim {
     const clickedReplaceable = isReplaceable(clicked) && blockId(clicked) !== bid && blockId(clicked) !== 0 && !getBlock(clicked).fluid;
     if (!clickedReplaceable) { tx += nx; ty += ny; tz += nz; }
     const fail = () => { this.emit({ e: 'reject', p, x: tx, y: ty, z: tz }); return false; };
+    if (this.game && !this.game.canPlace(p, tx, ty, tz)) return fail();
     if (ty < 1 || ty >= WORLD_HEIGHT - 1) return fail();
     if (!this.store.isLoaded(tx, tz)) return fail();
     if (!this.inReach(p, tx, ty, tz)) return fail();
@@ -819,13 +866,14 @@ export class WorldSim {
     if (p.dead) return false;
     const e = this.entities.get(entityId);
     if (!e || e.kind !== 'mob') return false;
+    if (this.game?.onAttackMob(p, e)) return true;
     const dx = e.x - p.x, dy = e.y + e.h / 2 - (p.y + 1.62), dz = e.z - p.z;
     if (dx * dx + dy * dy + dz * dz > (p.mode === 'creative' ? 6.5 : 5) ** 2) return false;
     if (this.now - p.lastAttack < 250) return false;
     p.lastAttack = this.now;
     const stack = heldStack(p.inv);
     const tool = toolFor(stack);
-    let dmg = tool?.damage ?? 1;
+    let dmg = (tool?.damage ?? 1) + (this.game?.damageBonus(p) ?? 0);
     const crit = !(p.flags & MF.GROUND) && !(p.flags & MF.WATER) && !(p.flags & MF.LADDER) && !(p.flags & MF.FLY);
     if (crit) dmg *= 1.5;
     if (p.mode === 'creative') dmg = Math.max(dmg, 20);
@@ -840,17 +888,23 @@ export class WorldSim {
     if (!this.settings.pvp || p.dead) return false;
     const t = this.players.get(targetId);
     if (!t || t.dead || t === p) return false;
+    if (this.game && !this.game.canHurtPlayer(p, t)) return false;
     const dx = t.x - p.x, dy = t.y - p.y, dz = t.z - p.z;
     if (dx * dx + dy * dy + dz * dz > 25) return false;
     if (this.now - p.lastAttack < 400) return false;
     p.lastAttack = this.now;
-    const dmg = toolFor(heldStack(p.inv))?.damage ?? 1;
+    const tool = toolFor(heldStack(p.inv));
+    let dmg = (tool?.damage ?? 1) + (this.game?.damageBonus(p) ?? 0);
+    const crit = !(p.flags & MF.GROUND) && !(p.flags & MF.WATER) && !(p.flags & MF.LADDER) && !(p.flags & MF.FLY);
+    if (crit) { dmg *= 1.5; this.emit({ e: 'particles', k: 'crit', x: t.x, y: t.y + 1.8, z: t.z }); }
+    if (p.mode === 'survival' && tool) { damageHeld(p.inv, tool.type === 'sword' ? 1 : 2); this.emit({ e: 'inv', p }); }
     this.damage(t, dmg, 'player', p.x, p.z, true, false, p.name);
     return true;
   }
 
   hurtMob(e: Entity, dmg: number, by: string | null, kx: number, kz: number): void {
     if (e.hurt > 0 || e.health <= 0) return;
+    if (this.game?.mobInvulnerable(e)) return;
     e.health -= dmg;
     e.hurt = 10;
     e.vx += kx * 6; e.vz += kz * 6; e.vy = Math.max(e.vy, 4.5);
@@ -874,6 +928,7 @@ export class WorldSim {
         }
       }
       if (killer && killer.mode === 'survival') this.giveXp(killer, def.xp);
+      this.game?.onMobDeath(e, by);
     }
   }
 
@@ -903,7 +958,8 @@ export class WorldSim {
     this.tickRandom();
     this.tickLeafDecay();
     for (const e of [...this.entities.values()]) this.tickEntity(e);
-    if (this.tickCount % 20 === 0) this.spawnCycle();
+    if (this.game) this.game.tick();
+    else if (this.tickCount % 20 === 0) this.spawnCycle();
   }
 
   setWeather(w: Weather, duration?: number): void {
@@ -1358,6 +1414,7 @@ export class WorldSim {
   }
 
   private tickMob(e: Entity): void {
+    if (this.game?.tickNpc(e)) return;
     const def = MOBS[e.type as MobType];
     const med = sampleMedium(this.store, e.x, e.y, e.z, e.hw, e.h, e.h * 0.8);
     e.inWater = med.water;
@@ -1502,6 +1559,7 @@ export class WorldSim {
     const cmd = (parts[0] ?? '').toLowerCase();
     const allowed = p.op || (this.settings.cheats && p.mode === 'creative');
     const need = () => 'You do not have permission for that command.';
+    if (this.game) { const r = this.game.command(p, [cmd, ...parts.slice(1)]); if (r !== null) return r; }
     switch (cmd) {
       case 'help':
         return 'Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /tp <x> <y> <z>, /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /kill';
@@ -1571,7 +1629,7 @@ export class WorldSim {
       case 'summon': {
         if (!allowed) return need();
         const t = (parts[1] ?? '').toLowerCase() as MobType;
-        if (!MOBS[t]) return `Unknown creature. Try: ${Object.keys(MOBS).join(', ')}`;
+        if (!MOBS[t] || MOBS[t].npc) return `Unknown creature. Try: ${Object.keys(MOBS).filter((k) => !MOBS[k as MobType].npc).join(', ')}`;
         if (!this.authoritative) return '';
         const n = Math.max(1, Math.min(10, Number(parts[2] ?? 1) || 1));
         for (let i = 0; i < n; i++) {

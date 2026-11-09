@@ -1,4 +1,5 @@
 import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity } from '../core/sim/WorldSim';
+import { Minigame, GameState } from '../core/minigames/Minigame';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { MOBS, MobType } from '../core/sim/mobs';
 import { ENT_KIND } from '../core/protocol';
@@ -26,12 +27,13 @@ export class LocalSession implements GameSession {
     this.meta = meta;
     this.ev = ev;
     this.chunks = chunks;
-    const gen = new WorldGenerator(meta.seed);
+    const gen = new WorldGenerator(meta.seed, meta.arena ?? null);
     this.sim = new WorldSim({
       seed: meta.seed, store: chunks, gen, difficulty: meta.difficulty, emit: (e) => this.onEvent(e),
       validateMoves: false, authoritative: true, spawn: state?.spawn ?? undefined,
     });
     this.sim.settings.cheats = state?.cheats ?? meta.mode === 'creative';
+    if (meta.arena) this.sim.game = new Minigame(this.sim, meta.arena);
     this.sim.settings.dayCycle = state?.dayCycle ?? true;
     this.beChunks = new Set(state?.beChunks ?? []);
     if (state) {
@@ -54,7 +56,7 @@ export class LocalSession implements GameSession {
     }
     this.me = p;
     this.pendingMobs = state?.mobs ?? [];
-    this.info = { kind: 'local', name: meta.name, seed: meta.seed, mode: p.mode, difficulty: meta.difficulty, spawn: this.sim.spawn, isOwner: true };
+    this.info = { kind: 'local', name: meta.name, seed: meta.seed, mode: p.mode, difficulty: meta.difficulty, spawn: this.sim.spawn, isOwner: true, arena: meta.arena ?? null };
   }
 
   private pendingMobs: WorldState['mobs'];
@@ -112,12 +114,14 @@ export class LocalSession implements GameSession {
       case 'death': ev.death(e.msg); return;
       case 'respawn': ev.respawn(e.p.x, e.p.y, e.p.z); return;
       case 'tp': ev.teleport(e.p.x, e.p.y, e.p.z); return;
-      case 'msg': ev.chat(null, e.text, e.kind === 'death' ? 'death' : e.kind === 'error' ? 'error' : 'info', Date.now()); return;
+      case 'msg': if (e.to && e.to !== this.me.id) return; ev.chat(null, e.text, e.kind === 'death' ? 'death' : e.kind === 'error' ? 'error' : 'info', Date.now()); return;
       case 'lightning': ev.lightning(e.x, e.y, e.z); return;
       case 'weather': ev.weather(e.w); return;
       case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;
       case 'mode': this.info.mode = e.p.mode; ev.mode(e.p.mode); return;
       case 'crafted': ev.crafted(e.recipe.id, e.times); return;
+      case 'game': ev.game(e.state as GameState); return;
+      case 'title': if (!e.to || e.to === this.me.id) ev.title(e.text, e.sub); return;
       case 'reject': return;
     }
   }
@@ -151,6 +155,8 @@ export class LocalSession implements GameSession {
   attack(id: string): void { this.sim.setNow(performance.now()); this.sim.attack(this.me, Number(id)); }
   attackPlayer(): void { /* single player */ }
   invOp(op: InvOp): void { this.sim.invOp(this.me, op); this.ev.inventory(this.me.inv); }
+  buy(key: string): void { this.sim.buy(this.me, key); }
+
   respawn(): void { this.sim.respawn(this.me); }
   getBlockEntity(key: string): BlockEntity | undefined { return this.sim.blockEntities.get(key); }
 
@@ -174,7 +180,7 @@ export class LocalSession implements GameSession {
   async save(_manual: boolean): Promise<void> {
     const p = this.me;
     const chunks = this.chunks.collectDirtySaves();
-    await WorldStorage.saveChunks(this.meta.id, chunks);
+    if (!this.meta.arena) await WorldStorage.saveChunks(this.meta.id, chunks);
     const mobs: WorldState['mobs'] = [];
     for (const e of this.sim.entities.values()) if (e.kind === 'mob' && !MOBS[e.type as MobType].hostile) mobs.push({ type: e.type as MobType, x: e.x, y: e.y, z: e.z, health: e.health });
     const now = Date.now();

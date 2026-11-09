@@ -5,6 +5,7 @@ import { B, makeBlock } from '../blocks';
 import { I, toolId } from '../items';
 import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
+import { ArenaKind, arenaLayout, generateArenaChunk } from '../minigames/arena';
 
 export interface Column {
   height: number;
@@ -29,8 +30,12 @@ export class WorldGenerator {
   private nCave1: Simplex; private nCave2: Simplex; private nCave3: Simplex; private nRavine: Simplex; private nRavMask: Simplex;
   private nPatch: Simplex;
 
-  constructor(seed: number) {
+  readonly arena: ArenaKind | null;
+  private flatCol: Column | null = null;
+
+  constructor(seed: number, arena: ArenaKind | null = null) {
     this.seed = seed >>> 0;
+    this.arena = arena;
     let k = 0;
     const mk = () => new Simplex(mix32(this.seed + 0x1234567 * ++k));
     this.nCont = mk(); this.nErode = mk(); this.nPeak = mk(); this.nTemp = mk(); this.nHum = mk();
@@ -40,6 +45,7 @@ export class WorldGenerator {
   }
 
   column(x: number, z: number): Column {
+    if (this.arena) return this.flatCol ??= { height: 64, biome: BIOMES.find((b) => b.id === 'plains') ?? BIOMES[0], temp: 0.6, humid: 0.5, mountain: 0, river: 0 };
     const c = this.nCont.fbm2(x / 900, z / 900, 4) * 1.4 + 0.18;
     const e = this.nErode.fbm2(x / 480, z / 480, 3);
     const p = 1 - Math.abs(this.nPeak.fbm2(x / 230, z / 230, 4));
@@ -93,6 +99,7 @@ export class WorldGenerator {
   }
 
   generate(cx: number, cz: number): GeneratedChunk {
+    if (this.arena) return { blocks: generateArenaChunk(this.arena, cx, cz), entities: [] };
     const blocks = new Uint16Array(CHUNK_VOLUME);
     const entities: GenBlockEntity[] = [];
     const bx = cx * S, bz = cz * S;
@@ -481,6 +488,7 @@ export class WorldGenerator {
   }
 
   findSpawn(): { x: number; y: number; z: number } {
+    if (this.arena) { const l = arenaLayout(this.arena).lobby; return { x: l[0], y: l[1], z: l[2] }; }
     for (let r = 0; r < 4000; r += 16) {
       for (let a = 0; a < 8; a++) {
         const x = Math.round(Math.cos((a / 8) * Math.PI * 2) * r);

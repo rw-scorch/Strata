@@ -128,7 +128,7 @@ export class RemoteSession implements GameSession {
     this.room = w.room;
     if (first) {
       this.sim = new WorldSim({
-        seed: w.room.seed, store: this.chunks!, gen: new WorldGenerator(w.room.seed), difficulty: w.room.difficulty, emit: (e) => {
+        seed: w.room.seed, store: this.chunks!, gen: new WorldGenerator(w.room.seed, w.room.arena ?? null), difficulty: w.room.difficulty, emit: (e) => {
           if (e.e === 'sound' && e.src && e.src === this.me?.id) this.ev?.sound(e.s, e.x, e.y, e.z, e.vol, e.pitch);
           else if (e.e === 'particles' && e.src && e.src === this.me?.id) this.ev?.fx(e.k, e.x, e.y, e.z, e.d);
         },
@@ -272,6 +272,8 @@ export class RemoteSession implements GameSession {
         return;
       case 'mode': this.me.mode = m.mode; this.info.mode = m.mode; ev.mode(m.mode); return;
       case 'crafted': ev.crafted(m.r, m.n); return;
+      case 'game': ev.game(m.s); return;
+      case 'title': ev.title(m.text, m.sub); return;
       case 'pong': this.rtt = Date.now() - m.c; return;
     }
   }
@@ -338,6 +340,7 @@ export class RemoteSession implements GameSession {
   }
   chat(text: string): void { const t = text.trim(); if (t) this.send({ t: 'chat', text: t.slice(0, 200) }); }
   respawn(): void { this.send({ t: 'respawn' }); }
+  buy(k: string): void { this.send({ t: 'buy', k }); }
   roomUpdate(patch: Omit<Extract<C2S, { t: 'room' }>, 't'>): void { this.send({ t: 'room', ...patch }); }
   kick(pid: string): void { this.send({ t: 'kick', pid }); }
   mute(pid: string, on: boolean): void { this.send({ t: 'mute', pid, on }); }

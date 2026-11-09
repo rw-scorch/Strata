@@ -4,6 +4,8 @@ import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../sr
 import { WorldGenerator } from '../../src/core/worldgen/WorldGenerator';
 import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
+import { Minigame } from '../../src/core/minigames/Minigame';
+import { isArenaKind } from '../../src/core/minigames/arena';
 import { B, blockId } from '../../src/core/blocks';
 import { sanitizeInv, validateOp, invHash, validStack, cloneStack } from '../../src/core/inventory';
 import {
@@ -13,9 +15,11 @@ import {
 export interface Env {
   WORLD_ROOMS: DurableObjectNamespace<WorldRoom>;
   ASSETS: Fetcher;
+  ADMIN_KEY?: string;
+  ACCOUNTS?: DurableObjectNamespace;
 }
 
-interface StoredMeta extends RoomMeta { ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
+interface StoredMeta extends RoomMeta { ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
 
 interface Session {
   ws: WebSocket;
@@ -34,6 +38,9 @@ interface Session {
   sentPlayers: Map<string, string>;
   chunkCX: number;
   chunkCZ: number;
+  hash?: string;
+  adminTries?: number;
+  adminT?: number;
 }
 
 interface Attachment { pid: string | null; name: string; op: boolean; }
@@ -106,14 +113,15 @@ export class WorldRoom extends DurableObject<Env> {
     const m = this.meta!;
     return {
       code: m.code, name: m.name, ownerId: m.ownerId, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty,
-      maxPlayers: m.maxPlayers, seed: m.seed, createdAt: m.createdAt, version: PROTOCOL_VERSION, pack: m.pack, settings: m.settings, region: m.region,
+      maxPlayers: m.maxPlayers, seed: m.seed, createdAt: m.createdAt, version: PROTOCOL_VERSION, pack: m.pack, settings: m.settings, region: m.region, arena: m.arena ?? null,
     };
   }
 
   private ensureSim(): WorldSim {
     if (this.sim) return this.sim;
     const m = this.loadMeta()!;
-    this.gen = new WorldGenerator(m.seed);
+    if (m.arena) { this.sql.exec('DELETE FROM chunks'); this.cache.clear(); }
+    this.gen = new WorldGenerator(m.seed, m.arena ?? null);
     const store: WorldStore = {
       getBlock: (x, y, z) => {
         const c = this.peekChunk(x >> 4, z >> 4);
@@ -153,6 +161,11 @@ export class WorldRoom extends DurableObject<Env> {
     }
     const cx = Math.floor(spawn.x / 16), cz = Math.floor(spawn.z / 16);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.getChunk(cx + dx, cz + dz);
+    if (m.arena && !this.sim.game) {
+      for (const e of [...this.sim.entities.values()]) this.sim.entities.delete(e.id);
+      this.sim.game = new Minigame(this.sim, m.arena);
+      for (let cz = -5; cz <= 4; cz++) for (let cx = -5; cx <= 4; cx++) this.getChunk(cx, cz);
+    }
     return this.sim;
   }
 
@@ -200,6 +213,7 @@ export class WorldRoom extends DurableObject<Env> {
       const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
       for (let dz = -SIM_RADIUS; dz <= SIM_RADIUS; dz++) for (let dx = -SIM_RADIUS; dx <= SIM_RADIUS; dx++) needed.add(chunkKey(pcx + dx, pcz + dz));
     }
+    if (this.meta?.arena) for (let cz = -5; cz <= 4; cz++) for (let cx = -5; cx <= 4; cx++) needed.add(chunkKey(cx, cz));
     const entries = [...this.cache.entries()].filter(([k]) => !needed.has(k)).sort((a, b) => a[1].used - b[1].used);
     for (const [k, e] of entries) {
       if (this.cache.size <= MAX_CACHE * 0.8) break;
@@ -258,7 +272,7 @@ export class WorldRoom extends DurableObject<Env> {
     const m = this.loadMeta();
     if (!m) return { exists: false, code: '' };
     const players = [...this.sessions.values()].filter((s) => s.pid).map((s) => ({ id: s.pid!, name: s.name }));
-    return { exists: true, code: m.code, name: m.name, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, players, version: PROTOCOL_VERSION, pack: m.pack };
+    return { exists: true, code: m.code, name: m.name, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, players, version: PROTOCOL_VERSION, pack: m.pack, arena: m.arena ?? null };
   }
 
   private async handleInit(req: Request): Promise<Response> {
@@ -275,11 +289,13 @@ export class WorldRoom extends DurableObject<Env> {
     if (!/^[a-zA-Z0-9-]{8,64}$/.test(ownerId) || ownerSecret.length < 16) return Response.json({ error: 'bad owner' }, { status: 400 });
     const s = (body.settings ?? {}) as Partial<RoomSettings>;
     const pack = body.pack && typeof body.pack === 'object' ? body.pack as PackRef : null;
+    const arena = isArenaKind(body.arena) ? body.arena : null;
     this.meta = {
       code, name: cleanText(body.name, 32) || 'Untitled World', ownerId, ownerName: cleanName(body.ownerName), mode, difficulty, maxPlayers, seed,
       createdAt: Date.now(), version: PROTOCOL_VERSION,
       pack: pack && typeof pack.hash === 'string' ? { name: cleanText(pack.name, 40), hash: cleanText(pack.hash, 80) } : null,
-      settings: { ...defaultSettings(), pvp: !!s.pvp, guestsBuild: s.guestsBuild !== false, cheats: mode === 'creative' ? s.cheats !== false : !!s.cheats, personalPacks: s.personalPacks !== false },
+      arena, ops: [],
+      settings: { ...defaultSettings(), pvp: !!s.pvp || !!arena, guestsBuild: s.guestsBuild !== false, cheats: mode === 'creative' ? s.cheats !== false : !!s.cheats, personalPacks: s.personalPacks !== false },
       region: cleanText(body.region, 8) || 'auto',
       ownerHash: await sha256(ownerSecret), time: 1000, weather: 'clear', dayCycle: true, muted: [], bans: {},
     };
@@ -424,13 +440,22 @@ export class WorldRoom extends DurableObject<Env> {
       this.sessions.delete(existing.ws);
       this.sim?.removePlayer(id);
     }
-    const name = cleanName(msg.name);
+    let name = cleanName(msg.name);
+    if (this.env.ACCOUNTS) {
+      try {
+        const acc = this.env.ACCOUNTS.get(this.env.ACCOUNTS.idFromName('global'));
+        const r = (await (await acc.fetch(`https://accounts/check?name=${encodeURIComponent(name)}&pid=${encodeURIComponent(id)}`)).json()) as { registered: boolean; owner: boolean; name: string | null };
+        if (r.registered && !r.owner) name = `~${name}`.slice(0, 16);
+        else if (r.owner && r.name) name = r.name;
+      } catch { /* accounts unavailable: keep the requested name */ }
+    }
     if (!row) this.sql.exec(`INSERT INTO players (id, secret, data) VALUES (?, ?, ?)`, id, hash, '');
     const sim = this.ensureSim();
     sim.setNow(Date.now());
     const p = this.playerFromData(id, name, row && row.data ? JSON.parse(row.data as string) : null);
     p.appearance = cleanAppearance(msg.appearance);
-    p.op = id === m.ownerId && hash === m.ownerHash;
+    p.op = (id === m.ownerId && hash === m.ownerHash) || !!m.ops?.some((o) => o.id === id && o.hash === hash);
+    s.hash = hash;
     const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.getChunk(pcx + dx, pcz + dz);
     sim.addPlayer(p);
@@ -515,6 +540,7 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       }
       case 'respawn': sim.respawn(p); return;
+      case 'buy': if (typeof msg.k === 'string') sim.buy(p, msg.k); return;
       case 'chat': this.handleChat(s, p, msg.text, sim); return;
       case 'room': this.handleRoomUpdate(s, p, msg); return;
       case 'kick': this.kick(s, msg.pid, 'kicked'); return;
@@ -533,6 +559,8 @@ export class WorldRoom extends DurableObject<Env> {
     if (text.startsWith('/')) {
       const [cmd, arg] = text.slice(1).split(/\s+/, 2);
       const lc = cmd.toLowerCase();
+      if (lc === 'admin') { void this.claimAdmin(s, p, arg ?? ''); return; }
+      if (lc === 'op' || lc === 'deop') { this.setOp(s, p, arg ?? '', lc === 'op', sim); return; }
       if (lc === 'list') { this.systemChat(`Online: ${[...sim.players.values()].map((x) => x.name).join(', ')}`, 'info', s); return; }
       if (lc === 'kick' || lc === 'mute' || lc === 'unmute') {
         const target = [...sim.players.values()].find((x) => x.name.toLowerCase() === (arg ?? '').toLowerCase());
@@ -550,8 +578,46 @@ export class WorldRoom extends DurableObject<Env> {
     this.broadcast({ t: 'chat', from: { id: p.id, name: p.name }, text, kind: 'chat', ts: now });
   }
 
+  private async claimAdmin(s: Session, p: SimPlayer, key: string): Promise<void> {
+    if (p.op) { this.systemChat('You already have admin rights in this world.', 'info', s); return; }
+    const secret = this.env.ADMIN_KEY;
+    if (!secret) { this.systemChat('This server has no admin key set. The world owner can grant admin with /op <name>.', 'error', s); return; }
+    const now = Date.now();
+    if (now - (s.adminT ?? 0) > 60000) { s.adminTries = 0; s.adminT = now; }
+    s.adminTries = (s.adminTries ?? 0) + 1;
+    if (s.adminTries > 3) { this.systemChat('Too many attempts. Wait a minute and try again.', 'error', s); return; }
+    const [a, b] = await Promise.all([sha256(key), sha256(secret)]);
+    let diff = a.length ^ b.length;
+    for (let i = 0; i < Math.min(a.length, b.length); i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    if (diff !== 0 || !key) { this.systemChat('That admin key is not correct.', 'error', s); return; }
+    this.grantOp(p, s, true);
+    this.systemChat(`${p.name} is now an admin.`);
+  }
+
+  private grantOp(p: SimPlayer, s: Session, on: boolean): void {
+    const m = this.meta!;
+    m.ops = (m.ops ?? []).filter((o) => o.id !== p.id);
+    if (on && s.hash) m.ops.push({ id: p.id, hash: s.hash });
+    p.op = on; s.op = on;
+    s.ws.serializeAttachment({ pid: p.id, name: p.name, op: on } satisfies Attachment);
+    this.saveMeta();
+    this.send(s, { t: 'room', room: this.publicMeta(), players: [...this.sim!.players.values()].map((x) => this.publicPlayer(x)) });
+    this.broadcast({ t: 'pj', p: this.publicPlayer(p) });
+  }
+
+  private setOp(s: Session, p: SimPlayer, name: string, on: boolean, sim: WorldSim): void {
+    if (!p.op) { this.systemChat('Only admins can change admin rights.', 'error', s); return; }
+    const target = [...sim.players.values()].find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (!target) { this.systemChat(`No player named ${name || '(blank)'} is online.`, 'error', s); return; }
+    if (!on && target.id === this.meta!.ownerId) { this.systemChat('The world owner always keeps admin rights.', 'error', s); return; }
+    const ts = this.sessionFor(target.id);
+    if (!ts) return;
+    this.grantOp(target, ts, on);
+    this.systemChat(on ? `${target.name} is now an admin.` : `${target.name} is no longer an admin.`);
+  }
+
   private handleRoomUpdate(s: Session, p: SimPlayer, msg: Extract<C2S, { t: 'room' }>): void {
-    if (!p.op) { this.systemChat('Only the world owner can change room settings.', 'error', s); return; }
+    if (!p.op) { this.systemChat('Only admins can change room settings.', 'error', s); return; }
     const m = this.meta!;
     if (typeof msg.name === 'string') m.name = cleanText(msg.name, 32) || m.name;
     if (msg.difficulty && DIFFICULTIES.includes(msg.difficulty)) { m.difficulty = msg.difficulty; this.sim!.difficulty = msg.difficulty; }
@@ -695,6 +761,12 @@ export class WorldRoom extends DurableObject<Env> {
       case 'weather': this.broadcast({ t: 'wx', w: ev.w }); return;
       case 'time': this.broadcast({ t: 'time', time: this.sim!.time, cycle: this.sim!.settings.dayCycle }); return;
       case 'crafted': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'crafted', r: ev.recipe.id, n: ev.times }); return; }
+      case 'game': this.broadcast({ t: 'game', s: ev.state as never }); return;
+      case 'title': {
+        const msg: S2C = { t: 'title', text: ev.text, sub: ev.sub };
+        if (ev.to) { const s = this.sessionFor(ev.to); if (s) this.send(s, msg); } else this.broadcast(msg);
+        return;
+      }
       default: return;
     }
   }

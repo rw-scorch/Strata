@@ -6,7 +6,7 @@ import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { WorldUniforms } from './ChunkMaterial';
-import { VANILLA, buildVanilla, boxUV } from './VanillaModels';
+import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, VanillaSpec, RigPart } from './VanillaModels';
 
 export const SKIN = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac, 0x5c3a21, 0xd4a373, 0xa0522d];
 export const HAIR = [0x2b1d0e, 0x5a3825, 0xb5651d, 0xe6c35c, 0x111111, 0xa83232, 0xdddddd, 0x3a5fcd];
@@ -14,7 +14,7 @@ export const CLOTH = [0x3366cc, 0xcc3333, 0x33aa55, 0xe0b030, 0x7a3fb5, 0x222831
 
 interface PartSpec { n: string; s: [number, number, number]; p: [number, number, number]; o?: [number, number, number]; c: number; e?: boolean; parent?: string; r?: [number, number, number]; }
 
-const MOB_PARTS: Record<MobType, PartSpec[]> = {
+const MOB_PARTS: Partial<Record<MobType, PartSpec[]>> = {
   woolhorn: [
     { n: 'body', s: [0.78, 0.66, 1.05], p: [0, 0.86, 0], c: 0xf0ead6 },
     { n: 'head', s: [0.42, 0.42, 0.48], p: [0, 1.05, -0.55], o: [0, 0.02, -0.18], c: 0xe8e0c8 },
@@ -166,7 +166,15 @@ export interface EntityView {
   hw: number; h: number;
   swing: number;
   bob: number;
+  age: number;
+  spd: number;
+  spec?: VanillaSpec;
+  rig?: Map<string, RigPart>;
+  limbs?: [THREE.Object3D, number][];
 }
+
+type Built = { obj: THREE.Group; parts: Map<string, THREE.Object3D>; mats: THREE.ShaderMaterial[]; spec?: VanillaSpec; rig?: Map<string, RigPart> };
+const armGeoCache: { g?: THREE.BufferGeometry } = {};
 
 export type LightProbe = (x: number, y: number, z: number) => number;
 
@@ -193,7 +201,7 @@ export class EntityRenderer {
     }
   }
 
-  private vanilla(key: MobType | 'player', skin = 0): { obj: THREE.Group; parts: Map<string, THREE.Object3D>; mats: THREE.ShaderMaterial[] } | null {
+  private vanilla(key: MobType | 'player', skin = 0): Built | null {
     const spec = VANILLA[key];
     if (!spec) return null;
     const count = this.atlas.playerSkinCount;
@@ -211,7 +219,7 @@ export class EntityRenderer {
       if (spec.overlay === 'spider_eyes') emissive = m; else overlay = m;
     }
     const b = buildVanilla(spec, main, overlay, emissive);
-    return { obj: b.obj, parts: b.parts, mats };
+    return { obj: b.obj, parts: b.parts, mats, spec, rig: b.rig };
   }
 
   private material(map: THREE.Texture | null = null, emissive = false): THREE.ShaderMaterial {
@@ -229,7 +237,7 @@ export class EntityRenderer {
         varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade;
         void main(){ vec4 base = vec4(vColor, 1.0);
           if (uUseMap > 0.5) { vec4 t = texture2D(uMap, vUv); if (t.a < 0.5) discard; base.rgb *= t.rgb; }
-          float l = mix(uLight * vShade, 1.0, uEmissive);
+          float l = mix(uLight * vShade, 1.6, uEmissive);
           vec3 c = mix(base.rgb * l, vec3(1.0, 0.12, 0.08), uHurt * 0.55);
           gl_FragColor = vec4(mix(c, uFogColor, smoothstep(uFogNear, uFogFar, vFog)), uOpacity); }`,
       side: map ? THREE.DoubleSide : THREE.FrontSide,
@@ -257,23 +265,20 @@ export class EntityRenderer {
     return { obj, parts, mats: [mat, emat] };
   }
 
-  armModel(skin: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[] } {
+  armModel(skin: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[]; vanilla: boolean } {
     const obj = new THREE.Group();
     const count = this.atlas.playerSkinCount;
     const tex = count ? this.atlas.entityTextures.get(`player${skin % count}`) : undefined;
     if (tex) {
       const m = this.material(tex);
-      m.side = THREE.FrontSide;
-      const g = new THREE.BoxGeometry(0.2, 0.7, 0.2);
-      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 3).fill(1), 3));
-      boxUV(g, [4, 12, 4], [40, 16], 64, 64, false);
-      obj.add(new THREE.Mesh(g, m));
-      return { obj, mats: [m] };
+      armGeoCache.g ??= cubesGeometry(PLAYER_ARM_CUBES, 64, 64);
+      obj.add(new THREE.Mesh(armGeoCache.g, m));
+      return { obj, mats: [m], vanilla: true };
     }
     const m = this.material();
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 0.2).setAttribute('color', boxGeo([0.2, 0.7, 0.2], SKIN[skin % SKIN.length]).getAttribute('color').clone()), m);
+    const arm = new THREE.Mesh(boxGeo([0.2, 0.7, 0.2], SKIN[skin % SKIN.length]), m);
     obj.add(arm);
-    return { obj, mats: [m] };
+    return { obj, mats: [m], vanilla: false };
   }
 
   itemModel(itemId: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[] } {
@@ -315,7 +320,19 @@ export class EntityRenderer {
     return { obj, mats: [m] };
   }
 
-  private nameTag(name: string): THREE.Sprite {
+  private tags = new Map<string, { name: string; color: string }>();
+
+  setTags(map: Map<string, { name: string; color: string }>): void {
+    this.tags = map;
+    for (const [id, tg] of map) {
+      const v = this.views.get(id);
+      if (!v || v.kind !== 'mob' || v.name === tg.name) continue;
+      if (v.tag) v.obj.remove(v.tag);
+      v.name = tg.name; v.tag = this.nameTag(tg.name, tg.color); v.obj.add(v.tag);
+    }
+  }
+
+  private nameTag(name: string, color = '#fff'): THREE.Sprite {
     const c = document.createElement('canvas');
     const g = c.getContext('2d')!;
     g.font = 'bold 28px system-ui, sans-serif';
@@ -324,7 +341,7 @@ export class EntityRenderer {
     g.font = 'bold 28px system-ui, sans-serif';
     g.fillStyle = 'rgba(0,0,0,0.45)';
     g.fillRect(0, 0, w, 40);
-    g.fillStyle = '#fff';
+    g.fillStyle = color;
     g.textBaseline = 'middle';
     g.fillText(name, 10, 21);
     const t = new THREE.CanvasTexture(c);
@@ -342,11 +359,15 @@ export class EntityRenderer {
       v = undefined;
     }
     if (!v) {
-      let built: { obj: THREE.Group; parts: Map<string, THREE.Object3D>; mats: THREE.ShaderMaterial[] };
+      let built: Built;
       let hw = 0.3, h = 1.8;
       if (kind === 'mob') {
         const def = MOB_BY_CODE[type] ?? MOBS.woolhorn;
-        built = this.vanilla(def.type) ?? this.build(MOB_PARTS[def.type]);
+        if (def.npc) {
+          const n = Number(id.replace(/\D/g, '')) || 0;
+          const ap = def.type === 'quartermaster' ? { skin: 3, hair: 5, shirt: 7, pants: 2 } : { skin: n % 6, hair: n % 8, shirt: (n * 3) % 12, pants: (n * 5) % 12 };
+          built = this.vanilla('player', def.type === 'quartermaster' ? 7 : n) ?? this.build(playerParts(ap));
+        } else built = this.vanilla(def.type) ?? this.build(MOB_PARTS[def.type] ?? MOB_PARTS.woolhorn!);
         hw = def.hw; h = def.h;
       } else if (kind === 'player') {
         const ap = opts?.appearance ?? { skin: 0, hair: 0, shirt: 0, pants: 0 };
@@ -370,14 +391,22 @@ export class EntityRenderer {
       v = {
         id, kind, type, obj: built.obj, parts: built.parts, mats: built.mats, snaps: [], x, y, z, yaw, pitch, flags, extra,
         walk: 0, lastX: x, lastZ: z, dying: 0, hurtT: 0, lightT: 0, light: 1, hw, h, swing: 0, bob: Math.random() * 6,
+        age: Math.random() * 100, spd: 0, spec: built.spec, rig: built.rig,
+        limbs: [...built.parts].filter(([n]) => /^leg([0-3LR])$/.test(n)).map(([n, o]) => { const c = n.slice(3); return [o, c === 'L' ? 0 : c === 'R' ? 1 : Number(c)] as [THREE.Object3D, number]; }),
       };
       if (kind === 'player' && opts?.name) { v.name = opts.name; v.tag = this.nameTag(opts.name); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; }
+      if (kind === 'mob') {
+        const def = MOB_BY_CODE[type];
+        const tg = this.tags.get(id) ?? (def?.type === 'quartermaster' ? { name: 'Quartermaster', color: '#f3d27a' } : undefined);
+        if (tg) { v.name = tg.name; v.tag = this.nameTag(tg.name, tg.color); v.obj.add(v.tag); }
+      }
       v.obj.position.set(x, y, z);
       this.group.add(v.obj);
       this.views.set(id, v);
     }
     if ((flags & 1) && !(v.flags & 1) && kind === 'mob') v.hurtT = 0.4;
     if (kind === 'player' && (flags & 1024) && !(v.flags & 1024)) v.swing = 1;
+    if (kind === 'mob' && (flags & 4) && !(v.flags & 4)) v.swing = 1;
     v.flags = flags;
     v.extra = extra;
     v.snaps.push({ t: now, x, y, z, yaw, pitch });
@@ -424,7 +453,8 @@ export class EntityRenderer {
       const moved = Math.hypot(v.x - v.lastX, v.z - v.lastZ);
       v.lastX = v.x; v.lastZ = v.z;
       v.walk += moved * 4.5;
-      const speed = dt > 0 ? moved / dt : 0;
+      v.spd += ((dt > 0 ? moved / dt : 0) - v.spd) * Math.min(1, dt * 12);
+      const speed = v.spd;
       const amp = Math.min(1, speed / 3);
       v.obj.position.set(v.x, v.y, v.z);
       if (v.kind === 'item') {
@@ -435,38 +465,23 @@ export class EntityRenderer {
         v.obj.rotation.set(0, v.yaw, 0);
       } else {
         v.obj.rotation.y = v.yaw;
-        const sw = Math.sin(v.walk) * 0.8 * amp;
-        const p = v.parts;
-        for (const [n, o] of p) {
-          const m = /^leg([0-3LR])$/.exec(n);
-          if (!m) continue;
-          const idx = m[1] === 'L' ? 0 : m[1] === 'R' ? 1 : Number(m[1]);
-          o.rotation.x = idx === 0 || idx === 3 ? sw : -sw;
-        }
-        if (v.kind === 'mob' && MOB_BY_CODE[v.type]?.type === 'duskweaver') {
-          for (let i = 0; i < 4; i++) {
-            const a = Math.sin(v.walk * 1.5 + i * 1.6) * 0.35 * amp;
-            const l = p.get(`legL${i}`), r = p.get(`legR${i}`);
-            if (l) l.rotation.y = (i - 1.5) * 0.35 + a;
-            if (r) r.rotation.y = -(i - 1.5) * 0.35 - a;
-          }
-        }
-        const armL = p.get('armL'), armR = p.get('armR');
+        v.age += dt * 20;
+        if (v.swing > 0) v.swing = Math.max(0, v.swing - dt * 4);
         const aggressive = (v.flags & 16) !== 0;
-        if (armL && armR) {
-          if (v.kind === 'mob' && aggressive && MOB_BY_CODE[v.type]?.type !== 'rattlebone') { armL.rotation.x = -1.45 + sw * 0.1; armR.rotation.x = -1.45 - sw * 0.1; }
-          else if (v.kind === 'mob' && MOB_BY_CODE[v.type]?.type === 'rattlebone' && aggressive) { armR.rotation.x = -1.5; armL.rotation.x = -1.3; armL.rotation.y = 0.5; }
-          else { armL.rotation.x = -sw * 0.9; armR.rotation.x = sw * 0.9; armL.rotation.y = 0; }
-          if (v.swing > 0) { v.swing = Math.max(0, v.swing - dt * 4); armR.rotation.x = -Math.sin(v.swing * Math.PI) * 1.6; }
+        const mtype = v.kind === 'mob' ? MOB_BY_CODE[v.type]?.type ?? '' : 'player';
+        if (v.spec && v.rig) {
+          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0, type: mtype });
+        } else {
+          this.animateSimple(v, amp, aggressive, mtype);
         }
-        const head = p.get('head');
-        if (head) { head.rotation.x = v.kind === 'player' ? -v.pitch * 0.8 : 0; }
         if (v.kind === 'player') {
           const crouch = (v.flags & 2) !== 0;
-          const body = p.get('body');
-          if (body) body.rotation.x = crouch ? 0.35 : 0;
+          if (!v.rig) {
+            const body = v.parts.get('body'), head = v.parts.get('head');
+            if (body) body.rotation.x = crouch ? -0.35 : 0;
+            if (head) head.position.z = crouch ? -0.12 : 0;
+          }
           v.obj.position.y -= crouch ? 0.12 : 0;
-          if (head) head.position.z = crouch ? -0.12 : 0;
           if (v.tag) v.tag.visible = !crouch;
           v.obj.visible = !(v.flags & (1 << 14));
         }
@@ -480,10 +495,33 @@ export class EntityRenderer {
       }
       v.lightT -= dt;
       if (v.lightT <= 0) { v.lightT = 0.25 + Math.random() * 0.1; v.light = this.probe(v.x, v.y + Math.min(1.2, v.h * 0.6), v.z); }
-      const hurt = v.hurtT > 0 || (v.flags & 1) ? 1 : 0;
+      const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
       for (const m of v.mats) { m.uniforms.uLight.value = v.light; if (!v.dying) m.uniforms.uHurt.value = hurt; }
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
+  }
+
+  private animateSimple(v: EntityView, amp: number, aggressive: boolean, mtype: string): void {
+    const sw = Math.sin(v.walk) * 0.8 * amp;
+    const p = v.parts;
+    for (const [o, idx] of v.limbs ?? []) o.rotation.x = idx === 0 || idx === 3 ? sw : -sw;
+    if (mtype === 'duskweaver') {
+      for (let i = 0; i < 4; i++) {
+        const a = Math.sin(v.walk * 1.5 + i * 1.6) * 0.35 * amp;
+        const l = p.get(`legL${i}`), r = p.get(`legR${i}`);
+        if (l) l.rotation.y = (i - 1.5) * 0.35 + a;
+        if (r) r.rotation.y = -(i - 1.5) * 0.35 - a;
+      }
+    }
+    const armL = p.get('armL'), armR = p.get('armR');
+    if (armL && armR) {
+      if (mtype === 'hollowed') { const up = aggressive ? 2.09 : 1.4; armL.rotation.x = up + sw * 0.1; armR.rotation.x = up - sw * 0.1; }
+      else if (mtype === 'rattlebone' && aggressive) { armR.rotation.x = 1.5; armL.rotation.x = 1.3; armL.rotation.y = 0.5; }
+      else { armL.rotation.x = -sw * 0.9; armR.rotation.x = sw * 0.9; armL.rotation.y = 0; }
+      if (v.swing > 0) armR.rotation.x = Math.sin(v.swing * Math.PI) * 1.6;
+    }
+    const head = p.get('head');
+    if (head) head.rotation.x = v.kind === 'player' ? v.pitch * 0.8 : 0;
   }
 
   pick(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, filter: (v: EntityView) => boolean): { view: EntityView; dist: number } | null {
