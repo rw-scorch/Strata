@@ -30,7 +30,7 @@ export const I = {
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
-  ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290,
+  ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293,
 } as const;
 
 export const TOOL_MATERIALS = ['wood', 'stone', 'iron', 'gold', 'aetherite'] as const;
@@ -93,6 +93,9 @@ add({ id: I.LAVA_BUCKET, key: 'lava_bucket', name: 'Lava Bucket', desc: 'Pour ou
 const food = (id: number, key: string, name: string, desc: string, hunger: number, saturation: number) =>
   add({ id, key, name, desc, kind: 'food', texture: key, food: { hunger, saturation }, tab: 'food' });
 food(I.APPLE, 'apple', 'Apple', 'Crisp fruit from oak canopies.', 4, 2.4);
+food(I.GOLDEN_APPLE, 'golden_apple', 'Golden Apple', 'An apple sealed in gold. Deeply restoring.', 4, 9.6);
+food(I.MUSHROOM_STEW, 'mushroom_stew', 'Mushroom Stew', 'Warm and earthy.', 6, 7.2);
+mat(I.BOWL, 'bowl', 'Bowl', 'Carved from planks. Holds stew.');
 food(I.RAW_PORK, 'raw_pork', 'Raw Mudsnout Haunch', 'Better cooked.', 3, 1.8);
 food(I.COOKED_PORK, 'cooked_pork', 'Roast Haunch', 'Hearty and filling.', 8, 12.8);
 food(I.RAW_MUTTON, 'raw_mutton', 'Raw Woolhorn Chop', 'Better cooked.', 2, 1.2);

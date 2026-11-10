@@ -286,7 +286,7 @@ void main() {
   float flick = 1.0 + 0.035 * sin(uTime * 9.0 + dot(floor(vWorld), vec3(1.7, 2.3, 1.1)));
   float blk = curve(vLight.y) * flick;
   vec3 light = max(vec3(sky) * uSkyColor, vec3(blk) * vec3(1.0, 0.86, 0.66));
-  light = max(light, vec3(0.03 + uBrightness * 0.07));
+  light = max(light, vec3(0.1 + uBrightness * 0.12) * vec3(0.92, 0.95, 1.0));
   light *= (0.42 + 0.58 * vLight.z) * vLight.w;
   light += vec3(uFlash * skyL);
   vec3 albedo = c.rgb;

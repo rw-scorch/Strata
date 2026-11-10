@@ -56,6 +56,10 @@ shapeless('red_dye', 'decor', I.RED_DYE, 1, [B.POPPY]);
 shapeless('yellow_dye', 'decor', I.YELLOW_DYE, 1, [B.DANDELION]);
 shapeless('red_wool', 'decor', B.RED_WOOL, 1, [B.WHITE_WOOL, I.RED_DYE]);
 shapeless('yellow_wool', 'decor', B.YELLOW_WOOL, 1, [B.WHITE_WOOL, I.YELLOW_DYE]);
+shaped('clay_block', 'building', B.CLAY, 1, ['CC', 'CC'], { C: I.CLAY_BALL });
+shaped('golden_apple', 'food', I.GOLDEN_APPLE, 1, ['GGG', 'GAG', 'GGG'], { G: I.GOLD_INGOT, A: I.APPLE });
+shaped('bowl', 'basics', I.BOWL, 4, ['P P', ' P '], { P: 'planks' });
+shapeless('mushroom_stew', 'food', I.MUSHROOM_STEW, 1, [I.BOWL, B.RED_MUSHROOM, B.BROWN_MUSHROOM]);
 shaped('arrow', 'combat', I.ARROW, 4, ['F', 'S', 'E'], { F: I.FLINT, S: I.STICK, E: I.FEATHER });
 shaped('iron_block', 'building', B.IRON_BLOCK, 1, ['III', 'III', 'III'], { I: I.IRON_INGOT });
 shaped('gold_block', 'building', B.GOLD_BLOCK, 1, ['III', 'III', 'III'], { I: I.GOLD_INGOT });
@@ -171,6 +175,7 @@ export const SMELTING: SmeltRecipe[] = [
   { input: I.RAW_PORK, result: I.COOKED_PORK, xp: 0.35 },
   { input: I.RAW_MUTTON, result: I.COOKED_MUTTON, xp: 0.35 },
   { input: I.RAW_POULTRY, result: I.COOKED_POULTRY, xp: 0.35 },
+  { input: B.CLAY, result: B.BRICKS, xp: 0.35 },
 ];
 
 export function findSmelt(id: number): SmeltRecipe | null {

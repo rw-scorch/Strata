@@ -185,7 +185,7 @@ export class PostFX {
           float mie = pow(max(dot(rd, uSunDir), 0.0), 8.0);
           vec3 inscat = uFogColor * (0.8 + 0.2 * uDay) + uSunColor * mie * 0.5 * uDay * (1.0 - uRain);
           col = mix(col, inscat, fogAmt * (sky ? 0.35 : 1.0));
-          if (uCave > 0.0 && !sky) col = mix(col, vec3(0.025, 0.03, 0.04), (1.0 - exp(-dist * 0.035)) * uCave);
+          if (uCave > 0.0 && !sky) col = mix(col, vec3(0.06, 0.065, 0.08), (1.0 - exp(-dist * 0.02)) * uCave * 0.6);
         }
         if (uRaysOn > 0.5) col += texture2D(uRays, uv).rgb;
         col += texture2D(uBloom, uv).rgb * uBloomAmt;

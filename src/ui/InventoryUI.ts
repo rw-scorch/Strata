@@ -134,8 +134,17 @@ export class InventoryUI {
       d.active = true;
       const s = this.findSlot(d.from);
       if (s?.ref && !d.long && !this.session?.me.inv.cursor) this.op({ t: 'click', s: s.ref, b: 0 });
+      this.painted = new Set();
+    }
+    if (d.active && this.session?.me.inv.cursor) {
+      const t = this.findSlot(document.elementFromPoint(e.clientX, e.clientY));
+      if (t?.ref && t.ref.c === 'craft' && !this.painted.has(t.el)) {
+        const cur = this.session.me.inv.cursor, here = t.get();
+        if (!here || (here.id === cur.id && here.count < 64)) { this.painted.add(t.el); this.op({ t: 'click', s: t.ref, b: 1 }); }
+      }
     }
   }
+  private painted = new Set<HTMLElement>();
 
   private onPointerUp(e: PointerEvent): void {
     const d = this.drag;
@@ -146,14 +155,18 @@ export class InventoryUI {
     const target = this.findSlot(over);
     const touch = e.pointerType !== 'mouse';
     if (d.active) {
-      if (target && target.el !== d.from && target.ref && this.session?.me.inv.cursor) this.op({ t: 'click', s: target.ref, b: 0 });
+      const paintedAny = this.painted.size > 0;
+      this.painted = new Set();
+      if (!paintedAny && target && target.el !== d.from && target.ref && this.session?.me.inv.cursor) this.op({ t: 'click', s: target.ref, b: 0 });
       return;
     }
     if (!touch || d.long) return;
     const s = this.findSlot(d.from);
     if (!s?.ref) return;
     const now = performance.now();
-    this.op({ t: 'click', s: s.ref, b: 0 });
+    const cur = this.session?.me.inv.cursor, here = s.get();
+    const one = !!cur && s.ref.c === 'craft' && (!here || here.id === cur.id);
+    this.op({ t: 'click', s: s.ref, b: one ? 1 : 0 });
     if (this.lastTap.el === d.from && now - this.lastTap.t < 320) {
       this.op({ t: 'quick', s: s.ref });
       this.lastTap = { el: null, t: 0 };

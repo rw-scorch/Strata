@@ -1,3 +1,4 @@
+import { Minimap } from './Minimap';
 import { h, clear, toast, modal, toggle, segmented, copyText, confirmDialog, slider } from './dom';
 import type { ChatKind } from '../game/Session';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
@@ -6,6 +7,7 @@ import { BLOCKS } from '../core/blocks';
 import { getItem } from '../core/items';
 
 export class ChatUI {
+  onWaypoint: ((w: { name: string; x: number; y: number; z: number }) => void) | null = null;
   private box: HTMLElement;
   private row: HTMLElement;
   private input: HTMLInputElement;
@@ -62,7 +64,9 @@ export class ChatUI {
     if (from && this.localMuted.has(from.id)) return;
     const d = new Date(ts);
     const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    const el = h('div', { class: `line ${from ? 'chat' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, `${from.name}:`) : null, text);
+    const wp = Minimap.parse(text);
+    const el = h('div', { class: `line ${from ? 'chat' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, `${from.name}:`) : null, text,
+      wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, 'Save waypoint') : null);
     this.box.appendChild(el);
     this.lines.push({ el, t: performance.now() });
     while (this.lines.length > 60) this.lines.shift()!.el.remove();

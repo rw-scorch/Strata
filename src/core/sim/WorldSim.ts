@@ -884,8 +884,14 @@ export class WorldSim {
     p.lastEat = this.now;
     p.food = Math.min(20, p.food + food.hunger);
     p.sat = Math.min(p.food, p.sat + food.saturation);
-    if (stack!.id === I.ROTTEN_FLESH && this.rng.chance(0.8)) p.exh += 6;
-    if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+    const eatenId = stack!.id;
+    if (eatenId === I.ROTTEN_FLESH && this.rng.chance(0.8)) p.exh += 6;
+    if (eatenId === I.GOLDEN_APPLE) p.health = Math.min(20, p.health + 4);
+    if (p.mode === 'survival') {
+      consumeHeld(p.inv);
+      if (eatenId === I.MUSHROOM_STEW) { if (!heldStack(p.inv)) p.inv.slots[p.inv.selected] = { id: I.BOWL, count: 1 }; else if (giveItem(p.inv, { id: I.BOWL, count: 1 }) > 0) this.spawnItem(p.x, p.y + 1, p.z, { id: I.BOWL, count: 1 }); }
+      this.emit({ e: 'inv', p });
+    }
     this.emit({ e: 'sound', s: 'player.burp', x: p.x, y: p.y + 1.5, z: p.z });
     this.emit({ e: 'vitals', p });
     return true;
@@ -1633,7 +1639,8 @@ export class WorldSim {
         return `Weather set to ${w}.`;
       }
       case 'gamemode': case 'gm': {
-        if (!p.op && !this.settings.cheats) return need();
+        if (!this.settings.cheats) return 'Game modes are locked in this world. The mode is chosen when the world is created.';
+        if (!p.op) return need();
         const m = parts[1]?.startsWith('c') ? 'creative' : parts[1]?.startsWith('s') ? 'survival' : null;
         if (!m) return 'Usage: /gamemode survival|creative';
         p.mode = m;

@@ -16,6 +16,7 @@ import type { GameSession, SessionEvents, Vitals } from './Session';
 import { LocalSession } from './LocalSession';
 import { RemoteSession } from '../multiplayer/RemoteSession';
 import { ArenaUI } from '../ui/ArenaUI';
+import { Minimap } from '../ui/Minimap';
 import type { ArenaKind } from '../core/minigames/arena';
 import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
@@ -90,6 +91,7 @@ export class Game {
 
   private arena!: ArenaUI;
   private caveFx = 0;
+  private minimap: Minimap | null = null;
   constructor(app: AppHooks, atlas: TextureAtlas) {
     if (import.meta.env.DEV) Object.assign(window, { __strata: this, __settings: updateSettings });
     this.app = app;
@@ -248,6 +250,19 @@ export class Game {
   }
 
   private begin(): void {
+    const info = this.session.info;
+    this.minimap?.dispose();
+    this.minimap = new Minimap(document.getElementById('hud-root')!, {
+      pos: () => ({ x: this.player.x, y: this.player.y, z: this.player.z, yaw: this.player.yaw }),
+      getBlock: (x, y, z) => this.chunks.getBlock(x, y, z),
+      isLoaded: (x, z) => this.chunks.isLoaded(x, z),
+      players: () => [...this.renderer.entities.views.values()].filter((v) => v.kind === 'player' && v.id !== this.session.me.id).map((v) => ({ name: v.name ?? '', x: v.obj.position.x, z: v.obj.position.z })),
+      camera: this.renderer.camera,
+      sendChat: (t) => this.session.chat(t),
+      toast: (t) => toast(t, 'info'),
+      setModal: (open) => { if (open) { this.desktop.unlock(); this.setState('inventory'); } else if (this.state === 'inventory') this.setState('playing'); },
+    }, info.kind === 'remote' ? `room:${info.roomCode}` : `local:${info.seed}:${info.name}`);
+    this.chatUI.onWaypoint = (w) => { this.minimap?.add(w.name, w.x, w.y, w.z); toast(`Saved waypoint ${w.name}.`, 'info'); };
     this.running = true;
     this.loadStart = performance.now();
     this.last = performance.now();
@@ -390,6 +405,8 @@ export class Game {
   }
 
   private dispose(): void {
+    this.minimap?.dispose();
+    this.minimap = null;
     this.closePause?.();
     this.closeDeath?.();
     this.inv?.close(true);
@@ -693,6 +710,7 @@ export class Game {
 
     this.hud.tick(dt);
     this.chatUI.tick();
+    if (!loading) this.minimap?.update();
     this.hud.updateVitals(this.vitals, this.hurtShake > 0);
     this.frames++;
     this.fpsT += dt;

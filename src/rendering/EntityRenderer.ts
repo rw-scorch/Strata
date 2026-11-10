@@ -497,7 +497,7 @@ export class EntityRenderer {
       v.lightT -= dt;
       if (v.lightT <= 0) { v.lightT = 0.25 + Math.random() * 0.1; v.light = this.probe(v.x, v.y + Math.min(1.2, v.h * 0.6), v.z); }
       const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
-      for (const m of v.mats) { m.uniforms.uLight.value = v.light; if (!v.dying) m.uniforms.uHurt.value = hurt; }
+      for (const m of v.mats) { m.uniforms.uLight.value = Math.max(0.2, v.light); if (!v.dying) m.uniforms.uHurt.value = hurt; }
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
   }

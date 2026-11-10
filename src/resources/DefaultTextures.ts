@@ -447,6 +447,7 @@ const ARMOR_SHAPES: string[][] = [
   ['................', '................', '................', '................', '................', '...bbb....bbb...', '...bcb....bcb...', '...bcb....bcb...', '..bccb...bccb...', '..bbbb...bbbb...', '................', '................', '................', '................', '................', '................'],
 ];
 
+const BOWL_ROWS = ['................', '................', '................', '................', '................', '................', '.aaaaaaaaaaaaaa.', '.acccccccccccca.', '.abbbbbbbbbbbba.', '..abbbbbbbbbba..', '..abbbbbbbbbba..', '...abbbbbbbba...', '....aaaaaaaa....', '................', '................', '................'];
 const SPRITES: Record<string, { rows: string[]; pal: Record<string, number> }> = {
   stick: { rows: ['................', '................', '................', '...........hH...', '..........hH....', '.........hH.....', '........hH......', '.......hH.......', '......hH........', '.....hH.........', '....hH..........', '...hH...........', '...h............', '................', '................', '................'], pal: { h: 0x5e4527, H: 0x8a6a3e } },
   coal: { rows: ['................', '................', '.....aaaa.......', '....abbbba......', '...abbcbbba.....', '...abbbbbbaa....', '..abcbbbbbbba...', '..abbbbbbcbba...', '..abbbbbbbbba...', '...abbcbbbba....', '....abbbbba.....', '.....aaaaa......', '................', '................', '................', '................'], pal: { a: 0x0e0e0e, b: 0x2b2b2b, c: 0x555555 } },
@@ -506,6 +507,9 @@ const ITEM_MAP: Record<string, () => Px> = {
   bone: () => drawSprite(SPRITES.bone.rows, SPRITES.bone.pal),
   leather: () => drawSprite(SPRITES.leather.rows, SPRITES.leather.pal),
   apple: () => drawSprite(SPRITES.apple.rows, SPRITES.apple.pal),
+  golden_apple: () => drawSprite(SPRITES.apple.rows, Object.fromEntries(Object.entries(SPRITES.apple.pal).map(([k, v]) => [k, k === 'g' || k === 'h' ? v : (v & 0x0000ff) < 0x40 ? 0xe8b020 : 0xfff090]))),
+  bowl: () => drawSprite(BOWL_ROWS, { a: 0x4a2c10, b: 0x8a5a2a, c: 0x4a2c10 }),
+  mushroom_stew: () => drawSprite(BOWL_ROWS, { a: 0x4a2c10, b: 0x8a5a2a, c: 0xb07a4a }),
   bread: () => drawSprite(SPRITES.bread.rows, SPRITES.bread.pal),
   raw_pork: () => drawSprite(SPRITES.meat.rows, SPRITES.meat.pal),
   cooked_pork: () => drawSprite(SPRITES.cooked.rows, SPRITES.cooked.pal),

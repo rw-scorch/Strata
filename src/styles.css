@@ -349,3 +349,23 @@ body.vanilla-slots .inv-screen .slot.hover { filter: brightness(1.25); }
 .form-error { color: #ff8a7a; font-weight: 700; min-height: 1.2em; font-size: 14px; }
 .account-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); }
 .btn.danger { color: #ff9a8a; }
+
+/* Minimap and waypoints */
+.minimap { position: fixed; top: calc(46px + var(--sat)); left: calc(10px + var(--sal)); pointer-events: auto; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 3px; z-index: 4; }
+.mm-canvas { width: 150px; height: 150px; border-radius: 10px; border: 2px solid rgba(0, 0, 0, 0.55); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); image-rendering: pixelated; }
+.mm-coords { font: 700 12px ui-monospace, Menlo, monospace; color: #fff; background: rgba(12, 16, 22, 0.6); padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+.wp-markers { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.wp-marker { position: absolute; left: 0; top: 0; padding: 2px 7px; border-radius: 6px; background: rgba(10, 14, 20, 0.6); color: #fff; font: 700 12px system-ui, sans-serif; white-space: nowrap; border-bottom: 3px solid var(--wpc, #fff); }
+.map-card { width: min(600px, 96vw); max-height: 94vh; overflow: auto; }
+.map-wrap { position: relative; align-self: center; }
+.mm-big { border-radius: 10px; border: 2px solid rgba(0, 0, 0, 0.5); image-rendering: pixelated; max-width: 100%; }
+.map-zoom { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.map-zoom .btn { min-width: 40px; min-height: 40px; font-size: 18px; }
+.wp-list { display: flex; flex-direction: column; gap: 6px; }
+.wp-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.05); flex-wrap: wrap; }
+.wp-sw { width: 26px; height: 26px; border-radius: 7px; border: 2px solid rgba(0, 0, 0, 0.5); cursor: pointer; flex: none; }
+.wp-info { flex: 1; min-width: 120px; }
+.wp-save { pointer-events: auto; margin-left: 8px; padding: 2px 8px; border-radius: 6px; border: 0; background: #f3c969; color: #1a1408; font-weight: 800; cursor: pointer; }
+@media (max-width: 700px) { .mm-canvas { width: 110px; height: 110px; } }
+#hud-root { position: relative; z-index: 6; }
+#hud-root > .minimap, #hud-root > .wp-markers { z-index: 6; }
