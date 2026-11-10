@@ -299,6 +299,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
           if (def.orientable && fo.nz) { fo.front = fo.nz; fo.nz = fo.pz ?? fo.px; }
         }
       }
+      if (def.key === 'snowy_grass') { fo.py = 'block/snow'; delete fo.overlay; }
       const vals = Object.values(fo).filter(Boolean) as string[];
       if (vals.length) {
         blockFaces[def.key] = fo;

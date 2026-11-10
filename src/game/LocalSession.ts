@@ -152,6 +152,7 @@ export class LocalSession implements GameSession {
   digDone(x: number, y: number, z: number): void { this.sim.setNow(performance.now()); this.sim.digFinish(this.me, x, y, z); }
   use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false): void { this.sim.use(this.me, x, y, z, nx, ny, nz, force); }
   eat(): void { this.sim.setNow(performance.now()); this.sim.eat(this.me); }
+  useEntity(id: string): void { this.sim.setNow(performance.now()); this.sim.useEntity(this.me, Number(id)); }
   attack(id: string): void { this.sim.setNow(performance.now()); this.sim.attack(this.me, Number(id)); }
   attackPlayer(): void { /* single player */ }
   invOp(op: InvOp): void { this.sim.invOp(this.me, op); this.ev.inventory(this.me.inv); }

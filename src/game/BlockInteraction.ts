@@ -1,3 +1,4 @@
+import { MOB_BY_CODE } from '../core/sim/mobs';
 import * as THREE from 'three';
 import { raycast, RayHit } from '../core/physics';
 import { getBlock, selectionBox, blockId } from '../core/blocks';
@@ -59,6 +60,14 @@ export class BlockInteraction {
     this.entityTarget = entityFirst ? ent!.view : null;
     this.target = entityFirst ? null : hit;
 
+    const lure = this.entityTarget?.kind === 'mob' && held ? MOB_BY_CODE[this.entityTarget.type]?.lure?.includes(held.id) : false;
+    if (this.entityTarget && lure && input.usePressed && this.useCd <= 0) {
+      session.useEntity(this.entityTarget.id);
+      this.useCd = 0.3;
+      this.onSwing?.();
+      input.usePressed = false;
+      if (input.touchAim && !input.breaking) input.touchAim = null;
+    }
     if (this.entityTarget && (input.attackPressed || (input.usePressed && input.touchAim)) && this.attackCd <= 0) {
       const v = this.entityTarget;
       if (v.kind === 'mob') session.attack(v.id);

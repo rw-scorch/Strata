@@ -526,6 +526,7 @@ export class WorldRoom extends DurableObject<Env> {
       }
       case 'eat': sim.eat(p); return;
       case 'atk': if (isInt(msg.id, 0, 1e9)) sim.attack(p, msg.id); return;
+      case 'ue': if (isInt(msg.id, 0, 1e9)) sim.useEntity(p, msg.id); return;
       case 'pvp': if (typeof msg.pid === 'string') sim.attackPlayer(p, msg.pid); return;
       case 'inv': {
         const op = validateOp(msg.op);

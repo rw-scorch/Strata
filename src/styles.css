@@ -168,9 +168,9 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .crosshair.target::before, .crosshair.target::after { background: #ffd27a; }
 .hud-bottom { position: absolute; left: 50%; bottom: calc(6px + var(--sab)); transform: translateX(-50%) scale(var(--hud-scale)); transform-origin: bottom center; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .vitals { display: flex; justify-content: space-between; width: calc(var(--slot) * 9 + 16px); align-items: flex-end; gap: 8px; }
-.icons-row { display: flex; gap: 0; flex-wrap: wrap-reverse; max-width: 50%; }
+.icons-row { display: flex; gap: 0; flex-wrap: nowrap; }
 .icons-row.right { flex-direction: row-reverse; }
-.icons-row img { width: 18px; height: 18px; image-rendering: pixelated; margin-right: -1px; }
+.icons-row img { width: calc(var(--slot) * 0.42); height: calc(var(--slot) * 0.42); image-rendering: pixelated; margin-right: -1px; }
 .icons-row.shake img { animation: shake 0.3s; }
 @keyframes shake { 25% { transform: translateY(-2px); } 75% { transform: translateY(2px); } }
 .xpbar { width: calc(var(--slot) * 9 + 6px); height: 8px; background: #111; border: 1px solid #000; border-radius: 3px; position: relative; overflow: hidden; }

@@ -328,6 +328,7 @@ export class RemoteSession implements GameSession {
     this.ev?.inventory(this.me.inv);
   }
   eat(): void { this.sim.eat(this.me); this.send({ t: 'eat' }); this.ev?.inventory(this.me.inv); }
+  useEntity(id: string): void { this.flushMove(); this.send({ t: 'ue', id: Number(id) }); }
   attack(id: string): void { this.flushMove(); this.send({ t: 'atk', id: Number(id) }); }
   attackPlayer(pid: string): void { this.flushMove(); this.send({ t: 'pvp', pid }); }
   invOp(op: InvOp): void {

@@ -465,6 +465,7 @@ export class EntityRenderer {
         v.obj.rotation.set(0, v.yaw, 0);
       } else {
         v.obj.rotation.y = v.yaw;
+        v.obj.scale.setScalar(v.kind === 'mob' && (v.flags & 128) ? 0.55 : 1);
         v.age += dt * 20;
         if (v.swing > 0) v.swing = Math.max(0, v.swing - dt * 4);
         const aggressive = (v.flags & 16) !== 0;

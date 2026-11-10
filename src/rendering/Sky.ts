@@ -35,7 +35,7 @@ export function computeSky(time: number, rain: number, thunder: number): SkyStat
     day *= 1 - rain * 0.25 - thunder * 0.2;
   }
   const skyLight = new THREE.Color(1, 1, 1).lerp(new THREE.Color(1, 0.8, 0.65), sunset * 0.5).lerp(new THREE.Color(0.6, 0.65, 0.9), night * 0.5);
-  return { sunDir, day: Math.max(0.06, day), skyTop, horizon, skyLight, night };
+  return { sunDir, day: Math.max(0.24, day), skyTop, horizon, skyLight, night };
 }
 
 export class Sky {
@@ -102,7 +102,7 @@ export class Sky {
     this.dome.renderOrder = -20;
     this.dome.frustumCulled = false;
     const sprite = (tex: THREE.Texture, size: number) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, fog: false }));
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, fog: false }));
       m.renderOrder = -19;
       m.frustumCulled = false;
       return m;
@@ -127,7 +127,7 @@ export class Sky {
         void main(){ vA = (0.55 + 0.45 * sin(uTime * (1.5 + aRnd * 3.0) + aRnd * 60.0)) * (0.4 + aRnd * 0.6);
           gl_PointSize = (1.0 + aRnd * aRnd * 1.6) * uPx; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
       fragmentShader: 'uniform float uOpacity; varying float vA; void main(){ gl_FragColor = vec4(vec3(1.0, 0.97, 0.92), vA * uOpacity); }',
-      transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
     });
     this.stars = new THREE.Points(sg, this.starMat);
     this.stars.renderOrder = -19;

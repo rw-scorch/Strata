@@ -447,6 +447,7 @@ export class Game {
       case 'hurt': p.puff(x, y, z, 0.8, 0.1, 0.1, 6, 2, 4, 0.08, 0.5); break;
       case 'smoke': p.puff(x, y, z, 0.7, 0.7, 0.7, 14, 1.2, -1.5, 0.14, 1.2); break;
       case 'crit': p.puff(x, y, z, 1, 0.85, 0.3, 10, 4, 6, 0.06, 0.5); break;
+      case 'heart': p.puff(x, y, z, 1, 0.25, 0.35, 5, 0.6, -0.6, 0.09, 1.1); break;
       case 'splash': p.puff(x, y, z, 0.6, 0.75, 1, 10, 3, 9, 0.06, 0.6); break;
       case 'xp': p.puff(x, y, z, 0.7, 1, 0.3, 8, 2, -2, 0.07, 0.8); break;
     }

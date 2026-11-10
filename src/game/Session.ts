@@ -64,6 +64,7 @@ export interface GameSession {
   use(x: number, y: number, z: number, nx: number, ny: number, nz: number, forcePlace?: boolean): void;
   eat(): void;
   attack(entityId: string): void;
+  useEntity(entityId: string): void;
   attackPlayer(pid: string): void;
   invOp(op: InvOp): void;
   chat(text: string): void;

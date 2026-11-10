@@ -259,8 +259,8 @@ export class Renderer {
       const m = this.entities.itemModel(id);
       const it = getItem(id);
       const isBlock = it?.kind === 'block' && it.blockIcon;
-      m.obj.scale.setScalar(isBlock ? 1.5 : 1.6);
-      m.obj.position.set(0.42, isBlock ? -0.36 : -0.32, -0.6);
+      m.obj.scale.setScalar(isBlock ? 0.4 : 0.62);
+      m.obj.position.set(isBlock ? 0.5 : 0.52, isBlock ? -0.42 : -0.38, isBlock ? -0.78 : -0.72);
       m.obj.rotation.set(isBlock ? 0.1 : -0.2, isBlock ? 0.75 : -1.2, isBlock ? 0 : 0.35);
       for (const mat of m.mats) { mat.uniforms.uFogFar = { value: 1e9 }; mat.uniforms.uFogNear = { value: 1e9 }; }
       this.handItem = m.obj;

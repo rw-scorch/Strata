@@ -99,6 +99,9 @@ export interface Entity extends Body {
   attacker?: string;
   persistent?: boolean;
   inWater?: boolean;
+  love?: number;
+  breedCd?: number;
+  baby?: number;
 }
 
 export type BlockEntity =
@@ -110,7 +113,7 @@ export type Weather = 'clear' | 'rain' | 'thunder';
 export type SimEvent =
   | { e: 'block'; x: number; y: number; z: number; v: number; old: number; src?: string }
   | { e: 'sound'; s: string; x: number; y: number; z: number; vol?: number; pitch?: number; src?: string; to?: string }
-  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit'; x: number; y: number; z: number; d?: number; src?: string }
+  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit' | 'heart'; x: number; y: number; z: number; d?: number; src?: string }
   | { e: 'spawn'; ent: Entity }
   | { e: 'remove'; id: number; why: 'death' | 'pickup' | 'despawn' | 'hit'; by?: string }
   | { e: 'vitals'; p: SimPlayer }
@@ -281,18 +284,44 @@ export class WorldSim {
     for (let dy = -3; dy <= 4; dy++) for (let dz = -4; dz <= 4; dz++) for (let dx = -4; dx <= 4; dx++) {
       const v = this.get(x + dx, y + dy, z + dz);
       if (getBlock(v).render === 'leaves' && blockMeta(v) === 0) {
-        this.leafDecayQueue.push([x + dx, y + dy, z + dz, this.tickCount + 20 + this.rng.int(200)]);
+        this.leafDecayQueue.push([x + dx, y + dy, z + dz, this.tickCount + 60 + this.rng.int(900)]);
       }
     }
   }
 
   private hasLogNear(x: number, y: number, z: number): boolean {
-    for (let dy = -4; dy <= 4; dy++) for (let dz = -4; dz <= 4; dz++) for (let dx = -4; dx <= 4; dx++) {
-      if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > 6) continue;
-      const id = blockId(this.get(x + dx, y + dy, z + dz));
-      if (id === B.OAK_LOG || id === B.BIRCH_LOG || id === B.SPRUCE_LOG || id === B.JUNGLE_LOG) return true;
+    const seen = new Set<string>([`${x},${y},${z}`]);
+    let frontier: [number, number, number][] = [[x, y, z]];
+    for (let step = 0; step < 6 && frontier.length; step++) {
+      const next: [number, number, number][] = [];
+      for (const [cx, cy, cz] of frontier) for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+        const nx = cx + dx, ny = cy + dy, nz = cz + dz, k = `${nx},${ny},${nz}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const v = this.get(nx, ny, nz), id = blockId(v);
+        if (id === B.OAK_LOG || id === B.BIRCH_LOG || id === B.SPRUCE_LOG || id === B.JUNGLE_LOG) return true;
+        if (getBlock(v).render === 'leaves') next.push([nx, ny, nz]);
+      }
+      frontier = next;
     }
     return false;
+  }
+
+  useEntity(p: SimPlayer, entityId: number): boolean {
+    const e = this.entities.get(entityId);
+    if (!e || e.kind !== 'mob' || p.dead) return false;
+    if (Math.hypot(e.x - p.x, e.z - p.z) > 6) return false;
+    const def = MOBS[e.type as MobType];
+    const held = heldStack(p.inv);
+    if (!def?.lure || !held || !def.lure.includes(held.id)) return false;
+    if (e.baby) { e.baby = Math.max(1, e.baby - 1200); }
+    else if (e.love || e.breedCd) return false;
+    else e.love = 600;
+    if (p.mode === 'survival') { held.count--; if (held.count <= 0) p.inv.slots[p.inv.selected] = null; this.emit({ e: 'inv', p }); }
+    this.emit({ e: 'particles', k: 'heart', x: e.x, y: e.y + e.h + 0.3, z: e.z });
+    this.emit({ e: 'sound', s: 'mob.eat', x: e.x, y: e.y, z: e.z });
+    e.persistent = true;
+    return true;
   }
 
   private scheduleFluidAround(x: number, y: number, z: number): void {
@@ -1475,8 +1504,28 @@ export class WorldSim {
         const held = near ? heldStack(near.inv) : null;
         if (near && held && def.lure.includes(held.id)) e.target = near.id; else e.target = null;
       }
+      if (e.breedCd) e.breedCd--;
+      if (e.baby && --e.baby <= 0) { e.baby = 0; }
+      if (e.love && e.love > 0) {
+        e.love--;
+        if (e.age % 20 === 0) this.emit({ e: 'particles', k: 'heart', x: e.x, y: e.y + e.h + 0.2, z: e.z });
+        let mate: Entity | null = null, md = 64;
+        for (const o of this.entities.values()) {
+          if (o === e || o.type !== e.type || !o.love || o.baby) continue;
+          const d = (o.x - e.x) ** 2 + (o.z - e.z) ** 2;
+          if (d < md) { md = d; mate = o; }
+        }
+        if (mate) {
+          if (md < 2.2) {
+            e.love = 0; mate.love = 0; e.breedCd = 6000; mate.breedCd = 6000;
+            const b = this.spawnMob(e.type as MobType, (e.x + mate.x) / 2, e.y, (e.z + mate.z) / 2);
+            b.baby = 24000; b.persistent = true;
+            this.emit({ e: 'particles', k: 'heart', x: b.x, y: b.y + 0.8, z: b.z });
+          } else { goalX = mate.x; goalZ = mate.z; e.target = null; }
+        }
+      }
       const t = e.target ? this.players.get(e.target) : undefined;
-      if (t && !e.panic) {
+      if (t && !e.panic && goalX === null) {
         const d = Math.hypot(t.x - e.x, t.z - e.z);
         if (d > 2) { goalX = t.x; goalZ = t.z; } else { e.path = null; e.yaw = Math.atan2(-(t.x - e.x), -(t.z - e.z)); }
       }
@@ -1526,6 +1575,7 @@ export class WorldSim {
     }
     moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
     if (e.hurt > 0) flags |= 1;
+    if (e.baby) flags |= 128;
     if (e.fire > 0) flags |= 2;
     e.flags = flags;
   }

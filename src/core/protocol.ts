@@ -70,7 +70,8 @@ export type C2S =
   | { t: 'mute'; pid: string; on: boolean }
   | { t: 'ping'; c: number }
   | { t: 'resync' }
-  | { t: 'buy'; k: string };
+  | { t: 'buy'; k: string }
+  | { t: 'ue'; id: number };
 
 export type S2C =
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number } }

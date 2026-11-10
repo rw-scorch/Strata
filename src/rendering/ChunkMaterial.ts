@@ -176,16 +176,16 @@ const vec2 POISSON[12] = vec2[](
   vec2(-0.326, -0.406), vec2(-0.840, -0.074), vec2(-0.696, 0.457), vec2(-0.203, 0.621),
   vec2(0.962, -0.195), vec2(0.473, -0.480), vec2(0.519, 0.767), vec2(0.185, -0.893),
   vec2(0.507, 0.064), vec2(0.896, 0.412), vec2(-0.322, -0.933), vec2(-0.792, -0.598));
-float shadowFactor(vec3 n) {
-  float nl = dot(n, uSunDir);
+float shadowFactor(vec3 n, bool foliage) {
+  float nl = foliage ? 1.0 : dot(n, uSunDir);
   if (nl <= 0.0) return 0.0;
   vec3 sc = vShadow.xyz / vShadow.w * 0.5 + 0.5;
   if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
-  float bias = uShadowTexel * 0.9 + 0.0008 * (1.0 - nl);
+  float bias = uShadowTexel * (foliage ? 2.0 : 0.9) + 0.0008 * (1.0 - nl);
   float a = ign(gl_FragCoord.xy) * 6.2831853;
   mat2 rot = mat2(cos(a), sin(a), -sin(a), cos(a));
   float s = 0.0;
-  for (int i = 0; i < SHADOW_TAPS; i++) s += step(sc.z - bias, texture2D(uShadowMap, sc.xy + rot * POISSON[i] * uShadowTexel * 2.2).r);
+  for (int i = 0; i < SHADOW_TAPS; i++) s += step(sc.z - bias, texture2D(uShadowMap, sc.xy + rot * POISSON[i] * uShadowTexel * 1.1).r);
   s /= float(SHADOW_TAPS);
   float edge = smoothstep(0.0, 0.1, min(min(sc.x, 1.0 - sc.x), min(sc.y, 1.0 - sc.y)));
   return mix(1.0, s, edge);
@@ -272,7 +272,7 @@ void main() {
   float skyL = vLight.x;
   float sun = 1.0;
 #if SHADOW_TAPS > 0
-  if (uShadowOn > 0.5 && skyL > 0.6) sun = shadowFactor(n);
+  if (uShadowOn > 0.5 && skyL > 0.6) sun = shadowFactor(n, bitf(flags, 4.0) > 0.5 || bitf(flags, 16.0) > 0.5);
 #endif
 #ifdef CLOUD_SHADOWS
   if (uCloudShadow > 0.0 && uSunDir.y > 0.05) {
@@ -282,7 +282,7 @@ void main() {
   }
 #endif
   float sky = curve(skyL) * uDay;
-  sky *= mix(1.0, mix(0.6, 1.0, sun), smoothstep(0.6, 0.85, skyL));
+  sky *= mix(1.0, mix(0.55, 1.0, sun), smoothstep(0.6, 0.85, skyL) * smoothstep(0.2, 0.45, uDay));
   float flick = 1.0 + 0.035 * sin(uTime * 9.0 + dot(floor(vWorld), vec3(1.7, 2.3, 1.1)));
   float blk = curve(vLight.y) * flick;
   vec3 light = max(vec3(sky) * uSkyColor, vec3(blk) * vec3(1.0, 0.86, 0.66));
