@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { CHUNK_SIZE, PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
+import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator } from '../../src/core/worldgen/WorldGenerator';
 import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity } from '../../src/core/sim/WorldSim';
@@ -424,7 +424,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (s.pid) return;
     const m = this.loadMeta();
     if (!m) { this.sendErr(s, 'unavailable', 'This world does not exist or was deleted.'); return; }
-    if (msg.v !== PROTOCOL_VERSION) { this.sendErr(s, 'version', `Version mismatch: the world runs protocol ${PROTOCOL_VERSION}, your game uses ${msg.v}. Reload the page to update.`); return; }
+    if (typeof msg.v !== 'number' || msg.v < MIN_PROTOCOL_VERSION || msg.v > PROTOCOL_VERSION) { this.sendErr(s, 'version', `Version mismatch: the world runs protocol ${PROTOCOL_VERSION}, your game uses ${msg.v}. Reload the page to update.`); return; }
     const id = String(msg.id ?? ''), secret = String(msg.secret ?? '');
     if (!/^[a-zA-Z0-9-]{8,64}$/.test(id) || secret.length < 16 || secret.length > 128) { this.sendErr(s, 'auth', 'Invalid player credentials.'); return; }
     const ban = m.bans[id];

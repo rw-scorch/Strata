@@ -268,7 +268,9 @@ void main() {
     c.rgb = mix(c.rgb, o.rgb * vTint.rgb, o.a);
   }
   if (c.a < uAlphaTest) discard;
-  vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+  vec3 cr = cross(dFdx(vWorld), dFdy(vWorld));
+  float crl = length(cr);
+  vec3 n = crl > 1e-10 ? cr / crl : vec3(0.0, 1.0, 0.0);
   float skyL = vLight.x;
   float sun = 1.0;
 #if SHADOW_TAPS > 0

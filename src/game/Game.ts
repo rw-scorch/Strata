@@ -304,6 +304,7 @@ export class Game {
     this.state = s;
     const playing = s === 'playing';
     this.mobile.setVisible(playing && (this.input.touchMode || isTouchDevice()));
+    if (playing && !this.input.touchMode && !isTouchDevice() && matchMedia('(pointer: fine)').matches) this.desktop?.lock();
     if (!playing) this.input.reset();
     this.hud.crosshair.style.display = playing ? '' : 'none';
     this.mobile.refreshState();
@@ -405,6 +406,7 @@ export class Game {
   }
 
   private dispose(): void {
+    this.arena?.dispose();
     this.minimap?.dispose();
     this.minimap = null;
     this.closePause?.();
@@ -539,8 +541,8 @@ export class Game {
 
   onLightning(x: number, y: number, z: number): void {
     this.renderer?.weather.lightning(x, y, z);
-    this.flash = 1;
     const d = Math.hypot(x - this.player.x, z - this.player.z);
+    this.flash = Math.max(this.flash, (1 - this.caveFx) * Math.max(0, 1 - d / 180));
     setTimeout(() => audio.play('thunder', x, y, z, 1), Math.min(4000, d * 3));
   }
 
@@ -710,6 +712,7 @@ export class Game {
 
     this.hud.tick(dt);
     this.chatUI.tick();
+    this.player.usingItem = this.interaction.eating > 0;
     if (!loading) this.minimap?.update();
     this.hud.updateVitals(this.vitals, this.hurtShake > 0);
     this.frames++;

@@ -75,7 +75,7 @@ export class ChatUI {
 
   tick(): void {
     const now = performance.now();
-    for (const l of this.lines) l.el.classList.toggle('fade', !this.isOpen && now - l.t > 9000);
+    for (const l of this.lines) { l.el.classList.toggle('fade', !this.isOpen && now - l.t > 12000); l.el.classList.toggle('gone', !this.isOpen && now - l.t > 13200); }
   }
 }
 

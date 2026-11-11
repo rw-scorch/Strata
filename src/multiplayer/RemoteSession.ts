@@ -64,7 +64,7 @@ export class RemoteSession implements GameSession {
 
   connect(): Promise<Extract<S2C, { t: 'welcome' }>> {
     return new Promise((resolve, reject) => {
-      this.welcomeWaiter = resolve;
+      this.welcomeWaiter = (w) => { try { sessionStorage.removeItem('strata.vreload'); } catch { /* ignore */ } resolve(w); };
       this.errorWaiter = reject;
       this.open();
       setTimeout(() => { if (this.welcomeWaiter) { this.welcomeWaiter = null; this.errorWaiter = null; this.closed = true; this.ws?.close(); reject(new Error('Connection timed out. Check the room code and your network.')); } }, 15000);
@@ -88,6 +88,11 @@ export class RemoteSession implements GameSession {
       if (this.ws !== ws) return;
       this.ws = null;
       if (this.closed) return;
+      if (this.lastErrorCode === 'version') {
+        try {
+          if (!sessionStorage.getItem('strata.vreload')) { sessionStorage.setItem('strata.vreload', '1'); void navigator.serviceWorker?.getRegistration().then((r) => r?.update()).finally(() => location.reload()); return; }
+        } catch { /* storage blocked */ }
+      }
       if (this.welcomeWaiter) { this.fail(new Error(this.lastError || `Connection failed (code ${e.code}).`)); return; }
       if (FATAL.has(this.lastErrorCode) || this.attempts >= 12) {
         this.state = 'offline';

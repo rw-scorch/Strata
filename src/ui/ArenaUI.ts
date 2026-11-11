@@ -68,6 +68,8 @@ export class ArenaUI {
     this.board.style.display = 'block';
   }
 
+  dispose(): void { this.board.remove(); this.titleEl.remove(); this.shopEl.remove(); }
+
   hide(): void { this.board.style.display = 'none'; this.closeShop(true); }
 
   title(text: string, sub: string): void {

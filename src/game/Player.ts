@@ -60,6 +60,8 @@ export class LocalPlayer {
     return f;
   }
 
+  usingItem = false;
+
   update(dt: number, input: InputState, world: BlockReader & { isLoaded(x: number, z: number): boolean }, mode: GameMode, dead: boolean): void {
     this.landed = false;
     this.enteredWater = false;
@@ -104,11 +106,13 @@ export class LocalPlayer {
     const fx = -sin * nz + cos * nx;
     const fz = -cos * nz - sin * nx;
     this.sprinting = input.sprint && nz > 0.3 && !this.crouching;
+    if (this.usingItem && this.sprinting) this.sprinting = false;
     let speed = 4.317;
     if (this.flying) speed = this.sprinting ? 21.6 : 10.9;
     else if (m.water || m.lava) speed = m.lava ? 1.4 : this.sprinting ? 3.4 : 2.3;
     else if (this.crouching) speed = 1.3;
     else if (this.sprinting) speed = 5.61;
+    if (this.usingItem && !this.flying) speed *= 0.2;
     const tx = fx * speed, tz = fz * speed;
     const accel = this.flying ? 9 : b.onGround ? 14 : m.water ? 5 : 2.4;
     const k = Math.min(1, accel * dt);

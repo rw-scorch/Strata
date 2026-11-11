@@ -109,7 +109,7 @@ export class PostFX {
       vec3 thr(vec3 c){ float b = max(c.r, max(c.g, c.b)); float k = uThreshold * 0.5; float s = clamp(b - uThreshold + k, 0.0, 2.0 * k); s = s * s / (4.0 * k + 1e-4); return c * max(s, b - uThreshold) / max(b, 1e-4); }
       void main(){ vec2 o = uTexel;
         vec3 c = texture2D(uSrc, vUv).rgb * 4.0 + texture2D(uSrc, vUv + vec2(-o.x, -o.y)).rgb + texture2D(uSrc, vUv + vec2(o.x, -o.y)).rgb + texture2D(uSrc, vUv + vec2(-o.x, o.y)).rgb + texture2D(uSrc, vUv + vec2(o.x, o.y)).rgb;
-        c /= 8.0; if (uFirst > 0.5) c = thr(c); gl_FragColor = vec4(c, 1.0); }`, { uSrc: { value: null }, uTexel: texel(), uThreshold: { value: 0.85 }, uFirst: { value: 0 } });
+        c /= 8.0; if (any(isnan(c)) || any(isinf(c))) c = vec3(0.0); c = clamp(c, 0.0, 48.0); if (uFirst > 0.5) c = thr(c); gl_FragColor = vec4(c, 1.0); }`, { uSrc: { value: null }, uTexel: texel(), uThreshold: { value: 0.85 }, uFirst: { value: 0 } });
     this.mBloomUp = pass(`uniform sampler2D uSrc; uniform sampler2D uBase; uniform vec2 uTexel; varying vec2 vUv;
       void main(){ vec2 o = uTexel;
         vec3 c = texture2D(uSrc, vUv + vec2(-o.x * 2.0, 0.0)).rgb + texture2D(uSrc, vUv + vec2(o.x * 2.0, 0.0)).rgb + texture2D(uSrc, vUv + vec2(0.0, -o.y * 2.0)).rgb + texture2D(uSrc, vUv + vec2(0.0, o.y * 2.0)).rgb;
@@ -158,6 +158,7 @@ export class PostFX {
         vec3 col;
         if (uChroma > 0.0) { vec2 o = (uv - 0.5) * uChroma * 0.006; col = vec3(texture2D(uScene, uv + o).r, texture2D(uScene, uv).g, texture2D(uScene, uv - o).b); }
         else col = texture2D(uScene, uv).rgb;
+        if (any(isnan(col)) || any(isinf(col))) col = vec3(0.0);
         vec3 wp = worldAt(uv, d);
         if (uMotion > 0.0) {
           vec4 pc = uPrevVP * vec4(sky ? uCam + normalize(wp - uCam) * 500.0 : wp, 1.0);
@@ -189,11 +190,13 @@ export class PostFX {
         }
         if (uRaysOn > 0.5) col += texture2D(uRays, uv).rgb;
         col += texture2D(uBloom, uv).rgb * uBloomAmt;
-        if (uFlare > 0.0 && uSunVis > 0.0) {
+        float sunOcc = 0.0;
+        if (uSunVis > 0.0) { for (int k = 0; k < 9; k++) { vec2 o = vec2(float(k % 3) - 1.0, float(k / 3) - 1.0) * 0.012; sunOcc += step(0.99999, texture2D(uDepth, clamp(uSun + o, 0.001, 0.999)).r); } sunOcc /= 9.0; }
+        if (uFlare > 0.0 && uSunVis * sunOcc > 0.0) {
           vec2 sv = uSun; vec2 axis = vec2(0.5) - sv; vec2 a = vec2(uAspect, 1.0); float fl = 0.0;
           for (int i = 1; i < 5; i++) { float t = float(i) * 0.42; vec2 p = sv + axis * t * 2.0; float r = 0.025 + float(i) * 0.018; fl += smoothstep(r, r * 0.6, length((uv - p) * a)) * (0.18 / float(i)); }
           vec2 ds = (uv - sv) * a; float gl = exp(-length(ds) * 7.0) * 0.45 + exp(-abs(ds.x * ds.y) * 9000.0) * exp(-length(ds) * 4.0) * 0.25;
-          col += uSunColor * (fl + gl) * uSunVis * uFlare;
+          col += uSunColor * (fl + gl) * uSunVis * sunOcc * uFlare;
         }
         if (uUnder > 0.5) { col = mix(col, vec3(0.04, 0.16, 0.32) * (0.3 + uDay * 0.7), 0.25); }
         if (uLava > 0.5) col = mix(col, vec3(1.0, 0.35, 0.05), 0.55);
@@ -202,7 +205,7 @@ export class PostFX {
         float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
         col = mix(vec3(l), col, uSat);
         col = (col - 0.5) * uContrast + 0.5;
-        col += vec3(uFlash * 0.25);
+        col += vec3(uFlash * 0.25 * (1.0 - uCave) * (1.0 - uUnder));
         if (uVignette > 0.0) { vec2 v = uv - 0.5; col *= 1.0 - dot(v, v) * 0.55 * uVignette; }
         if (uGrain > 0.0) col += (hash(uv * 913.0 + fract(uTime) * 71.0) - 0.5) * 0.035 * uGrain;
         gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);

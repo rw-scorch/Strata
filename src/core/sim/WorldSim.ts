@@ -277,6 +277,30 @@ export class WorldSim {
       this.checkSupport(x - dx, y, z - dz);
     }
     if (oid === B.OAK_LOG || oid === B.BIRCH_LOG || oid === B.SPRUCE_LOG || oid === B.JUNGLE_LOG) this.scheduleLeafDecay(x, y, z);
+    if (nid === B.SAND || nid === B.GRAVEL) this.fallQueue.push([x, y, z, this.tickCount + 2]);
+    const up = blockId(this.get(x, y + 1, z));
+    if (up === B.SAND || up === B.GRAVEL) this.fallQueue.push([x, y + 1, z, this.tickCount + 2]);
+  }
+
+  private fallQueue: [number, number, number, number][] = [];
+
+  private tickFalling(): void {
+    if (!this.fallQueue.length) return;
+    const due = this.fallQueue.filter((q) => q[3] <= this.tickCount).slice(0, 64);
+    this.fallQueue = this.fallQueue.filter((q) => !due.includes(q));
+    for (const [x, y, z] of due) {
+      const v = this.get(x, y, z), id = blockId(v);
+      if (id !== B.SAND && id !== B.GRAVEL) continue;
+      if (!this.store.isLoaded(x, z)) continue;
+      const below = this.get(x, y - 1, z);
+      const bid = blockId(below), bd = getBlock(below);
+      const passable = bid === 0 || bid === B.WATER || bid === B.LAVA || bd.render === 'cross' || bd.render === 'crop' || bd.render === 'torch';
+      if (!passable) continue;
+      if (y - 1 < 1) { this.setBlock(x, y, z, 0); continue; }
+      if (bid !== 0 && bid !== B.WATER && bid !== B.LAVA) this.spawnDrops(x, y - 1, z, below, null, true);
+      this.setBlock(x, y - 1, z, v);
+      this.setBlock(x, y, z, 0);
+    }
   }
 
   private leafDecayQueue: [number, number, number, number][] = [];
@@ -992,6 +1016,7 @@ export class WorldSim {
     this.tickFurnaces();
     this.tickRandom();
     this.tickLeafDecay();
+    this.tickFalling();
     for (const e of [...this.entities.values()]) this.tickEntity(e);
     if (this.game) this.game.tick();
     else if (this.tickCount % 20 === 0) this.spawnCycle();
