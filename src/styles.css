@@ -517,3 +517,5 @@ body:not(.touch-active) .hud-mc .hud-btn { display: none; }
 .mode-card { border-radius: 0 !important; border: var(--ms) solid #555 !important; background: rgba(0, 0, 0, 0.45) !important; font-family: var(--mc-font); }
 .mode-card.on { border-color: #fff !important; }
 .mode-card b { font-weight: 400; }
+.atk-ind { display: none; position: absolute; left: 50%; top: calc(50% + var(--hs, 2px) * 9); width: calc(var(--hs, 2px) * 16); height: calc(var(--hs, 2px) * 4); transform: translateX(-50%); background: var(--atk-bg) 0 0 / 100% 100% no-repeat; image-rendering: pixelated; pointer-events: none; mix-blend-mode: difference; }
+.atk-ind i { display: block; height: 100%; width: 0; background: var(--atk-fg) 0 0 / calc(var(--hs, 2px) * 16) 100% no-repeat; image-rendering: pixelated; }

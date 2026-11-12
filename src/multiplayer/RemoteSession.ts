@@ -258,7 +258,7 @@ export class RemoteSession implements GameSession {
         return;
       case 'snd': ev.sound(m.s, m.x, m.y, m.z, m.v, m.p); return;
       case 'fx': ev.fx(m.k, m.x, m.y, m.z, m.d); return;
-      case 'hurt': ev.hurt(m.a, m.c, m.fx, m.fz); return;
+      case 'hurt': ev.hurt(m.a, m.c, m.fx, m.fz, m.k); return;
       case 'death': this.me.dead = true; ev.death(m.msg); return;
       case 'respawn': Object.assign(this.me, { x: m.x, y: m.y, z: m.z, dead: false }); ev.respawn(m.x, m.y, m.z); return;
       case 'tp': Object.assign(this.me, { x: m.x, y: m.y, z: m.z }); ev.teleport(m.x, m.y, m.z); return;
@@ -335,6 +335,7 @@ export class RemoteSession implements GameSession {
     this.ev?.inventory(this.me.inv);
   }
   eat(): void { this.sim.eat(this.me); this.send({ t: 'eat' }); this.ev?.inventory(this.me.inv); }
+  swing(): void { this.send({ t: 'sw' }); }
   shoot(power: number, yaw: number, pitch: number): void { this.flushMove(); this.send({ t: 'bow', p: power, y: yaw, x: pitch }); }
   trade(id: string, index: number, times: number): void { this.send({ t: 'trd', id: Number(id), i: index, n: times }); }
   useEntity(id: string): void { this.flushMove(); this.send({ t: 'ue', id: Number(id) }); }

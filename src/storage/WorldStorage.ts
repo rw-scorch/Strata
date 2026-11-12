@@ -35,6 +35,8 @@ export interface WorldState {
   beChunks: string[];
   mobs: { type: MobType; x: number; y: number; z: number; health: number }[];
   dayCycle: boolean;
+  populated?: number[];
+  rules?: { simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number };
   cheats: boolean;
 }
 

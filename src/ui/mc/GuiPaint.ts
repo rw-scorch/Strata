@@ -221,6 +221,12 @@ function paint(key: string): HTMLCanvasElement | null {
     g.fillStyle = key.includes('header') ? '#555' : '#000'; g.fillRect(0, 1, 32, 1);
     return c;
   }
+  if (key === 'gs:hud/crosshair_attack_indicator_background' || key === 'gs:hud/crosshair_attack_indicator_progress') {
+    const [c, g] = canvas(16, 4);
+    g.fillStyle = key.endsWith('background') ? 'rgba(60,60,60,0.8)' : '#ffffff';
+    g.fillRect(0, key.endsWith('background') ? 0 : 1, 16, key.endsWith('background') ? 4 : 2);
+    return c;
+  }
   if (key === 'gs:hud/hotbar') {
     const [c, g] = canvas(182, 22);
     g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(0, 0, 182, 22);

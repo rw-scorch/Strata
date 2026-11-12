@@ -97,6 +97,11 @@ export class ChunkManager implements WorldStore {
     return c.data.blocks[(y * 16 + (z & 15)) * 16 + (x & 15)];
   }
 
+  raw(cx: number, cz: number): Uint16Array | null {
+    const c = this.get_(cx, cz);
+    return c?.data?.blocks ?? null;
+  }
+
   isLoaded(x: number, z: number): boolean {
     const c = this.get_(x >> 4, z >> 4);
     return !!c && !!c.data;

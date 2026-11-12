@@ -24,6 +24,7 @@ import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
 import { getBlock, blockId } from '../core/blocks';
 import { heldStack } from '../core/inventory';
+import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
 import { biomeNameAt, WorldGenerator } from '../core/worldgen/WorldGenerator';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
@@ -207,7 +208,7 @@ export class Game {
     title: (t, s) => this.arena?.title(t, s),
     trade: (info) => this.inv?.setTrade(info),
     chestLid: (x, y, z, n) => { this.renderer?.chests.setOpen(x, y, z, n); audio.play(n > 0 ? 'chest.open' : 'chest.close', x + 0.5, y + 0.5, z + 0.5); },
-    hurt: (a, c, fx, fz) => this.onHurt(a, c, fx, fz),
+    hurt: (a, c, fx, fz, kb) => this.onHurt(a, c, fx, fz, kb),
     death: (m) => this.onDeath(m),
     respawn: (x, y, z) => this.onRespawn(x, y, z),
     teleport: (x, y, z) => this.onTeleport(x, y, z),
@@ -506,6 +507,7 @@ export class Game {
       case 'hurt': p.puff(x, y, z, 0.8, 0.1, 0.1, 6, 2, 4, 0.08, 0.5); break;
       case 'smoke': p.puff(x, y, z, 0.7, 0.7, 0.7, 14, 1.2, -1.5, 0.14, 1.2); break;
       case 'crit': p.puff(x, y, z, 1, 0.85, 0.3, 10, 4, 6, 0.06, 0.5); break;
+      case 'sweep': p.puff(x, y, z, 0.95, 0.95, 0.95, 14, 1.5, 1, 0.08, 0.35); break;
       case 'heart': p.puff(x, y, z, 1, 0.25, 0.35, 5, 0.6, -0.6, 0.09, 1.1); break;
       case 'splash': p.puff(x, y, z, 0.6, 0.75, 1, 10, 3, 9, 0.06, 0.6); break;
       case 'xp': p.puff(x, y, z, 0.7, 1, 0.3, 8, 2, -2, 0.07, 0.8); break;
@@ -542,6 +544,7 @@ export class Game {
   onVitals(v: Vitals): void {
     const wasMode = this.vitals.mode;
     this.vitals = v;
+    this.player.food = v.food;
     this.hud?.updateVitals(v, this.hurtShake > 0);
     if (v.mode !== wasMode) { this.mobile?.refreshState(); if (v.mode === 'survival') this.player.flying = false; }
   }
@@ -582,11 +585,11 @@ export class Game {
     }
   }
 
-  onHurt(amount: number, _cause: string, fx: number, fz: number): void {
+  onHurt(amount: number, _cause: string, fx: number, fz: number, kb?: number): void {
     this.hurtEl.classList.add('on');
     setTimeout(() => this.hurtEl.classList.remove('on'), 120);
     this.hurtShake = 0.3;
-    if (fx !== this.player.x || fz !== this.player.z) this.player.knockback(fx, fz, Math.min(9, 4 + amount));
+    if (fx !== this.player.x || fz !== this.player.z) this.player.knockback(fx, fz, kb ?? 0.4);
     navigator.vibrate?.(30);
   }
 
@@ -720,7 +723,7 @@ export class Game {
     const st = getSettings();
     let bobY = 0, bobX = 0;
     if (st.viewBobbing && this.player.body.onGround && !this.player.flying) {
-      const sp = Math.hypot(this.player.body.vx, this.player.body.vz);
+      const sp = this.player.speedBps;
       const a = Math.min(1, sp / 5);
       bobY = Math.abs(Math.sin(this.player.bobPhase)) * 0.07 * a;
       bobX = Math.cos(this.player.bobPhase) * 0.03 * a;
@@ -789,6 +792,7 @@ export class Game {
     this.chatUI.tick();
     if (!this.panoDone && this.state === 'playing' && performance.now() - this.loadStart > 20000) { this.panoDone = true; if (!localStorage.getItem('strata.panorama')) this.capturePanorama(); }
     this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0;
+    { const held = heldStack(this.session.me.inv); this.hud.setAttackCharge(attackCharge(performance.now() - this.interaction.lastSwing, attackStats(held).speed)); }
     if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
     if (!loading) this.minimap?.update();
     this.hud.updateVitals(this.vitals, this.hurtShake > 0);

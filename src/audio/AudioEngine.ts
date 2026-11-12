@@ -221,6 +221,7 @@ export class AudioEngine {
         else if (sub === 'burp') { this.tone(dest, t, 160, 'sawtooth', { a: 0.02, d: 0.25, v: 0.12 }, 90, 22); }
         else if (sub === 'eat') this.noiseHit(dest, t, 1800 * rnd(), 1.5, 'bandpass', { a: 0.003, d: 0.08, v: 0.3 });
         else if (sub === 'fall') this.noiseHit(dest, t, 250, 0.8, 'lowpass', { a: 0.003, d: 0.2, v: 0.5 });
+        else if (sub === 'sweep') this.noiseHit(dest, t, 2200, 0.7, 'bandpass', { a: 0.02, d: 0.22, v: 0.35 }, 0.6);
         break;
       case 'item':
         if (sub === 'pickup') this.tone(dest, t, 700 * rnd(), 'sine', { a: 0.002, d: 0.08, v: 0.22 }, 1400);

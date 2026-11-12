@@ -40,7 +40,7 @@ export interface PackManifest {
   importer?: number;
 }
 
-export const IMPORTER_VERSION = 7;
+export const IMPORTER_VERSION = 8;
 
 export const GUI_SPRITES = [
   'container/slot_highlight_back', 'container/slot_highlight_front', 'container/furnace/burn_progress', 'container/furnace/lit_progress',
@@ -49,7 +49,7 @@ export const GUI_SPRITES = [
   ...[1, 2, 3, 4, 5, 6, 7].flatMap((i) => [`container/creative_inventory/tab_top_selected_${i}`, `container/creative_inventory/tab_top_unselected_${i}`, `container/creative_inventory/tab_bottom_selected_${i}`, `container/creative_inventory/tab_bottom_unselected_${i}`]),
   'widget/button', 'widget/button_highlighted', 'widget/button_disabled', 'widget/text_field', 'widget/text_field_highlighted', 'widget/slider', 'widget/slider_highlighted', 'widget/slider_handle', 'widget/slider_handle_highlighted',
   'widget/checkbox', 'widget/checkbox_selected', 'widget/checkbox_highlighted', 'widget/checkbox_selected_highlighted', 'widget/cross_button', 'widget/cross_button_highlighted', 'widget/scroller', 'widget/scroller_background',
-  'tooltip/background', 'tooltip/frame', 'hud/experience_bar_background', 'hud/experience_bar_progress', 'hud/air', 'hud/air_empty', 'hud/air_bursting',
+  'tooltip/background', 'tooltip/frame', 'hud/crosshair_attack_indicator_background', 'hud/crosshair_attack_indicator_progress', 'hud/crosshair_attack_indicator_full', 'hud/experience_bar_background', 'hud/experience_bar_progress', 'hud/air', 'hud/air_empty', 'hud/air_bursting',
   'recipe_book/button', 'recipe_book/button_highlighted', 'recipe_book/slot_craftable', 'recipe_book/slot_uncraftable', 'recipe_book/slot_many_craftable', 'recipe_book/slot_many_uncraftable',
   'recipe_book/page_forward', 'recipe_book/page_backward', 'recipe_book/page_forward_highlighted', 'recipe_book/page_backward_highlighted', 'recipe_book/tab', 'recipe_book/tab_selected',
 ];

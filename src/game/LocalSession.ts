@@ -35,6 +35,9 @@ export class LocalSession implements GameSession {
     this.sim.settings.cheats = state?.cheats ?? meta.mode === 'creative';
     if (meta.arena) this.sim.game = new Minigame(this.sim, meta.arena);
     this.sim.settings.dayCycle = state?.dayCycle ?? true;
+    Object.assign(this.sim.settings, state?.rules ?? {});
+    this.sim.keepPopulated = true;
+    this.sim.populated = new Set(state?.populated ?? []);
     this.beChunks = new Set(state?.beChunks ?? []);
     if (state) {
       this.sim.time = state.time;
@@ -110,7 +113,7 @@ export class LocalSession implements GameSession {
         if (sc.type === 'chest' || sc.type === 'furnace') this.onEvent({ e: 'container', key: `${sc.x},${sc.y},${sc.z}` });
         return;
       }
-      case 'hurt': ev.hurt(e.amount, e.cause, e.fx, e.fz); return;
+      case 'hurt': ev.hurt(e.amount, e.cause, e.fx, e.fz, e.kb); return;
       case 'death': ev.death(e.msg); return;
       case 'respawn': ev.respawn(e.p.x, e.p.y, e.p.z); return;
       case 'tp': ev.teleport(e.p.x, e.p.y, e.p.z); return;
@@ -153,6 +156,7 @@ export class LocalSession implements GameSession {
   digDone(x: number, y: number, z: number): void { this.sim.setNow(performance.now()); this.sim.digFinish(this.me, x, y, z); }
   use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false): void { this.sim.use(this.me, x, y, z, nx, ny, nz, force); }
   eat(): void { this.sim.setNow(performance.now()); this.sim.eat(this.me); }
+  swing(): void { this.sim.setNow(performance.now()); this.sim.swing(this.me); }
   shoot(power: number, yaw: number, pitch: number): void { this.sim.setNow(performance.now()); this.sim.shootBow(this.me, power, yaw, pitch); }
   trade(id: string, index: number, times: number): void { this.sim.setNow(performance.now()); this.sim.trade(this.me, Number(id), index, times); }
   useEntity(id: string): void { this.sim.setNow(performance.now()); this.sim.useEntity(this.me, Number(id)); }
@@ -196,6 +200,8 @@ export class LocalSession implements GameSession {
       time: this.sim.time, weather: this.sim.weather, weatherTimer: this.sim.weatherTimer, spawn: this.sim.spawn,
       blockEntities: [...this.sim.blockEntities.entries()], beChunks: [...this.beChunks], mobs,
       dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
+      populated: [...this.sim.populated],
+      rules: { simDistance: this.sim.settings.simDistance, randomTickSpeed: this.sim.settings.randomTickSpeed, mobSpawning: this.sim.settings.mobSpawning, mobCap: this.sim.settings.mobCap },
     });
   }
 

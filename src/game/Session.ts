@@ -24,7 +24,7 @@ export interface SessionEvents {
   title(text: string, sub: string): void;
   trade?(info: TradeInfo): void;
   chestLid?(x: number, y: number, z: number, n: number): void;
-  hurt(amount: number, cause: string, fx: number, fz: number): void;
+  hurt(amount: number, cause: string, fx: number, fz: number, kb?: number): void;
   death(msg: string): void;
   respawn(x: number, y: number, z: number): void;
   teleport(x: number, y: number, z: number): void;
@@ -69,6 +69,7 @@ export interface GameSession {
   attack(entityId: string): void;
   useEntity(entityId: string): void;
   shoot(power: number, yaw: number, pitch: number): void;
+  swing?(): void;
   trade(entityId: string, index: number, times: number): void;
   attackPlayer(pid: string): void;
   invOp(op: InvOp): void;

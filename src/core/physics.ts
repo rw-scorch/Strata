@@ -67,6 +67,28 @@ export function moveBody(b: Body, dx: number, dy: number, dz: number, world: Blo
   if (dy !== ody) b.vy = 0;
 }
 
+export function moveStep(b: Body, dx: number, dy: number, dz: number, world: BlockReader, step: number): void {
+  const sx = b.x, sy = b.y, sz = b.z, svx = b.vx, svz = b.vz;
+  const wasGround = b.onGround;
+  moveBody(b, dx, dy, dz, world);
+  if (step <= 0 || !b.hitH || !(wasGround || b.onGround) || (dx === 0 && dz === 0)) return;
+  const d1 = (b.x - sx) ** 2 + (b.z - sz) ** 2;
+  const t: Body = { ...b, x: sx, y: sy, z: sz, vx: 0, vy: 0, vz: 0 };
+  moveBody(t, 0, step, 0, world);
+  const rose = t.y - sy;
+  moveBody(t, dx, 0, dz, world);
+  const mx = t.x - sx, mz = t.z - sz;
+  moveBody(t, 0, -rose + Math.min(0, dy), 0, world);
+  const d2 = mx * mx + mz * mz;
+  if (d2 <= d1 + 1e-7) return;
+  b.x = t.x; b.y = t.y; b.z = t.z;
+  b.onGround = t.onGround || t.y > sy;
+  const bx = Math.abs(mx - dx) > 1e-6, bz = Math.abs(mz - dz) > 1e-6;
+  b.vx = bx ? 0 : svx; b.vz = bz ? 0 : svz;
+  b.hitH = bx || bz;
+  if (b.onGround && b.vy < 0) b.vy = 0;
+}
+
 export function boxCollides(world: BlockReader, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): boolean {
   collectBoxes(world, x0, y0, z0, x1, y1, z1, boxes);
   for (let i = 0; i < boxes.length; i += 6) {

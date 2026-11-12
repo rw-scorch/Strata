@@ -26,6 +26,7 @@ export class BlockInteraction {
   private breakCd = 0;
   private attackCd = 0;
   eating = 0;
+  lastSwing = 0;
   drawing = 0;
   private ray = new THREE.Raycaster();
   onSwing: (() => void) | null = null;
@@ -74,12 +75,14 @@ export class BlockInteraction {
       const v = this.entityTarget;
       if (v.kind === 'mob') session.attack(v.id);
       else session.attackPlayer(v.id);
-      this.attackCd = 0.4;
+      this.attackCd = 0.05;
+      this.lastSwing = performance.now();
       this.onSwing?.();
       input.usePressed = false;
       if (input.touchAim && !input.breaking) input.touchAim = null;
     }
 
+    if (!this.entityTarget && input.attackPressed) { this.lastSwing = performance.now(); session.swing?.(); this.onSwing?.(); }
     const t = this.target;
     if (t && input.breaking && !this.entityTarget) {
       const same = this.digPos && this.digPos[0] === t.x && this.digPos[1] === t.y && this.digPos[2] === t.z;

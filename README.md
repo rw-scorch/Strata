@@ -190,7 +190,16 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
 - **World:** endless seeded terrain in 16×16×160 chunks. 15 biomes: plains, two forest types, desert, highlands, snowy peaks, tundra, taiga, swamp, jungle, beach, river, ocean, deep ocean and islands. Caves (tunnels and caverns), ravines, lava lakes, rivers, lakes, waterfalls, ore veins (coal, iron, gold, aetherite) and mossy boulders. Ruined cairns hold loot chests.
 - **Rendering:** worker-pool generation and greedy meshing with face culling, flood-fill sky and block light, smooth lighting with ambient occlusion, biome tinting, frustum culling, a texture atlas with in-place animation, real-time sun shadows (High preset), day/night sky with sun, moon and stars, clouds, fog, rain, snow, thunderstorms and lightning, water waves, plant sway, block particles, block outlines and crack overlays.
 - **Gameplay:** walking, sprinting, crouching (no edge falls), swimming, ladders, flying, fall damage, tool tiers and break times, drops, 60+ recipes with a recipe book, workbench, furnace with fuels, chests, doors, buckets and flowing water/lava, farming (hoe, seeds, wheat growth), saplings that grow, leaf decay, health, hunger, saturation, regeneration, starvation, armour, XP, death drops and respawn. Difficulty runs from Peaceful to Hard.
-- **Creatures:** Woolhorn, Mudsnout and Fernhen (can be lured with food); Hollowed (burns in daylight), Rattlebone (archer), Duskweaver (pounces, calm in daylight unless provoked). They use A* navigation and spawn by light and time rules. `/summon <creature>` works in Architect mode.
+- **Creatures:** Woolhorn, Mudsnout and Fernhen (can be lured with food); Hollowed (burns in daylight), Rattlebone (archer), Duskweaver (pounces, calm in bright light unless provoked); villagers with trades and a daily schedule. `/summon <creature>` works with commands enabled.
+- **Java-style systems (v8):**
+  - Movement runs at 20 ticks per second with Java constants: walk 4.317 b/s, sprint 5.612, sneak 1.295, jump 1.2522 blocks, sprint-jumping about 7.1, step height 0.6, ice slipperiness, water and lava drag, ladders.
+  - Combat follows Java 1.21: attack cooldown with the crosshair indicator, scaled damage, critical hits, sword sweeps, sprint knockback, 10-tick invulnerability and the armour/toughness formula. PvP is on by default.
+  - Natural spawning follows Java's NaturalSpawner: per-player caps (70 monsters, 10 animals within 128 blocks), packs of up to 4, monsters only at block light 0 with the Java sky-light dice, animals on grass in light 9 or brighter, none within 24 blocks of a player. Chunks get animals once when first visited (10% chance, like world generation).
+  - Despawning: monsters vanish beyond 128 blocks, and beyond 32 blocks have a 1 in 800 chance per tick once idle for 30 seconds. Animals, named or tamed creatures and villagers stay.
+  - Random ticks: 3 per 16×16×16 section per tick (`randomTickSpeed`), with Java crop growth (farmland moisture, row penalty), sapling, sugar cane, cactus and grass-spread chances.
+  - Simulation distance (default 8 chunks): creatures, items and arrows further away are frozen in place, as in Java.
+  - Villagers follow the Java schedule: wander in the morning, work at their building 2000-9000, meet at the well 9000-11000, go home at 12000. They open and close doors.
+  - Gamerules: `/gamerule randomTickSpeed|doMobSpawning|simulationDistance|mobCap|doDaylightCycle [value]`. Changes are saved with the world.
 - **Saving:** IndexedDB worlds with autosave every 45 s and when the app is backgrounded, manual save, create/rename/duplicate/delete, export/import backups, and versioned save migration.
 - **Audio:** synthesised block, step, creature, UI, water, rain and thunder sounds, cave ambience, and generative music. Master, music, effects and ambience volumes plus mute. Muffled underwater.
 - **Mobile and PWA:** safe areas, no zoom or pull-to-refresh, fullscreen where supported, adaptive resolution, Low/Medium/High/Custom presets, installable PWA with offline single-player and an update prompt.
@@ -228,7 +237,7 @@ tests/             vitest suites
 
 What has been run:
 
-- `npm test`: 10 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, and fall damage. The vanilla pack import test runs when the pack zip is present locally.
+- `npm test`: 28 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning and crop growth. The vanilla pack import test runs when the pack zip is present locally.
 - `scripts/mp-smoke.mjs` against `wrangler dev`: two WebSocket clients exercise room creation, owner vs guest, block break and place sync, server-validated inventory, chat, chunk persistence, impersonation rejection, kick and ban, commands, and rejoin with saved inventory.
 - Headless Chrome (SwiftShader software WebGL) against `wrangler dev`: title, world creation, single-player loading and rendering, iPad-emulated touch controls (look, break, place, joystick walking, inventory, recipe book), importing the Java 26.3 vanilla pack (60/62 blocks, 73/74 items, animated water/lava, all six creature skins, player skins and HUD sprites confirmed in screenshots), and **two independent browser sessions** in one multiplayer room (UI create, code join with preview, both players visible to each other, chat both ways).
 - `wrangler deploy --dry-run`: bundle and bindings validated.
@@ -244,7 +253,7 @@ Not yet tested:
 
 - Fluids use simplified Minecraft-style rules: 7-block water spread, 3-block lava spread, infinite water sources.
 - Torches can be placed on floors and walls. Logs are always vertical. There are no slabs, stairs or redstone.
-- Creatures despawn when their chunk unloads; passive creatures are saved with single-player worlds.
+- In multiplayer, creatures are removed when their chunk unloads (no players nearby) and are not saved; single-player worlds save them. Light levels on the server are estimated from block data (exact for enclosed rooms and caves, slightly approximate around leaves and water).
 - Very high render distances (12+) are desktop-only and will be heavy on large worlds.
 
 ## Credits and licence notes

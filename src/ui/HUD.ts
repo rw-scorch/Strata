@@ -62,6 +62,7 @@ export class HUD {
   constructor(parent: HTMLElement, atlas: TextureAtlas) {
     this.atlas = atlas;
     this.crosshair = h('div', { class: 'crosshair' });
+    this.atkBar = h('div', { class: 'atk-ind' }, h('i'));
     this.hearts = h('div', { class: 'mc-row hearts' });
     this.food = h('div', { class: 'mc-row food' });
     this.armor = h('div', { class: 'mc-row armor' });
@@ -97,7 +98,7 @@ export class HUD {
     this.chatBox = h('div', { class: 'chat' });
     this.bossMsg = h('div', { class: 'boss-msg' });
     this.root = h('div', { id: 'hud' },
-      this.crosshair, this.itemName, this.chatBox, this.debug, this.fps, this.bossMsg,
+      this.crosshair, this.atkBar, this.itemName, this.chatBox, this.debug, this.fps, this.bossMsg,
       h('div', { class: 'hud-top' }, this.status, this.roomChip),
       h('div', { class: 'hud-mc' }, this.armor, this.air, this.hearts, this.food, h('div', { class: 'mc-xp' }, this.xpFill), this.xpLevel, this.hotbar, invBtn),
     );
@@ -108,6 +109,16 @@ export class HUD {
   }
 
   private selEl: HTMLElement;
+  private atkBar: HTMLElement;
+  private atkShown = -1;
+
+  setAttackCharge(c: number): void {
+    const v = c >= 0.999 ? -1 : Math.round(c * 16);
+    if (v === this.atkShown) return;
+    this.atkShown = v;
+    this.atkBar.style.display = v < 0 ? 'none' : 'block';
+    if (v >= 0) (this.atkBar.firstChild as HTMLElement).style.width = `${(v / 16) * 100}%`;
+  }
   hs = 2;
 
   layout(): void {
@@ -128,6 +139,8 @@ export class HUD {
     const root = document.documentElement;
     root.style.setProperty('--hb-img', `url(${u.hotbar ?? guiFallback('gs:hud/hotbar')!.toDataURL()})`);
     root.style.setProperty('--hb-sel', `url(${u.hotbar_selection ?? guiFallback('gs:hud/hotbar_selection')!.toDataURL()})`);
+    root.style.setProperty('--atk-bg', `url(${guiURL(this.atlas, 'gs:hud/crosshair_attack_indicator_background')})`);
+    root.style.setProperty('--atk-fg', `url(${guiURL(this.atlas, 'gs:hud/crosshair_attack_indicator_progress')})`);
     root.style.setProperty('--xp-bg', `url(${guiURL(this.atlas, 'gs:hud/experience_bar_background')})`);
     root.style.setProperty('--xp-fg', `url(${guiURL(this.atlas, 'gs:hud/experience_bar_progress')})`);
     this.crosshair.classList.toggle('img', !!u.crosshair);

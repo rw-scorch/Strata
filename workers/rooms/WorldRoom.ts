@@ -19,7 +19,7 @@ export interface Env {
   ACCOUNTS?: DurableObjectNamespace;
 }
 
-interface StoredMeta extends RoomMeta { pvpV6?: boolean; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
+interface StoredMeta extends RoomMeta { pvpV6?: boolean; rules?: { simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number }; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
 
 interface Session {
   ws: WebSocket;
@@ -105,7 +105,7 @@ export class WorldRoom extends DurableObject<Env> {
 
   private saveMeta(): void {
     if (!this.meta) return;
-    if (this.sim) { this.meta.time = this.sim.time; this.meta.weather = this.sim.weather; this.meta.dayCycle = this.sim.settings.dayCycle; }
+    if (this.sim) { this.meta.time = this.sim.time; this.meta.weather = this.sim.weather; this.meta.dayCycle = this.sim.settings.dayCycle; const st = this.sim.settings; this.meta.rules = { simDistance: st.simDistance, randomTickSpeed: st.randomTickSpeed, mobSpawning: st.mobSpawning, mobCap: st.mobCap }; }
     this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('meta', ?)`, JSON.stringify(this.meta));
   }
 
@@ -137,6 +137,7 @@ export class WorldRoom extends DurableObject<Env> {
         e.dirty = true;
       },
       isLoaded: (x, z) => this.cache.has(chunkKey(x >> 4, z >> 4)),
+      raw: (cx, cz) => this.cache.get(chunkKey(cx, cz))?.c.blocks ?? null,
     };
     const spawnRow = this.sql.exec(`SELECT v FROM kv WHERE k = 'spawn'`).toArray()[0];
     const spawn = spawnRow ? JSON.parse(spawnRow.v as string) : this.gen.findSpawn();
@@ -147,7 +148,7 @@ export class WorldRoom extends DurableObject<Env> {
     });
     this.sim.time = m.time ?? 1000;
     this.sim.weather = (m.weather as 'clear') ?? 'clear';
-    this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true };
+    this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true, ...(m.rules ?? {}) };
     if (!m.pvpV6) { m.settings.pvp = true; m.pvpV6 = true; this.sim.settings.pvp = true; this.saveMeta(); }
     if (!this.loaded) {
       for (const row of this.sql.exec(`SELECT k, data FROM be`).toArray()) {
@@ -527,6 +528,7 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       }
       case 'eat': sim.eat(p); return;
+      case 'sw': sim.swing(p); return;
       case 'bow': if (typeof msg.p === 'number' && typeof msg.y === 'number' && typeof msg.x === 'number') sim.shootBow(p, msg.p, msg.y, msg.x); return;
       case 'atk': if (isInt(msg.id, 0, 1e9)) sim.attack(p, msg.id); return;
       case 'ue': if (isInt(msg.id, 0, 1e9)) sim.useEntity(p, msg.id); return;
@@ -747,7 +749,7 @@ export class WorldRoom extends DurableObject<Env> {
       }
       case 'hurt': {
         const s = this.sessionFor(ev.p.id);
-        if (s) this.send(s, { t: 'hurt', a: ev.amount, c: ev.cause, fx: q2(ev.fx), fz: q2(ev.fz) });
+        if (s) this.send(s, { t: 'hurt', a: ev.amount, c: ev.cause, fx: q2(ev.fx), fz: q2(ev.fz), k: ev.kb });
         return;
       }
       case 'death': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'death', msg: ev.msg }); return; }
@@ -766,6 +768,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'lightning': this.broadcast({ t: 'bolt', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z) }); return;
       case 'weather': this.broadcast({ t: 'wx', w: ev.w }); return;
       case 'time': this.broadcast({ t: 'time', time: this.sim!.time, cycle: this.sim!.settings.dayCycle }); return;
+      case 'rules': this.saveMeta(); return;
       case 'crafted': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'crafted', r: ev.recipe.id, n: ev.times }); return; }
       case 'game': this.broadcast({ t: 'game', s: ev.state as never }); return;
       case 'trade': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trade', id: ev.v.id, prof: ev.v.prof ?? 0, xp: ev.v.vxp ?? 0, uses: [...(ev.v.uses ?? [])].map((u) => u ?? 0) }); return; }

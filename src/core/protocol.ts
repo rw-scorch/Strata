@@ -61,6 +61,7 @@ export type C2S =
   | { t: 'use'; x: number; y: number; z: number; nx: number; ny: number; nz: number; f?: number }
   | { t: 'eat' }
   | { t: 'bow'; p: number; y: number; x: number }
+  | { t: 'sw' }
   | { t: 'trd'; id: number; i: number; n: number }
   | { t: 'atk'; id: number }
   | { t: 'pvp'; pid: string }
@@ -91,7 +92,7 @@ export type S2C =
   | { t: 'scr'; type: ScreenType | null; x: number; y: number; z: number }
   | { t: 'snd'; s: string; x: number; y: number; z: number; v?: number; p?: number }
   | { t: 'fx'; k: string; x: number; y: number; z: number; d?: number }
-  | { t: 'hurt'; a: number; c: string; fx: number; fz: number }
+  | { t: 'hurt'; a: number; c: string; fx: number; fz: number; k?: number }
   | { t: 'death'; msg: string }
   | { t: 'respawn'; x: number; y: number; z: number }
   | { t: 'tp'; x: number; y: number; z: number }

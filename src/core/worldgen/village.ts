@@ -18,7 +18,7 @@ interface Building extends Rect {
   ox: number; oz: number; ux: number; uz: number; vx: number; vz: number; w: number; d: number;
   seed: number;
 }
-export interface VillageHome { x: number; z: number; prof: Profession; }
+export interface VillageHome { x: number; z: number; prof: Profession; ix?: number; iz?: number; }
 export interface VillagePlan {
   id: string; x: number; z: number; y: number; style: Style; seed: number;
   roads: { x: number; z: number }[]; buildings: Building[]; homes: VillageHome[]; bounds: Rect;
@@ -107,7 +107,7 @@ export function planVillage(seed: number, rx: number, rz: number, column: (x: nu
         const b: Building = { ...r, kind, y: cc.height, ox, oz, ux: arm.dx, uz: arm.dz, vx: px, vz: pz, w, d, seed: hash2(ox, oz, vs) };
         buildings.push(b); occupied.push(r); n++;
         const profs = PROF_FOR[kind];
-        if (profs) homes.push({ x: ox - px, z: oz - pz, prof: profs[hash2(ox, oz, vs ^ 9) % profs.length] });
+        if (profs) homes.push({ x: ox - px, z: oz - pz, prof: profs[hash2(ox, oz, vs ^ 9) % profs.length], ix: ox + px * Math.floor(d / 2), iz: oz + pz * Math.floor(d / 2) });
       }
       if (rng.chance(0.5)) {
         const lx = site.x + arm.dx * (t + 4) + -arm.dz * 2, lz = site.z + arm.dz * (t + 4) + arm.dx * 2;

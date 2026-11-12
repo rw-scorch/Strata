@@ -1,14 +1,24 @@
-import { Body, moveBody, sampleMedium, boxCollides, BlockReader, Medium } from '../core/physics';
+import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium } from '../core/physics';
 import { getBlock, blockId, B } from '../core/blocks';
 import { MF } from '../core/sim/WorldSim';
 import type { InputState } from '../controls/InputState';
 import type { GameMode } from '../core/constants';
 
 const HW = 0.3;
-const STEP = 1 / 120;
+const TICK = 0.05;
+const STEP_HEIGHT = 0.6;
+const GRAVITY = 0.08;
+
+function slipperiness(id: number): number {
+  if (id === B.ICE) return 0.98;
+  return 0.6;
+}
 
 export class LocalPlayer {
   body: Body = { x: 0, y: 80, z: 0, vx: 0, vy: 0, vz: 0, hw: HW, h: 1.8, onGround: false, hitH: false, hitCeil: false };
+  private prev = { x: 0, y: 80, z: 0 };
+  private acc = 0;
+  private alpha = 1;
   yaw = 0;
   pitch = 0;
   crouching = false;
@@ -24,19 +34,23 @@ export class LocalPlayer {
   frozen = true;
   landed = false;
   enteredWater = false;
-  private jumpCooldown = 0;
+  private noJumpDelay = 0;
   fovBoost = 0;
+  food = 20;
   stepSound: ((material: string) => void) | null = null;
   swimSound: (() => void) | null = null;
+  usingItem = false;
 
-  get x(): number { return this.body.x; }
-  get y(): number { return this.body.y; }
-  get z(): number { return this.body.z; }
-  get eyeY(): number { return this.body.y + this.eyeHeight; }
+  get x(): number { return this.prev.x + (this.body.x - this.prev.x) * this.alpha; }
+  get y(): number { return this.prev.y + (this.body.y - this.prev.y) * this.alpha; }
+  get z(): number { return this.prev.z + (this.body.z - this.prev.z) * this.alpha; }
+  get eyeY(): number { return this.y + this.eyeHeight; }
+  get speedBps(): number { return Math.hypot(this.body.vx, this.body.vz) * 20; }
 
   setPos(x: number, y: number, z: number): void {
     this.body.x = x; this.body.y = y; this.body.z = z;
     this.body.vx = this.body.vy = this.body.vz = 0;
+    this.prev = { x, y, z };
   }
 
   look(dx: number, dy: number): void {
@@ -60,23 +74,27 @@ export class LocalPlayer {
     return f;
   }
 
-  usingItem = false;
-
   update(dt: number, input: InputState, world: BlockReader & { isLoaded(x: number, z: number): boolean }, mode: GameMode, dead: boolean): void {
     this.landed = false;
     this.enteredWater = false;
-    if (dead) { this.body.vx = this.body.vz = 0; return; }
-    if (!world.isLoaded(Math.floor(this.body.x), Math.floor(this.body.z))) { this.frozen = true; return; }
+    if (dead) { this.body.vx = this.body.vz = 0; this.alpha = 1; return; }
+    if (!world.isLoaded(Math.floor(this.body.x), Math.floor(this.body.z))) { this.frozen = true; this.alpha = 1; return; }
     this.frozen = false;
     if (input.flyToggle && mode === 'creative') { this.flying = !this.flying; this.body.vy = 0; }
     if (mode !== 'creative') this.flying = false;
-    let remaining = Math.min(dt, 0.1);
-    while (remaining > 1e-6) {
-      const h = Math.min(STEP, remaining);
-      this.step(h, input, world, mode);
-      remaining -= h;
+    this.acc += Math.min(dt, 0.25);
+    let n = 0;
+    while (this.acc >= TICK && n < 5) {
+      this.acc -= TICK;
+      this.prev = { x: this.body.x, y: this.body.y, z: this.body.z };
+      this.tick(input, world, mode);
+      n++;
     }
-    this.jumpedFlag = false;
+    if (n === 5) this.acc = 0;
+    this.alpha = Math.min(1, this.acc / TICK);
+    const targetEye = this.crouching ? 1.27 : 1.62;
+    this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 18);
+    this.fovBoost += ((this.sprinting && this.speedBps > 2 ? 1 : 0) - this.fovBoost) * Math.min(1, dt * 8);
   }
 
   private canStand(world: BlockReader): boolean {
@@ -84,81 +102,103 @@ export class LocalPlayer {
     return !boxCollides(world, b.x - HW, b.y, b.z - HW, b.x + HW, b.y + 1.8, b.z + HW);
   }
 
-  private step(dt: number, input: InputState, world: BlockReader, mode: GameMode): void {
+  private tick(input: InputState, world: BlockReader, mode: GameMode): void {
     const b = this.body;
     const wasWater = this.medium.water;
     const m = sampleMedium(world, b.x, b.y, b.z, HW, b.h, this.eyeHeight);
     this.medium = m;
-    if (m.water && !wasWater && b.vy < -4) this.enteredWater = true;
+    if (m.water && !wasWater && b.vy < -0.2) this.enteredWater = true;
     const wantCrouch = input.crouch && !this.flying;
     if (wantCrouch !== this.crouching) {
       if (wantCrouch) this.crouching = true;
       else if (this.canStand(world)) this.crouching = false;
     }
     b.h = this.crouching ? 1.5 : 1.8;
-    const targetEye = this.crouching ? 1.27 : 1.62;
-    this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 18);
 
-    const mx = input.moveX, mz = input.moveZ;
-    const len = Math.hypot(mx, mz);
-    const nx = len > 1 ? mx / len : mx, nz = len > 1 ? mz / len : mz;
+    let strafe = Math.max(-1, Math.min(1, input.moveX));
+    let forward = Math.max(-1, Math.min(1, input.moveZ));
+    const canSprint = forward >= 0.8 && !this.crouching && !this.usingItem && (mode === 'creative' || this.food > 6);
+    if (input.sprint && canSprint) this.sprinting = true;
+    if (!canSprint || (b.hitH && b.onGround)) this.sprinting = false;
+    if (this.crouching && !this.flying) { strafe *= 0.3; forward *= 0.3; }
+    if (this.usingItem && !this.flying) { strafe *= 0.2; forward *= 0.2; }
+    strafe *= 0.98; forward *= 0.98;
+
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
-    const fx = -sin * nz + cos * nx;
-    const fz = -cos * nz - sin * nx;
-    this.sprinting = input.sprint && nz > 0.3 && !this.crouching;
-    if (this.usingItem && this.sprinting) this.sprinting = false;
-    let speed = 4.317;
-    if (this.flying) speed = this.sprinting ? 21.6 : 10.9;
-    else if (m.water || m.lava) speed = m.lava ? 1.4 : this.sprinting ? 3.4 : 2.3;
-    else if (this.crouching) speed = 1.3;
-    else if (this.sprinting) speed = 5.61;
-    if (this.usingItem && !this.flying) speed *= 0.2;
-    const tx = fx * speed, tz = fz * speed;
-    const accel = this.flying ? 9 : b.onGround ? 14 : m.water ? 5 : 2.4;
-    const k = Math.min(1, accel * dt);
-    b.vx += (tx - b.vx) * k;
-    b.vz += (tz - b.vz) * k;
-    if (this.jumpCooldown > 0) this.jumpCooldown -= dt;
+    const moveRelative = (speed: number) => {
+      let s = strafe, f = forward;
+      const l2 = s * s + f * f;
+      if (l2 < 1e-7) return;
+      if (l2 > 1) { const l = Math.sqrt(l2); s /= l; f /= l; }
+      s *= speed; f *= speed;
+      b.vx += -sin * f + cos * s;
+      b.vz += -cos * f - sin * s;
+    };
 
+    if (this.noJumpDelay > 0) this.noJumpDelay--;
+    const inFluid = m.water || m.lava;
     if (this.flying) {
-      const vt = (input.jump ? 9 : 0) - (input.crouch ? 9 : 0);
-      b.vy += (vt - b.vy) * Math.min(1, dt * 10);
-    } else if (m.water || m.lava) {
-      b.vy -= (m.lava ? 4 : 7) * dt;
-      b.vy *= Math.pow(m.lava ? 0.3 : 0.45, dt);
-      if (input.jump) b.vy = Math.min(b.vy + 26 * dt, m.lava ? 1.5 : 3.2);
-      if (b.hitH && input.jump) b.vy = 4.5;
-      b.vy = Math.max(b.vy, -5);
-      if (input.jump && Math.random() < dt * 2) this.swimSound?.();
-    } else if (m.ladder) {
-      b.vy = Math.max(b.vy - 32 * dt, -2.3);
-      if (b.hitH || input.jump) b.vy = 2.6;
-      if (this.crouching) b.vy = Math.max(b.vy, 0);
-    } else {
-      b.vy = Math.max(b.vy - 32 * dt, -78);
-      const wantJump = input.jump || this.shouldAutoJump(world, fx, fz, len);
-      if (wantJump && b.onGround && this.jumpCooldown <= 0) {
-        b.vy = 9.1;
-        this.jumpCooldown = 0.25;
+      if (input.crouch) b.vy -= 0.15;
+      if (input.jump) b.vy += 0.15;
+    } else if (input.jump || this.shouldAutoJump(world, strafe, forward)) {
+      if (inFluid) b.vy += 0.04;
+      else if (b.onGround && this.noJumpDelay === 0) {
+        b.vy = 0.42;
+        if (this.sprinting) { b.vx += -sin * 0.2; b.vz += -cos * 0.2; }
+        this.noJumpDelay = 10;
         this.jumpedFlag = true;
-        if (this.sprinting) { b.vx += -sin * 1.6; b.vz += -cos * 1.6; }
       }
-    }
+    } else this.noJumpDelay = 0;
 
-    let dx = b.vx * dt, dz = b.vz * dt;
-    const dy = b.vy * dt;
-    if (this.crouching && b.onGround && !this.flying) {
-      const supported = (x: number, z: number) => boxCollides(world, x - HW + 0.02, b.y - 0.6, z - HW + 0.02, x + HW - 0.02, b.y - 0.01, z + HW - 0.02);
-      if (!supported(b.x + dx, b.z)) { dx = 0; b.vx = 0; }
-      if (!supported(b.x + dx, b.z + dz)) { dz = 0; b.vz = 0; }
-    }
-    const wasGround = b.onGround;
     const vyBefore = b.vy;
-    moveBody(b, dx, dy, dz, world);
-    if (b.onGround && !wasGround && vyBefore < -8) this.landed = true;
-    if (this.flying && b.onGround && input.crouch) this.flying = false;
+    const wasGround = b.onGround;
+    if (this.flying) {
+      moveRelative(this.sprinting ? 0.1 : 0.05);
+      this.move(world, b.vx, b.vy, b.vz);
+      b.vx *= 0.91; b.vz *= 0.91; b.vy *= 0.6;
+      if (b.onGround && input.crouch) this.flying = false;
+    } else if (m.water && !m.lava) {
+      const swimming = this.sprinting && m.eyeWater;
+      const f = this.sprinting ? 0.9 : 0.8;
+      if (swimming) {
+        const ly = Math.sin(this.pitch);
+        const k = ly < -0.2 ? 0.085 : 0.06;
+        if (ly <= 0 || input.jump) b.vy += (ly - b.vy) * k;
+      }
+      moveRelative(swimming ? 0.04 : 0.02);
+      const oy = b.y;
+      this.move(world, b.vx, b.vy, b.vz);
+      if (b.hitH && m.ladder) b.vy = 0.2;
+      b.vx *= f; b.vy *= 0.8; b.vz *= f;
+      if (!this.sprinting) b.vy -= GRAVITY / 16;
+      if (b.hitH && !boxCollides(world, b.x - HW + b.vx, b.y + 0.6 - (b.y - oy) + b.vy, b.z - HW + b.vz, b.x + HW + b.vx, b.y + b.h + 0.6 - (b.y - oy) + b.vy, b.z + HW + b.vz)) b.vy = 0.3;
+      if (input.jump && Math.random() < 0.1) this.swimSound?.();
+    } else if (m.lava) {
+      moveRelative(0.02);
+      this.move(world, b.vx, b.vy, b.vz);
+      b.vx *= 0.5; b.vy *= 0.5; b.vz *= 0.5;
+      b.vy -= GRAVITY / 4;
+    } else {
+      const under = world.getBlock(Math.floor(b.x), Math.floor(b.y - 0.5000001), Math.floor(b.z));
+      const slip = b.onGround ? slipperiness(blockId(under)) : 1;
+      const f = slip * 0.91;
+      const speed = b.onGround ? 0.1 * (this.sprinting ? 1.3 : 1) * (0.21600002 / (slip * slip * slip)) : this.sprinting ? 0.025999999 : 0.02;
+      moveRelative(speed);
+      if (m.ladder) {
+        b.vx = Math.max(-0.15, Math.min(0.15, b.vx));
+        b.vz = Math.max(-0.15, Math.min(0.15, b.vz));
+        b.vy = Math.max(b.vy, -0.15);
+        if (this.crouching && b.vy < 0) b.vy = 0;
+      }
+      this.move(world, b.vx, b.vy, b.vz);
+      if ((b.hitH || input.jump) && m.ladder) b.vy = 0.2;
+      b.vy = (b.vy - GRAVITY) * 0.98;
+      b.vx *= f; b.vz *= f;
+    }
+    if (b.onGround && !wasGround && vyBefore < -0.4) this.landed = true;
+
     if (b.onGround || m.water) {
-      const moved = Math.hypot(dx, dz);
+      const moved = Math.hypot(b.x - this.prev.x, b.z - this.prev.z);
       this.walkDist += moved;
       this.bobPhase += moved * 2.2;
       this.stepAcc += moved;
@@ -166,19 +206,35 @@ export class LocalPlayer {
         this.stepAcc = 0;
         if (!this.crouching) {
           const under = world.getBlock(Math.floor(b.x), Math.floor(b.y - 0.2), Math.floor(b.z));
-          const d = getBlock(under);
-          if (blockId(under) !== 0) this.stepSound?.(d.sound);
+          if (blockId(under) !== 0) this.stepSound?.(getBlock(under).sound);
         }
       }
     }
-    this.fovBoost += ((this.sprinting && len > 0.1 ? 1 : 0) - this.fovBoost) * Math.min(1, dt * 8);
   }
 
-  private shouldAutoJump(world: BlockReader, fx: number, fz: number, len: number): boolean {
-    if (!this.autoJump || len < 0.3 || !this.body.onGround || this.crouching) return false;
+  private move(world: BlockReader, dx: number, dy: number, dz: number): void {
     const b = this.body;
-    const ahead = 0.45;
-    const ax = b.x + fx / (Math.hypot(fx, fz) || 1) * ahead, az = b.z + fz / (Math.hypot(fx, fz) || 1) * ahead;
+    if (this.crouching && b.onGround && !this.flying) {
+      const off = (x: number, z: number) => !boxCollides(world, b.x - HW + x + 0.001, b.y - STEP_HEIGHT, b.z - HW + z + 0.001, b.x + HW + x - 0.001, b.y - 0.001, b.z + HW + z - 0.001);
+      while (dx !== 0 && off(dx, 0)) dx = Math.abs(dx) < 0.05 ? 0 : dx - Math.sign(dx) * 0.05;
+      while (dz !== 0 && off(0, dz)) dz = Math.abs(dz) < 0.05 ? 0 : dz - Math.sign(dz) * 0.05;
+      while (dx !== 0 && dz !== 0 && off(dx, dz)) {
+        dx = Math.abs(dx) < 0.05 ? 0 : dx - Math.sign(dx) * 0.05;
+        dz = Math.abs(dz) < 0.05 ? 0 : dz - Math.sign(dz) * 0.05;
+      }
+      if (dx !== b.vx) b.vx = dx;
+      if (dz !== b.vz) b.vz = dz;
+    }
+    moveStep(b, dx, dy, dz, world, this.flying || this.medium.water ? STEP_HEIGHT : b.onGround ? STEP_HEIGHT : 0);
+  }
+
+  private shouldAutoJump(world: BlockReader, strafe: number, forward: number): boolean {
+    if (!this.autoJump || Math.hypot(strafe, forward) < 0.3 || !this.body.onGround || this.crouching) return false;
+    const b = this.body;
+    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
+    const fx = -sin * forward + cos * strafe, fz = -cos * forward - sin * strafe;
+    const l = Math.hypot(fx, fz) || 1;
+    const ax = b.x + fx / l * 0.45, az = b.z + fz / l * 0.45;
     const by = Math.floor(b.y + 0.01);
     const front = world.getBlock(Math.floor(ax), by, Math.floor(az));
     if (!getBlock(front).solid || blockId(front) === B.OAK_DOOR) return false;
@@ -188,11 +244,15 @@ export class LocalPlayer {
     return !getBlock(up1).solid && !getBlock(up2).solid && !getBlock(head).solid;
   }
 
-  knockback(fromX: number, fromZ: number, strength = 7): void {
-    const dx = this.body.x - fromX, dz = this.body.z - fromZ;
-    const d = Math.hypot(dx, dz) || 1;
-    this.body.vx += (dx / d) * strength;
-    this.body.vz += (dz / d) * strength;
-    this.body.vy = Math.max(this.body.vy, 5);
+  knockback(fromX: number, fromZ: number, strength = 0.4): void {
+    const b = this.body;
+    let dx = fromX - b.x, dz = fromZ - b.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-4) { dx = Math.random() - 0.5; dz = Math.random() - 0.5; }
+    const l = Math.hypot(dx, dz) || 1;
+    b.vx = b.vx / 2 - (dx / l) * strength;
+    b.vz = b.vz / 2 - (dz / l) * strength;
+    if (b.onGround) b.vy = Math.min(0.4, b.vy / 2 + strength);
+    this.sprinting = false;
   }
 }
