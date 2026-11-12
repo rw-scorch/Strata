@@ -2,11 +2,20 @@ import type { Appearance } from '../core/sim/WorldSim';
 
 export type GraphicsPreset = 'low' | 'medium' | 'high' | 'ultra' | 'custom';
 
-export interface ButtonLayout { [id: string]: { x: number; y: number }; }
+export interface ButtonLayout { [id: string]: { x?: number; y?: number; size?: number; hidden?: boolean }; }
 
 export interface Settings {
   controlScheme: 'auto' | 'touch' | 'mouse';
   labs: boolean;
+  guiScale: number;
+  touchLayout: 'full' | 'minimal' | 'none';
+  buttonOpacity: number;
+  fireOverlay: 'normal' | 'low';
+  chatTimestamps: boolean;
+  showCoords: boolean;
+  showMinimap: boolean;
+  menuBlur: number;
+  advancedTooltips: boolean;
   preset: GraphicsPreset;
   renderDistance: number;
   resolutionScale: number;
@@ -115,7 +124,7 @@ function defaults(): Settings {
   return {
     preset, renderDistance: 6, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
     fov: 72, showFps: false, sensitivity: 1, touchSensitivity: 1, joystickSize: 1, buttonSize: 1, leftHanded: false, invertY: false,
-    controlScheme: 'auto', labs: false, autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
+    controlScheme: 'auto', labs: false, guiScale: 0, touchLayout: 'full', buttonOpacity: 0.85, fireOverlay: 'low', chatTimestamps: false, showCoords: true, showMinimap: true, menuBlur: 5, advancedTooltips: false, autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
     difficulty: 'normal', viewBobbing: true, reconnect: true, region: 'auto', activePacks: [],
     playerName: '', appearance: { skin: Math.floor(Math.random() * 6), hair: Math.floor(Math.random() * 8), shirt: Math.floor(Math.random() * 12), pants: Math.floor(Math.random() * 12) },
     hudScale: 1, chatOpacity: 0.55, brightness: 0.5,

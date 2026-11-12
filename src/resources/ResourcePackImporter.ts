@@ -40,7 +40,21 @@ export interface PackManifest {
   importer?: number;
 }
 
-export const IMPORTER_VERSION = 6;
+export const IMPORTER_VERSION = 7;
+
+export const GUI_SPRITES = [
+  'container/slot_highlight_back', 'container/slot_highlight_front', 'container/furnace/burn_progress', 'container/furnace/lit_progress',
+  'container/villager/experience_bar_background', 'container/villager/experience_bar_current', 'container/villager/out_of_stock', 'container/villager/trade_arrow', 'container/villager/trade_arrow_out_of_stock', 'container/villager/scroller', 'container/villager/scroller_disabled',
+  'container/creative_inventory/scroller', 'container/creative_inventory/scroller_disabled',
+  ...[1, 2, 3, 4, 5, 6, 7].flatMap((i) => [`container/creative_inventory/tab_top_selected_${i}`, `container/creative_inventory/tab_top_unselected_${i}`, `container/creative_inventory/tab_bottom_selected_${i}`, `container/creative_inventory/tab_bottom_unselected_${i}`]),
+  'widget/button', 'widget/button_highlighted', 'widget/button_disabled', 'widget/text_field', 'widget/text_field_highlighted', 'widget/slider', 'widget/slider_highlighted', 'widget/slider_handle', 'widget/slider_handle_highlighted',
+  'widget/checkbox', 'widget/checkbox_selected', 'widget/checkbox_highlighted', 'widget/checkbox_selected_highlighted', 'widget/cross_button', 'widget/cross_button_highlighted', 'widget/scroller', 'widget/scroller_background',
+  'tooltip/background', 'tooltip/frame', 'hud/experience_bar_background', 'hud/experience_bar_progress', 'hud/air', 'hud/air_empty', 'hud/air_bursting',
+  'recipe_book/button', 'recipe_book/button_highlighted', 'recipe_book/slot_craftable', 'recipe_book/slot_uncraftable', 'recipe_book/slot_many_craftable', 'recipe_book/slot_many_uncraftable',
+  'recipe_book/page_forward', 'recipe_book/page_backward', 'recipe_book/page_forward_highlighted', 'recipe_book/page_backward_highlighted', 'recipe_book/tab', 'recipe_book/tab_selected',
+];
+export const GUI_TEXTURES = ['container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
+
 
 export interface PackFiles { [path: string]: Uint8Array; }
 
@@ -345,6 +359,15 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     special.armor = 'gui/sprites/hud/armor_full'; special.armor_half = 'gui/sprites/hud/armor_half'; special.armor_empty = 'gui/sprites/hud/armor_empty';
     special.bubble = 'gui/sprites/hud/air';
     special.fire_0 = 'block/fire_0'; special.fire_1 = 'block/fire_1';
+    for (const g of GUI_SPRITES) if (z.has(`assets/minecraft/textures/gui/sprites/${g}.png`)) special[`gs:${g}`] = `gui/sprites/${g}`;
+    for (const g of GUI_TEXTURES) if (z.has(`assets/minecraft/textures/gui/${g}.png`)) special[`gt:${g}`] = `gui/${g}`;
+    if (z.has('assets/minecraft/textures/font/ascii.png')) {
+      special.font_ascii = 'font/ascii';
+      r.load(['assets/minecraft/font/include/default.json', 'assets/minecraft/font/default.json']);
+      const fj = (r.get('assets/minecraft/font/include/default.json') ?? r.get('assets/minecraft/font/default.json')) as { providers?: { type?: string; file?: string; chars?: string[]; ascent?: number }[] } | null;
+      const prov = fj?.providers?.find((pv) => pv.type === 'bitmap' && /font\/ascii\.png$/.test(pv.file ?? ''));
+      if (prov?.chars) special.font_ascii_chars = JSON.stringify({ chars: prov.chars, ascent: prov.ascent ?? 7 });
+    }
     const firstOf = (...cands: string[]) => cands.find((c) => z.has(`assets/minecraft/textures/${c}.png`));
     const ent: Record<string, string | undefined> = {
       ent_pig: firstOf('entity/pig/pig_temperate', 'entity/pig/temperate_pig', 'entity/pig/pig'),
@@ -370,7 +393,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     for (const [k, v] of Object.entries(ent)) if (v) special[k] = v;
     const altMoon = z.list('assets/minecraft/textures/environment/').find((n) => /moon/.test(n) && n.endsWith('.png'));
     if (!z.has(`assets/minecraft/textures/${special.moon}.png`) && altMoon) special.moon = altMoon.replace('assets/minecraft/textures/', '').replace(/\.png$/, '');
-    for (const v of Object.values(special)) needTex.add(v);
+    for (const [k, v] of Object.entries(special)) if (k !== 'font_ascii_chars') needTex.add(v);
     const texPaths: string[] = [];
     for (const t of needTex) { texPaths.push(`assets/minecraft/textures/${t}.png`); texPaths.push(`assets/minecraft/textures/${t}.png.mcmeta`); }
     const got = z.read(texPaths.filter((p) => z.has(p)));
@@ -389,7 +412,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
         report.animated++;
       }
     }
-    for (const k of Object.keys(special)) if (!files[special[k]]) delete special[k];
+    for (const k of Object.keys(special)) if (k !== 'font_ascii_chars' && !files[special[k]]) delete special[k];
     for (const [k, fo] of Object.entries(blockFaces)) {
       for (const f of Object.keys(fo) as (keyof FaceOverride)[]) if (fo[f] && !files[fo[f]!]) delete fo[f];
       if (!Object.keys(fo).length) { delete blockFaces[k]; report.mappedBlocks--; }

@@ -15,7 +15,6 @@ import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { GameSession, SessionEvents, Vitals } from './Session';
 import { LocalSession } from './LocalSession';
 import { RemoteSession } from '../multiplayer/RemoteSession';
-import { TradeUI } from '../ui/TradeUI';
 import { ArenaUI } from '../ui/labs/ArenaUI';
 import { Minimap } from '../ui/Minimap';
 import type { ArenaKind } from '../core/labs/minigames/arena';
@@ -57,6 +56,7 @@ export class Game {
   private interaction = new BlockInteraction();
   private hud!: HUD;
   private bowShown = false;
+  private panoDone = false;
   private overlay!: { root: HTMLElement; wall: HTMLElement; fireL: HTMLElement; fireR: HTMLElement; wallId: number };
   private inv!: InventoryUI;
   private chatUI!: ChatUI;
@@ -93,7 +93,6 @@ export class Game {
   private lastPlace = 0;
 
   private arena!: ArenaUI;
-  private tradeUI!: TradeUI;
   private caveFx = 0;
   private minimap: Minimap | null = null;
   constructor(app: AppHooks, atlas: TextureAtlas) {
@@ -135,8 +134,6 @@ export class Game {
     this.inv.onClose = () => { if (this.state === 'inventory') this.setState('playing'); };
     this.arena = new ArenaUI(hudRoot, this.screens, this.atlas);
     this.arena.onShopClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
-    this.tradeUI = new TradeUI(this.screens, this.atlas);
-    this.tradeUI.onClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
     this.chatUI = new ChatUI(this.hud.chatBox, hudRoot);
     this.chatUI.onSend = (t) => this.session.chat(t);
     this.chatUI.onClose = () => { if (this.state === 'chat') this.setState('playing'); };
@@ -153,6 +150,7 @@ export class Game {
       onToggleHud: () => { const v = this.hud.root.style.visibility === 'hidden'; this.hud.root.style.visibility = v ? '' : 'hidden'; this.renderer.showHand = v; },
       onThirdPerson: () => this.toggleCamera(),
       onPointerLockLost: () => { if (this.state === 'playing' && !this.input.touchMode) this.pause(); },
+      onMessage: (t) => this.chatUI?.add(null, t, 'info', Date.now()),
       onMouseMode: () => { if (getSettings().controlScheme !== 'touch') { this.mobile.setVisible(false); document.body.classList.remove('touch-active'); } },
     });
     this.mobile = new MobileControls(document.getElementById('touch-root')!, this.input, {
@@ -207,7 +205,7 @@ export class Game {
     screen: (t) => this.onScreen(t),
     game: (st) => { this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
     title: (t, s) => this.arena?.title(t, s),
-    trade: (info) => this.tradeUI?.update(info),
+    trade: (info) => this.inv?.setTrade(info),
     chestLid: (x, y, z, n) => { this.renderer?.chests.setOpen(x, y, z, n); audio.play(n > 0 ? 'chest.open' : 'chest.close', x + 0.5, y + 0.5, z + 0.5); },
     hurt: (a, c, fx, fz) => this.onHurt(a, c, fx, fz),
     death: (m) => this.onDeath(m),
@@ -284,6 +282,7 @@ export class Game {
       toast: (t) => toast(t, 'info'),
       setModal: (open) => { if (open) { this.desktop.unlock(); this.setState('inventory'); } else if (this.state === 'inventory') this.setState('playing'); },
     }, info.kind === 'remote' ? `room:${info.roomCode}` : `local:${info.seed}:${info.name}`);
+    this.minimap.setPrefs(getSettings().showMinimap, getSettings().showCoords);
     this.chatUI.onWaypoint = (w) => { this.minimap?.add(w.name, w.x, w.y, w.z); toast(`Saved waypoint ${w.name}.`, 'info'); };
     this.running = true;
     this.loadStart = performance.now();
@@ -350,6 +349,10 @@ export class Game {
     document.documentElement.style.setProperty('--hud-scale', String(s.hudScale));
     document.documentElement.style.setProperty('--chat-op', String(s.chatOpacity));
     this.hud.fps.classList.toggle('show', s.showFps);
+    this.hud.layout();
+    this.hud.chatBox.classList.toggle('show-ts', s.chatTimestamps);
+    this.overlay.root.classList.toggle('fire-normal', s.fireOverlay === 'normal');
+    this.minimap?.setPrefs(s.showMinimap, s.showCoords);
     audio.setVolumes({ master: s.master, music: s.music, effects: s.effects, ambient: s.ambient, muted: s.muted });
   }
 
@@ -359,13 +362,11 @@ export class Game {
     this.chunks.setAtlas(a.data);
     this.hud.setAtlas(a);
     this.inv.setAtlas(a);
-    this.tradeUI?.setAtlas(a);
     this.setHeld(true);
   }
 
   private toggleInventory(): void {
     if (this.state === 'inventory') {
-      if (this.tradeUI?.isOpen) { this.tradeUI.close(); return; }
       if (this.arena?.shopOpen) { this.arena.closeShop(); return; }
       this.inv.close(); return;
     }
@@ -423,8 +424,18 @@ export class Game {
     if (!this.input.touchMode) this.desktop.lock();
   }
 
+  capturePanorama(force = false): void {
+    if (!this.renderer || this.state === 'loading') return;
+    const p = this.player;
+    const sky = this.chunks.lightProbe(p.x, p.eyeY, p.z, 1);
+    if (!force && sky < 0.6) return;
+    const faces = this.renderer.capturePanorama(p.x, p.eyeY + 0.2, p.z);
+    if (faces) try { localStorage.setItem('strata.panorama', JSON.stringify(faces)); } catch { /* storage full */ }
+  }
+
   async quit(reason?: string): Promise<void> {
     if (!this.running) return;
+    this.capturePanorama();
     this.running = false;
     try { await this.session?.save?.(true); } catch (e) { console.error(e); toast('Saving failed: ' + (e as Error).message, 'error'); }
     this.session?.close();
@@ -434,7 +445,6 @@ export class Game {
 
   private dispose(): void {
     this.arena?.dispose();
-    this.tradeUI?.dispose();
     this.minimap?.dispose();
     this.minimap = null;
     this.closePause?.();
@@ -541,7 +551,6 @@ export class Game {
     this.hud.updateInventory(this.session.me.inv);
     this.inv.refresh();
     this.arena?.refreshShop(this.session.me.inv);
-    this.tradeUI?.refresh(this.session.me.inv);
     this.setHeld();
   }
 
@@ -560,17 +569,15 @@ export class Game {
     if (type === 'trade') {
       this.desktop.unlock();
       this.setState('inventory');
-      this.tradeUI.open(this.session.me.inv, (id, i, n) => this.session.trade(id, i, n));
+      this.inv.openTrade(this.session, (id, i, n) => this.session.trade(id, i, n));
       return;
     }
-    if (!type && this.tradeUI?.isOpen) { this.tradeUI.close(true); if (this.state === 'inventory') this.setState('playing'); return; }
     if (!type && this.arena?.shopOpen) { this.arena.closeShop(true); if (this.state === 'inventory') this.setState('playing'); return; }
     if (type) {
       this.desktop.unlock();
       this.setState('inventory');
       this.inv.open(this.session, type as InvScreen);
-      if (type === 'chest') audio.play('chest.open');
-    } else if (this.inv.isOpen && ['chest', 'furnace', 'workbench'].includes(this.inv.current)) {
+    } else if (this.inv.isOpen && ['chest', 'furnace', 'workbench', 'trade'].includes(this.inv.current)) {
       this.inv.close(true);
     }
   }
@@ -780,6 +787,7 @@ export class Game {
 
     this.hud.tick(dt);
     this.chatUI.tick();
+    if (!this.panoDone && this.state === 'playing' && performance.now() - this.loadStart > 20000) { this.panoDone = true; if (!localStorage.getItem('strata.panorama')) this.capturePanorama(); }
     this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0;
     if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
     if (!loading) this.minimap?.update();

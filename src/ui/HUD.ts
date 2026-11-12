@@ -5,6 +5,9 @@ import { armorPoints } from '../core/inventory';
 import { getItem, maxDurability } from '../core/items';
 import { xpLevel } from '../core/sim/WorldSim';
 import type { Vitals } from '../game/Session';
+import { getSettings, isTouchDevice } from '../storage/Settings';
+import { guiFallback } from './mc/GuiPaint';
+import { guiURL } from './mc/Gui';
 
 export function slotContent(atlas: TextureAtlas, s: ItemStack | null, size: number): Node[] {
   if (!s) return [];
@@ -17,6 +20,10 @@ export function slotContent(atlas: TextureAtlas, s: ItemStack | null, size: numb
     out.push(h('div', { class: 'dur' }, h('i', { style: `width:${Math.round(f * 100)}%;background:${col}` })));
   }
   return out;
+}
+
+function icon(src: string, x: number, y = 0): HTMLElement {
+  return h('img', { src, alt: '', class: 'mc-icon', style: `left:calc(var(--hs) * ${x});top:calc(var(--hs) * ${y})` });
 }
 
 export function slotPx(): number {
@@ -55,15 +62,17 @@ export class HUD {
   constructor(parent: HTMLElement, atlas: TextureAtlas) {
     this.atlas = atlas;
     this.crosshair = h('div', { class: 'crosshair' });
-    this.hearts = h('div', { class: 'icons-row' });
-    this.food = h('div', { class: 'icons-row right' });
-    this.armor = h('div', { class: 'icons-row' });
-    this.air = h('div', { class: 'icons-row right' });
-    this.xpFill = h('i');
+    this.hearts = h('div', { class: 'mc-row hearts' });
+    this.food = h('div', { class: 'mc-row food' });
+    this.armor = h('div', { class: 'mc-row armor' });
+    this.air = h('div', { class: 'mc-row air' });
+    this.xpFill = h('i', { class: 'xp-fill' });
     this.xpLevel = h('span', { class: 'xplevel' });
-    this.hotbar = h('div', { class: 'hotbar' });
+    this.hotbar = h('div', { class: 'mc-hotbar' });
+    this.selEl = h('div', { class: 'mc-hotsel' });
+    this.hotbar.appendChild(this.selEl);
     for (let i = 0; i < 9; i++) {
-      const s = h('div', { class: 'slot', 'data-i': i });
+      const s = h('div', { class: 'slot mc hb', 'data-i': i, style: `left:calc(var(--hs) * ${20 * i + 2});top:calc(var(--hs) * 2)` });
       let timer = 0;
       let held = false;
       s.addEventListener('pointerdown', (e) => {
@@ -90,22 +99,37 @@ export class HUD {
     this.root = h('div', { id: 'hud' },
       this.crosshair, this.itemName, this.chatBox, this.debug, this.fps, this.bossMsg,
       h('div', { class: 'hud-top' }, this.status, this.roomChip),
-      h('div', { class: 'hud-bottom' },
-        h('div', { class: 'vitals' }, h('div', { class: 'stack', style: 'gap:2px' }, this.armor, this.hearts), h('div', { class: 'stack', style: 'gap:2px;align-items:flex-end' }, this.air, this.food)),
-        h('div', { class: 'xpbar' }, this.xpFill, this.xpLevel),
-        h('div', { class: 'hotbar-wrap' }, this.hotbar, invBtn),
-      ),
+      h('div', { class: 'hud-mc' }, this.armor, this.air, this.hearts, this.food, h('div', { class: 'mc-xp' }, this.xpFill), this.xpLevel, this.hotbar, invBtn),
     );
     parent.appendChild(this.root);
     this.applySprites();
+    this.layout();
+    window.addEventListener('resize', () => this.layout());
+  }
+
+  private selEl: HTMLElement;
+  hs = 2;
+
+  layout(): void {
+    const st = getSettings();
+    const auto = Math.max(1, Math.min(Math.floor(window.innerWidth / 320), Math.floor(window.innerHeight / 240)));
+    let s = st.guiScale > 0 ? st.guiScale : auto;
+    if (isTouchDevice()) s = Math.max(2, s);
+    s = Math.max(1, Math.min(6, Math.round(s * (st.hudScale || 1))));
+    while (s > 1 && 182 * s + 80 > window.innerWidth) s--;
+    this.hs = s;
+    const r = document.documentElement;
+    r.style.setProperty('--hs', `${s}px`);
+    r.style.setProperty('--slot', `${20 * s}px`);
   }
 
   private applySprites(): void {
     const u = this.atlas.hudURLs;
     const root = document.documentElement;
-    this.hotbar.classList.toggle('vanilla', !!u.hotbar);
-    root.style.setProperty('--hb-img', u.hotbar ? `url(${u.hotbar})` : 'none');
-    root.style.setProperty('--hb-sel', u.hotbar_selection ? `url(${u.hotbar_selection})` : 'none');
+    root.style.setProperty('--hb-img', `url(${u.hotbar ?? guiFallback('gs:hud/hotbar')!.toDataURL()})`);
+    root.style.setProperty('--hb-sel', `url(${u.hotbar_selection ?? guiFallback('gs:hud/hotbar_selection')!.toDataURL()})`);
+    root.style.setProperty('--xp-bg', `url(${guiURL(this.atlas, 'gs:hud/experience_bar_background')})`);
+    root.style.setProperty('--xp-fg', `url(${guiURL(this.atlas, 'gs:hud/experience_bar_progress')})`);
     this.crosshair.classList.toggle('img', !!u.crosshair);
     root.style.setProperty('--xh-img', u.crosshair ? `url(${u.crosshair})` : 'none');
     document.body.classList.toggle('vanilla-slots', !!u.slot);
@@ -120,13 +144,14 @@ export class HUD {
     const key = JSON.stringify(inv.slots.slice(0, 9)) + inv.selected;
     if (key === this.lastInvKey) return;
     this.lastInvKey = key;
-    const size = slotPx() - 8;
+    const size = 16 * this.hs;
     for (let i = 0; i < 9; i++) {
       const el = this.slots[i];
       clear(el);
       for (const n of slotContent(this.atlas, inv.slots[i], size)) el.appendChild(n);
       el.classList.toggle('sel', i === inv.selected);
     }
+    this.selEl.style.left = `calc(var(--hs) * ${inv.selected * 20 - 1})`;
     if (inv.selected !== this.lastSel) {
       this.lastSel = inv.selected;
       const s = inv.slots[inv.selected];
@@ -146,7 +171,7 @@ export class HUD {
     const u = this.atlas.hudURLs;
     for (let i = 0; i < 10; i++) {
       const v = pts - i * 2;
-      this.armor.appendChild(h('img', { src: v >= 2 ? u.armor : v === 1 ? u.armor_half : u.armor_empty, alt: '' }));
+      this.armor.appendChild(icon(v >= 2 ? u.armor : v === 1 ? u.armor_half : u.armor_empty, i * 8));
     }
   }
 
@@ -161,16 +186,25 @@ export class HUD {
     const surv = v.mode === 'survival';
     this.hearts.style.display = this.food.style.display = surv ? '' : 'none';
     (this.xpFill.parentElement as HTMLElement).style.visibility = surv ? 'visible' : 'hidden';
+    this.xpLevel.style.visibility = surv ? 'visible' : 'hidden';
     if (surv) {
+      const low = v.health <= 4;
       for (let i = 0; i < 10; i++) {
         const hv = v.health - i * 2;
-        this.hearts.appendChild(h('img', { src: hv >= 2 ? u.heart : hv >= 1 ? u.heart_half : u.heart_empty, alt: '' }));
+        const jig = low ? Math.floor(Math.random() * 2) : 0;
+        this.hearts.appendChild(icon(u.heart_empty, i * 8, jig));
+        if (hv >= 1) this.hearts.appendChild(icon(hv >= 2 ? u.heart : u.heart_half, i * 8, jig));
         const fv = v.food - i * 2;
-        this.food.appendChild(h('img', { src: fv >= 2 ? u.food : fv >= 1 ? u.food_half : u.food_empty, alt: '' }));
+        this.food.appendChild(icon(u.food_empty, 182 - 9 - i * 8));
+        if (fv >= 1) this.food.appendChild(icon(fv >= 2 ? u.food : u.food_half, 182 - 9 - i * 8));
       }
       if (v.air < 300) {
         const bubbles = Math.ceil((v.air / 300) * 10);
-        for (let i = 0; i < bubbles; i++) this.air.appendChild(h('img', { src: u.bubble, alt: '' }));
+        const empty = this.atlas.guiURL('gs:hud/air_empty');
+        for (let i = 0; i < 10; i++) {
+          if (i < bubbles) this.air.appendChild(icon(this.atlas.guiURL('gs:hud/air') ?? u.bubble, 182 - 9 - i * 8));
+          else if (empty) this.air.appendChild(icon(empty, 182 - 9 - i * 8));
+        }
       }
     }
     const xl = xpLevel(v.xp);

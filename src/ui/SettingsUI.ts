@@ -1,11 +1,12 @@
-import { h, clear, toggle, slider, segmented, select, toast } from './dom';
-import { getSettings, updateSettings, GraphicsPreset, isTouchDevice } from '../storage/Settings';
+import { h, toast } from './dom';
+import { getSettings, updateSettings, GraphicsPreset, isTouchDevice, Settings } from '../storage/Settings';
 import { storageEstimate, requestPersistence } from '../storage/db';
 import { GAME_VERSION, PROTOCOL_VERSION } from '../core/constants';
 import { MobileControls } from '../controls/MobileControls';
 import { InputState } from '../controls/InputState';
 import { drawAvatar } from './avatar';
 import { apiURL } from '../multiplayer/RemoteSession';
+import { mcScreen, mcButton, mcCycle, mcToggle, mcSlider, mcRow, mcHeading, mcText, mcInput } from './mc/Widgets';
 
 export const REGIONS: [string, string][] = [
   ['auto', 'Automatic (nearest to the host)'], ['oc', 'Oceania'], ['apac', 'Asia-Pacific'], ['wnam', 'North America (West)'], ['enam', 'North America (East)'],
@@ -16,179 +17,201 @@ export interface SettingsContext {
   netStats?: () => { rtt: number; inRate: number; outRate: number; state: string } | null;
   install?: () => void;
   canInstall?: () => boolean;
+  openPacks?: (done: () => void) => void;
+  inGame?: boolean;
 }
 
-type Tab = 'graphics' | 'controls' | 'audio' | 'network' | 'gameplay' | 'profile' | 'about';
+type Page = 'root' | 'video' | 'audio' | 'controls' | 'touch' | 'chat' | 'skin' | 'access' | 'network' | 'about' | 'labs';
 
-export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose: () => void, initial: Tab = 'graphics'): void {
-  let tab: Tab = initial;
-  const body = h('div', { class: 'card-body' });
-  const tabs = h('div', { class: 'tabs' });
-  const el = h('div', { class: 'screen dim', style: 'z-index:35' },
-    h('div', { class: 'card panel wide' },
-      h('div', { class: 'card-head' }, h('h2', {}, 'Settings'), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => { el.remove(); onClose(); }, html: '&times;' })),
-      tabs, body,
-    ),
-  );
-  const labels: [Tab, string][] = [['graphics', 'Graphics'], ['controls', 'Controls'], ['audio', 'Audio'], ['network', 'Network'], ['gameplay', 'Gameplay'], ['profile', 'Profile'], ['about', 'About']];
-  const renderTabs = () => {
-    clear(tabs);
-    for (const [t, l] of labels) tabs.appendChild(h('button', { class: t === tab ? 'on' : '', onclick: () => { tab = t; renderTabs(); render(); } }, l));
-  };
-  let netTimer = 0;
-  const render = () => {
-    clear(body);
-    clearInterval(netTimer);
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+const onOff = (v: number) => (v === 0 ? 'OFF' : pct(v));
+
+export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose: () => void, initial: Page | string = 'root'): void {
+  const set = (p: Partial<Settings>) => updateSettings(p);
+  const open = (page: Page, back: () => void) => {
     const s = getSettings();
-    const set = (p: Parameters<typeof updateSettings>[0], rerender = false) => { updateSettings(p); if (rerender) render(); };
-    if (tab === 'graphics') {
-      body.append(
-        h('div', { class: 'section-title' }, 'Shader quality'),
-        segmented<GraphicsPreset>([['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra'], ['custom', 'Custom']], s.preset, (v) => set({ preset: v }, true)),
-        h('div', { class: 'small muted' }, 'Low suits phones. Medium suits most iPads: bloom, wet surfaces, cloud shadows. High adds soft shadows, reflective water, god rays and fog. Ultra adds enhanced ambient occlusion and screen-space reflections. Changing any option below switches to Custom.'),
-        slider('Render distance', 2, isTouchDevice() ? 10 : 16, 1, s.renderDistance, (v) => `${v} chunks`, (v) => set({ renderDistance: v })),
-        slider('Render resolution', 0.5, 1, 0.05, s.resolutionScale, (v) => `${Math.round(v * 100)}%`, (v) => set({ resolutionScale: v })),
-        toggle('Dynamic resolution', s.adaptiveResolution, (v) => set({ adaptiveResolution: v }), 'Lowers resolution, then heavy effects, to keep the frame rate steady.'),
-        select('Frame rate limit', [['0', 'Unlimited (display rate)'], ['30', '30 FPS (saves battery)'], ['60', '60 FPS'], ['120', '120 FPS']], String(s.fpsLimit) as '0', (v) => set({ fpsLimit: Number(v) })),
-        h('div', { class: 'section-title' }, 'Lighting and shadows'),
-        segmented<'off' | 'low' | 'high' | 'ultra'>([['off', 'Off'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']], s.shadowQuality, (v) => set({ shadowQuality: v }, true)),
-        slider('Shadow distance', 24, 128, 8, s.shadowDistance, (v) => `${v} blocks`, (v) => set({ shadowDistance: v })),
-        toggle('Smooth lighting', s.smoothLighting, (v) => set({ smoothLighting: v }), 'Soft light and corner shading between blocks.'),
-        select('Ambient occlusion', [['standard', 'Standard'], ['enhanced', 'Enhanced (screen-space)']], s.ambientOcclusion, (v) => set({ ambientOcclusion: v })),
-        toggle('God rays', s.godRays, (v) => set({ godRays: v }), 'Light shafts streaming past terrain toward the sun.'),
-        toggle('Volumetric fog', s.volumetricFog, (v) => set({ volumetricFog: v }), 'Height fog with sun scattering, and dusty air in caves.'),
-        toggle('Cloud shadows', s.cloudShadows, (v) => set({ cloudShadows: v })),
-        toggle('Foliage lighting', s.foliageLighting, (v) => set({ foliageLighting: v }), 'Sunlight glows through leaves and grass.'),
-        toggle('Glowing ores', s.glowingOres, (v) => set({ glowingOres: v })),
-        h('div', { class: 'section-title' }, 'Water and weather'),
-        segmented<'low' | 'high' | 'ultra'>([['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']], s.waterQuality, (v) => set({ waterQuality: v })),
-        select('Reflections', [['off', 'Off'], ['low', 'Low'], ['high', 'High']], s.reflections, (v) => set({ reflections: v })),
-        toggle('Wet surfaces and puddles', s.wetSurfaces, (v) => set({ wetSurfaces: v })),
-        toggle('Clouds', s.clouds, (v) => set({ clouds: v })),
-        h('div', { class: 'section-title' }, 'Camera and post-processing'),
-        select('Anti-aliasing', [['off', 'Off'], ['fxaa', 'FXAA'], ['msaa', 'MSAA 4x']], s.antiAliasing, (v) => set({ antiAliasing: v })),
-        slider('Bloom', 0, 1, 0.05, s.bloom, (v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`), (v) => set({ bloom: v })),
-        toggle('Auto exposure', s.autoExposure, (v) => set({ autoExposure: v }), 'Your eyes adjust when moving between caves and daylight.'),
-        select('Tone mapping', [['vanilla', 'Vanilla (keeps original colours)'], ['filmic', 'Filmic']], s.toneMapping, (v) => set({ toneMapping: v })),
-        slider('Saturation', 0.5, 1.5, 0.05, s.saturation, (v) => `${Math.round(v * 100)}%`, (v) => set({ saturation: v })),
-        slider('Contrast', 0.8, 1.3, 0.02, s.contrast, (v) => `${Math.round(v * 100)}%`, (v) => set({ contrast: v })),
-        slider('Motion blur', 0, 1, 0.05, s.motionBlur, (v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`), (v) => set({ motionBlur: v })),
-        toggle('Depth of field', s.depthOfField, (v) => set({ depthOfField: v })),
-        toggle('Lens flare and sun glare', s.lensFlare, (v) => set({ lensFlare: v })),
-        toggle('Vignette', s.vignette, (v) => set({ vignette: v })),
-        toggle('Film grain', s.filmGrain, (v) => set({ filmGrain: v })),
-        toggle('Chromatic aberration', s.chromaticAberration, (v) => set({ chromaticAberration: v })),
-        select('Texture quality', [['high', 'High'], ['low', 'Low (softer, lighter on memory bandwidth)']], s.textureQuality, (v) => set({ textureQuality: v })),
-        h('div', { class: 'section-title' }, 'Particles'),
-        segmented<'off' | 'low' | 'high'>([['off', 'Off'], ['low', 'Reduced'], ['high', 'Full']], s.particles, (v) => set({ particles: v })),
-        slider('Field of view', 50, 110, 1, s.fov, (v) => `${v}°`, (v) => set({ fov: v })),
-        slider('Brightness', 0, 1, 0.05, s.brightness, (v) => (v < 0.2 ? 'Moody' : v > 0.8 ? 'Bright' : `${Math.round(v * 100)}%`), (v) => set({ brightness: v })),
-        toggle('View bobbing', s.viewBobbing, (v) => set({ viewBobbing: v })),
-        toggle('Show frame rate', s.showFps, (v) => set({ showFps: v })),
-      );
-    } else if (tab === 'controls') {
-      body.append(
-        select('Controls', [['auto', 'Automatic (switches on touch or mouse)'], ['mouse', 'Mouse and keyboard'], ['touch', 'Touch screen']], s.controlScheme, (v) => set({ controlScheme: v })),
-        h('div', { class: 'section-title' }, 'Touch'),
-        slider('Touch camera sensitivity', 0.3, 2.5, 0.05, s.touchSensitivity, (v) => v.toFixed(2), (v) => set({ touchSensitivity: v })),
-        slider('Joystick size', 0.6, 1.6, 0.05, s.joystickSize, (v) => `${Math.round(v * 100)}%`, (v) => set({ joystickSize: v })),
-        slider('Button size', 0.6, 1.6, 0.05, s.buttonSize, (v) => `${Math.round(v * 100)}%`, (v) => set({ buttonSize: v })),
-        toggle('Left-handed layout', s.leftHanded, (v) => set({ leftHanded: v, buttonLayout: {} }), 'Joystick on the right, action buttons on the left.'),
-        toggle('Auto-jump', s.autoJump, (v) => set({ autoJump: v }), 'Step up single blocks automatically while walking.'),
-        toggle('Tap and hold the world', s.tapToInteract, (v) => set({ tapToInteract: v }), 'Tap to place or use, hold to break where your finger is. The buttons always work.'),
-        h('button', { class: 'btn', onclick: () => {
-          el.style.display = 'none';
+    const go = (p: Page) => () => { scr.close(); open(p, () => open(page, back)); };
+    let scr: ReturnType<typeof mcScreen>;
+    const screen = (title: string, ...rows: (HTMLElement | null)[]) => mcScreen({ title, onDone: back, inGame: ctx.inGame }, ...rows);
+    switch (page) {
+      case 'root':
+        scr = screen('Options',
+          mcRow(mcSlider('FOV', 30, 110, 1, s.fov, (v) => (v === 70 ? 'Normal' : v === 110 ? 'Quake Pro' : String(v)), (v) => set({ fov: v })),
+            mcCycle('Difficulty', [['peaceful', 'Peaceful'], ['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], s.difficulty, (v) => set({ difficulty: v }), { tip: 'Default difficulty for new worlds.' })),
+          h('div', { class: 'mc-gap' }),
+          mcRow(mcButton('Skin Customization...', go('skin')), mcButton('Music & Sounds...', go('audio'))),
+          mcRow(mcButton('Video Settings...', go('video')), mcButton('Controls...', go('controls'))),
+          mcRow(mcButton('Touch Controls...', go('touch')), mcButton('Chat & HUD...', go('chat'))),
+          mcRow(mcButton('Resource Packs...', () => { if (ctx.openPacks) { scr.close(); ctx.openPacks(() => open('root', back)); } }, 150, { disabled: !ctx.openPacks }), mcButton('Accessibility...', go('access'))),
+          mcRow(mcButton('Multiplayer...', go('network')), mcButton('About & Install...', go('about'))),
+          mcRow(mcButton('Labs...', go('labs'), 150, { tip: 'Unfinished features, off by default.' })),
+        );
+        break;
+      case 'video': {
+        const presets: [GraphicsPreset, string][] = [['low', 'Fast'], ['medium', 'Fancy'], ['high', 'Fabulous'], ['ultra', 'Ultra'], ['custom', 'Custom']];
+        const maxRd = isTouchDevice() ? 12 : 32;
+        scr = screen('Video Settings',
+          mcRow(mcCycle('Graphics', presets, s.preset, (v) => { set({ preset: v }); scr.close(); open('video', back); }, { tip: 'Fast suits phones. Fancy suits most iPads. Fabulous adds soft shadows and reflective water. Ultra adds screen-space reflections.' }),
+            mcSlider('Render Distance', 2, maxRd, 1, Math.min(s.renderDistance, maxRd), (v) => `${v} chunks`, (v) => set({ renderDistance: v }))),
+          mcRow(mcSlider('Max Framerate', 30, 260, 10, s.fpsLimit || 260, (v) => (v >= 260 ? 'Unlimited' : `${v} fps`), (v) => set({ fpsLimit: v >= 260 ? 0 : v })),
+            mcCycle('GUI Scale', [[0, 'Auto'], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6']], s.guiScale, (v) => set({ guiScale: v }))),
+          mcRow(mcSlider('Brightness', 0, 1, 0.05, s.brightness, (v) => (v === 0 ? 'Moody' : v === 1 ? 'Bright' : `+${Math.round(v * 100)}%`), (v) => set({ brightness: v })),
+            mcToggle('View Bobbing', s.viewBobbing, (v) => set({ viewBobbing: v }))),
+          mcRow(mcSlider('Render Resolution', 0.5, 1, 0.05, s.resolutionScale, pct, (v) => set({ resolutionScale: v })),
+            mcToggle('Dynamic Resolution', s.adaptiveResolution, (v) => set({ adaptiveResolution: v }), 'Lowers resolution, then heavy effects, to hold a steady frame rate.')),
+          mcRow(mcToggle('Clouds', s.clouds, (v) => set({ clouds: v })),
+            mcCycle('Particles', [['high', 'All'], ['low', 'Decreased'], ['off', 'Minimal']], s.particles, (v) => set({ particles: v }))),
+          mcRow(mcToggle('Smooth Lighting', s.smoothLighting, (v) => set({ smoothLighting: v })),
+            mcToggle('Show FPS', s.showFps, (v) => set({ showFps: v }))),
+          mcHeading('Shaders'),
+          mcRow(mcCycle('Shadows', [['off', 'OFF'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']], s.shadowQuality, (v) => set({ shadowQuality: v })),
+            mcSlider('Shadow Distance', 24, 128, 8, s.shadowDistance, (v) => `${v} blocks`, (v) => set({ shadowDistance: v }))),
+          mcRow(mcCycle('Ambient Occlusion', [['standard', 'Standard'], ['enhanced', 'Enhanced']], s.ambientOcclusion, (v) => set({ ambientOcclusion: v })),
+            mcCycle('Water', [['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']], s.waterQuality, (v) => set({ waterQuality: v }))),
+          mcRow(mcCycle('Reflections', [['off', 'OFF'], ['low', 'Low'], ['high', 'High']], s.reflections, (v) => set({ reflections: v })),
+            mcToggle('Wet Surfaces', s.wetSurfaces, (v) => set({ wetSurfaces: v }))),
+          mcRow(mcToggle('Cloud Shadows', s.cloudShadows, (v) => set({ cloudShadows: v })),
+            mcToggle('Foliage Glow', s.foliageLighting, (v) => set({ foliageLighting: v }), 'Sunlight shines through leaves and grass.')),
+          mcRow(mcToggle('Glowing Ores', s.glowingOres, (v) => set({ glowingOres: v })),
+            mcCycle('Anti-aliasing', [['off', 'OFF'], ['fxaa', 'FXAA'], ['msaa', 'MSAA 4x']], s.antiAliasing, (v) => set({ antiAliasing: v }))),
+          mcRow(mcSlider('Bloom', 0, 1, 0.05, s.bloom, onOff, (v) => set({ bloom: v })),
+            mcToggle('Auto Exposure', s.autoExposure, (v) => set({ autoExposure: v }))),
+          mcRow(mcCycle('Tone Mapping', [['vanilla', 'Vanilla'], ['filmic', 'Filmic']], s.toneMapping, (v) => set({ toneMapping: v })),
+            mcCycle('Textures', [['high', 'Sharp'], ['low', 'Soft']], s.textureQuality, (v) => set({ textureQuality: v }))),
+          mcRow(mcSlider('Saturation', 0.5, 1.5, 0.05, s.saturation, pct, (v) => set({ saturation: v })),
+            mcSlider('Contrast', 0.8, 1.3, 0.02, s.contrast, pct, (v) => set({ contrast: v }))),
+          mcRow(mcSlider('Motion Blur', 0, 1, 0.05, s.motionBlur, onOff, (v) => set({ motionBlur: v })),
+            mcToggle('Depth of Field', s.depthOfField, (v) => set({ depthOfField: v }))),
+          mcRow(mcToggle('Lens Flare', s.lensFlare, (v) => set({ lensFlare: v })),
+            mcToggle('Vignette', s.vignette, (v) => set({ vignette: v }))),
+          mcRow(mcToggle('Film Grain', s.filmGrain, (v) => set({ filmGrain: v })),
+            mcToggle('Colour Fringe', s.chromaticAberration, (v) => set({ chromaticAberration: v }))),
+        );
+        break;
+      }
+      case 'audio':
+        scr = screen('Music & Sounds',
+          mcRow(mcSlider('Master Volume', 0, 1, 0.05, s.master, onOff, (v) => set({ master: v }), { w: 310 })),
+          mcRow(mcSlider('Music', 0, 1, 0.05, s.music, onOff, (v) => set({ music: v })), mcSlider('Blocks & Mobs', 0, 1, 0.05, s.effects, onOff, (v) => set({ effects: v }))),
+          mcRow(mcSlider('Ambient/Environment', 0, 1, 0.05, s.ambient, onOff, (v) => set({ ambient: v })), mcToggle('Mute All', s.muted, (v) => set({ muted: v }))),
+          mcText('Sounds are made live in your browser. Resource pack sounds replace block, step and pickup sounds.', { center: true, small: true }),
+        );
+        break;
+      case 'controls':
+        scr = screen('Controls',
+          mcRow(mcCycle('Controls', [['auto', 'Automatic'], ['mouse', 'Mouse & Keys'], ['touch', 'Touch']], s.controlScheme, (v) => set({ controlScheme: v }), { tip: 'Automatic switches between touch and mouse when you use them.' }),
+            mcToggle('Auto-Jump', s.autoJump, (v) => set({ autoJump: v }))),
+          mcRow(mcSlider('Sensitivity', 0.2, 3, 0.05, s.sensitivity, (v) => pct(v / 2), (v) => set({ sensitivity: v })),
+            mcToggle('Invert Mouse', s.invertY, (v) => set({ invertY: v }))),
+          mcHeading('Key Binds'),
+          ...[['Move', 'W A S D'], ['Jump', 'Space'], ['Sneak', 'Shift'], ['Sprint', 'Ctrl'], ['Attack/Destroy', 'Left Button'], ['Use Item/Place', 'Right Button'], ['Pick Block', 'Middle Button'],
+            ['Hotbar', '1-9, Scroll'], ['Inventory', 'E'], ['Drop Item', 'Q'], ['Chat', 'T'], ['Command', '/'], ['Perspective', 'F5'], ['Hide HUD', 'F1'], ['Debug Screen', 'F3'], ['Advanced Tooltips', 'F3 + H']]
+            .map(([a, b]) => mcRow(h('div', { class: 'mct mc-kb-label' }, a), mcButton(b, () => {}, 75, { disabled: true }))),
+        );
+        break;
+      case 'touch': {
+        const edit = () => {
+          scr.el.style.display = 'none';
           const root = document.getElementById('touch-root')!;
           const existing = root.querySelector('.touch-layer') as HTMLElement | null;
           const temp = existing ? null : new MobileControls(root, new InputState(), { onPause() {}, onChat() {}, onPlayers() {}, onCamera() {}, isFlying: () => false, canFly: () => true, isMultiplayer: () => true, setCrouchToggled() {} });
           const ctl = temp ?? ((existing as HTMLElement & { _ctl?: MobileControls })._ctl);
-          if (!ctl) { el.style.display = ''; toast('Open the world on a touch device to edit buttons', 'error'); return; }
-          ctl.enterEdit(() => { if (temp) temp.root.remove(); el.style.display = ''; });
-        } }, 'Edit button layout'),
-        h('div', { class: 'section-title' }, 'Mouse and keyboard'),
-        slider('Mouse sensitivity', 0.2, 3, 0.05, s.sensitivity, (v) => v.toFixed(2), (v) => set({ sensitivity: v })),
-        toggle('Invert vertical look', s.invertY, (v) => set({ invertY: v })),
-        h('div', { class: 'kv small' },
-          ...[['Move', 'W A S D'], ['Jump / fly up', 'Space (double-tap to fly in Architect)'], ['Crouch / fly down', 'Shift'], ['Sprint', 'Ctrl or double-tap W'], ['Break / attack', 'Left mouse'], ['Place / use', 'Right mouse'],
-            ['Pick block', 'Middle mouse'], ['Hotbar', '1-9 or scroll'], ['Inventory', 'E'], ['Drop item', 'Q (Ctrl+Q for stack)'], ['Chat / command', 'T or / '], ['Third person', 'F5'], ['Hide HUD', 'F1'], ['Debug info', 'F3'], ['Pause', 'Esc']]
-            .flatMap(([a, b]) => [h('dt', {}, a), h('dd', {}, b)]),
-        ),
-      );
-    } else if (tab === 'audio') {
-      body.append(
-        toggle('Mute all sound', s.muted, (v) => set({ muted: v })),
-        slider('Master volume', 0, 1, 0.05, s.master, (v) => `${Math.round(v * 100)}%`, (v) => set({ master: v })),
-        slider('Music', 0, 1, 0.05, s.music, (v) => `${Math.round(v * 100)}%`, (v) => set({ music: v })),
-        slider('Effects', 0, 1, 0.05, s.effects, (v) => `${Math.round(v * 100)}%`, (v) => set({ effects: v })),
-        slider('Ambience and weather', 0, 1, 0.05, s.ambient, (v) => `${Math.round(v * 100)}%`, (v) => set({ ambient: v })),
-        h('div', { class: 'small muted' }, 'All sounds and music are synthesised live in your browser. Resource packs with OGG or WAV sounds replace block, step and pickup sounds where your browser can decode them.'),
-      );
-    } else if (tab === 'network') {
-      const status = h('div', { class: 'info-box' }, 'Not connected to a multiplayer world.');
-      const update = () => {
-        const n = ctx.netStats?.();
-        if (!n) return;
-        clear(status);
-        status.append(h('div', { class: 'kv' }, h('dt', {}, 'Status'), h('dd', {}, n.state), h('dt', {}, 'Round trip'), h('dd', {}, `${n.rtt} ms`), h('dt', {}, 'Messages in'), h('dd', {}, `${n.inRate.toFixed(1)}/s`), h('dt', {}, 'Messages out'), h('dd', {}, `${n.outRate.toFixed(1)}/s`)));
-      };
-      update();
-      netTimer = window.setInterval(update, 1000);
-      const testOut = h('span', { class: 'small muted' });
-      body.append(
-        h('div', { class: 'section-title' }, 'Connection'), status,
-        h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: async () => {
-          testOut.textContent = 'Testing...';
-          const t0 = performance.now();
-          try { const r = await fetch(apiURL('/api/health'), { cache: 'no-store' }); const j = await r.json() as { protocol: number }; testOut.textContent = `Server reachable in ${Math.round(performance.now() - t0)} ms (protocol ${j.protocol}${j.protocol !== PROTOCOL_VERSION ? ', version mismatch: reload to update' : ''}).`; }
-          catch { testOut.textContent = 'Server not reachable. Multiplayer needs an internet connection.'; }
-        } }, 'Test server'), testOut),
-        h('div', { class: 'section-title' }, 'Hosting'),
-        select('Preferred server region for new worlds', REGIONS as [string, string][], s.region, (v) => set({ region: v })),
-        h('div', { class: 'small muted' }, 'Region is a hint used when a world is first created. Each world stays in the region where it started.'),
-        toggle('Reconnect automatically', s.reconnect, (v) => set({ reconnect: v })),
-        h('div', { class: 'section-title' }, 'Labs'),
-        toggle('Experimental arena modes', s.labs, (v) => set({ labs: v }), 'Shows Fortune Spires and Hearthfall. They are unfinished and may change.'),
-      );
-    } else if (tab === 'gameplay') {
-      body.append(
-        h('div', { class: 'section-title' }, 'Default difficulty for new worlds'),
-        segmented([['peaceful', 'Peaceful'], ['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard']], s.difficulty, (v) => set({ difficulty: v as typeof s.difficulty })),
-        slider('Interface scale', 0.75, 1.4, 0.05, s.hudScale, (v) => `${Math.round(v * 100)}%`, (v) => set({ hudScale: v })),
-        slider('Chat background', 0, 1, 0.05, s.chatOpacity, (v) => `${Math.round(v * 100)}%`, (v) => set({ chatOpacity: v })),
-      );
-    } else if (tab === 'profile') {
-      const prev = h('div', { class: 'player-preview', style: 'width:110px;height:170px' });
-      const redraw = () => { clear(prev); prev.appendChild(drawAvatar(getSettings().appearance, 5, true)); };
-      redraw();
-      const pick = (label: string, key: 'skin' | 'hair' | 'shirt' | 'pants', n: number) => {
-        const row = h('div', { class: 'row' }, h('span', { style: 'width:70px' }, label));
-        const btn = (d: number) => h('button', { class: 'btn small', onclick: () => { const a = { ...getSettings().appearance }; a[key] = (a[key] + d + n) % n; updateSettings({ appearance: a }); redraw(); val.textContent = String(a[key] + 1); } }, d < 0 ? '‹' : '›');
-        const val = h('span', { style: 'width:28px;text-align:center' }, String(s.appearance[key] + 1));
-        row.append(btn(-1), val, btn(1));
-        return row;
-      };
-      body.append(
-        h('label', { class: 'field' }, h('span', {}, 'Player name'), h('input', { class: 'input', value: s.playerName, maxlength: 16, placeholder: 'Wayfarer', oninput: (e: Event) => set({ playerName: (e.target as HTMLInputElement).value.replace(/[<>]/g, '').slice(0, 16) }) })),
-        h('div', { class: 'row', style: 'align-items:flex-start;gap:18px' }, prev, h('div', { class: 'stack' }, pick('Skin', 'skin', 8), pick('Hair', 'hair', 8), pick('Shirt', 'shirt', 12), pick('Trousers', 'pants', 12))),
-        h('div', { class: 'small muted' }, 'Your look is shared with other players in multiplayer worlds.'),
-      );
-    } else {
-      const est = h('div', { class: 'small muted' }, 'Checking storage...');
-      void storageEstimate().then((e) => { est.textContent = e ? `Using ${(e.usage / 1048576).toFixed(1)} MB of about ${(e.quota / 1048576).toFixed(0)} MB available on this device.` : 'Storage usage is not reported by this browser.'; });
-      const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone;
-      const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      body.append(
-        h('div', { class: 'kv' }, h('dt', {}, 'Version'), h('dd', {}, `Strata ${GAME_VERSION}`), h('dt', {}, 'Network protocol'), h('dd', {}, String(PROTOCOL_VERSION)), h('dt', {}, 'Installed as app'), h('dd', {}, standalone ? 'Yes' : 'No')),
-        h('div', { class: 'section-title' }, 'Install'),
-        standalone ? h('p', { class: 'small muted' }, 'Strata is installed. Single-player worlds work offline.') :
-          ios ? h('p', { class: 'small' }, 'On iPad or iPhone: open Strata in Safari, tap the Share button, then choose "Add to Home Screen". It launches full screen and single-player works offline.') :
-            ctx.canInstall?.() ? h('button', { class: 'btn primary', onclick: () => ctx.install?.() }, 'Install Strata') : h('p', { class: 'small muted' }, 'Use your browser menu and choose "Install app" or "Add to Home screen".'),
-        h('div', { class: 'section-title' }, 'Storage'), est,
-        h('button', { class: 'btn small', onclick: async () => toast((await requestPersistence()) ? 'Storage marked as persistent' : 'The browser declined persistent storage', 'info') }, 'Keep my worlds safe from cleanup'),
-      );
+          if (!ctl) { scr.el.style.display = ''; toast('Open a world on a touch device to edit buttons', 'error'); return; }
+          ctl.enterEdit(() => { if (temp) temp.root.remove(); scr.el.style.display = ''; });
+        };
+        scr = screen('Touch Controls',
+          mcRow(mcCycle('Buttons', [['full', 'All Buttons'], ['minimal', 'Jump & Crouch'], ['none', 'None']], s.touchLayout, (v) => set({ touchLayout: v }), { tip: 'All Buttons shows break, place and interact. Jump & Crouch leaves only movement buttons: tap the world to place, hold to break. None hides action buttons too.' }),
+            mcToggle('Tap & Hold World', s.tapToInteract, (v) => set({ tapToInteract: v }), 'Tap to place or use, hold to break where your finger is.')),
+          mcRow(mcSlider('Look Sensitivity', 0.3, 2.5, 0.05, s.touchSensitivity, (v) => v.toFixed(2), (v) => set({ touchSensitivity: v })),
+            mcSlider('Button Opacity', 0.2, 1, 0.05, s.buttonOpacity ?? 0.85, pct, (v) => set({ buttonOpacity: v }))),
+          mcRow(mcSlider('Joystick Size', 0.6, 1.6, 0.05, s.joystickSize, pct, (v) => set({ joystickSize: v })),
+            mcSlider('Button Size', 0.6, 1.6, 0.05, s.buttonSize, pct, (v) => set({ buttonSize: v }))),
+          mcRow(mcToggle('Left-Handed', s.leftHanded, (v) => set({ leftHanded: v, buttonLayout: {} })),
+            mcToggle('Auto-Jump', s.autoJump, (v) => set({ autoJump: v }))),
+          mcRow(mcButton('Edit Button Layout...', edit, 150, { tip: 'Drag buttons to move them. Tap one to resize or hide it.' }),
+            mcButton('Reset Layout', () => { set({ buttonLayout: {} }); toast('Button layout reset', 'info'); })),
+        );
+        break;
+      }
+      case 'chat':
+        scr = screen('Chat & HUD',
+          mcRow(mcSlider('Chat Background', 0, 1, 0.05, s.chatOpacity, pct, (v) => set({ chatOpacity: v })),
+            mcToggle('Chat Timestamps', s.chatTimestamps, (v) => set({ chatTimestamps: v }))),
+          mcRow(mcToggle('Show Coordinates', s.showCoords, (v) => set({ showCoords: v }), 'Servers can turn coordinates off for everyone.'),
+            mcToggle('Show Minimap', s.showMinimap, (v) => set({ showMinimap: v }), 'Servers can turn the minimap off for everyone.')),
+          mcRow(mcSlider('HUD Size', 0.5, 1.5, 0.25, s.hudScale, pct, (v) => set({ hudScale: v })),
+            mcToggle('Advanced Tooltips', s.advancedTooltips, (v) => set({ advancedTooltips: v }), 'Shows item ids and full durability in tooltips. F3 + H also toggles this.')),
+        );
+        break;
+      case 'skin': {
+        const prev = h('div', { class: 'mc-skin-prev' });
+        const redraw = () => { prev.replaceChildren(drawAvatar(getSettings().appearance, 5, true)); };
+        redraw();
+        const pick = (label: string, key: 'skin' | 'hair' | 'shirt' | 'pants', n: number) =>
+          mcCycle(label, Array.from({ length: n }, (_, i) => [i, String(i + 1)] as [number, string]), s.appearance[key], (v) => { updateSettings({ appearance: { ...getSettings().appearance, [key]: v } }); redraw(); });
+        scr = screen('Skin Customization',
+          prev,
+          mcRow(mcInput(s.playerName, 'Wayfarer', (v) => set({ playerName: v.replace(/[<>]/g, '').slice(0, 16) }), 310, 16)),
+          mcRow(pick('Skin', 'skin', 8), pick('Hair', 'hair', 8)),
+          mcRow(pick('Shirt', 'shirt', 12), pick('Trousers', 'pants', 12)),
+          mcText('Custom skin files arrive in a later update.', { center: true, small: true }),
+        );
+        break;
+      }
+      case 'access':
+        scr = screen('Accessibility',
+          mcRow(mcCycle('Fire Overlay', [['low', 'Low'], ['normal', 'Normal']], s.fireOverlay, (v) => set({ fireOverlay: v }), { tip: 'Low keeps the flames near the bottom of the screen so you can still see.' }),
+            mcSlider('Menu Blur', 0, 10, 1, s.menuBlur, (v) => (v === 0 ? 'OFF' : String(v)), (v) => set({ menuBlur: v }))),
+          mcRow(mcToggle('View Bobbing', s.viewBobbing, (v) => set({ viewBobbing: v })),
+            mcSlider('Brightness', 0, 1, 0.05, s.brightness, (v) => (v === 0 ? 'Moody' : v === 1 ? 'Bright' : `+${Math.round(v * 100)}%`), (v) => set({ brightness: v }))),
+          mcRow(mcToggle('Lens Flare', s.lensFlare, (v) => set({ lensFlare: v })), mcSlider('Motion Blur', 0, 1, 0.05, s.motionBlur, onOff, (v) => set({ motionBlur: v }))),
+        );
+        break;
+      case 'network': {
+        const status = mcText('Not connected to a multiplayer world.', { center: true, small: true });
+        const tick = () => { const n = ctx.netStats?.(); if (n) status.textContent = `${n.state}: ${n.rtt} ms, ${n.inRate.toFixed(1)} in/s, ${n.outRate.toFixed(1)} out/s`; };
+        tick();
+        const timer = window.setInterval(() => { if (!status.isConnected) clearInterval(timer); else tick(); }, 1000);
+        const testOut = mcText('', { center: true, small: true });
+        scr = screen('Multiplayer',
+          status,
+          mcRow(mcCycle('Region', REGIONS.map(([k, v]) => [k, v.replace(/ \(.*\)$/, '')] as [string, string]), s.region, (v) => set({ region: v }), { tip: 'A hint used when a world is first created. Worlds stay where they started.', w: 200 }),
+            mcToggle('Reconnect', s.reconnect, (v) => set({ reconnect: v }))),
+          mcRow(mcButton('Test Server', async () => {
+            testOut.textContent = 'Testing...';
+            const t0 = performance.now();
+            try { const r = await fetch(apiURL('/api/health'), { cache: 'no-store' }); const j = await r.json() as { protocol: number }; testOut.textContent = `Reachable in ${Math.round(performance.now() - t0)} ms (protocol ${j.protocol}${j.protocol !== PROTOCOL_VERSION ? ', reload to update' : ''})`; }
+            catch { testOut.textContent = 'Server not reachable.'; }
+          })),
+          testOut,
+        );
+        break;
+      }
+      case 'about': {
+        const est = mcText('Checking storage...', { center: true, small: true });
+        void storageEstimate().then((e) => { est.textContent = e ? `Using ${(e.usage / 1048576).toFixed(1)} MB of about ${(e.quota / 1048576).toFixed(0)} MB.` : 'Storage use is not reported by this browser.'; });
+        const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone;
+        const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        scr = screen('About & Install',
+          mcText(`Strata ${GAME_VERSION}, protocol ${PROTOCOL_VERSION}`, { center: true }),
+          mcText('Fan-made. Not affiliated with Mojang or Microsoft.', { center: true, small: true }),
+          standalone ? mcText('Installed as an app. Single-player works offline.', { center: true, small: true })
+            : ios ? mcText('On iPad: Share, then Add to Home Screen.', { center: true, small: true })
+              : mcRow(mcButton('Install Strata', () => ctx.install?.(), 150, { disabled: !ctx.canInstall?.() })),
+          est,
+          mcRow(mcButton('Keep Worlds Safe', async () => toast((await requestPersistence()) ? 'Storage marked as persistent' : 'The browser declined persistent storage', 'info'), 150, { tip: 'Asks the browser not to clear your worlds when space runs low.' })),
+        );
+        break;
+      }
+      case 'labs':
+        scr = screen('Labs',
+          mcText('These are unfinished and may change or break.', { center: true, small: true }),
+          mcRow(mcToggle('Arena Modes', s.labs, (v) => set({ labs: v }), 'Shows Fortune Spires and Hearthfall on the title screen.')),
+        );
+        break;
     }
+    parent.appendChild(scr!.el);
   };
-  renderTabs();
-  render();
-  parent.appendChild(el);
+  const start = (['root', 'video', 'audio', 'controls', 'touch', 'chat', 'skin', 'access', 'network', 'about', 'labs'] as Page[]).includes(initial as Page) ? initial as Page : 'root';
+  open(start, onClose);
 }

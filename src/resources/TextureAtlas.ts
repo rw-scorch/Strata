@@ -448,7 +448,41 @@ export class TextureAtlas {
     this.iconURL = this.iconCanvas.toDataURL('image/png');
   }
 
+  private guiCache = new Map<string, HTMLCanvasElement | null>();
+  private guiURLs = new Map<string, string>();
+
+  guiCanvas(key: string): HTMLCanvasElement | null {
+    if (this.guiCache.has(key)) return this.guiCache.get(key)!;
+    const p = this.pack?.special.get(key);
+    const src = p ? this.pack!.files.get(p) : undefined;
+    const c = src ? toCanvas(src) : null;
+    this.guiCache.set(key, c);
+    return c;
+  }
+
+  guiURL(key: string): string | null {
+    const hit = this.guiURLs.get(key);
+    if (hit) return hit;
+    const c = this.guiCanvas(key);
+    if (!c) return null;
+    const u = c.toDataURL('image/png');
+    this.guiURLs.set(key, u);
+    return u;
+  }
+
+  get fontInfo(): { canvas: HTMLCanvasElement; chars: string[]; ascent: number } | null {
+    const c = this.guiCanvas('font_ascii');
+    const raw = this.pack?.special.get('font_ascii_chars');
+    if (!c || !raw) return null;
+    try { const j = JSON.parse(raw) as { chars: string[]; ascent: number }; return { canvas: c, chars: j.chars, ascent: j.ascent }; } catch { return null; }
+  }
+
   private tileURLs = new Map<number, string>();
+
+  blockTileCanvas(blockIdNum: number, slot = 0): HTMLCanvasElement | null {
+    const idx = this.data.blockTiles[blockIdNum * FACE_SLOTS + slot];
+    return idx >= 0 ? this.tileCanvases[idx] ?? null : null;
+  }
 
   tileURL(blockIdNum: number, slot = 0): string | null {
     const k = blockIdNum * 8 + slot;

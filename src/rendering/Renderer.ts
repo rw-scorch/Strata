@@ -161,6 +161,38 @@ export class Renderer {
   get postActive(): boolean { return !!this.post; }
   get pressureLevel(): number { return this.pressure; }
 
+  capturePanorama(x: number, y: number, z: number, size = 512): string[] | null {
+    try {
+      const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.UnsignedByteType });
+      const cc = new THREE.CubeCamera(0.1, 1000, rt);
+      cc.position.set(x, y, z);
+      const outline = this.outline.visible, crack = this.crack.visible, ent = this.entities.group.visible;
+      this.outline.visible = this.crack.visible = false;
+      this.scene.add(cc);
+      cc.update(this.gl, this.scene);
+      this.scene.remove(cc);
+      this.outline.visible = outline; this.crack.visible = crack; this.entities.group.visible = ent;
+      const buf = new Uint8Array(size * size * 4);
+      const out: string[] = [];
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const g = c.getContext('2d')!;
+      for (let f = 0; f < 6; f++) {
+        this.gl.readRenderTargetPixels(rt as unknown as THREE.WebGLRenderTarget, 0, 0, size, size, buf, f);
+        const img = g.createImageData(size, size);
+        img.data.set(buf);
+        for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+        g.putImageData(img, 0, 0);
+        out.push(c.toDataURL('image/jpeg', 0.82));
+      }
+      rt.dispose();
+      return out;
+    } catch (e) {
+      console.warn('panorama capture failed', e);
+      return null;
+    }
+  }
+
   setAtlas(a: TextureAtlas): void {
     const old = this.atlas;
     this.atlas = a;

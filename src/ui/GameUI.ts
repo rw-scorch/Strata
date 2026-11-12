@@ -1,3 +1,4 @@
+import { mcButton, mcCycle, menuScale } from './mc/Widgets';
 import { Minimap } from './Minimap';
 import { h, clear, toast, modal, toggle, segmented, copyText, confirmDialog, slider } from './dom';
 import type { ChatKind } from '../game/Session';
@@ -38,6 +39,11 @@ export class ChatUI {
     }
     this.box.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
+      if (this.isOpen && !t.closest('button')) {
+        const line = t.closest('.line');
+        for (const l of this.box.querySelectorAll('.line.sel')) if (l !== line) l.classList.remove('sel');
+        line?.classList.toggle('sel');
+      }
       if (t.classList.contains('copy')) {
         const line = t.closest('.line') as HTMLElement | null;
         const text = line?.dataset.text ?? '';
@@ -130,25 +136,23 @@ export interface PauseActions {
 }
 
 export function showPause(root: HTMLElement, a: PauseActions): () => void {
-  const el = h('div', { class: 'screen dim pause-menu', style: 'z-index:22' },
-    h('div', { class: 'card panel' },
-      h('div', { class: 'card-head' }, h('h2', {}, 'Paused'), h('span', { class: 'badge gold' }, a.sub)),
-      h('div', { class: 'card-body' },
-        h('div', { class: 'muted small' }, a.title),
-        h('button', { class: 'btn primary block', onclick: () => { close(); a.resume(); } }, 'Back to the world'),
-        a.invite ? h('button', { class: 'btn teal block', onclick: () => a.invite!() }, 'Invite friends') : null,
-        a.players ? h('button', { class: 'btn block', onclick: () => a.players!() }, 'Players') : null,
-        a.room ? h('button', { class: 'btn block', onclick: () => a.room!() }, 'World settings') : null,
-        a.shaper ? h('button', { class: 'btn block', onclick: () => a.shaper!() }, 'World Shaper') : null,
-        a.save ? h('button', { class: 'btn block', onclick: () => a.save!() }, 'Save now') : null,
-        a.difficulty ? h('div', { class: 'stack' }, h('div', { class: 'section-title' }, 'Difficulty'), segmented(DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d))) : null,
-        h('div', { class: 'menu-row' }, h('button', { class: 'btn', onclick: () => a.settings() }, 'Settings'), h('button', { class: 'btn', onclick: () => a.packs() }, 'Resource packs')),
-        h('button', { class: 'btn danger block', onclick: () => { close(); a.quit(); } }, a.save ? 'Save and quit to title' : 'Leave world'),
-      ),
+  menuScale();
+  const close = () => el.remove();
+  const row = (...b: (HTMLElement | null)[]) => h('div', { class: 'mc-row2' }, ...b.filter(Boolean) as HTMLElement[]);
+  const el = h('div', { class: 'screen mc-pause', style: 'z-index:22' },
+    h('div', { class: 'mct center', style: 'margin-bottom:calc(var(--ms) * 12)' }, 'Game Menu'),
+    h('div', { class: 'mc-list-inner' },
+      mcButton('Back to Game', () => { close(); a.resume(); }, 204),
+      row(a.invite ? mcButton('Invite Friends', () => a.invite!(), 98) : null, a.players ? mcButton('Players', () => a.players!(), 98) : null),
+      row(a.room ? mcButton('World Settings', () => a.room!(), 98) : null, a.shaper ? mcButton('World Shaper', () => a.shaper!(), 98) : null),
+      a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
+      row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
+      a.save ? mcButton('Save Now', () => a.save!(), 204) : null,
+      mcButton(a.save ? 'Save and Quit to Title' : 'Disconnect', () => { close(); a.quit(); }, 204),
     ),
+    h('div', { class: 'mct small center', style: 'margin-top:calc(var(--ms) * 10)' }, `${a.title}  ${a.sub}`),
   );
   root.appendChild(el);
-  const close = () => el.remove();
   return close;
 }
 

@@ -1,3 +1,4 @@
+import { getSettings, updateSettings } from '../storage/Settings';
 import type { InputState } from './InputState';
 
 export interface DesktopHooks {
@@ -10,6 +11,7 @@ export interface DesktopHooks {
   onThirdPerson(): void;
   onPointerLockLost(): void;
   onMouseMode?(): void;
+  onMessage?(text: string): void;
 }
 
 export class DesktopControls {
@@ -23,6 +25,8 @@ export class DesktopControls {
   private sprintLatch = false;
   private disposers: (() => void)[] = [];
   locked = false;
+  private f3 = false;
+  private f3Combo = false;
 
   constructor(canvas: HTMLCanvasElement, input: InputState, hooks: DesktopHooks) {
     this.canvas = canvas;
@@ -102,13 +106,25 @@ export class DesktopControls {
   private key(e: KeyboardEvent, down: boolean): void {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (e.code === 'F3') {
+      e.preventDefault();
+      if (down) { if (!this.f3) { this.f3 = true; this.f3Combo = false; } }
+      else { this.f3 = false; if (!this.f3Combo && this.hooks.isPlaying()) this.hooks.onToggleDebug(); }
+      return;
+    }
+    if (down && this.f3 && e.code === 'KeyH') {
+      this.f3Combo = true;
+      const v = !getSettings().advancedTooltips;
+      updateSettings({ advancedTooltips: v });
+      this.hooks.onMessage?.(`Advanced tooltips: ${v ? 'shown' : 'hidden'}`);
+      return;
+    }
     if (!this.hooks.isPlaying()) {
       if (down && (e.code === 'KeyE' || e.code === 'Escape')) this.hooks.onInventory();
       return;
     }
     const c = e.code;
     if (down) {
-      if (c === 'F3') { e.preventDefault(); this.hooks.onToggleDebug(); return; }
       if (c === 'F1') { e.preventDefault(); this.hooks.onToggleHud(); return; }
       if (c === 'F5') { e.preventDefault(); this.hooks.onThirdPerson(); return; }
       if (c === 'KeyE') { this.hooks.onInventory(); return; }

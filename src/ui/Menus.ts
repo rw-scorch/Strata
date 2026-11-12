@@ -9,6 +9,12 @@ import { apiURL } from '../multiplayer/RemoteSession';
 import { REGIONS } from './SettingsUI';
 import type { RoomInfo, RoomMeta } from '../core/protocol';
 import { ResourcePackManager } from '../resources/ResourcePackManager';
+import type { TextureAtlas } from '../resources/TextureAtlas';
+import { Panorama } from './mc/Panorama';
+import { mcButton, menuScale } from './mc/Widgets';
+import { drawLogo } from './mc/Logo';
+
+const SPLASHES = ['Dig deep!', 'Build together!', 'Now with villagers!', 'Made in a browser!', 'Blocks all the way down!', 'iPad approved!', 'Try a double chest!', 'Emeralds wanted!', 'Thirty-minute days!', 'Watch your step!', 'Hand-placed pixels!', 'Fresh from the forge!', 'One more block!', 'Strata strata strata!', 'Sunsets included!', 'Villagers say hmm!'];
 
 export interface MenuApp {
   screens: HTMLElement;
@@ -19,6 +25,7 @@ export interface MenuApp {
   activePackRef(): { name: string; hash: string } | null;
   canInstall(): boolean;
   install(): void;
+  atlas(): TextureAtlas | null;
 }
 
 function card(title: string, onBack: (() => void) | null, ...body: (Node | null)[]): HTMLElement {
@@ -42,33 +49,49 @@ export class Menus {
     this.app.screens.appendChild(el);
   }
 
-  hide(): void { this.current?.remove(); this.current = null; }
+  hide(): void { this.current?.remove(); this.current = null; this.pano?.dispose(); this.pano = null; }
+
+  private pano: Panorama | null = null;
+
+  private ensurePanorama(): void {
+    if (this.pano?.ok) return;
+    const faces = Panorama.stored();
+    if (!faces) return;
+    this.pano = new Panorama(faces);
+    if (!this.pano.ok) { this.pano = null; return; }
+    this.app.screens.prepend(this.pano.canvas);
+  }
 
   title(): void {
     const s = getSettings();
-    const bg = h('div', { class: 'strata-bg' }, h('div', { class: 'sky' }), h('div', { class: 'sun' }), h('div', { class: 'ridge r1' }), h('div', { class: 'ridge r2' }), h('div', { class: 'ridge r3' }));
-    for (let i = 0; i < 7; i++) bg.appendChild(h('div', { class: 'ore', style: `left:${8 + i * 13}%;bottom:${4 + ((i * 37) % 22)}%;animation-delay:${i * 0.4}s` }));
-    const avatar = drawAvatar(s.appearance, 4);
-    avatar.className = 'avatar';
-    const vanillaSlot = h('div', { style: 'width:100%' });
+    this.ensurePanorama();
+    const atlas = this.app.atlas();
+    const ms = menuScale();
+    const bg = this.pano ? h('div', { class: 'mc-title-dim' }) : h('div', { class: 'strata-bg' }, h('div', { class: 'sky' }), h('div', { class: 'sun' }), h('div', { class: 'ridge r1' }), h('div', { class: 'ridge r2' }), h('div', { class: 'ridge r3' }));
+    const splash = SPLASHES[Math.floor(Math.random() * SPLASHES.length)];
+    const logo = h('div', { class: 'mc-logo' },
+      (() => { const c = drawLogo('STRATA', atlas?.blockTileCanvas(1) ?? null, Math.max(4, Math.round(ms * 6))); c.className = 'mc-logo-img'; return c; })(),
+      h('div', { class: 'mc-logo-sub' }, 'SANDBOX EDITION'),
+      h('div', { class: 'mc-splash' }, splash));
+    const head = drawAvatar(s.appearance, 2);
+    const acct = getAccount();
+    const profileBtn = mcButton(head, () => (acct ? this.profile() : this.login()), 20, { cls: 'square', tip: acct ? `Signed in as ${acct.name}` : 'Profile and sign in' });
+    const creditsBtn = mcButton('i', () => this.credits(), 20, { cls: 'square', tip: 'Credits and attribution' });
+    const packBtn = h('div', { class: 'mc-title-row' });
     void ResourcePackManager.list().then((packs) => {
-      if (!packs.length) vanillaSlot.appendChild(h('button', { class: 'btn ghost block', onclick: () => this.app.openPacks(true) }, 'Use your Minecraft textures'));
+      if (!packs.length) packBtn.appendChild(mcButton('Use Your Minecraft Textures', () => this.app.openPacks(true), 200, { tip: 'Import your own Minecraft resource pack. It stays on this device.' }));
     }).catch(() => { /* storage unavailable */ });
-    const el = h('div', { class: 'screen title-screen' }, bg,
-      h('div', { class: 'title-wrap' },
-        h('h1', { class: 'logo' }, 'STRATA'),
-        h('p', { class: 'tagline' }, 'Dig deep. Build together.'),
-        h('div', { class: 'menu-buttons' },
-          h('button', { class: 'btn primary', onclick: () => this.worlds() }, 'Singleplayer'),
-          h('button', { class: 'btn teal', onclick: () => this.multiplayer() }, 'Multiplayer'),
-          getSettings().labs ? h('button', { class: 'btn', onclick: () => this.createWorld(false, 'spires') }, 'Arena games (Labs)') : null,
-          h('div', { class: 'menu-row' }, h('button', { class: 'btn', onclick: () => this.app.openSettings() }, 'Settings'), h('button', { class: 'btn', onclick: () => this.app.openPacks() }, 'Resource Packs')),
-          h('div', { class: 'menu-row' }, h('button', { class: 'btn ghost', onclick: () => this.credits() }, 'Credits'), this.app.canInstall() ? h('button', { class: 'btn ghost', onclick: () => this.app.install() }, 'Install app') : h('button', { class: 'btn ghost', onclick: () => this.profile() }, 'Profile')),
-        ),
-        vanillaSlot,
-        h('div', { class: 'profile-chip', onclick: () => (getAccount() ? this.profile() : this.login()) }, avatar, h('span', {}, getAccount() ? getAccount()!.name : `${s.playerName || 'Guest'} (sign in)`)),
+    const el = h('div', { class: 'screen title-screen mc-title' }, bg,
+      logo,
+      h('div', { class: 'mc-title-buttons' },
+        mcButton('Singleplayer', () => this.worlds(), 200),
+        mcButton('Multiplayer', () => this.multiplayer(), 200),
+        getSettings().labs ? mcButton('Arena Games (Labs)', () => this.createWorld(false, 'spires'), 200) : packBtn,
+        h('div', { class: 'mc-title-row last' }, profileBtn, mcButton('Options...', () => this.app.openSettings(), 98), mcButton(this.app.canInstall() ? 'Install App' : 'Resource Packs...', () => (this.app.canInstall() ? this.app.install() : this.app.openPacks()), 98), creditsBtn),
       ),
-      h('div', { class: 'title-foot' }, h('span', {}, `Strata ${GAME_VERSION}`), h('span', {}, 'Not affiliated with Mojang or Microsoft')),
+      h('div', { class: 'mc-title-foot' },
+        h('span', { class: 'mct' }, `Strata ${GAME_VERSION}${acct ? `  (${acct.name})` : ''}`),
+        h('span', { class: 'mct' }, 'Fan-made. Not affiliated with Mojang or Microsoft.')),
     );
     this.show(el);
   }

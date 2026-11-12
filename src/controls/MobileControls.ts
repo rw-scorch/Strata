@@ -66,6 +66,8 @@ export class MobileControls {
   private crouchOn = false;
   private lastJump = 0;
   editing = false;
+  private editSel: TouchButton | null = null;
+  private editLabel: HTMLElement | null = null;
   private editBar: HTMLDivElement | null = null;
   visible = false;
   private placeRepeat: number | null = null;
@@ -103,13 +105,20 @@ export class MobileControls {
   layout(): void {
     const s = getSettings();
     const L = s.buttonLayout;
+    const MINIMAL = new Set<TouchButton>(['jump', 'crouch', 'fly', 'pause', 'chat', 'players', 'camera']);
+    const NONE = new Set<TouchButton>(['pause', 'chat', 'players']);
+    this.root.style.setProperty('--tb-op', String(s.buttonOpacity ?? 0.85));
     for (const b of DEFAULT_BUTTONS) {
       const el = this.buttons.get(b.id)!;
-      const pos = L[b.id] ?? { x: s.leftHanded && !b.top ? 100 - b.x : b.x, y: b.y };
-      const size = Math.round(62 * b.size * s.buttonSize);
-      el.style.left = `${pos.x}%`;
-      el.style.top = `${pos.y}%`;
+      const c = L[b.id] ?? {};
+      const x = c.x ?? (s.leftHanded && !b.top ? 100 - b.x : b.x), y = c.y ?? b.y;
+      const size = Math.round(62 * b.size * (c.size ?? 1) * s.buttonSize);
+      el.style.left = `${x}%`;
+      el.style.top = `${y}%`;
       el.style.width = el.style.height = `${size}px`;
+      const modeHidden = s.touchLayout === 'minimal' ? !MINIMAL.has(b.id) : s.touchLayout === 'none' ? !NONE.has(b.id) : false;
+      el.classList.toggle('user-hidden', !!c.hidden || modeHidden);
+      el.classList.toggle('sel-edit', this.editSel === b.id);
     }
     const js = Math.round(130 * s.joystickSize);
     this.joyBase.style.width = this.joyBase.style.height = `${js}px`;
@@ -300,15 +309,40 @@ export class MobileControls {
     for (const b of this.buttons.values()) b.style.display = '';
     const bar = document.createElement('div');
     bar.className = 'edit-bar';
-    bar.innerHTML = '<span>Drag the buttons where you want them.</span><button class="btn small" data-a="reset">Reset</button><button class="btn small primary" data-a="done">Done</button>';
+    bar.innerHTML = '<span data-a="label">Drag a button to move it. Tap one to resize or hide it.</span><div class="edit-row"><button class="btn small" data-a="smaller">Smaller</button><button class="btn small" data-a="bigger">Bigger</button><button class="btn small" data-a="hide">Hide</button></div><div class="edit-row"><button class="btn small" data-a="reset">Reset all</button><button class="btn small primary" data-a="done">Done</button></div>';
     bar.addEventListener('pointerdown', (e) => e.stopPropagation());
-    bar.querySelector('[data-a=reset]')!.addEventListener('click', () => { updateSettings({ buttonLayout: {} }); this.layout(); });
+    this.editLabel = bar.querySelector('[data-a=label]');
+    const patch = (fn: (c: { x?: number; y?: number; size?: number; hidden?: boolean }) => void) => {
+      if (!this.editSel) return;
+      const L = { ...getSettings().buttonLayout };
+      const c = { ...(L[this.editSel] ?? {}) };
+      fn(c);
+      L[this.editSel] = c;
+      updateSettings({ buttonLayout: L });
+      this.layout();
+      this.updateEditLabel();
+    };
+    bar.querySelector('[data-a=smaller]')!.addEventListener('click', () => patch((c) => { c.size = Math.max(0.5, (c.size ?? 1) - 0.1); }));
+    bar.querySelector('[data-a=bigger]')!.addEventListener('click', () => patch((c) => { c.size = Math.min(2, (c.size ?? 1) + 0.1); }));
+    bar.querySelector('[data-a=hide]')!.addEventListener('click', () => patch((c) => { c.hidden = !c.hidden; }));
+    bar.querySelector('[data-a=reset]')!.addEventListener('click', () => { updateSettings({ buttonLayout: {} }); this.editSel = null; this.layout(); this.updateEditLabel(); });
     bar.querySelector('[data-a=done]')!.addEventListener('click', () => { this.exitEdit(); onDone(); });
     this.root.appendChild(bar);
     this.editBar = bar;
   }
 
+  private updateEditLabel(): void {
+    if (!this.editLabel) return;
+    const b = DEFAULT_BUTTONS.find((d) => d.id === this.editSel);
+    const c = this.editSel ? getSettings().buttonLayout[this.editSel] : undefined;
+    this.editLabel.textContent = b ? `${b.label}: ${Math.round((c?.size ?? 1) * 100)}%${c?.hidden ? ', hidden' : ''}` : 'Drag a button to move it. Tap one to resize or hide it.';
+    const hide = this.editBar?.querySelector('[data-a=hide]');
+    if (hide) hide.textContent = c?.hidden ? 'Show' : 'Hide';
+  }
+
   exitEdit(): void {
+    this.editSel = null;
+    this.layout();
     this.editing = false;
     this.root.classList.remove('editing');
     this.editBar?.remove();
@@ -318,6 +352,9 @@ export class MobileControls {
 
   private startDrag(e: PointerEvent, btn: HTMLButtonElement): void {
     this.dragEl = btn;
+    this.editSel = btn.dataset.b as TouchButton;
+    this.layout();
+    this.updateEditLabel();
     const r = btn.getBoundingClientRect();
     this.dragOff = { x: e.clientX - (r.left + r.width / 2), y: e.clientY - (r.top + r.height / 2) };
     try { this.root.setPointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -334,7 +371,8 @@ export class MobileControls {
   private dragEnd(): void {
     if (!this.dragEl) return;
     const id = this.dragEl.dataset.b as TouchButton;
-    const layout = { ...getSettings().buttonLayout, [id]: { x: parseFloat(this.dragEl.style.left), y: parseFloat(this.dragEl.style.top) } };
+    const prev = getSettings().buttonLayout[id] ?? {};
+    const layout = { ...getSettings().buttonLayout, [id]: { ...prev, x: parseFloat(this.dragEl.style.left), y: parseFloat(this.dragEl.style.top) } };
     updateSettings({ buttonLayout: layout });
     this.dragEl = null;
   }

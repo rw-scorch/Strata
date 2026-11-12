@@ -1,5 +1,5 @@
 export const GAME_NAME = 'Strata';
-export const GAME_VERSION = '0.6.0';
+export const GAME_VERSION = '0.7.0';
 export const PROTOCOL_VERSION = 5;
 /** Oldest client protocol a server still accepts, so players on a cached page keep working after a deploy. */
 export const MIN_PROTOCOL_VERSION = 3;

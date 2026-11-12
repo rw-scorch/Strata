@@ -3,10 +3,12 @@ import { Menus } from './ui/Menus';
 import { Game } from './game/Game';
 import { TextureAtlas } from './resources/TextureAtlas';
 import { ResourcePackManager } from './resources/ResourcePackManager';
-import { loginSeen, getSettings, isTouchDevice } from './storage/Settings';
+import { loginSeen, getSettings, isTouchDevice, onSettings } from './storage/Settings';
 import { showSettings } from './ui/SettingsUI';
 import { showResourcePacks } from './ui/ResourcePackUI';
 import { h, toast, modal } from './ui/dom';
+import { installPackFont } from './ui/mc/BitmapFont';
+import { applyMcTheme } from './ui/mc/Widgets';
 import { audio } from './audio/AudioEngine';
 import { isValidRoomCode, normalizeRoomCode } from './core/constants';
 import type { WorldMeta } from './storage/WorldStorage';
@@ -23,6 +25,9 @@ class App {
   private atlasKey = '';
 
   constructor() {
+    const blur = () => document.documentElement.style.setProperty('--blur', String(getSettings().menuBlur ?? 5));
+    blur();
+    onSettings(blur);
     this.menus = new Menus({
       screens: this.screens,
       playLocal: (m) => void this.playLocal(m),
@@ -32,6 +37,7 @@ class App {
       activePackRef: () => this.activePackRef(),
       canInstall: () => !!this.installEvt,
       install: () => void this.install(),
+      atlas: () => this.atlas,
     });
   }
 
@@ -74,6 +80,8 @@ class App {
     const next = new TextureAtlas(composed, maxTile);
     if (composed?.sounds.size) void audio.setPackSounds(composed.sounds);
     else void audio.setPackSounds(new Map());
+    void installPackFont(next.fontInfo);
+    applyMcTheme(next);
     const old = this.atlas;
     this.atlas = next;
     this.atlasKey = key;
@@ -87,6 +95,8 @@ class App {
       netStats: () => (this.game?.session?.info.kind === 'remote' ? (this.game.session as RemoteSession).stats() : null),
       canInstall: () => !!this.installEvt,
       install: () => void this.install(),
+      openPacks: (done) => this.openPacks(done),
+      inGame: !!this.game,
     }, onClose);
   }
 

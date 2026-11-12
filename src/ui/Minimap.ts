@@ -74,7 +74,27 @@ export class Minimap {
 
   private save(): void { try { localStorage.setItem(this.key, JSON.stringify(this.waypoints)); } catch { /* full */ } }
 
-  setVisible(v: boolean): void { this.root.style.display = v ? '' : 'none'; this.markers.style.display = v ? '' : 'none'; }
+  private prefMap = true;
+  private prefCoords = true;
+  private serverMap = true;
+  private serverCoords = true;
+  private visible = true;
+
+  setVisible(v: boolean): void { this.visible = v; this.applyVis(); }
+
+  setPrefs(map: boolean, coords: boolean): void { this.prefMap = map; this.prefCoords = coords; this.applyVis(); }
+
+  setServerRules(map: boolean, coords: boolean): void { this.serverMap = map; this.serverCoords = coords; this.applyVis(); }
+
+  private applyVis(): void {
+    const map = this.visible && this.prefMap && this.serverMap;
+    const coords = this.visible && this.prefCoords && this.serverCoords;
+    this.root.style.display = map || coords ? '' : 'none';
+    this.canvas.style.display = map ? '' : 'none';
+    this.coords.style.display = coords ? '' : 'none';
+    this.markers.style.display = map ? '' : 'none';
+    this.root.style.pointerEvents = map ? '' : 'none';
+  }
 
   private column(x: number, z: number, now: number): { c: string | null; h: number } {
     const k = `${x},${z}`;
