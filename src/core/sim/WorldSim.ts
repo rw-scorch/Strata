@@ -8,7 +8,8 @@ import {
   PlayerInv, ItemStack, InvOp, applyInvOp, emptyInv, giveItem, heldStack, damageHeld, consumeHeld,
   armorPoints, damageArmor, allStacks, CHEST_SIZE, FURNACE_SIZE, invHash, sameKind, cloneStack,
 } from '../inventory';
-import { findSmelt, Recipe } from '../crafting';
+import { findSmelt, Recipe, RecipeBook, BASE_BOOK, DataRecipes, makeBook } from '../crafting';
+import { mergeData } from '../datapack';
 import { attackStats, attackCharge, scaledDamage, armorReduce, armorToughness } from './combat';
 import { PROFESSIONS, OFFERS, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
 import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium } from '../physics';
@@ -279,6 +280,11 @@ export class WorldSim {
   readonly validateMoves: boolean;
   readonly authoritative: boolean;
   settings: SimSettings = { pvp: true, cheats: true, guestsBuild: true, dayCycle: true, weatherCycle: true };
+  book: RecipeBook = BASE_BOOK;
+
+  dataPacks: DataRecipes[] = [];
+
+  setDataPacks(list: DataRecipes[]): void { this.dataPacks = list; this.book = makeBook(mergeData(list)); }
   spawn: { x: number; y: number; z: number };
   game: GameHooks | null = null;
 
@@ -852,6 +858,7 @@ export class WorldSim {
         this.spawnItem(p.x, p.y + 1.3, p.z, s, -Math.sin(yaw) * 5, 2.5, -Math.cos(yaw) * 5, 30);
       },
       crafted: (recipe: Recipe, times: number) => this.emit({ e: 'crafted', p, recipe, times }),
+      book: this.book,
     };
   }
 
@@ -1037,9 +1044,39 @@ export class WorldSim {
       if (p.mode === 'survival') { damageHeld(p.inv); this.emit({ e: 'inv', p }); }
       return true;
     }
+    if (stack?.id === I.BONE_MEAL) return this.boneMeal(p, x, y, z);
     if (item?.kind === 'bucket') return this.useBucket(p, x, y, z, nx, ny, nz, stack!);
     if (item?.kind === 'food' && !(item.places)) return false;
     return this.place(p, x, y, z, nx, ny, nz);
+  }
+
+  private boneMeal(p: SimPlayer, x: number, y: number, z: number): boolean {
+    const v = this.get(x, y, z), id = blockId(v);
+    let used = false;
+    if (id === B.WHEAT && (blockMeta(v) & 7) < 7) {
+      this.setBlock(x, y, z, makeBlock(B.WHEAT, Math.min(7, (blockMeta(v) & 7) + 2 + this.rng.int(4))), p.id);
+      used = true;
+    } else if (id === B.OAK_SAPLING || id === B.BIRCH_SAPLING || id === B.SPRUCE_SAPLING || id === B.JUNGLE_SAPLING) {
+      if (this.rng.chance(0.45)) this.growTree(x, y, z, id);
+      used = true;
+    } else if ((id === B.GRASS || id === B.SNOWY_GRASS) && blockId(this.get(x, y + 1, z)) === 0) {
+      for (let i = 0; i < 24; i++) {
+        const tx = x + this.rng.int(7) - 3, tz = z + this.rng.int(7) - 3;
+        for (let ty = y + 1; ty >= y - 1; ty--) {
+          if (blockId(this.get(tx, ty, tz)) === B.GRASS && blockId(this.get(tx, ty + 1, tz)) === 0) {
+            const r = this.rng.next();
+            this.setBlock(tx, ty + 1, tz, r < 0.8 ? B.TALL_GRASS : r < 0.9 ? B.DANDELION : B.POPPY, p.id);
+            break;
+          }
+        }
+      }
+      used = true;
+    }
+    if (!used) return false;
+    this.emit({ e: 'particles', k: 'heart', x: x + 0.5, y: y + 1, z: z + 0.5 });
+    this.emit({ e: 'sound', s: 'place.grass', x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
+    if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+    return true;
   }
 
   private useBucket(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number, stack: ItemStack): boolean {
@@ -1442,7 +1479,7 @@ export class WorldSim {
       if (!be || be.type !== 'furnace') { this.activeFurnaces.delete(k); continue; }
       const [x, y, z] = parsePosKey(k);
       const input = be.items[0], fuel = be.items[1], out = be.items[2];
-      const smelt = input ? findSmelt(input.id) : null;
+      const smelt = input ? findSmelt(input.id, this.book) : null;
       const canCook = !!smelt && (!out || (out.id === smelt.result && out.count < (getItem(out.id)?.maxStack ?? 64)));
       let changed = false;
       if (be.burn <= 0 && canCook && fuel && fuelSeconds(fuel.id) > 0) {

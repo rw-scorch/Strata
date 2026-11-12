@@ -31,7 +31,7 @@ export const I = {
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
-  ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298,
+  ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298, BONE_MEAL: 299,
 } as const;
 
 export const TOOL_MATERIALS = ['wood', 'stone', 'iron', 'gold', 'aetherite'] as const;
@@ -65,6 +65,7 @@ for (const b of BLOCKS) {
 const mat = (id: number, key: string, name: string, desc: string, extra: Partial<ItemDef> = {}) =>
   add({ id, key, name, desc, kind: 'material', texture: key, ...extra });
 
+mat(I.BONE_MEAL, 'bone_meal', 'Bone Meal', 'Speeds up crops and saplings. Scatter it on grass for flowers.', {});
 mat(I.STICK, 'stick', 'Stick', 'Handles for tools and torches.', { fuel: 5 });
 mat(I.COAL, 'coal', 'Coal', 'Burns hot and long. Fuels furnaces and torches.', { fuel: 80 });
 mat(I.CHARCOAL, 'charcoal', 'Charcoal', 'Smelted wood. Burns like coal.', { fuel: 80 });
@@ -173,6 +174,8 @@ export function fuelSeconds(id: number): number {
   const d = items[id];
   if (!d) return 0;
   if (d.fuel) return d.fuel;
+  if (id === B.COAL_BLOCK) return 800;
+  if (id === B.HAY_BLOCK) return 0;
   if (d.kind === 'block') {
     const b = BLOCKS[id];
     if (b && b.sound === 'wood' && b.id !== B.TORCH) return 15;

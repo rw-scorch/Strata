@@ -3,6 +3,8 @@ import { PROTOCOL_VERSION, GameMode } from '../core/constants';
 import { WorldSim, SimPlayer, newPlayer, BlockEntity, Appearance, Weather } from '../core/sim/WorldSim';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { sanitizeInv, InvOp, invHash, validStack, cloneStack } from '../core/inventory';
+import { cleanPackList } from '../core/datapack';
+import type { DataRecipes } from '../core/crafting';
 import { decodeRLE, base64ToU16 } from '../core/chunk';
 import type { C2S, S2C, RoomMeta, PublicPlayer } from '../core/protocol';
 import type { GameSession, SessionEvents, SessionInfo } from '../game/Session';
@@ -159,6 +161,8 @@ export class RemoteSession implements GameSession {
     this.sim.settings.guestsBuild = w.room.settings.guestsBuild;
     this.sim.settings.cheats = w.room.settings.cheats;
     if (w.rules) { Object.assign(this.sim.settings, w.rules); this.ev?.rules?.(w.rules); }
+    this.sim.setDataPacks(cleanPackList(w.recipes ?? []));
+    this.ev?.recipes?.(this.sim.dataPacks);
     this.info = {
       kind: 'remote', name: w.room.name, seed: w.room.seed, mode: y.mode, difficulty: w.room.difficulty, spawn: w.worldSpawn,
       roomCode: w.room.code, isOwner: y.op,
@@ -287,6 +291,7 @@ export class RemoteSession implements GameSession {
       case 'game': ev.game(m.s); return;
       case 'title': ev.title(m.text, m.sub); return;
       case 'rules': Object.assign(this.sim.settings, m.r); ev.rules?.(m.r); return;
+      case 'recipes': this.sim.setDataPacks(cleanPackList(m.d)); ev.recipes?.(this.sim.dataPacks); return;
       case 'rtc': ev.rtc?.(m.from, m.d); return;
       case 'lid': ev.chestLid?.(m.x, m.y, m.z, m.n); return;
       case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses }); return;
@@ -366,6 +371,7 @@ export class RemoteSession implements GameSession {
   mute(pid: string, on: boolean): void { this.send({ t: 'mute', pid, on }); }
   rtc(to: string, d: unknown): void { this.send({ t: 'rtc', to, d }); }
   sendSkin(skin: { png: string; slim: boolean } | null): void { this.send({ t: 'skin', skin }); }
+  setDataPacks(d: DataRecipes[]): void { this.send({ t: 'datapacks', d }); }
   getBlockEntity(key: string): BlockEntity | undefined { return this.sim?.blockEntities.get(key); }
   close(): void { this.closed = true; this.ws?.close(1000, 'leaving'); this.ws = null; this.state = 'offline'; }
   stats() { return { rtt: this.rtt, inRate: this.inRate, outRate: this.outRate, state: this.state }; }

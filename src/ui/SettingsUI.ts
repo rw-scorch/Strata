@@ -72,6 +72,12 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
             (v) => (LOD_STOPS[v] ? `${LOD_STOPS[v]} chunks` : 'OFF'), (v) => set({ lodDistance: LOD_STOPS[v] })),
             mcCycle('Distant Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], s.lodQuality, (v) => set({ lodQuality: v }))),
           mcText('Draws simplified terrain far past your render distance, built from the world seed (like Distant Horizons). Blocks you change far away show up once you get close.', { center: true, small: true }),
+          mcHeading('Mod Features'),
+          mcRow(mcToggle('Dynamic Lights', s.dynamicLights, (v) => set({ dynamicLights: v }), 'Torches and glowing items light up the area around you while you hold them.'),
+            mcToggle('Falling Leaves', s.fallingLeaves, (v) => set({ fallingLeaves: v }))),
+          mcRow(mcToggle('Connected Glass', s.connectedGlass, (v) => set({ connectedGlass: v }), 'Removes the frame lines between neighbouring glass blocks (like Continuity).'),
+            mcCycle('Better Grass', [['off', 'OFF'], ['fast', 'Fast'], ['fancy', 'Fancy']], s.betterGrass, (v) => set({ betterGrass: v }), { tip: 'Fast covers every grass side in grass. Fancy only where the grass continues down a slope.' })),
+          mcRow(mcToggle('Sound Physics', s.soundPhysics, (v) => set({ soundPhysics: v }), 'Echoes in caves and muffles sounds behind walls.')),
           mcHeading('Performance'),
           mcRow(mcToggle('Cave Culling', s.caveCulling, (v) => set({ caveCulling: v }), 'Skips drawing caves and rooms you cannot see, like Minecraft and Sodium.'),
             mcToggle('Idle Frame Saver', s.idleFps, (v) => set({ idleFps: v }), 'Drops to 15 fps when the window is in the background and 30 fps when paused or idle, to save battery.')),
@@ -163,6 +169,9 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
             mcToggle('Show Minimap', s.showMinimap, (v) => set({ showMinimap: v }), 'Servers can turn the minimap off for everyone.')),
           mcRow(mcSlider('HUD Size', 0.5, 1.5, 0.25, s.hudScale, pct, (v) => set({ hudScale: v })),
             mcToggle('Advanced Tooltips', s.advancedTooltips, (v) => set({ advancedTooltips: v }), 'Shows item ids and full durability in tooltips. F3 + H also toggles this.')),
+          mcRow(mcToggle('Food Stats', s.foodStats, (v) => set({ foodStats: v }), 'Shows saturation on the hunger bar and previews what held food will restore (like AppleSkin).'),
+            mcToggle('Look-at Info', s.lookInfo, (v) => set({ lookInfo: v }), 'A small panel at the top names the block or creature you are looking at, with its health or the right tool (like Jade).')),
+          mcRow(mcToggle('Inventory Tweaks', s.mouseTweaks, (v) => set({ mouseTweaks: v }), 'Shift-drag across slots to move many stacks, scroll over a stack to move items one by one (like Mouse Tweaks).')),
         );
         break;
       case 'skin': {

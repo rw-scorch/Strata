@@ -103,6 +103,7 @@ const SHADE = [153, 153, 255, 128, 204, 204];
 const NORMALS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const TANG: [number, number][] = [[2, 1], [2, 1], [0, 2], [0, 2], [0, 1], [0, 1]];
 const UVMAP: [number, number, number, number][] = [[2, -1, 1, -1], [2, 1, 1, -1], [0, 1, 2, 1], [0, 1, 2, -1], [0, 1, 1, -1], [0, -1, 1, -1]];
+const CTM_BASE = 0xfef;
 const FLIPWIND: boolean[] = [];
 for (let d = 0; d < 6; d++) {
   const [a, b] = TANG[d];
@@ -113,7 +114,7 @@ for (let d = 0; d < 6; d++) {
   FLIPWIND[d] = cx * n[0] + cy * n[1] + cz * n[2] < 0;
 }
 
-export interface MesherContext { atlas: AtlasData; gen: WorldGenerator; }
+export interface MesherContext { atlas: AtlasData; gen: WorldGenerator; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' } }
 
 function ridx(x: number, y: number, z: number): number { return (y * R + z) * R + x; }
 
@@ -278,6 +279,8 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
   const tiles = ctx.atlas.blockTiles;
   const tintT = ctx.atlas.tintTable;
   const top = Math.min(H, maxY + 1);
+  const grassMode = ctx.opts?.grass ?? 'fancy';
+  const glassOn = ctx.opts?.glass !== false;
 
   for (let d = 0; d < 6; d++) {
     const n = NORMALS[d];
@@ -307,9 +310,31 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
           const fd = f === 0 ? 5 : f === 1 ? 0 : f === 2 ? 4 : 1;
           if (fd === d && tiles[id * FS + 6] >= 0) tile = tiles[id * FS + 6];
         }
-        const ovTile = d !== 2 && d !== 3 ? tiles[id * FS + 7] : -1;
+        let ovTile = d !== 2 && d !== 3 ? tiles[id * FS + 7] : -1;
         const tcode = tintT[id * 2];
-        const tintBase = tcode && (!tintT[id * 2 + 1] || d === 2) ? 1 : 0;
+        let tintBase = tcode && (!tintT[id * 2 + 1] || d === 2) ? 1 : 0;
+        if (d !== 2 && d !== 3 && (id === B.GRASS || id === B.SNOWY_GRASS) && grassMode !== 'off' && y > 0) {
+          const below = region[ridx(rx + n[0], y - 1, rz + n[2])] & 255;
+          if (grassMode === 'fast' || below === id) { tile = tiles[id * FS + 2]; ovTile = -1; tintBase = tcode ? 1 : 0; }
+        }
+        if (code === 3 && glassOn) {
+          const [uAx, uS, vAx, vS] = UVMAP[d];
+          const chk = (ax: number, sg: number) => {
+            const o = [0, 0, 0]; o[ax] = sg;
+            const ny2 = y + o[1];
+            if (ny2 < 0 || ny2 >= H) return false;
+            if ((region[ridx(rx + o[0], ny2, rz + o[2])] & 255) !== id) return false;
+            const fy = ny2 + n[1];
+            const fr = fy >= 0 && fy < H ? region[ridx(rx + o[0] + n[0], fy, rz + o[2] + n[2])] & 255 : 0;
+            return fr !== id && !OPAQUE[fr];
+          };
+          let ctm = 0;
+          if (chk(uAx, -uS)) ctm |= 1;
+          if (chk(uAx, uS)) ctm |= 2;
+          if (chk(vAx, -vS)) ctm |= 4;
+          if (chk(vAx, vS)) ctm |= 8;
+          if (ctm) ovTile = CTM_BASE + ctm;
+        }
         faceCorners(rx, y, rz, d, smooth);
         let lk = 0, ak = 0;
         for (let k = 0; k < 4; k++) {
@@ -350,7 +375,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
             h++;
           }
           for (let dv = 0; dv < h; dv++) maskTex.fill(0, (v + dv) * dimU + u, (v + dv) * dimU + u + w);
-          const tile = (t & 0xfff) - 1, ov = ((t >> 12) & 0xfff) - 1, pass = (t >> 24) & 3, tb = ((t >> 26) & 1) | (((t >> 27) & 7) << 3);
+          const tile = (t & 0xfff) - 1, ovRaw = ((t >> 12) & 0xfff) - 1, ov = ovRaw >= CTM_BASE ? -1 - (ovRaw - CTM_BASE) : ovRaw, pass = (t >> 24) & 3, tb = ((t >> 26) & 1) | (((t >> 27) & 7) << 3);
           emitQuad(builders[pass], d, axis, s, ua, u, w, va, v, h, tile, ov, L, A, T, tb);
           u += w;
         }

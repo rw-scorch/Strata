@@ -40,7 +40,7 @@ export interface PackManifest {
   importer?: number;
 }
 
-export const IMPORTER_VERSION = 8;
+export const IMPORTER_VERSION = 9;
 
 export const GUI_SPRITES = [
   'container/slot_highlight_back', 'container/slot_highlight_front', 'container/furnace/burn_progress', 'container/furnace/lit_progress',
@@ -60,7 +60,7 @@ export interface PackFiles { [path: string]: Uint8Array; }
 
 export interface ImportedPack { manifest: PackManifest; files: PackFiles; icon: Uint8Array | null; }
 
-const JAVA_BLOCK_NAMES: Record<string, { name: string; state?: string }> = {
+export const JAVA_BLOCK_NAMES: Record<string, { name: string; state?: string }> = {
   aetherite_ore: { name: 'diamond_ore' }, aetherite_block: { name: 'diamond_block' }, tall_grass: { name: 'short_grass' },
   snowy_grass: { name: 'grass_block', state: 'snowy=true' }, furnace: { name: 'furnace', state: 'facing=north,lit=false' },
   furnace_lit: { name: 'furnace', state: 'facing=north,lit=true' }, grass: { name: 'grass_block', state: 'snowy=false' },
@@ -74,7 +74,7 @@ const JAVA_ITEM_NAMES: Record<string, string> = {
   cooked_poultry: 'cooked_chicken', oak_door_item: 'oak_door',
 };
 
-function javaItemName(key: string): string {
+export function javaItemName(key: string): string {
   if (JAVA_ITEM_NAMES[key]) return JAVA_ITEM_NAMES[key];
   return key.replace(/^aetherite_/, 'diamond_').replace(/^gold_(helmet|chestplate|leggings|boots)$/, 'golden_$1');
 }
@@ -98,6 +98,9 @@ const BEDROCK_BLOCK_FILES: Record<string, string[]> = {
   glowstone: ['glowstone'], mud: ['mud'], farmland_moist: ['farmland_wet'], oak_sapling: ['sapling_oak'], birch_sapling: ['sapling_birch'],
   spruce_sapling: ['sapling_spruce'], jungle_sapling: ['sapling_jungle'], red_mushroom: ['mushroom_red'], brown_mushroom: ['mushroom_brown'],
   bookshelf: ['bookshelf'], lily_pad: ['waterlily', 'carried_waterlily'],
+  smooth_stone: ['stone_slab_top'], cracked_stone_bricks: ['stonebrick_cracked'], chiseled_stone_bricks: ['stonebrick_carved'], cut_sandstone: ['sandstone_smooth'],
+  chiseled_sandstone: ['sandstone_carved'], coal_block: ['coal_block'], hay_block_side: ['hay_block_side'], hay_block_top: ['hay_block_top'], packed_ice: ['ice_packed'],
+  terracotta: ['hardened_clay'], bone_block_side: ['bone_block_side'], bone_block_top: ['bone_block_top'], emerald_block: ['emerald_block'],
 };
 for (let i = 0; i < 8; i++) BEDROCK_BLOCK_FILES[`wheat_stage${i}`] = [`wheat_stage_${i}`];
 for (let i = 0; i < 10; i++) BEDROCK_BLOCK_FILES[`destroy_stage_${i}`] = [`destroy_stage_${i}`];
@@ -108,7 +111,7 @@ const BEDROCK_ITEM_FILES: Record<string, string[]> = {
   cooked_pork: ['porkchop_cooked'], raw_mutton: ['mutton_raw'], cooked_mutton: ['mutton_cooked'], raw_poultry: ['chicken_raw'], cooked_poultry: ['chicken_cooked'],
   wheat_seeds: ['seeds_wheat'], wheat: ['wheat'], clay_ball: ['clay_ball'], brick: ['brick'], bucket: ['bucket_empty'], water_bucket: ['bucket_water'],
   lava_bucket: ['bucket_lava'], rotten_flesh: ['rotten_flesh'], paper: ['paper'], book: ['book_normal'], red_dye: ['dye_powder_red_new', 'dye_powder_red'],
-  yellow_dye: ['dye_powder_yellow_new', 'dye_powder_yellow'], arrow: ['arrow'], oak_door_item: ['door_wood'], bow: ['bow_standby', 'bow'], emerald: ['emerald'], bow_pulling_0: ['bow_pulling_0'], bow_pulling_1: ['bow_pulling_1'], bow_pulling_2: ['bow_pulling_2'],
+  yellow_dye: ['dye_powder_yellow_new', 'dye_powder_yellow'], arrow: ['arrow'], oak_door_item: ['door_wood'], bow: ['bow_standby', 'bow'], emerald: ['emerald'], bone_meal: ['dye_powder_white_new', 'dye_powder_white'], bow_pulling_0: ['bow_pulling_0'], bow_pulling_1: ['bow_pulling_1'], bow_pulling_2: ['bow_pulling_2'],
 };
 const BR_MAT: Record<string, string> = { wooden: 'wood', stone: 'stone', iron: 'iron', golden: 'gold', aetherite: 'diamond', leather: 'leather', gold: 'gold' };
 for (const m of ['wooden', 'stone', 'iron', 'golden', 'aetherite']) for (const t of ['pickaxe', 'axe', 'shovel', 'sword', 'hoe']) BEDROCK_ITEM_FILES[`${m}_${t}`] = [`${BR_MAT[m]}_${t}`];

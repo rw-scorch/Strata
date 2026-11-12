@@ -5,6 +5,8 @@ import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { MOBS, MobType } from '../core/sim/mobs';
 import { ENT_KIND } from '../core/protocol';
 import { sanitizeInv, InvOp } from '../core/inventory';
+import { cleanPackList } from '../core/datapack';
+import type { DataRecipes } from '../core/crafting';
 import type { ChunkManager } from './ChunkManager';
 import type { GameSession, SessionEvents, SessionInfo } from './Session';
 import { WorldStorage, WorldMeta, WorldState } from '../storage/WorldStorage';
@@ -37,6 +39,7 @@ export class LocalSession implements GameSession {
     if (meta.arena) this.sim.game = new Minigame(this.sim, meta.arena);
     this.sim.settings.dayCycle = state?.dayCycle ?? true;
     Object.assign(this.sim.settings, state?.rules ?? {});
+    this.sim.setDataPacks(cleanPackList(state?.datapacks));
     this.sim.keepPopulated = true;
     this.sim.populated = new Set(state?.populated ?? []);
     this.beChunks = new Set(state?.beChunks ?? []);
@@ -72,6 +75,7 @@ export class LocalSession implements GameSession {
     this.ev.time(this.sim.time, this.sim.settings.dayCycle);
     this.ev.weather(this.sim.weather);
     this.ev.rules?.(ruleSnapshot(this.sim.settings));
+    this.ev.recipes?.(this.sim.dataPacks);
     this.ev.inventory(this.me.inv);
     this.emitVitals();
   }
@@ -207,7 +211,14 @@ export class LocalSession implements GameSession {
       dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
       populated: [...this.sim.populated],
       rules: ruleSnapshot(this.sim.settings),
+      datapacks: this.sim.dataPacks.length ? this.sim.dataPacks : undefined,
     });
+  }
+
+  setDataPacks(d: DataRecipes[]): void {
+    this.sim.setDataPacks(cleanPackList(d));
+    this.ev.recipes?.(this.sim.dataPacks);
+    void this.save(false);
   }
 
   close(): void { /* nothing to tear down */ }

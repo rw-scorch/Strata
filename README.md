@@ -189,7 +189,7 @@ In multiplayer, the owner can set a **shared pack** (by fingerprint). Players wh
 
 ### Keyboard and mouse
 
-WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl or double-tap W sprint · left mouse break/attack · right mouse place/use · middle mouse pick block · 1-9 or wheel hotbar · E inventory · Q drop (Ctrl+Q stack) · T chat · / command · V push to talk · M mute microphone · B drop a waypoint · N waypoints and map · Shift+N hide waypoints · F5 third person · F1 hide HUD · F3 debug · Esc pause.
+WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl or double-tap W sprint · left mouse break/attack · right mouse place/use · middle mouse pick block · 1-9 or wheel hotbar · E inventory · Q drop (Ctrl+Q stack) · T chat · / command · C zoom (wheel while held changes zoom) · V push to talk · M mute microphone · B drop a waypoint · N waypoints and map · Shift+N hide waypoints · F5 third person · F1 hide HUD · F3 debug · Esc pause.
 
 ---
 
@@ -215,6 +215,20 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - Simulation distance (default 8 chunks): creatures, items and arrows further away are frozen in place, as in Java.
   - Villagers follow the Java schedule: wander in the morning, work at their building 2000-9000, meet at the well 9000-11000, go home at 12000. They open and close doors.
   - Gamerules: `/gamerule randomTickSpeed|doMobSpawning|simulationDistance|mobCap|doDaylightCycle [value]`. Changes are saved with the world.
+- **Mod features (v12):** each can be turned off in Options.
+  - Food Stats (like AppleSkin): saturation outlines on the hunger bar, a flashing preview of what the held food restores, and hunger and saturation values in food tooltips.
+  - Look-at Info (like Jade): a small panel at the top shows the block or creature you are looking at, with health for creatures.
+  - Zoom (like Zoomify): hold C to zoom smoothly; scroll while holding to change the zoom. Mouse sensitivity scales down while zoomed.
+  - Dynamic Lights: a torch, glowstone or lava bucket in your hand, or a burning creature, lights the area around it.
+  - Falling Leaves: leaf particles drift down from trees, tinted to the leaf type.
+  - Connected Glass (like Continuity): glass blocks next to each other join into one pane without inner borders.
+  - Better Grass (like OptiFine's option): Fast covers every side of a grass block in grass; Fancy does it only where grass continues down a slope.
+  - Sound Physics: sounds behind walls are muffled, and caves and large rooms add an echo.
+  - Inventory Tweaks (like Mouse Tweaks): scroll over a stack to move one item at a time, and shift-drag across slots to quick-move each one.
+  - Item clumping (Clumps) is not needed: dropped items already merge and XP goes straight to the player.
+- **More blocks and recipes (v12):** smooth stone, cracked and chiseled stone bricks, cut, chiseled and smooth sandstone, coal, hay, bone and emerald blocks, packed ice and terracotta, with their vanilla recipes and smelting. Bone meal grows crops, saplings and flowers.
+- **Data packs (v12):** Pause > Data Packs adds recipes from Java data packs (for example from Modrinth) to a world. Strata reads `crafting_shaped`, `crafting_shapeless` and `smelting` recipes, item tags, old and new JSON formats, and the `filter` block in `pack.mcmeta` (to remove built-in recipes). Recipes that use items Strata does not have are skipped and counted. Functions, loot tables, advancements and structures are ignored. In multiplayer the owner and operators can add packs; the server checks every recipe and sends them to all players, and they are saved with the world. Up to 8 packs and 600 recipes per pack.
+- **Structures:** see [docs/STRUCTURES.md](docs/STRUCTURES.md) for the plan.
 - **Saving:** IndexedDB worlds with autosave every 45 s and when the app is backgrounded, manual save, create/rename/duplicate/delete, export/import backups, and versioned save migration.
 - **Audio:** synthesised block, step, creature, UI, water, rain and thunder sounds, cave ambience, and generative music. Master, music, effects and ambience volumes plus mute. Muffled underwater.
 - **Mobile and PWA:** safe areas, no zoom or pull-to-refresh, fullscreen where supported, adaptive resolution, Low/Medium/High/Custom presets, installable PWA with offline single-player and an update prompt.
@@ -232,7 +246,7 @@ src/
   game/            Game.ts (orchestrator), ChunkManager.ts, Player.ts, BlockInteraction.ts, LocalSession.ts, Session.ts
   multiplayer/     RemoteSession.ts (WebSocket client, prediction, reconnection)
   rendering/       Renderer.ts, Mesher.ts, ChunkMaterial.ts, Sky.ts, Weather.ts, Particles.ts, EntityRenderer.ts, VanillaModels.ts
-  resources/       ResourcePackImporter.ts, ResourcePackManager.ts, TextureAtlas.ts, DefaultTextures.ts, tga.ts
+  resources/       DataPackImporter.ts, ResourcePackImporter.ts, ResourcePackManager.ts, TextureAtlas.ts, DefaultTextures.ts, tga.ts
   controls/        InputState.ts, DesktopControls.ts, MobileControls.ts
   storage/         db.ts (IndexedDB), WorldStorage.ts, Settings.ts
   ui/              Menus.ts, HUD.ts, InventoryUI.ts, GameUI.ts, SettingsUI.ts, ResourcePackUI.ts, dom.ts
@@ -253,7 +267,8 @@ tests/             vitest suites
 What has been run:
 
 - `scripts/v10-smoke.mjs <server> [admin key]`: homes, tpa, back, voice signalling relay, rule broadcasts, spectating, and the admin API.
-- `npm test`: 33 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning and crop growth. The vanilla pack import test runs when the pack zip is present locally.
+- `scripts/v12-smoke.mjs <server>`: data pack permissions, broadcast, server-side crafting with a data pack recipe, size caps, and recipes in the welcome message on rejoin.
+- `npm test`: 35 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning, crop growth, and data pack conversion (shaped, shapeless, smelting, tags, filters, unknown items, sanitising). The vanilla pack import test runs when the pack zip is present locally.
 - `scripts/mp-smoke.mjs` against `wrangler dev`: two WebSocket clients exercise room creation, owner vs guest, block break and place sync, server-validated inventory, chat, chunk persistence, impersonation rejection, kick and ban, commands, and rejoin with saved inventory.
 - Headless Chrome (SwiftShader software WebGL) against `wrangler dev`: title, world creation, single-player loading and rendering, iPad-emulated touch controls (look, break, place, joystick walking, inventory, recipe book), importing the Java 26.3 vanilla pack (60/62 blocks, 73/74 items, animated water/lava, all six creature skins, player skins and HUD sprites confirmed in screenshots), and **two independent browser sessions** in one multiplayer room (UI create, code join with preview, both players visible to each other, chat both ways).
 - `wrangler deploy --dry-run`: bundle and bindings validated.

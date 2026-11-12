@@ -33,6 +33,7 @@ export interface WorldUniforms {
   uProj: { value: THREE.Matrix4 };
   uLodScale: { value: number };
   uEmitBoost: { value: number };
+  uDynLights: { value: THREE.Vector4[] };
 }
 
 export function createWorldUniforms(): WorldUniforms {
@@ -44,7 +45,7 @@ export function createWorldUniforms(): WorldUniforms {
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uFlash: { value: 0 }, uRain: { value: 0 }, uWind: { value: 0 },
     uCloudMap: { value: null }, uCloudShift: { value: 0 }, uCloudShadow: { value: 0 }, uUnderwater: { value: 0 },
     uSceneColor: { value: null }, uSceneDepth: { value: null }, uResolution: { value: new THREE.Vector2(1, 1) },
-    uCamNear: { value: 0.08 }, uCamFar: { value: 1000 }, uProj: { value: new THREE.Matrix4() }, uLodScale: { value: 1 }, uEmitBoost: { value: 1 },
+    uCamNear: { value: 0.08 }, uCamFar: { value: 1000 }, uProj: { value: new THREE.Matrix4() }, uLodScale: { value: 1 }, uEmitBoost: { value: 1 }, uDynLights: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   };
 }
 
@@ -143,6 +144,7 @@ uniform float uCamFar;
 uniform mat4 uProj;
 uniform float uLodScale;
 uniform float uEmitBoost;
+uniform vec4 uDynLights[4];
 varying vec4 vUV;
 varying vec4 vLight;
 varying vec4 vTint;
@@ -261,6 +263,14 @@ void main() {
   float flags = floor(vTint.a * 255.0 + 0.5);
   vec2 f = fract(vUV.xy);
   vec2 gx = dFdx(vUV.xy) * uLodScale / uAtlasGrid, gy = dFdy(vUV.xy) * uLodScale / uAtlasGrid;
+  if (vUV.w < -0.5) {
+    float m = floor(-vUV.w + 0.5);
+    float lo = 1.5 / 16.0, hi = 14.5 / 16.0;
+    if (mod(m, 2.0) > 0.5) f.x = max(f.x, lo);
+    if (mod(floor(m / 2.0), 2.0) > 0.5) f.x = min(f.x, hi);
+    if (mod(floor(m / 4.0), 2.0) > 0.5) f.y = max(f.y, lo);
+    if (mod(floor(m / 8.0), 2.0) > 0.5) f.y = min(f.y, hi);
+  }
   vec4 c = tileSample(vUV.z, f, gx, gy);
   if (bitf(flags, 1.0) > 0.5) c.rgb *= vTint.rgb;
   if (vUV.w > 0.5) {
@@ -290,7 +300,9 @@ void main() {
   float sky = curve(skyL) * uDay;
   sky *= mix(1.0, mix(0.55, 1.0, sun), smoothstep(0.6, 0.85, skyL) * smoothstep(0.2, 0.45, uDay));
   float flick = 1.0 + 0.035 * sin(uTime * 9.0 + dot(floor(vWorld), vec3(1.7, 2.3, 1.1)));
-  float blk = curve(vLight.y) * flick;
+  float dyn = 0.0;
+  for (int i = 0; i < 4; i++) { vec4 L = uDynLights[i]; if (L.w > 0.0) dyn = max(dyn, (L.w - distance(vWorld, L.xyz)) / 15.0); }
+  float blk = curve(max(vLight.y, dyn)) * flick;
   vec3 light = max(vec3(sky) * uSkyColor, vec3(blk) * vec3(1.0, 0.86, 0.66));
   light = max(light, vec3(0.1 + uBrightness * 0.12) * vec3(0.92, 0.95, 1.0));
   light *= (0.42 + 0.58 * vLight.z) * vLight.w;

@@ -5,6 +5,7 @@ import type { ScreenType } from './sim/WorldSim';
 import type { GameMode, Difficulty } from './constants';
 import type { Appearance } from './sim/WorldSim';
 import type { PlayerInv, ItemStack, InvOp } from './inventory';
+import type { DataRecipes } from './crafting';
 
 export interface PackRef { name: string; hash: string; }
 
@@ -79,12 +80,14 @@ export type C2S =
   | { t: 'buy'; k: string }
   | { t: 'ue'; id: number }
   | { t: 'rtc'; to: string; d: unknown }
-  | { t: 'skin'; skin: SkinRef | null };
+  | { t: 'skin'; skin: SkinRef | null }
+  | { t: 'datapacks'; d: DataRecipes[] };
 
 export type S2C =
   | { t: 'rules'; r: RuleSet }
+  | { t: 'recipes'; d: DataRecipes[] }
   | { t: 'rtc'; from: string; d: unknown }
-  | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet }
+  | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
   | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
   | { t: 'chunk'; cx: number; cz: number; d: string | null }
   | { t: 'blk'; u: number[][] }

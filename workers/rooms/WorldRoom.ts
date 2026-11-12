@@ -8,6 +8,7 @@ import { Minigame } from '../../src/core/labs/minigames/Minigame';
 import { isArenaKind } from '../../src/core/labs/minigames/arena';
 import { B, blockId } from '../../src/core/blocks';
 import { sanitizeInv, validateOp, invHash, validStack, cloneStack } from '../../src/core/inventory';
+import { cleanPackList } from '../../src/core/datapack';
 import {
   C2S, S2C, RoomMeta, RoomInfo, PublicPlayer, RoomSettings, PackRef, ENT_KIND, q2, isNum, isInt, cleanName, cleanText, cleanAppearance,
 } from '../../src/core/protocol';
@@ -46,6 +47,7 @@ interface Session {
   adminT?: number;
   rtcN?: number;
   rtcT?: number;
+  dpT?: number;
 }
 
 interface Attachment { pid: string | null; name: string; op: boolean; }
@@ -166,6 +168,8 @@ export class WorldRoom extends DurableObject<Env> {
     this.sim.time = m.time ?? 1000;
     this.sim.weather = (m.weather as 'clear') ?? 'clear';
     this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true, ...(m.rules ?? {}) };
+    const dpRow = this.sql.exec(`SELECT v FROM kv WHERE k = 'datapacks'`).toArray()[0];
+    if (dpRow) { try { this.sim.setDataPacks(cleanPackList(JSON.parse(dpRow.v as string))); } catch { /* ignore corrupt */ } }
     if (!m.pvpV6) { m.settings.pvp = true; m.pvpV6 = true; this.sim.settings.pvp = true; this.saveMeta(); }
     if (!m.capV10) { if (m.maxPlayers === 8) m.maxPlayers = 20; m.capV10 = true; this.saveMeta(); }
     if (!this.loaded) {
@@ -461,7 +465,7 @@ export class WorldRoom extends DurableObject<Env> {
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     let s = this.sessions.get(ws);
     if (!s) { s = this.newSession(ws, ws.deserializeAttachment() as Attachment | null); this.sessions.set(ws, s); }
-    if (typeof raw !== 'string' || raw.length > 65536) { s.strikes++; return; }
+    if (typeof raw !== 'string' || (raw.length > 65536 && !(raw.length <= 140000 && raw.startsWith('{"t":"datapacks"')))) { s.strikes++; return; }
     const now = Date.now();
     s.lastSeen = now;
     s.bucket = Math.min(200, s.bucket + ((now - s.bucketT) / 1000) * 90);
@@ -574,7 +578,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.queueChunks(s, p);
     const players = [...sim.players.values()].filter((x) => !x.vanished || p.op).map((x) => this.publicPlayer(x));
     this.send(s, {
-      t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, worldSpawn: sim.spawn, rules: ruleSnapshot(sim.settings),
+      t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, worldSpawn: sim.spawn, rules: ruleSnapshot(sim.settings), recipes: sim.dataPacks.length ? sim.dataPacks : undefined,
       you: { id, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, op: p.op },
     });
     if (spectate) { this.systemChat('You are spectating as a server admin. Other players cannot see you.', 'info', s); this.report(true); return; }
@@ -667,6 +671,20 @@ export class WorldRoom extends DurableObject<Env> {
         (s as Session & { skinT?: number }).skinT = now;
         p.skin = cleanSkin(msg.skin);
         if (!p.vanished) this.broadcast({ t: 'pj', p: this.publicPlayer(p) });
+        return;
+      }
+      case 'datapacks': {
+        if (!p.op) { this.systemChat('Only the world owner and operators can change data packs.', 'error', s); return; }
+        const now = Date.now();
+        if (now - (s.dpT ?? 0) < 4000) { this.systemChat('Wait a moment before changing data packs again.', 'error', s); return; }
+        s.dpT = now;
+        const list = cleanPackList(msg.d);
+        if (list.length) this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('datapacks', ?)`, JSON.stringify(list));
+        else this.sql.exec(`DELETE FROM kv WHERE k = 'datapacks'`);
+        sim.setDataPacks(list);
+        this.broadcast({ t: 'recipes', d: list });
+        const n = list.reduce((a, d) => a + d.crafting.length + d.smelting.length, 0);
+        this.systemChat(list.length ? `${p.name} changed the data packs: ${list.map((d) => d.name).join(', ')} (${n} recipes).` : `${p.name} removed all data packs.`, 'info');
         return;
       }
     }

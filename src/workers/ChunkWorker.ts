@@ -10,7 +10,7 @@ type InMsg =
   | { t: 'init'; seed: number; arena?: ArenaKind | null; atlas: AtlasData }
   | { t: 'atlas'; atlas: AtlasData }
   | { t: 'gen'; id: number; cx: number; cz: number }
-  | { t: 'mesh'; id: number; cx: number; cz: number; chunks: (Uint16Array | null)[]; smooth: boolean };
+  | { t: 'mesh'; id: number; cx: number; cz: number; chunks: (Uint16Array | null)[]; smooth: boolean; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' } };
 
 const scope = self as unknown as { postMessage(m: unknown, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<InMsg>) => void) | null };
 
@@ -32,7 +32,7 @@ scope.onmessage = (e) => {
     }
     if (m.t === 'mesh') {
       const t0 = performance.now();
-      const r = meshChunk({ atlas, gen }, m.cx, m.cz, m.chunks, m.smooth);
+      const r = meshChunk({ atlas, gen, opts: m.opts }, m.cx, m.cz, m.chunks, m.smooth);
       const tr: Transferable[] = [];
       transfers(r.opaque, tr); transfers(r.cutout, tr); transfers(r.trans, tr);
       scope.postMessage({ t: 'mesh', id: m.id, cx: m.cx, cz: m.cz, result: r, ms: performance.now() - t0 }, tr);

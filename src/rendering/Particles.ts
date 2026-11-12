@@ -5,7 +5,7 @@ import { isSolid, BLOCKS, blockId } from '../core/blocks';
 
 const MAX = 1400;
 
-interface P { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; tile: number; su: number; sv: number; size: number; r: number; g: number; b: number; grav: number; bright: number; wander?: number; glow?: number; }
+interface P { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; tile: number; su: number; sv: number; size: number; r: number; g: number; b: number; grav: number; bright: number; wander?: number; glow?: number; leaf?: boolean; }
 
 export interface AmbientEnv { night: number; cave: number; rain: number; underwater: boolean; }
 const LEAVES = new Uint8Array(256);
@@ -19,6 +19,9 @@ export class Particles {
   private col = new Float32Array(MAX * 4);
   private geo: THREE.BufferGeometry;
   level: 'off' | 'low' | 'high' = 'high';
+  fallingLeaves = true;
+  leafLook: ((id: number) => { tile: number; r: number; g: number; b: number }) | null = null;
+  private leafT = 0;
 
   constructor(u: WorldUniforms) {
     this.geo = new THREE.BufferGeometry();
@@ -73,10 +76,25 @@ export class Particles {
         this.add({ x, y, z, vx: 0, vy: 0, vz: 0, life: 0, max: 4 + Math.random() * 4, tile: -1, su: 1, sv: 0, size: 0.06, r: 0.75, g: 1, b: 0.35, grav: 0, bright: 1.8, wander: 0.8, glow: Math.random() * 6 });
       } else if (env.cave > 0.5 && roll < 0.5) {
         this.add({ x, y, z, vx: (Math.random() - 0.5) * 0.1, vy: (Math.random() - 0.5) * 0.06, vz: (Math.random() - 0.5) * 0.1, life: 0, max: 5 + Math.random() * 4, tile: -1, su: 1, sv: 0, size: 0.025, r: 0.8, g: 0.78, b: 0.72, grav: 0, bright: 0.5, wander: 0.08 });
-      } else if (roll < 0.6 && env.cave < 0.5) {
+      } else if (roll < 0.6 && env.cave < 0.5 && !this.fallingLeaves) {
         const above = world.getBlock(Math.floor(x), Math.floor(y) + 1, Math.floor(z));
         if (!LEAVES[blockId(above)]) continue;
         this.add({ x, y: Math.floor(y) + 0.95, z, vx: 0, vy: -0.4, vz: 0, life: 0, max: 6, tile: -1, su: 0, sv: 0, size: 0.07, r: 0.32, g: 0.5, b: 0.18, grav: 0, bright: 0.85, wander: 0.6 });
+      }
+    }
+    if (this.fallingLeaves && env.cave < 0.5 && !env.underwater) {
+      this.leafT += dt;
+      const lrate = (this.level === 'low' ? 0.05 : 0.016) * (env.rain > 0.3 ? 0.6 : 1);
+      let tries = 0;
+      while (this.leafT > lrate && tries++ < 40) {
+        this.leafT -= lrate;
+        const x = Math.floor(cx + (Math.random() - 0.5) * 40), z = Math.floor(cz + (Math.random() - 0.5) * 40);
+        let y = Math.floor(cy + 10);
+        let leaf = 0;
+        for (let k = 0; k < 22; k++, y--) { const v = world.getBlock(x, y, z); if (LEAVES[blockId(v)]) { leaf = blockId(v); break; } }
+        if (!leaf || blockId(world.getBlock(x, y - 1, z)) !== 0) continue;
+        const look = this.leafLook?.(leaf) ?? { tile: -1, r: 0.36, g: 0.56, b: 0.2 };
+        this.add({ x: x + Math.random(), y: y - 0.05, z: z + Math.random(), vx: (Math.random() - 0.5) * 0.4 + (env.rain > 0.3 ? 0.8 : 0.2), vy: -0.5 - Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.4, life: 0, max: 9 + Math.random() * 4, tile: look.tile, su: Math.floor(Math.random() * 3) * 0.25, sv: Math.floor(Math.random() * 3) * 0.25, size: 0.13 + Math.random() * 0.05, r: look.r, g: look.g, b: look.b, grav: 0, bright: 0.9, wander: 0.9, leaf: true });
       }
     }
   }
@@ -116,13 +134,14 @@ export class Particles {
       if (p.life >= p.max) continue;
       if (p.wander) {
         p.vx += (Math.random() - 0.5) * p.wander * dt * 6; p.vz += (Math.random() - 0.5) * p.wander * dt * 6; p.vy += (Math.random() - 0.5) * p.wander * dt * 3;
-        const damp = Math.max(0, 1 - dt * 1.5); p.vx *= damp; p.vz *= damp; if (!p.grav) p.vy *= damp;
+        const damp = Math.max(0, 1 - dt * 1.5); p.vx *= damp; p.vz *= damp; if (!p.grav && !p.leaf) p.vy *= damp;
+        if (p.leaf) { p.vy = Math.max(-0.9, Math.min(-0.25, p.vy)); p.vx += Math.sin(p.life * 2.3 + p.max) * dt * 0.8; }
       }
       p.vy -= p.grav * dt;
       const nx = p.x + p.vx * dt, ny = p.y + p.vy * dt, nz = p.z + p.vz * dt;
       if ((p.grav > 0 || p.wander) && isSolid(world.getBlock(Math.floor(nx), Math.floor(ny), Math.floor(nz)))) {
         p.vx *= 0.3; p.vz *= 0.3; p.vy = 0;
-        if (p.wander && p.life < p.max - 0.6) p.max = p.life + 0.6;
+        if (p.wander && p.life < p.max - 0.6) p.max = p.life + (p.leaf ? 2.5 : 0.6);
       } else { p.x = nx; p.y = ny; p.z = nz; }
       ps[n] = p;
       const fade = p.glow !== undefined ? Math.max(0, Math.sin(p.life * 2.2 + p.glow)) * Math.min(1, (p.max - p.life) * 2, p.life * 2) : 1;

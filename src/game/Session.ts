@@ -6,6 +6,7 @@ import type { Weather, Appearance, SimPlayer, BlockEntity, WorldSim, ScreenType 
 import type { GameState } from '../core/labs/minigames/Minigame';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
+import type { DataRecipes } from '../core/crafting';
 
 export type ChatKind = 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error';
 
@@ -43,6 +44,7 @@ export interface SessionEvents {
   chunkData(cx: number, cz: number, data: Uint16Array | null): void;
   rules?(r: RuleSet): void;
   rtc?(from: string, d: unknown): void;
+  recipes?(d: DataRecipes[]): void;
 }
 
 export interface SessionInfo {
@@ -88,4 +90,5 @@ export interface GameSession {
   save?(manual: boolean): Promise<void>;
   close(): void;
   stats(): { rtt: number; inRate: number; outRate: number; state: string };
+  setDataPacks?(d: DataRecipes[]): void;
 }

@@ -51,6 +51,7 @@ export class ChunkManager implements WorldStore {
   remote: boolean;
   renderDistance = 6;
   smooth = true;
+  meshOpts: { glass: boolean; grass: 'off' | 'fast' | 'fancy' } = { glass: true, grass: 'fancy' };
   centerX = 0;
   centerZ = 0;
   meshTimes: number[] = [];
@@ -273,7 +274,7 @@ export class ChunkManager implements WorldStore {
           const n = this.get_(job.c.cx + dx, job.c.cz + dz);
           arr.push(n?.data ? n.data.blocks.slice() : null);
         }
-        this.workers[i].postMessage({ t: 'mesh', id, cx: job.c.cx, cz: job.c.cz, chunks: arr, smooth: this.smooth }, arr.filter(Boolean).map((a) => a!.buffer));
+        this.workers[i].postMessage({ t: 'mesh', id, cx: job.c.cx, cz: job.c.cz, chunks: arr, smooth: this.smooth, opts: this.meshOpts }, arr.filter(Boolean).map((a) => a!.buffer));
       }
     }
   }

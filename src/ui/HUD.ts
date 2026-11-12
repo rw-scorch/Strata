@@ -188,8 +188,11 @@ export class HUD {
     }
   }
 
-  updateVitals(v: Vitals, hurtShake: boolean): void {
-    const key = `${v.health}|${v.food}|${Math.ceil(v.air / 30)}|${v.xp}|${v.mode}`;
+  foodStats = true;
+
+  updateVitals(v: Vitals, hurtShake: boolean, held?: { hunger: number; saturation: number } | null): void {
+    const flash = held && this.foodStats ? Math.floor(performance.now() / 400) % 2 : 0;
+    const key = `${v.health}|${v.food}|${Math.ceil(v.air / 30)}|${v.xp}|${v.mode}|${this.foodStats ? Math.round(v.sat * 2) : 0}|${held ? `${held.hunger},${held.saturation},${flash}` : ''}`;
     this.survival = v.mode === 'survival';
     this.hearts.classList.toggle('shake', hurtShake);
     if (key === this.lastVit) return;
@@ -208,8 +211,19 @@ export class HUD {
         this.hearts.appendChild(icon(u.heart_empty, i * 8, jig));
         if (hv >= 1) this.hearts.appendChild(icon(hv >= 2 ? u.heart : u.heart_half, i * 8, jig));
         const fv = v.food - i * 2;
-        this.food.appendChild(icon(u.food_empty, 182 - 9 - i * 8));
-        if (fv >= 1) this.food.appendChild(icon(fv >= 2 ? u.food : u.food_half, 182 - 9 - i * 8));
+        const fx = 182 - 9 - i * 8;
+        this.food.appendChild(icon(u.food_empty, fx));
+        if (fv >= 1) this.food.appendChild(icon(fv >= 2 ? u.food : u.food_half, fx));
+        if (this.foodStats) {
+          const sv = v.sat - i * 2;
+          if (sv > 0) this.food.appendChild(h('div', { class: 'sat-ov', style: `left:calc(var(--hs) * ${fx});clip-path:inset(0 0 0 ${sv >= 2 ? 0 : 50}%)` }));
+          if (held && flash) {
+            const nf = Math.min(20, v.food + held.hunger) - i * 2;
+            if (nf > fv && nf >= 1) this.food.appendChild(icon(nf >= 2 ? u.food : u.food_half, fx)).classList.add('food-preview');
+            const ns = Math.min(Math.min(20, v.food + held.hunger), v.sat + held.saturation) - i * 2;
+            if (ns > Math.max(0, sv)) this.food.appendChild(h('div', { class: 'sat-ov preview', style: `left:calc(var(--hs) * ${fx});clip-path:inset(0 0 0 ${ns >= 2 ? 0 : 50}%)` }));
+          }
+        }
       }
       if (v.air < 300) {
         const bubbles = Math.ceil((v.air / 300) * 10);

@@ -61,7 +61,8 @@ export const B = {
   MUD: 52, FARMLAND: 53, WHEAT: 54, OAK_SAPLING: 55, BIRCH_SAPLING: 56, SPRUCE_SAPLING: 57,
   JUNGLE_SAPLING: 58, RED_MUSHROOM: 59, BROWN_MUSHROOM: 60, BOOKSHELF: 61, BIRCH_PLANKS: 62,
   SPRUCE_PLANKS: 63, JUNGLE_PLANKS: 64, MOSSY_STONE_BRICKS: 65, RED_WOOL: 66, YELLOW_WOOL: 67,
-  LILY_PAD: 68,
+  LILY_PAD: 68, SMOOTH_STONE: 69, CRACKED_STONE_BRICKS: 70, CHISELED_STONE_BRICKS: 71, CUT_SANDSTONE: 72, CHISELED_SANDSTONE: 73,
+  SMOOTH_SANDSTONE: 74, COAL_BLOCK: 75, HAY_BLOCK: 76, PACKED_ICE: 77, TERRACOTTA: 78, BONE_BLOCK: 79, EMERALD_BLOCK: 80,
 } as const;
 
 export const BLOCK_COUNT = 69;
@@ -164,6 +165,18 @@ def(65, 'mossy_stone_bricks', 'Mossy Stone Bricks', 'Ancient masonry reclaimed b
 def(66, 'red_wool', 'Crimson Wool', 'Fleece dyed with poppy red.', { faces: ALL('red_wool'), hardness: 0.8, sound: 'cloth' });
 def(67, 'yellow_wool', 'Saffron Wool', 'Fleece dyed with dandelion yellow.', { faces: ALL('yellow_wool'), hardness: 0.8, sound: 'cloth' });
 def(68, 'lily_pad', 'Lily Pad', 'Floats on still water.', { faces: ALL('lily_pad'), ...PLANT, render: 'ladder', tint: 'foliage', needsSupport: null, category: 'plants' });
+def(69, 'smooth_stone', 'Smooth Stone', 'Stone fired until its face is even.', { faces: ALL('smooth_stone'), hardness: 2, tool: 'pickaxe', tier: 1, category: 'building' });
+def(70, 'cracked_stone_bricks', 'Cracked Stone Bricks', 'Stone bricks crazed by the furnace.', { faces: ALL('cracked_stone_bricks'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'building' });
+def(71, 'chiseled_stone_bricks', 'Chiseled Stone Bricks', 'A carved keystone.', { faces: ALL('chiseled_stone_bricks'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'building' });
+def(72, 'cut_sandstone', 'Cut Sandstone', 'Sandstone squared off by the mason.', { faces: COL('cut_sandstone', 'sandstone_top'), hardness: 0.8, tool: 'pickaxe', tier: 1, category: 'building' });
+def(73, 'chiseled_sandstone', 'Chiseled Sandstone', 'Old desert glyphs.', { faces: COL('chiseled_sandstone', 'sandstone_top'), hardness: 0.8, tool: 'pickaxe', tier: 1, category: 'building' });
+def(74, 'smooth_sandstone', 'Smooth Sandstone', 'Sandstone baked smooth.', { faces: ALL('sandstone_top'), hardness: 2, tool: 'pickaxe', tier: 1, category: 'building' });
+def(75, 'coal_block', 'Block of Coal', 'A season of furnace fuel.', { faces: ALL('coal_block'), hardness: 5, tool: 'pickaxe', tier: 1, category: 'building' });
+def(76, 'hay_block', 'Hay Bale', 'Nine sheaves of wheat, tightly bound.', { faces: COL('hay_block_side', 'hay_block_top'), hardness: 0.5, tool: 'hoe', sound: 'grass', orientable: false, category: 'nature' });
+def(77, 'packed_ice', 'Packed Ice', 'Ice pressed until it no longer melts.', { faces: ALL('packed_ice'), hardness: 0.5, tool: 'pickaxe', sound: 'glass', drops: [], category: 'nature' });
+def(78, 'terracotta', 'Terracotta', 'Fired clay with a warm, matte face.', { faces: ALL('terracotta'), hardness: 1.25, tool: 'pickaxe', tier: 1, category: 'building' });
+def(79, 'bone_block', 'Bone Block', 'Bone meal pressed into a block.', { faces: COL('bone_block_side', 'bone_block_top'), hardness: 2, tool: 'pickaxe', tier: 1, category: 'building' });
+def(80, 'emerald_block', 'Block of Emerald', 'A trader\'s fortune.', { faces: ALL('emerald_block'), hardness: 5, tool: 'pickaxe', tier: 2, sound: 'metal', category: 'building' });
 
 export const BLOCKS: BlockDef[] = defs;
 

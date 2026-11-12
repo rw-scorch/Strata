@@ -1,5 +1,5 @@
 import { getItem, maxStack, fuelSeconds } from './items';
-import { findRecipe, findSmelt, RECIPE_BY_ID, ingredientMatches, Recipe } from './crafting';
+import { findRecipe, findSmelt, ingredientMatches, Recipe, RecipeBook, BASE_BOOK, Ingredient } from './crafting';
 
 export interface ItemStack { id: number; count: number; dmg?: number; }
 
@@ -23,6 +23,7 @@ export interface SlotRef { c: SlotGroup; i: number; }
 export type InvOp =
   | { t: 'click'; s: SlotRef; b: 0 | 1 }
   | { t: 'quick'; s: SlotRef }
+  | { t: 'quickOne'; s: SlotRef }
   | { t: 'drop'; s: SlotRef; all: boolean }
   | { t: 'dropCursor'; all: boolean }
   | { t: 'creative'; id: number; count: number; s?: SlotRef }
@@ -40,6 +41,7 @@ export interface InvContext {
   drop: (stack: ItemStack) => void;
   crafted?: (recipe: Recipe, times: number) => void;
   split?: ((joined: (ItemStack | null)[]) => void) | null;
+  book?: RecipeBook;
 }
 
 export function emptyInv(): PlayerInv {
@@ -134,8 +136,8 @@ export function craftGrid(inv: PlayerInv): (ItemStack | null)[] {
   return inv.craft.slice(0, inv.craftSize * inv.craftSize);
 }
 
-export function craftResult(inv: PlayerInv): { recipe: Recipe; stack: ItemStack } | null {
-  const r = findRecipe(craftGrid(inv), inv.craftSize);
+export function craftResult(inv: PlayerInv, book: RecipeBook = BASE_BOOK): { recipe: Recipe; stack: ItemStack } | null {
+  const r = findRecipe(craftGrid(inv), inv.craftSize, book);
   if (!r) return null;
   return { recipe: r, stack: { id: r.result, count: r.count } };
 }
@@ -203,12 +205,12 @@ export function removeItem(inv: PlayerInv, pred: (id: number) => boolean, count:
 
 function takeOutput(ctx: InvContext, toInventory: boolean): boolean {
   const inv = ctx.inv;
-  const res = craftResult(inv);
+  const res = craftResult(inv, ctx.book);
   if (!res) return false;
   if (toInventory) {
     let times = 0;
     for (let guard = 0; guard < 64; guard++) {
-      const cur = craftResult(inv);
+      const cur = craftResult(inv, ctx.book);
       if (!cur || cur.recipe.id !== res.recipe.id) break;
       const probe = inv.slots.map(cloneStack);
       if (addToSlots(probe, { ...cur.stack }, MAIN_FIRST) > 0) break;
@@ -289,19 +291,19 @@ function click(ctx: InvContext, s: SlotRef, button: 0 | 1): boolean {
   return false;
 }
 
-function quickMove(ctx: InvContext, s: SlotRef): boolean {
-  if (s.c === 'out') return takeOutput(ctx, true);
+function quickMove(ctx: InvContext, s: SlotRef, one = false): boolean {
+  if (s.c === 'out') return one ? false : takeOutput(ctx, true);
   const arr = slotArray(ctx, s.c);
   if (!arr || s.i < 0 || s.i >= slotCount(ctx, s.c)) return false;
   const stack = arr[s.i];
   if (!stack) return false;
   const inv = ctx.inv;
-  const moving = { ...stack };
+  const moving = { ...stack, count: one ? 1 : stack.count };
   let left = moving.count;
   if (s.c === 'inv') {
     if (ctx.container) {
       if (ctx.containerKind === 'furnace') {
-        const target = findSmelt(moving.id) ? 0 : fuelSeconds(moving.id) > 0 ? 1 : -1;
+        const target = findSmelt(moving.id, ctx.book) ? 0 : fuelSeconds(moving.id) > 0 ? 1 : -1;
         if (target < 0) return false;
         left = addToSlots(ctx.container, moving, [target]);
       } else {
@@ -320,9 +322,10 @@ function quickMove(ctx: InvContext, s: SlotRef): boolean {
   } else {
     left = addToSlots(inv.slots, moving, s.c === 'cont' ? [...Array.from({ length: 9 }, (_, i) => 8 - i), ...Array.from({ length: 27 }, (_, i) => 35 - i)] : MAIN_FIRST);
   }
-  if (left === stack.count) return false;
-  if (left <= 0) arr[s.i] = null;
-  else stack.count = left;
+  const moved = moving.count - Math.max(0, left);
+  if (moved <= 0) return false;
+  stack.count -= moved;
+  if (stack.count <= 0) arr[s.i] = null;
   return true;
 }
 
@@ -351,11 +354,11 @@ function returnCraft(ctx: InvContext): void {
 }
 
 function fillRecipe(ctx: InvContext, recipeId: string, all: boolean): boolean {
-  const r = RECIPE_BY_ID.get(recipeId);
+  const r = (ctx.book ?? BASE_BOOK).byId.get(recipeId);
   if (!r) return false;
   const inv = ctx.inv;
   const size = inv.craftSize;
-  const cells: (string | number | null)[] = new Array(size * size).fill(null);
+  const cells: (Ingredient | null)[] = new Array(size * size).fill(null);
   if (r.pattern) {
     const w = Math.max(...r.pattern.map((p) => p.length));
     if (w > size || r.pattern.length > size) return false;
@@ -398,6 +401,7 @@ export function applyInvOp(ctx: InvContext, op: InvOp): boolean {
   switch (op.t) {
     case 'click': return click(ctx, op.s, op.b);
     case 'quick': return quickMove(ctx, op.s);
+    case 'quickOne': return quickMove(ctx, op.s, true);
     case 'drop': return dropFrom(ctx, op.s, op.all);
     case 'dropCursor': {
       if (!inv.cursor) return false;
@@ -469,6 +473,7 @@ export function validateOp(raw: unknown): InvOp | null {
   switch (o.t) {
     case 'click': { const s = ref(o.s); return s && (o.b === 0 || o.b === 1) ? { t: 'click', s, b: o.b } : null; }
     case 'quick': { const s = ref(o.s); return s ? { t: 'quick', s } : null; }
+    case 'quickOne': { const s = ref(o.s); return s ? { t: 'quickOne', s } : null; }
     case 'drop': { const s = ref(o.s); return s ? { t: 'drop', s, all: !!o.all } : null; }
     case 'dropCursor': return { t: 'dropCursor', all: !!o.all };
     case 'creative': {
@@ -479,7 +484,7 @@ export function validateOp(raw: unknown): InvOp | null {
     }
     case 'creativeDelete': return { t: 'creativeDelete' };
     case 'select': return Number.isInteger(o.i) ? { t: 'select', i: o.i as number } : null;
-    case 'fill': return typeof o.r === 'string' && o.r.length < 64 ? { t: 'fill', r: o.r, all: !!o.all } : null;
+    case 'fill': return typeof o.r === 'string' && o.r.length <= 96 ? { t: 'fill', r: o.r, all: !!o.all } : null;
     case 'close': return { t: 'close' };
     case 'swap': { const s = ref(o.s); return s && Number.isInteger(o.h) ? { t: 'swap', s, h: o.h as number } : null; }
   }

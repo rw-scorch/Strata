@@ -1,3 +1,4 @@
+import type { DataRecipes } from '../core/crafting';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import { dbGet, dbPut, dbDelete, dbKeys, dbAll, dbPutMany, prefixRange } from './db';
 import { encodeRLE, decodeRLE, u16ToBase64, base64ToU16 } from '../core/chunk';
@@ -40,6 +41,7 @@ export interface WorldState {
   populated?: number[];
   rules?: { simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number; maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean };
   cheats: boolean;
+  datapacks?: DataRecipes[];
 }
 
 interface WorldRecord { meta: WorldMeta; state: WorldState | null; }

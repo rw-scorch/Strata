@@ -2,7 +2,7 @@ import { B } from './blocks';
 import { I, toolId, armorId } from './items';
 import type { ItemStack } from './inventory';
 
-export type Ingredient = number | string;
+export type Ingredient = number | string | number[];
 
 export const TAGS: Record<string, number[]> = {
   planks: [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS],
@@ -68,6 +68,21 @@ shaped('aetherite_block', 'building', B.AETHERITE_BLOCK, 1, ['III', 'III', 'III'
 shapeless('iron_from_block', 'basics', I.IRON_INGOT, 9, [B.IRON_BLOCK]);
 shapeless('gold_from_block', 'basics', I.GOLD_INGOT, 9, [B.GOLD_BLOCK]);
 shapeless('aetherite_from_block', 'basics', I.AETHERITE, 9, [B.AETHERITE_BLOCK]);
+shaped('coal_block', 'building', B.COAL_BLOCK, 1, ['CCC', 'CCC', 'CCC'], { C: I.COAL });
+shapeless('coal_from_block', 'basics', I.COAL, 9, [B.COAL_BLOCK]);
+shaped('emerald_block', 'building', B.EMERALD_BLOCK, 1, ['EEE', 'EEE', 'EEE'], { E: I.EMERALD });
+shapeless('emerald_from_block', 'basics', I.EMERALD, 9, [B.EMERALD_BLOCK]);
+shaped('hay_block', 'building', B.HAY_BLOCK, 1, ['WWW', 'WWW', 'WWW'], { W: I.WHEAT });
+shapeless('wheat_from_hay', 'food', I.WHEAT, 9, [B.HAY_BLOCK]);
+shaped('packed_ice', 'building', B.PACKED_ICE, 1, ['III', 'III', 'III'], { I: B.ICE });
+shapeless('bone_meal', 'basics', I.BONE_MEAL, 3, [I.BONE]);
+shaped('bone_block', 'building', B.BONE_BLOCK, 1, ['MMM', 'MMM', 'MMM'], { M: I.BONE_MEAL });
+shapeless('bone_meal_from_block', 'basics', I.BONE_MEAL, 9, [B.BONE_BLOCK]);
+shaped('cut_sandstone', 'building', B.CUT_SANDSTONE, 4, ['SS', 'SS'], { S: B.SANDSTONE });
+shaped('chiseled_sandstone', 'building', B.CHISELED_SANDSTONE, 1, ['S', 'S'], { S: B.CUT_SANDSTONE });
+shaped('chiseled_stone_bricks', 'building', B.CHISELED_STONE_BRICKS, 1, ['S', 'S'], { S: B.STONE_BRICKS });
+shapeless('mossy_cobble_vine', 'building', B.MOSSY_COBBLESTONE, 1, [B.COBBLESTONE, B.FERN]);
+shapeless('mossy_bricks_vine', 'building', B.MOSSY_STONE_BRICKS, 1, [B.STONE_BRICKS, B.FERN]);
 
 const toolMats: Ingredient[] = ['planks', 'stones', I.IRON_INGOT, I.GOLD_INGOT, I.AETHERITE];
 const toolNames = ['wooden', 'stone', 'iron', 'golden', 'aetherite'];
@@ -99,11 +114,20 @@ export const RECIPE_BY_ID = new Map(R.map((r) => [r.id, r]));
 
 export function ingredientMatches(ing: Ingredient, id: number): boolean {
   if (typeof ing === 'number') return ing === id;
+  if (Array.isArray(ing)) return ing.includes(id);
   return TAGS[ing]?.includes(id) ?? false;
 }
 
 export function ingredientExample(ing: Ingredient): number {
-  return typeof ing === 'number' ? ing : TAGS[ing][0];
+  if (typeof ing === 'number') return ing;
+  if (Array.isArray(ing)) return ing[0];
+  return TAGS[ing][0];
+}
+
+export function ingredientOptions(ing: Ingredient): number[] {
+  if (typeof ing === 'number') return [ing];
+  if (Array.isArray(ing)) return ing;
+  return TAGS[ing] ?? [];
 }
 
 function patternFits(r: Recipe): { w: number; h: number } {
@@ -156,9 +180,9 @@ function matchShapeless(r: Recipe, grid: (ItemStack | null)[]): boolean {
   return true;
 }
 
-export function findRecipe(grid: (ItemStack | null)[], size: number): Recipe | null {
+export function findRecipe(grid: (ItemStack | null)[], size: number, book: RecipeBook = BASE_BOOK): Recipe | null {
   if (!grid.some(Boolean)) return null;
-  for (const r of R) {
+  for (const r of book.crafting) {
     if (r.shapeless) { if (matchShapeless(r, grid)) return r; continue; }
     if (matchShaped(r, grid, size, false) || matchShaped(r, grid, size, true)) return r;
   }
@@ -176,10 +200,39 @@ export const SMELTING: SmeltRecipe[] = [
   { input: I.RAW_PORK, result: I.COOKED_PORK, xp: 0.35 },
   { input: I.RAW_MUTTON, result: I.COOKED_MUTTON, xp: 0.35 },
   { input: I.RAW_POULTRY, result: I.COOKED_POULTRY, xp: 0.35 },
-  { input: B.CLAY, result: B.BRICKS, xp: 0.35 },
+  { input: B.CLAY, result: B.TERRACOTTA, xp: 0.35 },
+  { input: B.STONE, result: B.SMOOTH_STONE, xp: 0.1 },
+  { input: B.STONE_BRICKS, result: B.CRACKED_STONE_BRICKS, xp: 0.1 },
+  { input: B.SANDSTONE, result: B.SMOOTH_SANDSTONE, xp: 0.1 },
 ];
 
-export function findSmelt(id: number): SmeltRecipe | null {
-  for (const s of SMELTING) if (ingredientMatches(s.input, id)) return s;
+export function findSmelt(id: number, book: RecipeBook = BASE_BOOK): SmeltRecipe | null {
+  for (const s of book.smelting) if (ingredientMatches(s.input, id)) return s;
   return null;
+}
+
+export interface DataRecipes {
+  name: string;
+  hash: string;
+  crafting: Recipe[];
+  smelting: SmeltRecipe[];
+  remove: string[];
+}
+
+export interface RecipeBook {
+  crafting: Recipe[];
+  smelting: SmeltRecipe[];
+  byId: Map<string, Recipe>;
+  data: DataRecipes | null;
+}
+
+export const BASE_BOOK: RecipeBook = { crafting: R, smelting: SMELTING, byId: RECIPE_BY_ID, data: null };
+
+export function makeBook(d: DataRecipes | null | undefined): RecipeBook {
+  if (!d || (!d.crafting.length && !d.smelting.length && !d.remove.length)) return BASE_BOOK;
+  const gone = new Set(d.remove);
+  for (const r of d.crafting) gone.add(r.id);
+  const crafting = [...d.crafting, ...R.filter((r) => !gone.has(r.id))];
+  const smelting = [...d.smelting, ...SMELTING];
+  return { crafting, smelting, byId: new Map(crafting.map((r) => [r.id, r])), data: d };
 }

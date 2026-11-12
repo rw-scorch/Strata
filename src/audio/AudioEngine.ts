@@ -36,6 +36,12 @@ export class AudioEngine {
   private musicT = 0;
   volumes = { master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false };
   private unlocked = false;
+  soundPhysics = true;
+  cave = 0;
+  occlusion: ((x: number, y: number, z: number) => number) | null = null;
+  private room!: ConvolverNode;
+  private roomGain!: GainNode;
+  private curOcc = 0;
 
   unlock(): void {
     if (this.unlocked && this.ctx?.state === 'running') return;
@@ -58,6 +64,14 @@ export class AudioEngine {
     this.sfx = ctx.createGain(); this.sfx.connect(this.master);
     this.musicBus = ctx.createGain(); this.musicBus.connect(this.master);
     this.ambient = ctx.createGain(); this.ambient.connect(this.master);
+    this.room = ctx.createConvolver();
+    const rlen = Math.floor(ctx.sampleRate * 1.8);
+    const rir = ctx.createBuffer(2, rlen, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = rir.getChannelData(ch); for (let i = 0; i < rlen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / rlen, 3.2) * (i < 300 ? i / 300 : 1); }
+    this.room.buffer = rir;
+    this.roomGain = ctx.createGain();
+    this.roomGain.gain.value = 0;
+    this.room.connect(this.roomGain).connect(this.sfx);
     const len = ctx.sampleRate * 2;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
@@ -133,15 +147,34 @@ export class AudioEngine {
     return { gain, pan };
   }
 
+  setCave(c: number): void {
+    this.cave = c;
+    if (this.ctx && this.roomGain) this.roomGain.gain.setTargetAtTime(this.soundPhysics ? 0.12 + c * 0.55 : 0, this.ctx.currentTime, 0.4);
+  }
+
   private out(gain: number, pan: number, bus?: AudioNode): AudioNode {
     const ctx = this.ctx!;
     const g = ctx.createGain();
-    g.gain.value = gain;
+    const occ = this.soundPhysics && !bus ? this.curOcc : 0;
+    g.gain.value = gain * Math.pow(0.78, occ);
+    let tail: AudioNode = g;
+    if (occ > 0) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = Math.max(350, 9000 * Math.pow(0.45, occ));
+      g.connect(lp);
+      tail = lp;
+    }
     if (ctx.createStereoPanner) {
       const p = ctx.createStereoPanner();
       p.pan.value = pan;
-      g.connect(p).connect(bus ?? this.sfx);
-    } else g.connect(bus ?? this.sfx);
+      tail.connect(p).connect(bus ?? this.sfx);
+    } else tail.connect(bus ?? this.sfx);
+    if (this.soundPhysics && !bus && this.room) {
+      const send = ctx.createGain();
+      send.gain.value = Math.min(1, 0.5 + occ * 0.15);
+      tail.connect(send).connect(this.room);
+    }
     return g;
   }
 
@@ -189,6 +222,7 @@ export class AudioEngine {
     if (!ctx || ctx.state !== 'running' || this.volumes.muted) return;
     const { gain, pan } = this.spatial(x, y, z, name.startsWith('mob.') || name === 'thunder' ? 40 : 24);
     if (gain <= 0.01) return;
+    this.curOcc = this.soundPhysics && this.occlusion && x !== undefined && y !== undefined && z !== undefined && name !== 'thunder' ? Math.min(4, this.occlusion(x, y, z)) : 0;
     const t = ctx.currentTime + 0.005;
     const [cat, sub] = name.split('.');
     const packKey = cat === 'dig' ? `break.${sub}` : name;

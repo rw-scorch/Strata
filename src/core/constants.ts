@@ -1,8 +1,8 @@
 export const GAME_NAME = 'Strata';
-export const GAME_VERSION = '0.11.0';
-export const PROTOCOL_VERSION = 6;
+export const GAME_VERSION = '0.12.0';
+export const PROTOCOL_VERSION = 7;
 /** Oldest client protocol a server still accepts, so players on a cached page keep working after a deploy. */
-export const MIN_PROTOCOL_VERSION = 3;
+export const MIN_PROTOCOL_VERSION = 7;
 export const SAVE_VERSION = 2;
 
 export const CHUNK_SIZE = 16;

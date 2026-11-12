@@ -3,7 +3,7 @@ import { slotContent } from './HUD';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import type { GameSession, TradeInfo } from '../game/Session';
 import { ItemStack, SlotRef, craftResult, countItem, InvOp } from '../core/inventory';
-import { RECIPES, recipeSize, ingredientMatches, Recipe } from '../core/crafting';
+import { recipeSize, ingredientMatches, Recipe, Ingredient } from '../core/crafting';
 import { ITEM_LIST, CREATIVE_HIDDEN, CreativeTab, I, toolId } from '../core/items';
 import { B } from '../core/blocks';
 import { drawAvatar } from './avatar';
@@ -138,6 +138,8 @@ export class InventoryUI {
     this.refresh();
   }
 
+  private wheelT = 0;
+
   private slot(parent: HTMLElement, ref: SlotRef | null, get: () => ItemStack | null, x: number, y: number, opts: { ghost?: number; action?: (e: PointerEvent) => void; fixed?: boolean; size?: number } = {}): HTMLElement {
     const s = this.s;
     const sz = opts.size ?? 18;
@@ -148,6 +150,14 @@ export class InventoryUI {
     el.addEventListener('pointerenter', (e) => { el.classList.add('hover'); if (e.pointerType === 'mouse') this.tipFor(get(), e.clientX, e.clientY); });
     el.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && !this.session?.me.inv.cursor) this.tipFor(get(), e.clientX, e.clientY); });
     el.addEventListener('pointerleave', () => { el.classList.remove('hover'); tooltip().hide(); });
+    el.addEventListener('wheel', (e) => {
+      if (!getSettings().mouseTweaks || !entry.ref || entry.action || !get()) return;
+      e.preventDefault(); e.stopPropagation();
+      const now = performance.now();
+      if (now - this.wheelT < 45) return;
+      this.wheelT = now;
+      if (e.deltaY > 0) this.op({ t: 'quickOne', s: entry.ref });
+    }, { passive: false });
     parent.appendChild(el);
     return el;
   }
@@ -200,6 +210,11 @@ export class InventoryUI {
     }
     const d = this.drag;
     if (!d || d.pid !== e.pointerId) return;
+    if (getSettings().mouseTweaks && e.pointerType === 'mouse' && e.shiftKey && (e.buttons & 1) && !this.session?.me.inv.cursor) {
+      const t = this.findSlot(document.elementFromPoint(e.clientX, e.clientY));
+      if (t?.ref && !t.action && t.get() && !this.painted.has(t.el)) { this.painted.add(t.el); this.op({ t: 'quick', s: t.ref }); }
+      return;
+    }
     if (!d.active && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > 10) {
       if (d.lp) clearTimeout(d.lp);
       d.active = true;
@@ -325,7 +340,7 @@ export class InventoryUI {
       win.appendChild(prev);
       win.appendChild(label('Crafting', 97, 8, s));
       for (let i = 0; i < 4; i++) this.slot(win, ref('craft', i), () => inv.craft[i], 98 + (i % 2) * 18, 18 + Math.floor(i / 2) * 18);
-      this.slot(win, ref('out', 0), () => craftResult(inv)?.stack ?? null, 154, 28);
+      this.slot(win, ref('out', 0), () => craftResult(inv, this.session?.sim.book)?.stack ?? null, 154, 28);
       bookBtn(104, 61);
       invSlots(8, 84);
     } else if (this.screen === 'workbench') {
@@ -333,7 +348,7 @@ export class InventoryUI {
       win.appendChild(label('Crafting', 28, 6, s));
       win.appendChild(label('Inventory', 8, 72, s));
       for (let i = 0; i < 9; i++) this.slot(win, ref('craft', i), () => inv.craft[i], 30 + (i % 3) * 18, 17 + Math.floor(i / 3) * 18);
-      this.slot(win, ref('out', 0), () => craftResult(inv)?.stack ?? null, 124, 35);
+      this.slot(win, ref('out', 0), () => craftResult(inv, this.session?.sim.book)?.stack ?? null, 124, 35);
       bookBtn(5, 34);
       invSlots(8, 84);
     } else if (this.screen === 'furnace') {
@@ -538,13 +553,12 @@ export class InventoryUI {
 
   private canCraft(r: Recipe): boolean {
     const inv = this.session!.me.inv;
-    const need = new Map<string, number>();
+    const need = new Map<string, { ing: Ingredient; n: number }>();
     const ings = r.shapeless ?? r.pattern!.join('').split('').filter((c) => c !== ' ').map((c) => r.key![c]);
-    for (const i of ings) need.set(String(i), (need.get(String(i)) ?? 0) + 1);
-    for (const [ing, n] of need) {
+    for (const i of ings) { const k = JSON.stringify(i); const e = need.get(k); if (e) e.n++; else need.set(k, { ing: i, n: 1 }); }
+    for (const { ing, n } of need.values()) {
       let have = 0;
-      const key = isNaN(Number(ing)) ? ing : Number(ing);
-      for (const s of [...inv.slots, ...inv.craft]) if (s && ingredientMatches(key as never, s.id)) have += s.count;
+      for (const s of [...inv.slots, ...inv.craft]) if (s && ingredientMatches(ing, s.id)) have += s.count;
       if (have < n) return false;
     }
     return true;
@@ -571,7 +585,7 @@ export class InventoryUI {
     const A = this.atlas, s = this.s;
     const size = this.session.me.inv.craftSize;
     const q = this.bookSearch.trim().toLowerCase();
-    const recipes = RECIPES.filter((r) => { const z = recipeSize(r); return z.w <= size && z.h <= size; })
+    const recipes = this.session.sim.book.crafting.filter((r) => { const z = recipeSize(r); return z.w <= size && z.h <= size; })
       .filter((r) => !q || (ITEM_LIST.find((it) => it.id === r.result)?.name.toLowerCase().includes(q) ?? false))
       .map((r) => ({ r, ok: this.canCraft(r) }))
       .sort((a, b) => Number(b.ok) - Number(a.ok));

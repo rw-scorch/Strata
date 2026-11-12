@@ -3,7 +3,10 @@ import type { TextureAtlas } from '../../resources/TextureAtlas';
 import { guiFallback } from './GuiPaint';
 import { getSettings } from '../../storage/Settings';
 import { getItem, maxDurability, fuelSeconds, type ItemDef } from '../../core/items';
-import { findSmelt } from '../../core/crafting';
+import { findSmelt, RecipeBook, BASE_BOOK } from '../../core/crafting';
+
+let tipBook: RecipeBook = BASE_BOOK;
+export function setTooltipBook(b: RecipeBook): void { tipBook = b; }
 import type { ItemStack } from '../../core/inventory';
 
 const urls = new Map<string, string>();
@@ -63,7 +66,7 @@ export function itemTooltipLines(st: ItemStack, advanced = false): { text: strin
   if (!it) return [];
   const out: { text: string; color: string }[] = [{ text: it.name, color: '#ffffff' }];
   if (it.desc) out.push({ text: it.desc, color: '#aaaaaa' });
-  if (it.food) out.push({ text: `Restores ${it.food.hunger / 2} hunger`, color: '#aaaaaa' });
+  if (it.food) out.push({ text: `Hunger +${it.food.hunger / 2}  Saturation +${Math.round(it.food.saturation * 10) / 10}`, color: '#ffaa00' });
   if (it.tool) {
     out.push({ text: '', color: '#aaaaaa' }, { text: 'When in Main Hand:', color: '#aaaaaa' });
     out.push({ text: ` ${it.tool.damage} Attack Damage`, color: '#00aa00' });
@@ -76,7 +79,7 @@ export function itemTooltipLines(st: ItemStack, advanced = false): { text: strin
   const max = maxDurability(st.id);
   if (max && (st.dmg || advanced)) out.push({ text: `Durability: ${max - (st.dmg ?? 0)} / ${max}`, color: '#ffffff' });
   if (fuelSeconds(st.id)) out.push({ text: `Burns for ${fuelSeconds(st.id)}s`, color: '#aaaaaa' });
-  const sm = findSmelt(st.id);
+  const sm = findSmelt(st.id, tipBook);
   if (sm) out.push({ text: `Smelts into ${getItem(sm.result)?.name ?? '?'}`, color: '#aaaaaa' });
   if (advanced) out.push({ text: `strata:${it.key}`, color: '#555555' });
   return out;

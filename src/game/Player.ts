@@ -10,7 +10,7 @@ const STEP_HEIGHT = 0.6;
 const GRAVITY = 0.08;
 
 function slipperiness(id: number): number {
-  if (id === B.ICE) return 0.98;
+  if (id === B.ICE || id === B.PACKED_ICE) return 0.98;
   return 0.6;
 }
 

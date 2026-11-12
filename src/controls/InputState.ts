@@ -23,8 +23,10 @@ export class InputState {
   touchMode = false;
   lastJumpTap = 0;
 
+  lookScale = 1;
+
   consumeLook(): [number, number] {
-    const r: [number, number] = [this.lookDX, this.lookDY];
+    const r: [number, number] = [this.lookDX * this.lookScale, this.lookDY * this.lookScale];
     this.lookDX = 0; this.lookDY = 0;
     return r;
   }

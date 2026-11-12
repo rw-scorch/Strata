@@ -1,3 +1,4 @@
+import { MOB_BY_CODE } from '../core/sim/mobs';
 import { loadCustomSkin } from '../resources/skins';
 import { VoiceChat, VoiceState } from '../audio/VoiceChat';
 import type { RuleSet } from '../core/sim/WorldSim';
@@ -11,6 +12,9 @@ import { DesktopControls } from '../controls/DesktopControls';
 import { MobileControls } from '../controls/MobileControls';
 import { HUD } from '../ui/HUD';
 import { InventoryUI, InvScreen } from '../ui/InventoryUI';
+import { showDataPacks } from '../ui/DataPacksUI';
+import { setTooltipBook } from '../ui/mc/Gui';
+import { BASE_BOOK } from '../core/crafting';
 import { ChatUI, showPause, showInvite, showPlayers, showRoomSettings, showShaper, showDeath } from '../ui/GameUI';
 import { h, toast, modal } from '../ui/dom';
 import type { TextureAtlas } from '../resources/TextureAtlas';
@@ -25,7 +29,7 @@ import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
-import { getBlock, blockId } from '../core/blocks';
+import { getBlock, blockId, LIGHT_EMIT } from '../core/blocks';
 import { heldStack } from '../core/inventory';
 import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
@@ -84,6 +88,82 @@ export class Game {
   private frames = 0;
   private lastInput = performance.now();
   private rulesState: RuleSet = {};
+  zoomHeld = false;
+  zoomLevel = 4;
+  private dynLights: [number, number, number, number][] = [];
+
+  private emitOf(id: number): number {
+    if (id === I.LAVA_BUCKET) return 15;
+    return id > 0 && id < 256 ? LIGHT_EMIT[id] : 0;
+  }
+
+  private updateDynLights(): number {
+    const arr = this.renderer.uniforms.uDynLights.value;
+    const out: [number, number, number, number][] = [];
+    if (getSettings().dynamicLights) {
+      const held = heldStack(this.session.me.inv);
+      const e = held ? this.emitOf(held.id) : 0;
+      if (e > 0) out.push([this.player.x, this.player.eyeY - 0.4, this.player.z, e]);
+      const items: [number, number, number, number, number][] = [];
+      for (const v of this.renderer.entities.views.values()) {
+        if (v.kind === 'item') { const em = this.emitOf(v.type); if (em > 0) items.push([Math.hypot(v.x - this.player.x, v.z - this.player.z), v.x, v.y + 0.3, v.z, em]); }
+        else if (v.kind === 'mob' && (v.flags & 2)) items.push([Math.hypot(v.x - this.player.x, v.z - this.player.z), v.x, v.y + 0.8, v.z, 13]);
+      }
+      items.sort((a, b) => a[0] - b[0]);
+      for (const it of items) { if (out.length >= 4 || it[0] > 40) break; out.push([it[1], it[2], it[3], it[4]]); }
+    }
+    for (let i = 0; i < 4; i++) { const o = out[i]; if (o) arr[i].set(o[0], o[1], o[2], o[3] - 1); else arr[i].set(0, 0, 0, 0); }
+    this.dynLights = out;
+    return out.length ? Math.max(0, (out[0][3] - 1) / 15) : 0;
+  }
+
+  dynLightAt(x: number, y: number, z: number): number {
+    let best = 0;
+    for (const L of this.dynLights) best = Math.max(best, (L[3] - 1 - Math.hypot(x - L[0], y - L[1], z - L[2])) / 15);
+    return best;
+  }
+
+  private lookEl: HTMLDivElement | null = null;
+  private lookKey = '';
+  private lookT = 0;
+
+  private updateLook(dt: number): void {
+    this.lookT -= dt;
+    if (this.lookT > 0) return;
+    this.lookT = 0.1;
+    const st = getSettings();
+    let lines: { t: string; c?: string }[] | null = null;
+    let hearts: [number, number] | null = null;
+    const ent = this.interaction?.entityTarget;
+    if (st.lookInfo && this.state === 'playing' && ent) {
+      if (ent.kind === 'mob') {
+        const def = MOB_BY_CODE[ent.type];
+        if (def) { lines = [{ t: def.name }, { t: 'Strata', c: '#5555ff' }]; hearts = [ent.extra, def.health]; }
+      } else if (ent.kind === 'player') lines = [{ t: ent.name ?? 'Player' }, { t: 'Player', c: '#5555ff' }];
+      else if (ent.kind === 'item') { const it = getItem(ent.type); lines = [{ t: `${it?.name ?? 'Item'}${ent.extra > 1 ? ` × ${ent.extra}` : ''}` }]; }
+    } else if (st.lookInfo && this.state === 'playing' && this.interaction?.target) {
+      const t = this.interaction.target;
+      const v = this.session.sim.get(t.x, t.y, t.z);
+      const b = getBlock(v);
+      if (blockId(v)) {
+        const held = heldStack(this.session.me.inv);
+        const hd = held ? getItem(held.id) : undefined;
+        const toolOk = !b.tool || hd?.tool?.type === b.tool;
+        lines = [{ t: b.name }];
+        if (b.tool && this.session.me.mode === 'survival') lines.push({ t: `${toolOk ? '✔' : '✘'} Best tool: ${b.tool}`, c: toolOk ? '#55ff55' : '#ff5555' });
+        const pr = this.interaction.progress;
+        if (pr > 0) lines.push({ t: `Breaking ${Math.round(pr * 100)}%`, c: '#ffaa00' });
+        lines.push({ t: 'Strata', c: '#5555ff' });
+      }
+    }
+    const key = JSON.stringify([lines, hearts]);
+    if (key === this.lookKey) return;
+    this.lookKey = key;
+    if (!lines) { this.lookEl?.remove(); this.lookEl = null; return; }
+    if (!this.lookEl) { this.lookEl = h('div', { class: 'look-info' }) as HTMLDivElement; document.getElementById('hud-root')?.appendChild(this.lookEl); }
+    this.lookEl.replaceChildren(...lines.map((l) => h('div', { style: l.c ? `color:${l.c}` : '' }, l.t)),
+      ...(hearts ? [h('div', { class: 'look-hearts' }, `${'♥'.repeat(Math.min(10, Math.ceil(hearts[0] / 2)))}${'♡'.repeat(Math.max(0, Math.min(10, Math.ceil(hearts[1] / 2)) - Math.min(10, Math.ceil(hearts[0] / 2))))}`, h('span', {}, ` ${hearts[0]}/${hearts[1]}`))] : []));
+  }
   voice: VoiceChat | null = null;
   private voiceEl: HTMLDivElement | null = null;
 
@@ -161,7 +241,7 @@ export class Game {
   private setupCommon(seed: number, remote: boolean, arena: ArenaKind | null = null): void {
     const s = getSettings();
     const tint = document.getElementById('tint') as HTMLDivElement;
-    this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, tint);
+    this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => Math.max(this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, this.dynLightAt(x, y, z)), tint);
     this.gen = new WorldGenerator(seed, arena);
     this.renderer.setLodWorld(seed, arena);
     this.chunks = new ChunkManager(seed, arena, this.atlas.data, {
@@ -281,6 +361,7 @@ export class Game {
     chunkData: (cx, cz, d) => this.onChunkData(cx, cz, d),
     rules: (r) => { this.rulesState = r; this.applyRules(); },
     rtc: (from, d) => this.voice?.signal(from, d),
+    recipes: () => { setTooltipBook(this.session.sim.book); },
   };
 
   async startLocal(meta: WorldMeta): Promise<void> {
@@ -351,6 +432,7 @@ export class Game {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
       if (e.code === 'KeyV' && !e.repeat) this.voice?.setPtt(down);
+      if (e.code === 'KeyC' && !e.repeat) { this.zoomHeld = down && this.state === 'playing'; if (!down) this.zoomLevel = 4; }
       if (e.code === 'KeyM' && down && !e.repeat && this.voice) { this.voice.setMuted(!this.voice.muted); }
       if (down && !e.repeat && this.state === 'playing' && this.minimap) {
         if (e.code === 'KeyN' && e.shiftKey) this.minimap.toggleHideAll();
@@ -365,6 +447,24 @@ export class Game {
     const vd = (e: KeyboardEvent) => voiceKey(e, true), vu = (e: KeyboardEvent) => voiceKey(e, false);
     window.addEventListener('keydown', vd); window.addEventListener('keyup', vu);
     this.disposers.push(() => { window.removeEventListener('keydown', vd); window.removeEventListener('keyup', vu); this.voice?.disable(); this.voice = null; this.voiceEl?.remove(); this.voiceEl = null; });
+    audio.occlusion = (x, y, z) => {
+      const c = this.renderer.camera.position;
+      const dx = x - c.x, dy = y - c.y, dz = z - c.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1.5) return 0;
+      const n = Math.min(48, Math.ceil(d * 2));
+      let hits = 0, last = '';
+      for (let i = 1; i < n; i++) {
+        const t = i / n;
+        const bx = Math.floor(c.x + dx * t), by = Math.floor(c.y + dy * t), bz = Math.floor(c.z + dz * t);
+        const k = `${bx},${by},${bz}`;
+        if (k === last) continue;
+        last = k;
+        if (getBlock(this.chunks.getBlock(bx, by, bz)).opaque) hits++;
+      }
+      return hits;
+    };
+    this.disposers.push(() => { audio.occlusion = null; audio.setCave(0); });
     this.syncVoice();
     const onSkin = () => {
       this.renderer.selfSkin = loadCustomSkin();
@@ -433,7 +533,11 @@ export class Game {
     this.renderer.particles.level = s.particles;
     this.renderer.sky.cloudsEnabled = s.clouds;
     this.renderer.uniforms.uBrightness.value = s.brightness;
-    if (this.chunks.smooth !== s.smoothLighting) { this.chunks.smooth = s.smoothLighting; this.chunks.setAtlas(this.atlas.data); }
+    const mo = { glass: s.connectedGlass !== false, grass: s.betterGrass ?? 'fancy' };
+    if (this.chunks.smooth !== s.smoothLighting || this.chunks.meshOpts.glass !== mo.glass || this.chunks.meshOpts.grass !== mo.grass) { this.chunks.smooth = s.smoothLighting; this.chunks.meshOpts = mo; this.chunks.setAtlas(this.atlas.data); }
+    this.renderer.particles.fallingLeaves = s.fallingLeaves !== false;
+    if (this.hud) this.hud.foodStats = s.foodStats !== false;
+    audio.soundPhysics = s.soundPhysics !== false;
     this.chunks.renderDistance = s.renderDistance;
     if (this.session) this.syncVoice();
     this.desktop.sensitivity = s.sensitivity;
@@ -502,6 +606,7 @@ export class Game {
       save: local ? () => { void this.session.save!(true).then(() => toast('World saved', 'success')); } : undefined,
       settings: () => this.app.openSettings(() => { /* stays paused */ }),
       packs: () => this.app.openPacks(() => { /* stays paused */ }),
+      datapacks: this.session.setDataPacks ? () => showDataPacks(this.session.sim.dataPacks, local || remote.me.op, !local, (l) => this.session.setDataPacks!(l)) : undefined,
       players: local ? undefined : () => this.openPlayers(),
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
@@ -539,6 +644,7 @@ export class Game {
 
   private dispose(): void {
     try { sessionStorage.removeItem('strata.spectate'); } catch { /* ignore */ }
+    setTooltipBook(BASE_BOOK);
     this.arena?.dispose();
     this.minimap?.dispose();
     this.minimap = null;
@@ -800,6 +906,7 @@ export class Game {
     if (playing) {
       const [lx, ly] = this.input.consumeLook();
       this.player.look(lx, ly);
+      if (this.zoomHeld && this.input.hotbarDelta) { this.zoomLevel = Math.max(1.5, Math.min(30, this.zoomLevel * (this.input.hotbarDelta < 0 ? 1.25 : 0.8))); this.input.hotbarDelta = 0; }
       if (this.input.hotbarDelta) s.invOp({ t: 'select', i: (((me.inv.selected + this.input.hotbarDelta) % 9) + 9) % 9 });
       if (this.input.hotbarSelect !== null) s.invOp({ t: 'select', i: this.input.hotbarSelect });
       if (this.input.drop || this.input.dropAll) s.invOp({ t: 'drop', s: { c: 'inv', i: me.inv.selected }, all: this.input.dropAll });
@@ -850,8 +957,10 @@ export class Game {
       this.renderer.entities.upsert('me', 'player', 0, this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0), 0, performance.now(), { name: me.name, appearance: me.appearance, skin: this.renderer.selfSkin });
     } else cam.position.copy(eye);
     const draw = Math.min(1, this.interaction.drawing);
-    const fovTarget = (st.fov + this.player.fovBoost * 9 * (this.player.flying ? 1.4 : 1)) * (1 - 0.15 * draw * draw);
-    if (Math.abs(cam.fov - fovTarget) > 0.05) this.renderer.setFov(cam.fov + (fovTarget - cam.fov) * Math.min(1, dt * 10));
+    const zoom = this.zoomHeld && this.state === 'playing' ? this.zoomLevel : 1;
+    const fovTarget = ((st.fov + this.player.fovBoost * 9 * (this.player.flying ? 1.4 : 1)) * (1 - 0.15 * draw * draw)) / zoom;
+    if (Math.abs(cam.fov - fovTarget) > 0.05) this.renderer.setFov(cam.fov + (fovTarget - cam.fov) * Math.min(1, dt * (zoom > 1 || cam.fov < st.fov * 0.8 ? 14 : 10)));
+    this.input.lookScale = zoom > 1 ? 1 / Math.sqrt(zoom) : 1;
 
     const rainTarget = this.weather === 'clear' ? 0 : 1;
     this.rain += (rainTarget - this.rain) * Math.min(1, dt * 0.4);
@@ -875,6 +984,8 @@ export class Game {
       return b.cold || cam.position.y > 115 ? 'snow' : 'rain';
     }, st.particles === 'low' ? 0.45 : st.particles === 'off' ? 0.2 : 1);
     audio.setListener(cam.position.x, cam.position.y, cam.position.z, this.player.yaw);
+    audio.setCave(this.caveFx ?? 0);
+
     audio.setUnderwater(underwater);
     const sheltered = this.chunks.topAt(Math.floor(this.player.x), Math.floor(this.player.z)) > this.player.eyeY + 1;
     const precip = biomeAt(Math.floor(this.player.x), Math.floor(this.player.z));
@@ -887,18 +998,20 @@ export class Game {
     const wetSky = precip.rain && !precip.cold && !sheltered && !underwater ? this.rain : 0;
     this.renderer.sky.aurora += ((precip.cold ? 1 : 0) - this.renderer.sky.aurora) * Math.min(1, dt * 0.3);
     const env: FrameEnv = { time: this.time, rain: this.rain, thunder: this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
-    const pl = this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day);
+    const dl = this.updateDynLights();
+    const pl = Math.max(this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day), dl);
     if (this.interaction.eating > 0) this.renderer.handEat = this.interaction.eating; else if (this.renderer.handEat > 0 && this.interaction.eating === 0) this.renderer.handEat = 0;
     if (!loading) this.renderer.render(dt, env, pl);
 
     this.hud.tick(dt);
+    this.updateLook(dt);
     this.chatUI.tick();
     if (!this.panoDone && this.state === 'playing' && performance.now() - this.loadStart > 20000) { this.panoDone = true; if (!localStorage.getItem('strata.panorama')) this.capturePanorama(); }
     this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0;
     { const held = heldStack(this.session.me.inv); this.hud.setAttackCharge(attackCharge(performance.now() - this.interaction.lastSwing, attackStats(held).speed)); }
     if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
     if (!loading && this.minimap) { this.minimap.update(); this.renderer.beams.set(this.minimap.visibleWaypoints(), this.minimap.version * 2 + (this.minimap.hideAll ? 1 : 0) + (this.minimap.mapAllowed ? 0 : 7919)); }
-    this.hud.updateVitals(this.vitals, this.hurtShake > 0);
+    { const hs = heldStack(this.session.me.inv); const fd = hs ? getItem(hs.id)?.food : undefined; this.hud.updateVitals(this.vitals, this.hurtShake > 0, fd && this.vitals.food < 20 ? fd : null); }
     this.frames++;
     this.fpsT += dt;
     if (this.fpsT >= 0.5) {

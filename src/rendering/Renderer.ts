@@ -133,6 +133,13 @@ export class Renderer {
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
     this.chests = new ChestRenderer(this.uniforms, atlas, probe);
     this.entities.cull = (x, y, z) => this.sectionVisible(x, y, z);
+    this.particles.leafLook = (id) => {
+      const d = this.atlas.data;
+      const tile = d.blockTiles[id * 8 + 2];
+      const tint = d.tintTable[id * 2];
+      const c = tint === 3 ? [128, 167, 85] : tint === 4 ? [97, 153, 97] : tint ? [104, 168, 52] : [255, 255, 255];
+      return { tile, r: c[0] / 255, g: c[1] / 255, b: c[2] / 255 };
+    };
     this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.weather.group, this.entities.group, this.chests.group);
     const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.outline = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));

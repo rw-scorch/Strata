@@ -133,6 +133,7 @@ export interface PauseActions {
   room?(): void;
   shaper?(): void;
   packs(): void;
+  datapacks?(): void;
   quit(): void;
   difficulty?: { value: Difficulty; set(d: Difficulty): void };
   title: string;
@@ -151,6 +152,7 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
       row(a.room ? mcButton('World Settings', () => a.room!(), 98) : null, a.shaper ? mcButton('World Shaper', () => a.shaper!(), 98) : null),
       a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
       row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
+      a.datapacks ? mcButton('Data Packs...', () => a.datapacks!(), 204) : null,
       a.save ? mcButton('Save Now', () => a.save!(), 204) : null,
       mcButton(a.save ? 'Save and Quit to Title' : 'Disconnect', () => { close(); a.quit(); }, 204),
     ),
