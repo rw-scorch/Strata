@@ -1,6 +1,6 @@
 export const GAME_NAME = 'Strata';
-export const GAME_VERSION = '0.9.0';
-export const PROTOCOL_VERSION = 5;
+export const GAME_VERSION = '0.10.0';
+export const PROTOCOL_VERSION = 6;
 /** Oldest client protocol a server still accepts, so players on a cached page keep working after a deploy. */
 export const MIN_PROTOCOL_VERSION = 3;
 export const SAVE_VERSION = 2;
@@ -24,8 +24,8 @@ export const TICK_RATE = 20;
 export const REACH_SURVIVAL = 5;
 export const REACH_CREATIVE = 7;
 
-export const DEFAULT_MAX_PLAYERS = 8;
-export const MAX_PLAYERS_LIMIT = 16;
+export const DEFAULT_MAX_PLAYERS = 20;
+export const MAX_PLAYERS_LIMIT = 50;
 
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ROOM_CODE_LENGTH = 8;

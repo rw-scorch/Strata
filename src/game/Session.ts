@@ -1,3 +1,4 @@
+import type { RuleSet } from '../core/sim/WorldSim';
 export interface TradeInfo { id: string; prof: number; xp: number; uses: number[]; }
 import type { GameMode, Difficulty } from '../core/constants';
 import type { PlayerInv, InvOp, ItemStack } from '../core/inventory';
@@ -40,6 +41,8 @@ export interface SessionEvents {
   crafted(recipeId: string, times: number): void;
   connection(state: 'connecting' | 'online' | 'reconnecting' | 'offline', detail?: string): void;
   chunkData(cx: number, cz: number, data: Uint16Array | null): void;
+  rules?(r: RuleSet): void;
+  rtc?(from: string, d: unknown): void;
 }
 
 export interface SessionInfo {

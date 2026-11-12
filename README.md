@@ -42,9 +42,9 @@ Other scripts:
 
 ## Deploying to Cloudflare
 
-Strata deploys as **one Cloudflare Worker**. It serves the static game from `dist/` (Workers Static Assets with SPA fallback) and routes `/api/*` and `/ws/*` to the Worker. Each multiplayer world is its own **Durable Object** (`WorldRoom`) with SQLite storage.
+Strata deploys as **one Cloudflare Worker**. It serves the static game from `dist/` (Workers Static Assets with SPA fallback) and routes `/api/*` and `/ws/*` to the Worker. Each multiplayer world is its own **Durable Object** (`WorldRoom`) with SQLite storage. Two small global Durable Objects sit beside them: `Accounts` (optional logins) and `Registry` (the list of worlds and online players that the admin console reads).
 
-Nothing else is required: no D1 database, no R2 bucket and no KV. One optional secret, `ADMIN_KEY`, lets you claim admin in any world with `/admin <phrase>`. Durable Objects with SQLite storage are available on the Workers Free plan.
+Nothing else is required: no D1 database, no R2 bucket and no KV. Optional secrets: `ADMIN_KEY` lets you claim admin in any world with `/admin <phrase>` and opens the server admin console; `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` add a TURN relay for voice chat. Durable Objects with SQLite storage are available on the Workers Free plan.
 
 ### Option A: from your computer
 
@@ -95,6 +95,7 @@ If you use Workers Builds, do not also add the GitHub Actions deploy secrets bel
 | `assets.run_worker_first: ["/api/*", "/ws/*"]` | Only API and WebSocket paths hit the Worker; everything else is served from the edge cache |
 | `durable_objects.bindings: WORLD_ROOMS → WorldRoom` | One object per room code |
 | `migrations: v1 new_sqlite_classes` | Creates the SQLite-backed Durable Object class |
+| `migrations: v3 Registry` | Added in v10 for the admin console. Cloudflare applies it automatically on the next deploy; existing worlds are untouched |
 
 Custom domain: add one under the Worker's **Settings → Domains & Routes**. Invitation links use whatever origin players open the game from, so nothing needs to change in code.
 
@@ -114,10 +115,15 @@ If you later want cross-room features such as a public server browser or offsite
 
 ## Multiplayer
 
-- **Create world:** name, seed, mode, difficulty, maximum players (default 8, up to 16), server region hint, PvP, guest building, commands, and resource pack sharing. You get a room code plus copy, share and invitation-link buttons.
+- **Create world:** name, seed, mode, difficulty, maximum players (default 20, up to 50; worlds that still had the old default of 8 were raised to 20), server region hint, PvP, guest building, commands, and resource pack sharing. You get a room code plus copy, share and invitation-link buttons.
 - **Join:** enter a code or open `https://<site>/join/CODE`. A preview shows the owner, current players, free slots, version compatibility and the shared pack. Errors cover invalid codes, deleted worlds, full rooms, version mismatches, and connection or authentication failures.
 - **Persistence:** a world keeps running in its Durable Object and is saved to SQLite every 10 seconds and when the last player leaves. It does not disappear when the host closes the browser.
 - **Room management:** owner badge, player list, kick (with a 10-minute ban), mute, and world settings (name, difficulty, max players, PvP, guest building, commands, shared pack). Connection status and automatic reconnection are built in.
+- **Proximity voice chat (v10):** like Simple Voice Chat. Turn it on in Options > Voice Chat. Players within 48 blocks hear each other, quieter with distance and positioned left or right. Push-to-talk on V (or the Talk button on touch screens), or voice activation with an adjustable level. M mutes your microphone. Audio goes directly between players over WebRTC; the server only passes the connection setup between players who are near each other. Owners can turn voice off per world. Hiding a player's chat also mutes their voice for you.
+  - Optional TURN relay: some home or school networks block direct connections. Add two secrets to the Worker, `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`, from Cloudflare dashboard > Realtime > TURN Server, and Strata will hand out short-lived TURN credentials from `/api/turn`. Without them, STUN only is used, which works for most players.
+- **Server plugins (v10), EssentialsX style:** `/sethome [name]`, `/home [name]`, `/delhome <name>`, `/homes` (2 homes each by default), `/tpa <player>`, `/tpahere <player>`, `/tpaccept`, `/tpdeny`, and `/back` (also returns you to where you died). Owners can change the home limit or turn teleport requests off in World settings or with `/gamerule maxHomes <n>` and `/gamerule allowTpa false`.
+- **Anti screen-peeking rules (v10):** owners can hide the minimap and coordinates for everyone except admins (World settings, or `/gamerule showMinimap false` and `/gamerule showCoordinates false`). Coordinates also disappear from the F3 screen.
+- **Server admin console (v10):** Multiplayer > Server admin console. Enter your `ADMIN_KEY` to see every world that has been played on this version, who is online and where they are. You can spectate a world or watch a specific player invisibly (others are not told), message a world, kick players, change the player cap or voice, hide the minimap or coordinates, and delete worlds. Use a long random `ADMIN_KEY`; wrong keys are rate limited.
 - **Chat:** timestamps, join/leave/death/system messages, rate limiting, duplicate suppression, server-side mute by the owner, and per-player "hide chat" for everyone. Commands start with `/`; type `/help` in game.
 
 ### How authority works
@@ -181,7 +187,7 @@ In multiplayer, the owner can set a **shared pack** (by fingerprint). Players wh
 
 ### Keyboard and mouse
 
-WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl or double-tap W sprint · left mouse break/attack · right mouse place/use · middle mouse pick block · 1-9 or wheel hotbar · E inventory · Q drop (Ctrl+Q stack) · T chat · / command · F5 third person · F1 hide HUD · F3 debug · Esc pause.
+WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl or double-tap W sprint · left mouse break/attack · right mouse place/use · middle mouse pick block · 1-9 or wheel hotbar · E inventory · Q drop (Ctrl+Q stack) · T chat · / command · V push to talk · M mute microphone · F5 third person · F1 hide HUD · F3 debug · Esc pause.
 
 ---
 
@@ -244,7 +250,8 @@ tests/             vitest suites
 
 What has been run:
 
-- `npm test`: 28 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning and crop growth. The vanilla pack import test runs when the pack zip is present locally.
+- `scripts/v10-smoke.mjs <server> [admin key]`: homes, tpa, back, voice signalling relay, rule broadcasts, spectating, and the admin API.
+- `npm test`: 30 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning and crop growth. The vanilla pack import test runs when the pack zip is present locally.
 - `scripts/mp-smoke.mjs` against `wrangler dev`: two WebSocket clients exercise room creation, owner vs guest, block break and place sync, server-validated inventory, chat, chunk persistence, impersonation rejection, kick and ban, commands, and rejoin with saved inventory.
 - Headless Chrome (SwiftShader software WebGL) against `wrangler dev`: title, world creation, single-player loading and rendering, iPad-emulated touch controls (look, break, place, joystick walking, inventory, recipe book), importing the Java 26.3 vanilla pack (60/62 blocks, 73/74 items, animated water/lava, all six creature skins, player skins and HUD sprites confirmed in screenshots), and **two independent browser sessions** in one multiplayer room (UI create, code join with preview, both players visible to each other, chat both ways).
 - `wrangler deploy --dry-run`: bundle and bindings validated.

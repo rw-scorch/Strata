@@ -1,7 +1,7 @@
 import type { InputState } from './InputState';
 import { getSettings, updateSettings } from '../storage/Settings';
 
-export type TouchButton = 'jump' | 'crouch' | 'break' | 'place' | 'use' | 'sprint' | 'fly' | 'pause' | 'chat' | 'players' | 'camera';
+export type TouchButton = 'jump' | 'crouch' | 'break' | 'place' | 'use' | 'sprint' | 'fly' | 'pause' | 'chat' | 'players' | 'camera' | 'talk';
 
 interface BtnDef { id: TouchButton; label: string; icon: string; x: number; y: number; size: number; top?: boolean; }
 
@@ -16,6 +16,7 @@ const ICONS: Record<string, string> = {
   pause: '<path d="M9 5v14M15 5v14" />',
   chat: '<path d="M4 5h16v10H9l-5 4z" />',
   people: '<circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" /><path d="M3 20c0-4 3-6 6-6s6 2 6 6M15 20c0-3 1.5-5 3-5s3 1.5 3 4" />',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0014 0M12 18v3" />',
   eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />',
 };
 
@@ -33,6 +34,7 @@ export const DEFAULT_BUTTONS: BtnDef[] = [
   { id: 'chat', label: 'Chat', icon: 'chat', x: 89.5, y: 6, size: 0.7, top: true },
   { id: 'players', label: 'Players', icon: 'people', x: 83, y: 6, size: 0.7, top: true },
   { id: 'camera', label: 'View', icon: 'eye', x: 76.5, y: 6, size: 0.7, top: true },
+  { id: 'talk', label: 'Talk', icon: 'mic', x: 7, y: 28, size: 0.85 },
 ];
 
 export interface MobileHooks {
@@ -44,6 +46,7 @@ export interface MobileHooks {
   canFly(): boolean;
   isMultiplayer(): boolean;
   setCrouchToggled(v: boolean): void;
+  onTalk?(down: boolean): void;
 }
 
 export class MobileControls {
@@ -105,8 +108,8 @@ export class MobileControls {
   layout(): void {
     const s = getSettings();
     const L = s.buttonLayout;
-    const MINIMAL = new Set<TouchButton>(['jump', 'crouch', 'fly', 'pause', 'chat', 'players', 'camera']);
-    const NONE = new Set<TouchButton>(['pause', 'chat', 'players']);
+    const MINIMAL = new Set<TouchButton>(['jump', 'crouch', 'fly', 'pause', 'chat', 'players', 'camera', 'talk']);
+    const NONE = new Set<TouchButton>(['pause', 'chat', 'players', 'talk']);
     this.root.style.setProperty('--tb-op', String(s.buttonOpacity ?? 0.85));
     for (const b of DEFAULT_BUTTONS) {
       const el = this.buttons.get(b.id)!;
@@ -117,13 +120,17 @@ export class MobileControls {
       el.style.top = `${y}%`;
       el.style.width = el.style.height = `${size}px`;
       const modeHidden = s.touchLayout === 'minimal' ? !MINIMAL.has(b.id) : s.touchLayout === 'none' ? !NONE.has(b.id) : false;
-      el.classList.toggle('user-hidden', !!c.hidden || modeHidden);
+      el.classList.toggle('user-hidden', !!c.hidden || modeHidden || (b.id === 'talk' && !this.voiceOn));
       el.classList.toggle('sel-edit', this.editSel === b.id);
     }
     const js = Math.round(130 * s.joystickSize);
     this.joyBase.style.width = this.joyBase.style.height = `${js}px`;
     this.joyKnob.style.width = this.joyKnob.style.height = `${Math.round(js * 0.45)}px`;
   }
+
+  private voiceOn = false;
+
+  setVoice(on: boolean): void { if (on !== this.voiceOn) { this.voiceOn = on; this.layout(); } }
 
   setVisible(v: boolean): void {
     this.visible = v;
@@ -280,6 +287,7 @@ export class MobileControls {
       case 'chat': if (down) this.hooks.onChat(); break;
       case 'players': if (down) this.hooks.onPlayers(); break;
       case 'camera': if (down) this.hooks.onCamera(); break;
+      case 'talk': this.hooks.onTalk?.(down); break;
     }
     if (this.placeRepeat) { clearInterval(this.placeRepeat); this.placeRepeat = null; }
     this.refreshState();

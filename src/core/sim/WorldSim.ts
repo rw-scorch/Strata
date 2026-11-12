@@ -49,6 +49,9 @@ export interface SimPlayer {
   lastAttack: number; lastEat: number; lastMove: number; lastShot?: number; wasFire?: boolean; lastSwing?: number; lastHurt?: number;
   op: boolean;
   sel: [number[] | null, number[] | null];
+  homes?: Record<string, { x: number; y: number; z: number }>;
+  back?: { x: number; y: number; z: number };
+  vanished?: boolean;
 }
 
 export type EntityKind = 'mob' | 'item' | 'arrow';
@@ -172,10 +175,19 @@ export interface SimOptions {
 export interface SimSettings {
   pvp: boolean; cheats: boolean; guestsBuild: boolean; dayCycle: boolean; weatherCycle: boolean;
   simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number;
+  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean;
 }
 
 const DT = 1 / 20;
 const DIFF_DMG: Record<Difficulty, number> = { peaceful: 0, easy: 0.5, normal: 1, hard: 1.5 };
+export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords'] as const;
+export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
+export function ruleSnapshot(s: SimSettings): RuleSet {
+  const out: Record<string, unknown> = {};
+  for (const k of RULE_KEYS) if (s[k] !== undefined) out[k] = s[k];
+  return out as RuleSet;
+}
+
 export function villagerPhase(time: number): 'idle' | 'work' | 'meet' | 'rest' {
   const t = ((time % 24000) + 24000) % 24000;
   if (t < 10) return 'rest';
@@ -773,6 +785,7 @@ export class WorldSim {
 
   private kill(p: SimPlayer, cause: string, killer?: string): void {
     p.dead = true;
+    p.back = { x: p.x, y: p.y, z: p.z };
     p.dig = null;
     const msgs: Record<string, string> = {
       fall: 'hit the ground too hard', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death',
@@ -2182,6 +2195,70 @@ export class WorldSim {
     this.emit({ e: 'time' });
   }
 
+  private tpaReq = new Map<string, { from: string; here: boolean; until: number }>();
+
+  private findPlayer(name: string | undefined): SimPlayer | null {
+    if (!name) return null;
+    const n = name.toLowerCase().replace(/^@/, '');
+    const all = [...this.players.values()].filter((o) => !o.vanished);
+    return all.find((o) => o.name.toLowerCase() === n) ?? all.find((o) => o.name.toLowerCase().startsWith(n)) ?? null;
+  }
+
+  teleportTo(p: SimPlayer, x: number, y: number, z: number, safe = true): void {
+    p.back = { x: p.x, y: p.y, z: p.z };
+    p.x = x; p.y = y; p.z = z; p.peakY = y;
+    if (safe) this.makeSafe(p);
+    this.emit({ e: 'tp', p });
+  }
+
+  private homeCommand(p: SimPlayer, cmd: string, parts: string[]): string {
+    const max = this.settings.maxHomes ?? 2;
+    if (max <= 0) return 'Homes are turned off in this world.';
+    const homes = (p.homes ??= {});
+    const name = (parts[1] ?? 'home').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 16) || 'home';
+    const list = Object.keys(homes);
+    if (cmd === 'homes') return list.length ? `Homes (${list.length}/${max}): ${list.join(', ')}` : 'You have no homes. Set one with /sethome [name].';
+    if (cmd === 'sethome') {
+      if (!homes[name] && list.length >= max) return `You can only have ${max} home${max === 1 ? '' : 's'}. Remove one with /delhome <name>.`;
+      homes[name] = { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: Math.round(p.z * 10) / 10 };
+      return `Home "${name}" set.`;
+    }
+    if (cmd === 'delhome') {
+      if (!homes[name]) return `You have no home called "${name}".`;
+      delete homes[name];
+      return `Home "${name}" removed.`;
+    }
+    const h = homes[name] ?? (parts[1] ? undefined : homes[list[0]]);
+    if (!h) return list.length ? `No home called "${name}". Your homes: ${list.join(', ')}` : 'You have no homes. Set one with /sethome [name].';
+    this.teleportTo(p, h.x, h.y, h.z);
+    return `Teleported home.`;
+  }
+
+  private tpaCommand(p: SimPlayer, cmd: string, parts: string[]): string {
+    if (this.settings.tpa === false) return 'Teleport requests are turned off in this world.';
+    const now = this.tickCount;
+    if (cmd === 'tpa' || cmd === 'tpahere') {
+      const t = this.findPlayer(parts[1]);
+      if (!t) return `Usage: /${cmd} <player>. No player found with that name.`;
+      if (t === p) return 'You cannot send a request to yourself.';
+      this.tpaReq.set(t.id, { from: p.id, here: cmd === 'tpahere', until: now + 20 * 120 });
+      this.emit({ e: 'msg', text: cmd === 'tpa' ? `${p.name} wants to teleport to you. Type /tpaccept or /tpdeny.` : `${p.name} wants you to teleport to them. Type /tpaccept or /tpdeny.`, kind: 'info', to: t.id });
+      return `Request sent to ${t.name}. It expires in 2 minutes.`;
+    }
+    const r = this.tpaReq.get(p.id);
+    if (!r || r.until < now) { this.tpaReq.delete(p.id); return 'You have no pending teleport requests.'; }
+    this.tpaReq.delete(p.id);
+    const from = this.players.get(r.from);
+    if (!from) return 'That player has left.';
+    if (cmd === 'tpdeny') { this.emit({ e: 'msg', text: `${p.name} declined your teleport request.`, kind: 'info', to: from.id }); return 'Request declined.'; }
+    const mover = r.here ? p : from, target = r.here ? from : p;
+    if (mover.dead) return 'That player is dead right now.';
+    this.teleportTo(mover, target.x, target.y, target.z, false);
+    this.emit({ e: 'msg', text: `Teleported to ${target.name}.`, kind: 'info', to: mover.id });
+    if (mover !== p) return `${mover.name} teleported to you.`;
+    return `Teleported to ${target.name}.`;
+  }
+
   command(p: SimPlayer, raw: string): string {
     const parts = raw.trim().replace(/^\//, '').split(/\s+/);
     const cmd = (parts[0] ?? '').toLowerCase();
@@ -2189,8 +2266,19 @@ export class WorldSim {
     const need = () => 'You do not have permission for that command.';
     if (this.game) { const r = this.game.command(p, [cmd, ...parts.slice(1)]); if (r !== null) return r; }
     switch (cmd) {
+      case 'sethome': case 'home': case 'delhome': case 'homes':
+        return this.homeCommand(p, cmd, parts);
+      case 'tpa': case 'tpahere': case 'tpaccept': case 'tpdeny': case 'tpyes': case 'tpno':
+        return this.tpaCommand(p, cmd === 'tpyes' ? 'tpaccept' : cmd === 'tpno' ? 'tpdeny' : cmd, parts);
+      case 'back': {
+        if (this.settings.tpa === false && (this.settings.maxHomes ?? 2) <= 0) return 'Teleport commands are turned off in this world.';
+        if (!p.back) return 'There is nowhere to go back to.';
+        const b = p.back;
+        this.teleportTo(p, b.x, b.y, b.z);
+        return 'Returned to your previous location.';
+      }
       case 'help':
-        return 'Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /tp <x> <y> <z>, /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /locate village, /gamerule <rule> [value], /kill';
+        return 'Teleports: /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /tp <x> <y> <z>, /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /locate village, /gamerule <rule> [value], /kill';
       case 'seed': return `Seed: ${this.seed}`;
       case 'gamerule': {
         const rules: Record<string, [() => string, (v: string) => string | null]> = {
@@ -2198,11 +2286,15 @@ export class WorldSim {
           domobspawning: [() => String(this.settings.mobSpawning !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.mobSpawning = v === 'true'; return null; }],
           simulationdistance: [() => String(this.simDistance()), (v) => { const n = Math.floor(Number(v)); if (!Number.isFinite(n) || n < 2 || n > 16) return 'Use a number from 2 to 16.'; this.settings.simDistance = n; this.tickingFor = -1; return null; }],
           mobcap: [() => String(this.settings.mobCap ?? MONSTER_CAP), (v) => { const n = Math.floor(Number(v)); if (!Number.isFinite(n) || n < 0 || n > 200) return 'Use a number from 0 to 200.'; this.settings.mobCap = n; return null; }],
+          maxhomes: [() => String(this.settings.maxHomes ?? 2), (v) => { const n = Math.floor(Number(v)); if (!Number.isFinite(n) || n < 0 || n > 20) return 'Use a number from 0 to 20.'; this.settings.maxHomes = n; return null; }],
+          allowtpa: [() => String(this.settings.tpa !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.tpa = v === 'true'; return null; }],
+          showminimap: [() => String(this.settings.allowMinimap !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.allowMinimap = v === 'true'; return null; }],
+          showcoordinates: [() => String(this.settings.allowCoords !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.allowCoords = v === 'true'; return null; }],
           dodaylightcycle: [() => String(this.settings.dayCycle), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.dayCycle = v === 'true'; return null; }],
         };
         const name = (parts[1] ?? '').toLowerCase();
         const rule = rules[name];
-        if (!rule) return 'Rules: randomTickSpeed, doMobSpawning, simulationDistance, mobCap, doDaylightCycle';
+        if (!rule) return 'Rules: randomTickSpeed, doMobSpawning, simulationDistance, mobCap, doDaylightCycle, maxHomes, allowTpa, showMinimap, showCoordinates';
         if (parts[2] === undefined) return `Gamerule ${parts[1]} is currently set to: ${rule[0]()}`;
         if (!allowed) return need();
         const err = rule[1](parts[2].toLowerCase());

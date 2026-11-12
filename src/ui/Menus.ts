@@ -372,8 +372,78 @@ export class Menus {
       err,
       h('div', { class: 'section-title' }, 'Hosted worlds'), hosted,
       h('div', { class: 'section-title' }, 'Recent worlds'), recent,
+      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:10px' }, h('button', { class: 'btn small ghost', onclick: () => void this.adminConsole() }, 'Server admin console')),
     ));
     if (prefill && isValidRoomCode(prefill)) void this.joinPreview(prefill);
+  }
+
+  async adminConsole(): Promise<void> {
+    const keyIn = h('input', { class: 'input', type: 'password', placeholder: 'ADMIN_KEY', autocomplete: 'off', value: sessionStorage.getItem('strata.adminKey') ?? '' }) as HTMLInputElement;
+    const list = h('div', { class: 'stack' });
+    const status = h('div', { class: 'small muted' });
+    const api = async (path: string, body?: unknown) => {
+      const res = await fetch(apiURL(path), { method: body ? 'POST' : 'GET', headers: { 'x-admin-key': keyIn.value.trim(), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      const j = await res.json().catch(() => ({})) as Record<string, unknown>;
+      if (!res.ok) throw new Error(String(j.error ?? res.status));
+      return j;
+    };
+    type Rep = { code: string; name: string; owner: string; mode: string; difficulty: string; maxPlayers: number; live: boolean; updated: number; voice: boolean; arena: string | null; players: { id: string; name: string; x: number; y: number; z: number; op: boolean; mode: string; health: number; dead: boolean; vanished?: boolean }[] };
+    const spectate = (code: string, at?: string) => {
+      sessionStorage.setItem('strata.spectate', JSON.stringify({ code, key: keyIn.value.trim(), at: at ?? '' }));
+      this.app.playRemote(code);
+    };
+    const act = async (code: string, body: Record<string, unknown>, done: string) => {
+      try { const r = await api(`/api/admin/rooms/${code}`, body); toast(r.result ? String(r.result) : done, 'success'); void load(); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); }
+    };
+    const row = (r: Rep): HTMLElement => {
+      const players = h('div', { class: 'stack', style: 'margin-top:6px' });
+      for (const p of r.players) {
+        players.appendChild(h('div', { class: 'list-item' },
+          h('div', { class: 'meta' }, h('div', { class: 'name' }, p.name, p.op ? h('span', { class: 'badge gold', style: 'margin-left:6px' }, 'Admin') : null, p.vanished ? h('span', { class: 'badge', style: 'margin-left:6px' }, 'Spectating') : null),
+            h('div', { class: 'sub' }, `${p.x}, ${p.y}, ${p.z} · ${p.mode} · ${p.dead ? 'dead' : `${p.health} hp`}`)),
+          h('div', { class: 'actions' },
+            h('button', { class: 'btn small teal', onclick: () => spectate(r.code, p.id) }, 'Watch'),
+            h('button', { class: 'btn small danger', onclick: async () => { if (await confirmDialog('Kick player', `Remove ${p.name} from "${r.name}"?`, 'Kick', true)) void act(r.code, { action: 'kick', pid: p.id }, `${p.name} was kicked.`); } }, 'Kick'),
+          )));
+      }
+      const msg = h('input', { class: 'input', placeholder: 'Message everyone in this world', maxlength: 200, style: 'width:100%' }) as HTMLInputElement;
+      return h('div', { class: 'list-item', style: 'flex-direction:column;align-items:stretch' },
+        h('div', { class: 'row', style: 'justify-content:space-between;gap:8px;flex-wrap:wrap' },
+          h('div', { class: 'meta' }, h('div', { class: 'name' }, r.name, h('span', { class: `badge ${r.live ? 'teal' : ''}`, style: 'margin-left:6px' }, r.live ? `${r.players.length}/${r.maxPlayers} online` : 'idle')),
+            h('div', { class: 'sub' }, `${r.code} · owner ${r.owner} · ${r.mode} · ${r.difficulty}${r.arena ? ` · ${r.arena}` : ''} · last seen ${fmtDate(r.updated)}`)),
+          h('div', { class: 'actions' },
+            h('button', { class: 'btn small teal', onclick: () => spectate(r.code) }, 'Spectate'),
+            h('button', { class: 'btn small danger', onclick: async () => { if (await confirmDialog('Delete world', `Permanently delete "${r.name}" (${r.code})? This cannot be undone.`, 'Delete', true)) void act(r.code, { action: 'delete' }, 'World deleted.'); } }, 'Delete'),
+          )),
+        players,
+        h('div', { class: 'row', style: 'gap:6px;margin-top:6px' },
+          h('div', { class: 'grow', style: 'flex:1;min-width:0' }, msg),
+          h('button', { class: 'btn small', onclick: () => { if (msg.value.trim()) void act(r.code, { action: 'say', text: msg.value.trim() }, 'Message sent.'); msg.value = ''; } }, 'Send')),
+        h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:6px' },
+          h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'settings', voice: !r.voice }, r.voice ? 'Voice chat turned off.' : 'Voice chat turned on.') }, r.voice ? 'Voice: on' : 'Voice: off'),
+          h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'settings', maxPlayers: r.maxPlayers >= 50 ? 10 : Math.min(50, r.maxPlayers + 10) }, 'Player cap changed.') }, `Cap: ${r.maxPlayers}`),
+          h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'rule', cmd: 'showMinimap false' }, 'Minimap hidden.') }, 'Hide minimap'),
+          h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'rule', cmd: 'showCoordinates false' }, 'Coordinates hidden.') }, 'Hide coords'),
+          h('button', { class: 'btn small ghost', onclick: () => { void act(r.code, { action: 'rule', cmd: 'showMinimap true' }, 'Minimap allowed.'); void act(r.code, { action: 'rule', cmd: 'showCoordinates true' }, 'Coordinates allowed.'); } }, 'Allow both'),
+        ));
+    };
+    const load = async () => {
+      clear(list);
+      status.textContent = 'Loading...';
+      try {
+        const j = await api('/api/admin/rooms') as { rooms: Rep[] };
+        sessionStorage.setItem('strata.adminKey', keyIn.value.trim());
+        const live = j.rooms.filter((r) => r.live);
+        status.textContent = `${j.rooms.length} worlds, ${live.length} active, ${live.reduce((a, r) => a + r.players.length, 0)} players online. Worlds appear here after someone joins them on this version.`;
+        for (const r of j.rooms) list.appendChild(row(r));
+      } catch (e) { status.textContent = `Could not load: ${(e as Error).message}`; }
+    };
+    this.show(card('Server admin console', () => this.multiplayer(),
+      h('div', { class: 'small muted' }, 'Enter the ADMIN_KEY secret set on your Cloudflare Worker. It is only kept for this browser tab.'),
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, keyIn), h('button', { class: 'btn primary', onclick: () => void load() }, 'Open')),
+      status, list,
+    ));
+    if (keyIn.value) void load();
   }
 
   private roomRow(r: RoomRecord, kind: 'recent' | 'hosted', refresh: () => void): HTMLElement {

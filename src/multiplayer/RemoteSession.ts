@@ -77,7 +77,12 @@ export class RemoteSession implements GameSession {
     let ws: WebSocket;
     try { ws = new WebSocket(wsURL(this.code)); } catch (e) { this.fail(new Error('Could not open a connection.')); return; }
     this.ws = ws;
-    ws.onopen = () => this.send({ t: 'hello', v: PROTOCOL_VERSION, id: this.id.id, secret: this.id.secret, name: this.name, appearance: this.appearance });
+    ws.onopen = () => {
+      let spec: { code?: string; key?: string; at?: string } = {};
+      try { spec = JSON.parse(sessionStorage.getItem('strata.spectate') ?? '{}'); } catch { /* none */ }
+      const admin = spec.code === this.code && spec.key ? { admin: spec.key, at: spec.at } : {};
+      this.send({ t: 'hello', v: PROTOCOL_VERSION, id: this.id.id, secret: this.id.secret, name: this.name, appearance: this.appearance, ...admin });
+    };
     ws.onmessage = (e) => {
       this.inCount++;
       let m: S2C;
@@ -152,6 +157,7 @@ export class RemoteSession implements GameSession {
     this.sim.settings.pvp = w.room.settings.pvp;
     this.sim.settings.guestsBuild = w.room.settings.guestsBuild;
     this.sim.settings.cheats = w.room.settings.cheats;
+    if (w.rules) { Object.assign(this.sim.settings, w.rules); this.ev?.rules?.(w.rules); }
     this.info = {
       kind: 'remote', name: w.room.name, seed: w.room.seed, mode: y.mode, difficulty: w.room.difficulty, spawn: w.worldSpawn,
       roomCode: w.room.code, isOwner: y.op,
@@ -279,6 +285,8 @@ export class RemoteSession implements GameSession {
       case 'crafted': ev.crafted(m.r, m.n); return;
       case 'game': ev.game(m.s); return;
       case 'title': ev.title(m.text, m.sub); return;
+      case 'rules': Object.assign(this.sim.settings, m.r); ev.rules?.(m.r); return;
+      case 'rtc': ev.rtc?.(m.from, m.d); return;
       case 'lid': ev.chestLid?.(m.x, m.y, m.z, m.n); return;
       case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses }); return;
       case 'pong': this.rtt = Date.now() - m.c; return;
@@ -355,6 +363,7 @@ export class RemoteSession implements GameSession {
   roomUpdate(patch: Omit<Extract<C2S, { t: 'room' }>, 't'>): void { this.send({ t: 'room', ...patch }); }
   kick(pid: string): void { this.send({ t: 'kick', pid }); }
   mute(pid: string, on: boolean): void { this.send({ t: 'mute', pid, on }); }
+  rtc(to: string, d: unknown): void { this.send({ t: 'rtc', to, d }); }
   getBlockEntity(key: string): BlockEntity | undefined { return this.sim?.blockEntities.get(key); }
   close(): void { this.closed = true; this.ws?.close(1000, 'leaving'); this.ws = null; this.state = 'offline'; }
   stats() { return { rtt: this.rtt, inRate: this.inRate, outRate: this.outRate, state: this.state }; }

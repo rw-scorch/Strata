@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator } from '../../src/core/worldgen/WorldGenerator';
-import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity } from '../../src/core/sim/WorldSim';
+import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
 import { Minigame } from '../../src/core/labs/minigames/Minigame';
 import { isArenaKind } from '../../src/core/labs/minigames/arena';
@@ -17,9 +17,12 @@ export interface Env {
   ASSETS: Fetcher;
   ADMIN_KEY?: string;
   ACCOUNTS?: DurableObjectNamespace;
+  REGISTRY?: DurableObjectNamespace;
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
 }
 
-interface StoredMeta extends RoomMeta { pvpV6?: boolean; rules?: { simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number }; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
+interface StoredMeta extends RoomMeta { pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
 
 interface Session {
   ws: WebSocket;
@@ -41,6 +44,8 @@ interface Session {
   hash?: string;
   adminTries?: number;
   adminT?: number;
+  rtcN?: number;
+  rtcT?: number;
 }
 
 interface Attachment { pid: string | null; name: string; op: boolean; }
@@ -56,7 +61,13 @@ async function sha256(s: string): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function defaultSettings(): RoomSettings { return { pvp: true, guestsBuild: true, cheats: false, personalPacks: true }; }
+function safeEqual(a: string, b: string): boolean {
+  let d = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) d |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return d === 0;
+}
+
+function defaultSettings(): RoomSettings { return { pvp: true, guestsBuild: true, cheats: false, personalPacks: true, voice: true }; }
 
 export class WorldRoom extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -105,7 +116,7 @@ export class WorldRoom extends DurableObject<Env> {
 
   private saveMeta(): void {
     if (!this.meta) return;
-    if (this.sim) { this.meta.time = this.sim.time; this.meta.weather = this.sim.weather; this.meta.dayCycle = this.sim.settings.dayCycle; const st = this.sim.settings; this.meta.rules = { simDistance: st.simDistance, randomTickSpeed: st.randomTickSpeed, mobSpawning: st.mobSpawning, mobCap: st.mobCap }; }
+    if (this.sim) { this.meta.time = this.sim.time; this.meta.weather = this.sim.weather; this.meta.dayCycle = this.sim.settings.dayCycle; this.meta.rules = ruleSnapshot(this.sim.settings); }
     this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('meta', ?)`, JSON.stringify(this.meta));
   }
 
@@ -150,6 +161,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.sim.weather = (m.weather as 'clear') ?? 'clear';
     this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true, ...(m.rules ?? {}) };
     if (!m.pvpV6) { m.settings.pvp = true; m.pvpV6 = true; this.sim.settings.pvp = true; this.saveMeta(); }
+    if (!m.capV10) { if (m.maxPlayers === 8) m.maxPlayers = 20; m.capV10 = true; this.saveMeta(); }
     if (!this.loaded) {
       for (const row of this.sql.exec(`SELECT k, data FROM be`).toArray()) {
         try {
@@ -245,9 +257,10 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private savePlayer(p: SimPlayer): void {
+    if (p.vanished) return;
     const data = {
       name: p.name, appearance: p.appearance, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv,
-      health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn,
+      health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, homes: p.homes, back: p.back,
     };
     this.sql.exec(`UPDATE players SET data = ? WHERE id = ?`, JSON.stringify(data), p.id);
   }
@@ -257,6 +270,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (url.pathname === '/init' && req.method === 'POST') return this.handleInit(req);
     if (url.pathname === '/info') return Response.json(this.info());
     if (url.pathname === '/delete' && req.method === 'POST') return this.handleDelete(req);
+    if (url.pathname === '/admin' && req.method === 'POST') return this.handleAdmin(req);
     if (url.pathname === '/ws') {
       if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('Expected WebSocket', { status: 426 });
       const pair = new WebSocketPair();
@@ -320,7 +334,77 @@ export class WorldRoom extends DurableObject<Env> {
     this.sim = null;
     this.meta = null;
     await this.ctx.storage.deleteAll();
+    const reg = this.env.REGISTRY;
+    if (reg) await reg.get(reg.idFromName('global')).fetch('https://registry/remove', { method: 'POST', body: JSON.stringify({ code: m.code }) }).catch(() => undefined);
     return Response.json({ ok: true });
+  }
+
+  private lastReport = 0;
+
+  private report(force = false): void {
+    const reg = this.env.REGISTRY;
+    const m = this.meta;
+    if (!reg || !m) return;
+    const now = Date.now();
+    if (!force && now - this.lastReport < 60000) return;
+    this.lastReport = now;
+    const players = this.sim ? [...this.sim.players.values()].map((p) => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), z: Math.round(p.z), op: p.op, mode: p.mode, health: Math.round(p.health), dead: p.dead, vanished: p.vanished })) : [];
+    const body = { code: m.code, name: m.name, owner: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, createdAt: m.createdAt, arena: m.arena ?? null, players, voice: m.settings.voice !== false };
+    const stub = reg.get(reg.idFromName('global'));
+    this.ctx.waitUntil(stub.fetch('https://registry/report', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined).catch(() => undefined));
+  }
+
+  private async handleAdmin(req: Request): Promise<Response> {
+    const m = this.loadMeta();
+    if (!m) return Response.json({ error: 'This world does not exist.' }, { status: 404 });
+    let b: Record<string, unknown>;
+    try { b = await req.json(); } catch { return Response.json({ error: 'bad json' }, { status: 400 }); }
+    const act = String(b.action ?? '');
+    if (act === 'say') {
+      const text = cleanText(b.text, 200);
+      if (text) this.systemChat(`[Admin] ${text}`, 'info');
+      return Response.json({ ok: true });
+    }
+    if (act === 'kick') {
+      const t = this.sessionFor(String(b.pid ?? ''));
+      if (!t) return Response.json({ error: 'That player is not online.' }, { status: 404 });
+      this.sendErr(t, 'kicked', 'You were removed from this world by a server admin.');
+      try { t.ws.close(4000, 'kicked'); } catch { /* gone */ }
+      this.handleLeave(t);
+      this.report(true);
+      return Response.json({ ok: true });
+    }
+    if (act === 'settings') {
+      if (isInt(b.maxPlayers, 1, MAX_PLAYERS_LIMIT)) m.maxPlayers = b.maxPlayers;
+      if (typeof b.voice === 'boolean') m.settings.voice = b.voice;
+      if (typeof b.pvp === 'boolean') { m.settings.pvp = b.pvp; if (this.sim) this.sim.settings.pvp = b.pvp; }
+      this.saveMeta();
+      this.broadcast({ t: 'room', room: this.publicMeta(), players: this.sim ? [...this.sim.players.values()].filter((p) => !p.vanished).map((p) => this.publicPlayer(p)) : [] });
+      this.report(true);
+      return Response.json({ ok: true });
+    }
+    if (act === 'rule') {
+      const sim = this.ensureSim();
+      const parts = String(b.cmd ?? '').trim().split(/\s+/).slice(0, 3);
+      const fake = newPlayer('admin-console', 'Admin', 'creative', sim.spawn);
+      fake.op = true;
+      const r = sim.command(fake, ['gamerule', ...parts].join(' '));
+      return Response.json({ ok: true, result: r });
+    }
+    if (act === 'delete') {
+      for (const s of this.sessions.values()) this.sendErr(s, 'unavailable', 'This world was deleted by a server admin.');
+      if (this.loop) clearInterval(this.loop);
+      this.loop = null;
+      this.sessions.clear();
+      this.cache.clear();
+      this.sim = null;
+      this.meta = null;
+      await this.ctx.storage.deleteAll();
+      const reg = this.env.REGISTRY;
+      if (reg) await reg.get(reg.idFromName('global')).fetch('https://registry/remove', { method: 'POST', body: JSON.stringify({ code: m.code }) }).catch(() => undefined);
+      return Response.json({ ok: true });
+    }
+    return Response.json({ error: 'Unknown action' }, { status: 400 });
   }
 
   private startLoop(): void {
@@ -419,6 +503,13 @@ export class WorldRoom extends DurableObject<Env> {
       p.dead = d.dead === true;
       const sp = d.spawn as Record<string, unknown> | undefined;
       if (sp && isNum(sp.x) && isNum(sp.y) && isNum(sp.z)) p.spawn = { x: sp.x, y: sp.y, z: sp.z };
+      const pt = (v: unknown) => { const o = v as Record<string, unknown> | undefined; return o && isNum(o.x) && isNum(o.y) && isNum(o.z) ? { x: o.x, y: o.y, z: o.z } : null; };
+      if (d.homes && typeof d.homes === 'object') {
+        p.homes = {};
+        for (const [k, v] of Object.entries(d.homes as Record<string, unknown>).slice(0, 20)) { const q = pt(v); if (q && /^[a-z0-9_-]{1,16}$/.test(k)) p.homes[k] = q; }
+      }
+      const b = pt(d.back);
+      if (b) p.back = b;
     }
     return p;
   }
@@ -433,8 +524,11 @@ export class WorldRoom extends DurableObject<Env> {
     const ban = m.bans[id];
     if (ban && ban > Date.now()) { this.sendErr(s, 'banned', 'You were removed from this world. Try again later.'); return; }
     const existing = this.sessionFor(id);
-    const others = [...this.sessions.values()].filter((o) => o.pid && o.pid !== id).length;
-    if (others >= m.maxPlayers) { this.sendErr(s, 'full', `This world is full (${m.maxPlayers} players).`); return; }
+    const adminKey = typeof (msg as { admin?: unknown }).admin === 'string' ? String((msg as { admin?: string }).admin) : '';
+    const spectate = !!adminKey && !!this.env.ADMIN_KEY && safeEqual(adminKey, this.env.ADMIN_KEY);
+    if (adminKey && !spectate) { this.sendErr(s, 'auth', 'That admin key is not correct.'); return; }
+    const others = [...this.sessions.values()].filter((o) => o.pid && o.pid !== id && !this.sim?.players.get(o.pid)?.vanished).length;
+    if (others >= m.maxPlayers && !spectate) { this.sendErr(s, 'full', `This world is full (${m.maxPlayers} players).`); return; }
     const hash = await sha256(secret);
     const row = this.sql.exec(`SELECT secret, data FROM players WHERE id = ?`, id).toArray()[0];
     if (row && row.secret !== hash) { this.sendErr(s, 'auth', 'That player identity belongs to someone else.'); return; }
@@ -458,21 +552,28 @@ export class WorldRoom extends DurableObject<Env> {
     const p = this.playerFromData(id, name, row && row.data ? JSON.parse(row.data as string) : null);
     p.appearance = cleanAppearance(msg.appearance);
     p.op = (id === m.ownerId && hash === m.ownerHash) || !!m.ops?.some((o) => o.id === id && o.hash === hash);
+    if (spectate) {
+      p.op = true; p.mode = 'creative'; p.vanished = true;
+      const at = this.sim?.players.get(String((msg as { at?: string }).at ?? ''));
+      if (at) { p.x = at.x; p.y = at.y + 2; p.z = at.z; p.peakY = p.y; }
+    }
     s.hash = hash;
     const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.getChunk(pcx + dx, pcz + dz);
     sim.addPlayer(p);
-    this.savePlayer(p);
+    if (!spectate) this.savePlayer(p);
     s.pid = id; s.name = name; s.op = p.op;
     s.ws.serializeAttachment({ pid: id, name, op: p.op } satisfies Attachment);
     this.queueChunks(s, p);
-    const players = [...sim.players.values()].map((x) => this.publicPlayer(x));
+    const players = [...sim.players.values()].filter((x) => !x.vanished || p.op).map((x) => this.publicPlayer(x));
     this.send(s, {
-      t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, worldSpawn: sim.spawn,
+      t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, worldSpawn: sim.spawn, rules: ruleSnapshot(sim.settings),
       you: { id, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, op: p.op },
     });
+    if (spectate) { this.systemChat('You are spectating as a server admin. Other players cannot see you.', 'info', s); this.report(true); return; }
     this.broadcast({ t: 'pj', p: this.publicPlayer(p) }, s);
     this.systemChat(`${name} joined the world.`, 'join');
+    this.report(true);
   }
 
   private queueChunks(s: Session, p: SimPlayer): void {
@@ -552,7 +653,25 @@ export class WorldRoom extends DurableObject<Env> {
       case 'room': this.handleRoomUpdate(s, p, msg); return;
       case 'kick': this.kick(s, msg.pid, 'kicked'); return;
       case 'mute': this.mute(s, msg.pid, !!msg.on); return;
+      case 'rtc': this.relayRtc(s, p, msg); return;
     }
+  }
+
+  private relayRtc(s: Session, p: SimPlayer, msg: Extract<C2S, { t: 'rtc' }>): void {
+    const m = this.meta!;
+    if (m.settings.voice === false || m.muted.includes(p.id) || p.vanished) return;
+    const now = Date.now();
+    if (now - (s.rtcT ?? 0) > 10000) { s.rtcT = now; s.rtcN = 0; }
+    s.rtcN = (s.rtcN ?? 0) + 1;
+    if (s.rtcN > 120) return;
+    if (typeof msg.to !== 'string' || msg.to === p.id) return;
+    const body = JSON.stringify(msg.d ?? null);
+    if (body.length > 12000) return;
+    const t = this.sessionFor(msg.to);
+    const tp = this.sim?.players.get(msg.to);
+    if (!t || !tp || tp.vanished) return;
+    if (Math.hypot(tp.x - p.x, tp.y - p.y, tp.z - p.z) > 200) return;
+    this.send(t, { t: 'rtc', from: p.id, d: JSON.parse(body) });
   }
 
   private handleChat(s: Session, p: SimPlayer, raw: unknown, sim: WorldSim): void {
@@ -608,7 +727,7 @@ export class WorldRoom extends DurableObject<Env> {
     p.op = on; s.op = on;
     s.ws.serializeAttachment({ pid: p.id, name: p.name, op: on } satisfies Attachment);
     this.saveMeta();
-    this.send(s, { t: 'room', room: this.publicMeta(), players: [...this.sim!.players.values()].map((x) => this.publicPlayer(x)) });
+    this.send(s, { t: 'room', room: this.publicMeta(), players: [...this.sim!.players.values()].filter((x) => !x.vanished || s.op).map((x) => this.publicPlayer(x)) });
     this.broadcast({ t: 'pj', p: this.publicPlayer(p) });
   }
 
@@ -635,12 +754,13 @@ export class WorldRoom extends DurableObject<Env> {
       if (typeof st.guestsBuild === 'boolean') m.settings.guestsBuild = st.guestsBuild;
       if (typeof st.cheats === 'boolean') m.settings.cheats = st.cheats;
       if (typeof st.personalPacks === 'boolean') m.settings.personalPacks = st.personalPacks;
+      if (typeof st.voice === 'boolean') m.settings.voice = st.voice;
       Object.assign(this.sim!.settings, { pvp: m.settings.pvp, guestsBuild: m.settings.guestsBuild, cheats: m.settings.cheats });
     }
     if (msg.pack === null) m.pack = null;
     else if (msg.pack && typeof msg.pack.hash === 'string') m.pack = { name: cleanText(msg.pack.name, 40), hash: cleanText(msg.pack.hash, 80) };
     this.saveMeta();
-    this.broadcast({ t: 'room', room: this.publicMeta(), players: [...this.sim!.players.values()].map((x) => this.publicPlayer(x)) });
+    this.broadcast({ t: 'room', room: this.publicMeta(), players: [...this.sim!.players.values()].filter((x) => !x.vanished).map((x) => this.publicPlayer(x)) });
     this.systemChat('World settings were updated by the owner.');
   }
 
@@ -688,9 +808,13 @@ export class WorldRoom extends DurableObject<Env> {
       this.sim.removePlayer(s.pid);
       this.savePlayer(p);
     }
-    this.broadcast({ t: 'pq', id: s.pid, name: s.name });
-    this.systemChat(`${s.name} left the world.`, 'leave');
+    const wasVanished = p?.vanished;
+    if (!wasVanished) {
+      this.broadcast({ t: 'pq', id: s.pid, name: s.name });
+      this.systemChat(`${s.name} left the world.`, 'leave');
+    }
     s.pid = null;
+    this.report(true);
     this.stopLoopIfIdle();
   }
 
@@ -768,7 +892,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'lightning': this.broadcast({ t: 'bolt', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z) }); return;
       case 'weather': this.broadcast({ t: 'wx', w: ev.w }); return;
       case 'time': this.broadcast({ t: 'time', time: this.sim!.time, cycle: this.sim!.settings.dayCycle }); return;
-      case 'rules': this.saveMeta(); return;
+      case 'rules': this.saveMeta(); this.broadcast({ t: 'rules', r: ruleSnapshot(this.sim!.settings) }); return;
       case 'crafted': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'crafted', r: ev.recipe.id, n: ev.times }); return; }
       case 'game': this.broadcast({ t: 'game', s: ev.state as never }); return;
       case 'trade': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trade', id: ev.v.id, prof: ev.v.prof ?? 0, xp: ev.v.vxp ?? 0, uses: [...(ev.v.uses ?? [])].map((u) => u ?? 0) }); return; }
@@ -794,6 +918,7 @@ export class WorldRoom extends DurableObject<Env> {
   private tick(): void {
     if (!this.loadMeta()) return;
     this.ticks++;
+    if (this.ticks % 200 === 0) this.report();
     const now = Date.now();
     for (const s of [...this.sessions.values()]) {
       if (!s.pid && now - s.joinedAt > 15000) { this.sendErr(s, 'invalid', 'Handshake timed out.'); this.sessions.delete(s.ws); }
@@ -830,13 +955,19 @@ export class WorldRoom extends DurableObject<Env> {
     }
   }
 
+  private flushN = 0;
+
   private flushPlayers(): void {
     const sim = this.sim!;
+    const full = ++this.flushN % 10 === 0;
     for (const s of this.sessions.values()) {
       if (!s.pid) continue;
+      const me = sim.players.get(s.pid);
       const u: (string | number)[][] = [];
       for (const p of sim.players.values()) {
         if (p.id === s.pid) continue;
+        if (p.vanished && !s.op) continue;
+        if (!full && me && Math.abs(p.x - me.x) + Math.abs(p.z - me.z) > 192) continue;
         const row = [p.id, q2(p.x), q2(p.y), q2(p.z), Math.round(p.yaw * 100) / 100, Math.round(p.pitch * 100) / 100, p.flags | (p.dead ? 1 << 14 : 0)];
         const key = row.slice(1).join(',');
         if (s.sentPlayers.get(p.id) === key) continue;

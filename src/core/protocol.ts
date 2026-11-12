@@ -1,3 +1,4 @@
+import type { RuleSet } from './sim/WorldSim';
 import type { ArenaKind } from './labs/minigames/arena';
 import type { GameState } from './labs/minigames/Minigame';
 import type { ScreenType } from './sim/WorldSim';
@@ -12,6 +13,7 @@ export interface RoomSettings {
   guestsBuild: boolean;
   cheats: boolean;
   personalPacks: boolean;
+  voice?: boolean;
 }
 
 export interface RoomMeta {
@@ -54,7 +56,7 @@ export interface YouState {
 }
 
 export type C2S =
-  | { t: 'hello'; v: number; id: string; secret: string; name: string; appearance: Appearance }
+  | { t: 'hello'; v: number; id: string; secret: string; name: string; appearance: Appearance; admin?: string; at?: string }
   | { t: 'mv'; p: number[] }
   | { t: 'chunks'; want: number[][] }
   | { t: 'dig'; a: 'start' | 'abort' | 'done'; x: number; y: number; z: number }
@@ -74,10 +76,13 @@ export type C2S =
   | { t: 'ping'; c: number }
   | { t: 'resync' }
   | { t: 'buy'; k: string }
-  | { t: 'ue'; id: number };
+  | { t: 'ue'; id: number }
+  | { t: 'rtc'; to: string; d: unknown };
 
 export type S2C =
-  | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number } }
+  | { t: 'rules'; r: RuleSet }
+  | { t: 'rtc'; from: string; d: unknown }
+  | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet }
   | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
   | { t: 'chunk'; cx: number; cz: number; d: string | null }
   | { t: 'blk'; u: number[][] }

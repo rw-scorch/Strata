@@ -13,11 +13,13 @@
   "durable_objects": {
     "bindings": [
       { "name": "WORLD_ROOMS", "class_name": "WorldRoom" },
-      { "name": "ACCOUNTS", "class_name": "Accounts" }
+      { "name": "ACCOUNTS", "class_name": "Accounts" },
+      { "name": "REGISTRY", "class_name": "Registry" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["WorldRoom"] },
-    { "tag": "v2", "new_sqlite_classes": ["Accounts"] }
+    { "tag": "v2", "new_sqlite_classes": ["Accounts"] },
+    { "tag": "v3", "new_sqlite_classes": ["Registry"] }
   ]
 }

@@ -1,3 +1,4 @@
+import { ruleSnapshot } from '../core/sim/WorldSim';
 import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity } from '../core/sim/WorldSim';
 import { Minigame, GameState } from '../core/labs/minigames/Minigame';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -56,6 +57,8 @@ export class LocalSession implements GameSession {
       Object.assign(p, { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, mode: s.mode, health: s.health, food: s.food, sat: s.sat, air: s.air, xp: s.xp, dead: s.dead, spawn: s.spawn, peakY: s.y });
       p.inv = sanitizeInv(s.inv);
       this.flying = s.flying;
+      if (s.homes) p.homes = s.homes;
+      if (s.back) p.back = s.back;
     }
     this.me = p;
     this.pendingMobs = state?.mobs ?? [];
@@ -68,6 +71,7 @@ export class LocalSession implements GameSession {
     this.sim.addPlayer(this.me);
     this.ev.time(this.sim.time, this.sim.settings.dayCycle);
     this.ev.weather(this.sim.weather);
+    this.ev.rules?.(ruleSnapshot(this.sim.settings));
     this.ev.inventory(this.me.inv);
     this.emitVitals();
   }
@@ -121,6 +125,7 @@ export class LocalSession implements GameSession {
       case 'lightning': ev.lightning(e.x, e.y, e.z); return;
       case 'weather': ev.weather(e.w); return;
       case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;
+      case 'rules': ev.rules?.(ruleSnapshot(this.sim.settings)); return;
       case 'mode': this.info.mode = e.p.mode; ev.mode(e.p.mode); return;
       case 'crafted': ev.crafted(e.recipe.id, e.times); return;
       case 'game': ev.game(e.state as GameState); return;
@@ -196,12 +201,12 @@ export class LocalSession implements GameSession {
     this.playStart = now;
     this.meta.mode = this.me.mode;
     await WorldStorage.saveState(this.meta, {
-      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, flying: this.flying, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn },
+      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, flying: this.flying, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, homes: p.homes, back: p.back },
       time: this.sim.time, weather: this.sim.weather, weatherTimer: this.sim.weatherTimer, spawn: this.sim.spawn,
       blockEntities: [...this.sim.blockEntities.entries()], beChunks: [...this.beChunks], mobs,
       dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
       populated: [...this.sim.populated],
-      rules: { simDistance: this.sim.settings.simDistance, randomTickSpeed: this.sim.settings.randomTickSpeed, mobSpawning: this.sim.settings.mobSpawning, mobCap: this.sim.settings.mobCap },
+      rules: ruleSnapshot(this.sim.settings),
     });
   }
 

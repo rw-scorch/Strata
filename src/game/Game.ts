@@ -1,3 +1,5 @@
+import { VoiceChat, VoiceState } from '../audio/VoiceChat';
+import type { RuleSet } from '../core/sim/WorldSim';
 import * as THREE from 'three';
 import { Renderer, FrameEnv } from '../rendering/Renderer';
 import { ChunkManager } from './ChunkManager';
@@ -80,6 +82,55 @@ export class Game {
   private saveTimer = 45;
   private frames = 0;
   private lastInput = performance.now();
+  private rulesState: RuleSet = {};
+  voice: VoiceChat | null = null;
+  private voiceEl: HTMLDivElement | null = null;
+
+  private syncVoice(): void {
+    const s = getSettings();
+    const remote = this.session?.info.kind === 'remote';
+    const allowed = remote && this.room?.settings.voice !== false && (this.room?.version ?? 0) >= 6;
+    if (!s.voiceEnabled || !remote) {
+      if (this.voice) { this.voice.disable(); this.voice = null; }
+      this.renderVoice(null);
+      return;
+    }
+    if (!this.voice) {
+      const rs = this.session as unknown as { rtc(to: string, d: unknown): void };
+      this.voice = new VoiceChat({
+        selfId: this.session.me.id,
+        send: (to, d) => rs.rtc(to, d),
+        peers: () => {
+          const out = [];
+          for (const [id, pp] of this.players) {
+            if (this.chatUI.localMuted.has(id)) continue;
+            const v = this.renderer.entities.views.get(`p:${id}`);
+            if (v) out.push({ id, name: pp.name, x: v.x, y: v.y, z: v.z });
+          }
+          return out;
+        },
+        me: () => ({ x: this.player.x, y: this.player.y, z: this.player.z, yaw: this.player.yaw, pitch: this.player.pitch }),
+        onState: (st) => this.renderVoice(st),
+      });
+      void this.voice.enable().then((ok) => { if (!ok) toast(this.voice?.error || 'Voice chat could not start.', 'error'); });
+    }
+    this.voice.allowed = allowed;
+    this.voice.applyOptions({ mode: s.voiceMode, volume: s.voiceVolume, micGain: s.micGain, threshold: s.voiceThreshold });
+    this.mobile?.setVoice(s.voiceMode === 'ptt');
+  }
+
+  private renderVoice(st: VoiceState | null): void {
+    if (!st || (!st.on && !st.error)) { this.voiceEl?.remove(); this.voiceEl = null; this.mobile?.setVoice(false); return; }
+    if (!this.voiceEl) { this.voiceEl = document.createElement('div'); this.voiceEl.className = 'voice-ind'; document.body.appendChild(this.voiceEl); }
+    const icon = st.error ? 'mic-x' : st.muted ? 'mic-off' : st.talking ? 'mic-on' : 'mic';
+    const notAllowed = this.voice && !this.voice.allowed;
+    this.voiceEl.innerHTML = `<span class="vi ${icon}"></span><span class="vt">${st.error ? st.error : notAllowed ? 'Voice is off in this world' : st.muted ? 'Muted (M)' : st.talking ? 'Talking' : st.connected ? `${st.connected} nearby` : 'Voice on'}</span>${st.speaking.map((n) => `<div class="vs">${n.replace(/[<>&]/g, '')}</div>`).join('')}`;
+  }
+
+  private applyRules(): void {
+    const op = this.session?.me?.op === true, r = this.rulesState;
+    this.minimap?.setServerRules(r.allowMinimap !== false || op, r.allowCoords !== false || op);
+  }
   private fpsT = 0;
   private fpsVal = 0;
   private debugOn = false;
@@ -165,6 +216,7 @@ export class Game {
       canFly: () => this.session?.me.mode === 'creative',
       isMultiplayer: () => this.session?.info.kind === 'remote',
       setCrouchToggled: () => { /* state kept in controls */ },
+      onTalk: (down) => this.voice?.setPtt(down),
     });
     this.input.touchMode = isTouchDevice();
     if (this.input.touchMode) document.body.classList.add('touch-active');
@@ -226,6 +278,8 @@ export class Game {
     crafted: () => this.onCrafted(),
     connection: (st, d) => this.onConnection(st, d),
     chunkData: (cx, cz, d) => this.onChunkData(cx, cz, d),
+    rules: (r) => { this.rulesState = r; this.applyRules(); },
+    rtc: (from, d) => this.voice?.signal(from, d),
   };
 
   async startLocal(meta: WorldMeta): Promise<void> {
@@ -286,11 +340,22 @@ export class Game {
       setModal: (open) => { if (open) { this.desktop.unlock(); this.setState('inventory'); } else if (this.state === 'inventory') this.setState('playing'); },
     }, info.kind === 'remote' ? `room:${info.roomCode}` : `local:${info.seed}:${info.name}`);
     this.minimap.setPrefs(getSettings().showMinimap, getSettings().showCoords);
+    this.applyRules();
     this.chatUI.onWaypoint = (w) => { this.minimap?.add(w.name, w.x, w.y, w.z); toast(`Saved waypoint ${w.name}.`, 'info'); };
     this.running = true;
     this.loadStart = performance.now();
     this.last = performance.now();
     this.setHeld();
+    const voiceKey = (e: KeyboardEvent, down: boolean) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (e.code === 'KeyV' && !e.repeat) this.voice?.setPtt(down);
+      if (e.code === 'KeyM' && down && !e.repeat && this.voice) { this.voice.setMuted(!this.voice.muted); }
+    };
+    const vd = (e: KeyboardEvent) => voiceKey(e, true), vu = (e: KeyboardEvent) => voiceKey(e, false);
+    window.addEventListener('keydown', vd); window.addEventListener('keyup', vu);
+    this.disposers.push(() => { window.removeEventListener('keydown', vd); window.removeEventListener('keyup', vu); this.voice?.disable(); this.voice = null; this.voiceEl?.remove(); this.voiceEl = null; });
+    this.syncVoice();
     const poke = () => { this.lastInput = performance.now(); };
     for (const ev of ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'wheel']) window.addEventListener(ev, poke, { passive: true });
     this.disposers.push(() => { for (const ev of ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'wheel']) window.removeEventListener(ev, poke); });
@@ -348,6 +413,7 @@ export class Game {
     this.renderer.uniforms.uBrightness.value = s.brightness;
     if (this.chunks.smooth !== s.smoothLighting) { this.chunks.smooth = s.smoothLighting; this.chunks.setAtlas(this.atlas.data); }
     this.chunks.renderDistance = s.renderDistance;
+    if (this.session) this.syncVoice();
     this.desktop.sensitivity = s.sensitivity;
     this.desktop.invertY = s.invertY;
     this.mobile.layout();
@@ -416,7 +482,7 @@ export class Game {
       packs: () => this.app.openPacks(() => { /* stays paused */ }),
       players: local ? undefined : () => this.openPlayers(),
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
-      room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef()) : undefined,
+      room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
       shaper: canShape ? () => showShaper((c) => this.session.chat(c), () => { const t = this.interaction.target; return t ? [t.x, t.y, t.z] : null; }, () => heldStack(this.session.me.inv)?.id ?? null) : undefined,
       difficulty: local ? { value: this.session.info.difficulty, set: (d) => (this.session as LocalSession).setDifficulty(d) } : undefined,
       quit: () => void this.quit(),
@@ -450,6 +516,7 @@ export class Game {
   }
 
   private dispose(): void {
+    try { sessionStorage.removeItem('strata.spectate'); } catch { /* ignore */ }
     this.arena?.dispose();
     this.minimap?.dispose();
     this.minimap = null;
@@ -647,6 +714,7 @@ export class Game {
     this.room = meta;
     for (const p of players) this.players.set(p.id, p);
     this.hud?.setRoom(`Room ${meta.code}`);
+    this.syncVoice();
   }
 
   onMode(): void { this.mobile?.refreshState(); if (this.session.me.mode === 'survival') this.player.flying = false; if (this.inv?.isOpen) this.inv.close(); }
@@ -705,6 +773,7 @@ export class Game {
     const frozen = local && (this.state === 'paused' || loading);
     if (!frozen && this.dayCycle && !local) this.time += dt * 20 * timeRate(this.time);
     if (local) this.time = (s as LocalSession).sim.time;
+    this.voice?.update();
     if (playing) {
       const [lx, ly] = this.input.consumeLook();
       this.player.look(lx, ly);
@@ -833,11 +902,12 @@ export class Game {
     const held = heldStack(this.session.me.inv);
     const lines = [
       `Strata  ${this.fpsVal} fps  scale ${this.renderer.effectiveScale.toFixed(2)}`,
-      `XYZ ${p.x.toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`,
-      `Chunk ${Math.floor(p.x / 16)}, ${Math.floor(p.z / 16)}  facing ${facing}`,
+      ...(this.session.sim.settings.allowCoords === false && !this.session.me.op ? [`Facing ${facing}`] : [
+        `XYZ ${p.x.toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`,
+        `Chunk ${Math.floor(p.x / 16)}, ${Math.floor(p.z / 16)}  facing ${facing}`]),
       `Biome ${biomeNameAt(this.gen!, p.x, p.z)}`,
       `Chunks ${this.chunks.loadedCount} loaded, ${this.renderer.chunkCount} meshed, ${this.chunks.pendingJobs} jobs, mesh ${avgMesh} ms`,
-      `Draw calls ${this.renderer.drawCalls}  triangles ${(this.renderer.triangles / 1000).toFixed(0)}k`,
+      `Draw calls ${this.renderer.drawCalls}  triangles ${(this.renderer.triangles / 1000).toFixed(0)}k  sections ${this.renderer.visibleSections}${this.renderer.lod ? `  distant tiles ${this.renderer.lod.tileCount}` : ''}`,
       `Entities ${this.renderer.entities.views.size}  time ${t}  weather ${this.weather}`,
       `Holding ${held ? getItem(held.id)?.name : 'nothing'}  mode ${this.session.me.mode}${p.flying ? ' (flying)' : ''}`,
       this.session.info.kind === 'remote' ? `Net ${st.state}  rtt ${st.rtt} ms  in ${st.inRate.toFixed(0)}/s  out ${st.outRate.toFixed(0)}/s` : 'Single player',

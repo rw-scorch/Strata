@@ -1,3 +1,4 @@
+import type { RuleSet } from '../core/sim/WorldSim';
 import { mcButton, mcCycle, menuScale } from './mc/Widgets';
 import { Minimap } from './Minimap';
 import { h, clear, toast, modal, toggle, segmented, copyText, confirmDialog, slider } from './dom';
@@ -199,8 +200,9 @@ export function showPlayers(players: PublicPlayer[], meId: string, isOwner: bool
   modal('Players', list, [{ label: 'Close', kind: 'primary' }]);
 }
 
-export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string; difficulty?: Difficulty; maxPlayers?: number; settings?: Partial<RoomMeta['settings']>; pack?: RoomMeta['pack'] }) => void, activePack: { name: string; hash: string } | null): void {
+export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string; difficulty?: Difficulty; maxPlayers?: number; settings?: Partial<RoomMeta['settings']>; pack?: RoomMeta['pack'] }) => void, activePack: { name: string; hash: string } | null, rules: RuleSet = {}, onRules?: (cmds: string[]) => void): void {
   const s = { ...room.settings };
+  const r = { map: rules.allowMinimap !== false, coords: rules.allowCoords !== false, homes: rules.maxHomes ?? 2, tpa: rules.tpa !== false };
   let name = room.name, diff = room.difficulty, max = room.maxPlayers;
   let pack = room.pack;
   const packLine = h('div', { class: 'small muted' });
@@ -215,6 +217,12 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
     toggle('Guests can build', s.guestsBuild, (v) => { s.guestsBuild = v; }, 'When off, only the owner can break and place blocks.'),
     toggle('Commands for creative players', s.cheats, (v) => { s.cheats = v; }, 'Allows /time, /weather, /give and the World Shaper for players in Architect mode.'),
     toggle('Allow personal resource packs', s.personalPacks, (v) => { s.personalPacks = v; }, 'When off, everyone sees the shared pack or default textures.'),
+    toggle('Proximity voice chat', s.voice !== false, (v) => { s.voice = v; }, 'Players can talk to others within 48 blocks if they turn voice on in Options.'),
+    h('div', { class: 'section-title' }, 'Server rules'),
+    toggle('Minimap allowed', r.map, (v) => { r.map = v; }, 'When off, nobody except admins sees the minimap or waypoint markers.'),
+    toggle('Coordinates allowed', r.coords, (v) => { r.coords = v; }, 'When off, coordinates are hidden from the HUD and debug screen, to stop screen-peeking.'),
+    slider('Homes per player', 0, 10, 1, r.homes, (v) => (v ? String(v) : 'Off'), (v) => { r.homes = v; }),
+    toggle('Teleport requests (/tpa)', r.tpa, (v) => { r.tpa = v; }),
     h('div', { class: 'section-title' }, 'Shared resource pack'),
     packLine,
     h('div', { class: 'row' },
@@ -224,7 +232,15 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
   );
   modal('World settings', body, [
     { label: 'Cancel', kind: 'ghost' },
-    { label: 'Save', kind: 'primary', onClick: () => onSave({ name, difficulty: diff, maxPlayers: max, settings: s, pack }) },
+    { label: 'Save', kind: 'primary', onClick: () => {
+      onSave({ name, difficulty: diff, maxPlayers: max, settings: s, pack });
+      const cmds: string[] = [];
+      if (r.map !== (rules.allowMinimap !== false)) cmds.push(`/gamerule showMinimap ${r.map}`);
+      if (r.coords !== (rules.allowCoords !== false)) cmds.push(`/gamerule showCoordinates ${r.coords}`);
+      if (r.homes !== (rules.maxHomes ?? 2)) cmds.push(`/gamerule maxHomes ${r.homes}`);
+      if (r.tpa !== (rules.tpa !== false)) cmds.push(`/gamerule allowTpa ${r.tpa}`);
+      if (cmds.length) onRules?.(cmds);
+    } },
   ]);
 }
 

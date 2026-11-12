@@ -23,7 +23,7 @@ export interface SettingsContext {
   inGame?: boolean;
 }
 
-type Page = 'root' | 'video' | 'audio' | 'controls' | 'touch' | 'chat' | 'skin' | 'access' | 'network' | 'about' | 'labs';
+type Page = 'root' | 'video' | 'audio' | 'voice' | 'controls' | 'touch' | 'chat' | 'skin' | 'access' | 'network' | 'about' | 'labs';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const onOff = (v: number) => (v === 0 ? 'OFF' : pct(v));
@@ -46,7 +46,7 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
           mcRow(mcButton('Touch Controls...', go('touch')), mcButton('Chat & HUD...', go('chat'))),
           mcRow(mcButton('Resource Packs...', () => { if (ctx.openPacks) { scr.close(); ctx.openPacks(() => open('root', back)); } }, 150, { disabled: !ctx.openPacks }), mcButton('Accessibility...', go('access'))),
           mcRow(mcButton('Multiplayer...', go('network')), mcButton('About & Install...', go('about'))),
-          mcRow(mcButton('Labs...', go('labs'), 150, { tip: 'Unfinished features, off by default.' })),
+          mcRow(mcButton('Voice Chat...', go('voice')), mcButton('Labs...', go('labs'), 150, { tip: 'Unfinished features, off by default.' })),
         );
         break;
       case 'video': {
@@ -99,6 +99,16 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
         );
         break;
       }
+      case 'voice':
+        scr = screen('Voice Chat',
+          mcRow(mcToggle('Voice Chat', s.voiceEnabled, (v) => set({ voiceEnabled: v }), 'Talk to players near you in multiplayer worlds. Your browser will ask for the microphone the first time.'),
+            mcCycle('Activation', [['ptt', 'Push to Talk'], ['vad', 'Voice']], s.voiceMode, (v) => set({ voiceMode: v }))),
+          mcRow(mcSlider('Voice Volume', 0, 2, 0.05, s.voiceVolume, pct, (v) => set({ voiceVolume: v })),
+            mcSlider('Microphone', 0, 2, 0.05, s.micGain, pct, (v) => set({ micGain: v }))),
+          mcRow(mcSlider('Activation Level', 0.005, 0.15, 0.005, s.voiceThreshold, (v) => (v < 0.02 ? 'Sensitive' : v > 0.08 ? 'Loud only' : 'Normal'), (v) => set({ voiceThreshold: v }), { w: 310 })),
+          mcText('Players hear each other within 48 blocks, quieter with distance and placed left or right like real sound. Hold V to talk (or the Talk button on touch screens). Press M to mute your microphone. Audio goes straight between players, not through the server; the server only helps them find each other.', { center: true, small: true }),
+        );
+        break;
       case 'audio':
         scr = screen('Music & Sounds',
           mcRow(mcSlider('Master Volume', 0, 1, 0.05, s.master, onOff, (v) => set({ master: v }), { w: 310 })),
