@@ -4,7 +4,9 @@ import { createWorldUniforms, createChunkMaterial, chunkGeometry, DEPTH_MATERIAL
 import { PostFX } from './PostFX';
 import { deriveGfx, GfxConfig } from './Graphics';
 import type { Settings } from '../storage/Settings';
-import { POS_SCALE } from './Mesher';
+import { POS_SCALE, SECTIONS, facePair } from './Mesher';
+import { LodManager, LOD_SAMPLES } from './lod/LodManager';
+import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { MeshResult } from './Mesher';
 import { Sky, computeSky, SkyState } from './Sky';
 import { Particles } from './Particles';
@@ -15,7 +17,11 @@ import type { TextureAtlas } from '../resources/TextureAtlas';
 import { getItem } from '../core/items';
 import { firstPersonArmMatrix } from './VanillaModels';
 
-interface ChunkMeshes { meshes: THREE.Mesh[]; }
+interface ChunkMeshes { cx: number; cz: number; meshes: THREE.Mesh[]; secs: (Uint32Array | null)[]; vis: Uint16Array | null; mask: number; }
+
+const OPP = [1, 0, 3, 2, 5, 4];
+const DIR = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const cnum = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768);
 
 export interface FrameEnv {
   time: number;
@@ -44,6 +50,25 @@ export class Renderer {
   atlas: TextureAtlas;
   private mats: { opaque: THREE.ShaderMaterial; cutout: THREE.ShaderMaterial; trans: THREE.ShaderMaterial };
   private chunks = new Map<string, ChunkMeshes>();
+  private byNum = new Map<number, ChunkMeshes>();
+  private frustum = new THREE.Frustum();
+  private projView = new THREE.Matrix4();
+  private box = new THREE.Box3();
+  private visKey = '';
+  private visDirty = true;
+  private visStamp = new Uint32Array(0);
+  private visDirs = new Uint8Array(0);
+  private visQ = new Int32Array(0);
+  private visEntry = new Int8Array(0);
+  private stamp = 0;
+  cullRadius = 8;
+  lod: LodManager | null = null;
+  private lodScene = new THREE.Scene();
+  private lodCam = new THREE.PerspectiveCamera(70, 1, 2, 10000);
+  private lodWorld: { seed: number; arena: ArenaKind | null } | null = null;
+  private lodOn = false;
+  caveCulling = true;
+  visibleSections = 0;
   private outline: THREE.LineSegments;
   private crack: THREE.Mesh;
   private crackMat: THREE.ShaderMaterial;
@@ -103,6 +128,7 @@ export class Renderer {
     this.weather = new Weather();
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
     this.chests = new ChestRenderer(this.uniforms, atlas, probe);
+    this.entities.cull = (x, y, z) => this.sectionVisible(x, y, z);
     this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.weather.group, this.entities.group, this.chests.group);
     const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.outline = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));
@@ -155,7 +181,55 @@ export class Renderer {
       this.postKey = key;
     } else if (this.post && g.post) this.post.cfg = g.post;
     this.uniforms.uEmitBoost.value = this.post?.hdr ? 1.6 : 1.0;
+    this.caveCulling = s.caveCulling !== false;
+    this.visDirty = true;
+    this.configureLod();
     this.resize();
+  }
+
+  setLodWorld(seed: number, arena: ArenaKind | null): void {
+    this.lodWorld = { seed, arena };
+    this.configureLod();
+  }
+
+  private configureLod(): void {
+    const s = this.settingsRef;
+    const dist = s && this.lodWorld && !this.lodWorld.arena ? s.lodDistance ?? 0 : 0;
+    if (!dist) {
+      if (this.lod) { this.lodScene.remove(this.lod.group); this.lod.dispose(); this.lod = null; }
+      return;
+    }
+    if (!this.lod) {
+      this.lod = new LodManager(this.lodWorld!.seed, this.lodWorld!.arena, this.atlas.lodColors(), this.uniforms);
+      this.lodScene.add(this.lod.group);
+    }
+    this.lod.configure(Math.max(dist, (s!.renderDistance + 2)), LOD_SAMPLES[s!.lodQuality ?? 'medium']);
+  }
+
+  disposeLod(): void {
+    if (this.lod) { this.lodScene.remove(this.lod.group); this.lod.dispose(); this.lod = null; }
+    this.lodWorld = null;
+  }
+
+  private placeSky(inLod: boolean): void {
+    if (inLod === this.lodOn) return;
+    this.lodOn = inLod;
+    if (inLod) this.lodScene.add(this.sky.group); else this.scene.add(this.sky.group);
+  }
+
+  private drawLod(): void {
+    const c = this.camera, l = this.lodCam;
+    l.position.copy(c.position); l.quaternion.copy(c.quaternion);
+    l.fov = c.fov; l.aspect = c.aspect; l.near = 2; l.far = (this.lod?.distance ?? 1000) + 600;
+    l.updateProjectionMatrix(); l.updateMatrixWorld();
+    const lg = this.lod!.group, sg = this.sky.group, skyVis = sg.visible;
+    lg.visible = false;
+    if (skyVis) this.gl.render(this.lodScene, l);
+    lg.visible = true; sg.visible = false;
+    this.gl.clearDepth();
+    this.gl.render(this.lodScene, l);
+    sg.visible = skyVis;
+    this.gl.clearDepth();
   }
 
   get postActive(): boolean { return !!this.post; }
@@ -166,11 +240,14 @@ export class Renderer {
       const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.UnsignedByteType });
       const cc = new THREE.CubeCamera(0.1, 1000, rt);
       cc.position.set(x, y, z);
+      const skyWasLod = this.lodOn;
+      this.placeSky(false);
       const outline = this.outline.visible, crack = this.crack.visible, ent = this.entities.group.visible;
       this.outline.visible = this.crack.visible = false;
       this.scene.add(cc);
       cc.update(this.gl, this.scene);
       this.scene.remove(cc);
+      this.placeSky(skyWasLod);
       this.outline.visible = outline; this.crack.visible = crack; this.entities.group.visible = ent;
       const buf = new Uint8Array(size * size * 4);
       const out: string[] = [];
@@ -200,6 +277,7 @@ export class Renderer {
     this.sky.setTextures(a);
     this.entities.setAtlas(a);
     this.chests.setAtlas(a);
+    this.lod?.setColors(a.lodColors());
     this.handItemId = -2;
     if (old !== a) old.dispose();
   }
@@ -232,6 +310,7 @@ export class Renderer {
   setChunkMesh(key: string, cx: number, cz: number, r: MeshResult): void {
     this.removeTerrain(key);
     const meshes: THREE.Mesh[] = [];
+    const secs: (Uint32Array | null)[] = [];
     const add = (b: MeshResult['opaque'], mat: THREE.ShaderMaterial, order: number, castShadow: boolean) => {
       if (!b) return;
       const m = new THREE.Mesh(chunkGeometry(b, WORLD_HEIGHT), mat);
@@ -240,16 +319,21 @@ export class Renderer {
       m.matrixAutoUpdate = false;
       m.updateMatrix();
       m.renderOrder = order;
+      m.frustumCulled = !b.sec;
       if (castShadow) m.layers.enable(1);
       if (order === 2) m.layers.set(2);
       this.terrain.add(m);
       meshes.push(m);
+      secs.push(b.sec ?? null);
     };
     add(r.opaque, this.mats.opaque, 0, true);
     add(r.cutout, this.mats.cutout, 1, true);
     add(r.trans, this.mats.trans, 2, false);
-    this.chunks.set(key, { meshes });
+    const cm: ChunkMeshes = { cx, cz, meshes, secs, vis: r.vis ?? null, mask: (1 << SECTIONS) - 1 };
+    this.chunks.set(key, cm);
+    this.byNum.set(cnum(cx, cz), cm);
     this.chests.setChunk(key, cx, cz, r.chests);
+    this.visDirty = true;
   }
 
   private removeTerrain(key: string): void {
@@ -257,6 +341,106 @@ export class Renderer {
     if (!c) return;
     for (const m of c.meshes) { this.terrain.remove(m); m.geometry.dispose(); }
     this.chunks.delete(key);
+    this.byNum.delete(cnum(c.cx, c.cz));
+    this.visDirty = true;
+  }
+
+  sectionVisible(x: number, y: number, z: number): boolean {
+    const c = this.byNum.get(cnum(Math.floor(x) >> 4, Math.floor(z) >> 4));
+    if (!c) return true;
+    const sy = Math.floor(y) >> 4;
+    if (sy < 0 || sy >= SECTIONS) return true;
+    return (c.mask & (1 << sy)) !== 0;
+  }
+
+  private applyMask(c: ChunkMeshes, mask: number): void {
+    c.mask = mask;
+    for (let i = 0; i < c.meshes.length; i++) {
+      const m = c.meshes[i], sec = c.secs[i];
+      if (!sec) { m.visible = true; continue; }
+      if (!mask) { m.visible = false; continue; }
+      let lo = 0, hi = SECTIONS - 1;
+      while (lo < SECTIONS && !(mask & (1 << lo))) lo++;
+      while (hi > lo && !(mask & (1 << hi))) hi--;
+      const start = sec[lo], count = sec[hi + 1] - start;
+      m.visible = count > 0;
+      m.geometry.setDrawRange(start, count);
+    }
+  }
+
+  private fullRanges(): void {
+    for (const c of this.chunks.values()) for (let i = 0; i < c.meshes.length; i++) {
+      const m = c.meshes[i];
+      m.visible = true;
+      m.geometry.setDrawRange(0, Infinity);
+    }
+  }
+
+  private cull(): void {
+    const cam = this.camera;
+    const p = cam.position;
+    const key = `${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)},${cam.quaternion.x.toFixed(3)},${cam.quaternion.y.toFixed(3)},${cam.quaternion.z.toFixed(3)},${cam.quaternion.w.toFixed(3)},${cam.fov},${cam.aspect.toFixed(3)}`;
+    if (!this.visDirty && key === this.visKey) { for (const c of this.chunks.values()) this.applyMask(c, c.mask); return; }
+    this.visKey = key; this.visDirty = false;
+    this.projView.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projView);
+    const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16), psy = Math.floor(p.y / 16);
+    const R = this.cullRadius + 2, G = R * 2 + 1, N = G * G * SECTIONS;
+    if (this.visStamp.length < N) { this.visStamp = new Uint32Array(N); this.visDirs = new Uint8Array(N); this.visQ = new Int32Array(N); this.visEntry = new Int8Array(N); }
+    const st = ++this.stamp;
+    const masks = new Map<ChunkMeshes, number>();
+    const inFrustum = (cx: number, sy: number, cz: number) => {
+      this.box.min.set(cx * 16, sy * 16, cz * 16);
+      this.box.max.set(cx * 16 + 16, sy * 16 + 16, cz * 16 + 16);
+      return this.frustum.intersectsBox(this.box);
+    };
+    let count = 0;
+    if (!this.caveCulling || psy < 0 || psy >= SECTIONS) {
+      for (const c of this.chunks.values()) {
+        let m = 0;
+        for (let sy = 0; sy < SECTIONS; sy++) if (inFrustum(c.cx, sy, c.cz)) { m |= 1 << sy; count++; }
+        masks.set(c, m);
+      }
+    } else {
+      const idx = (dx: number, sy: number, dz: number) => ((dz + R) * G + (dx + R)) * SECTIONS + sy;
+      let head = 0, tail = 0;
+      const s0 = idx(0, psy, 0);
+      this.visStamp[s0] = st; this.visDirs[s0] = 0; this.visEntry[s0] = -1;
+      this.visQ[tail++] = s0;
+      while (head < tail) {
+        const i = this.visQ[head++];
+        const sy = i % SECTIONS, cell = (i - sy) / SECTIONS;
+        const dx = (cell % G) - R, dz = Math.floor(cell / G) - R;
+        const c = this.byNum.get(cnum(pcx + dx, pcz + dz));
+        if (c) { masks.set(c, (masks.get(c) ?? 0) | (1 << sy)); count++; }
+        else if (dx || dz) continue;
+        const conn = c?.vis ? c.vis[sy] : 0x7fff;
+        const entry = this.visEntry[i], dirs = this.visDirs[i];
+        for (let d = 0; d < 6; d++) {
+          if (dirs & (1 << OPP[d])) continue;
+          if (entry >= 0 && !(conn & (1 << facePair(entry, d)))) continue;
+          const nx = dx + DIR[d][0], ny = sy + DIR[d][1], nz = dz + DIR[d][2];
+          if (ny < 0 || ny >= SECTIONS || Math.abs(nx) > R - 1 || Math.abs(nz) > R - 1) continue;
+          const j = idx(nx, ny, nz);
+          if (this.visStamp[j] === st) continue;
+          this.visStamp[j] = st;
+          if (!inFrustum(pcx + nx, ny, pcz + nz)) continue;
+          this.visDirs[j] = dirs | (1 << d);
+          this.visEntry[j] = OPP[d];
+          this.visQ[tail++] = j;
+        }
+      }
+    }
+    this.visibleSections = count;
+    for (const c of this.chunks.values()) this.applyMask(c, masks.get(c) ?? 0);
+    if (this.lod) {
+      const data = new Uint8Array(G * G);
+      for (const c of this.chunks.values()) {
+        const dx = c.cx - pcx + R, dz = c.cz - pcz + R;
+        if (dx >= 0 && dz >= 0 && dx < G && dz < G) data[dz * G + dx] = 255;
+      }
+      this.lod.setMask(data, G, pcx - R, pcz - R);
+    }
   }
 
   removeChunk(key: string): void {
@@ -265,6 +449,8 @@ export class Renderer {
   }
 
   clearChunks(): void { for (const k of [...this.chunks.keys()]) this.removeChunk(k); }
+
+  markVisDirty(): void { this.visDirty = true; }
 
   get chunkCount(): number { return this.chunks.size; }
 
@@ -392,13 +578,20 @@ export class Renderer {
     u.uWind.value = env.wind ?? env.rain * 0.8 + env.thunder * 0.6;
     u.uUnderwater.value = env.underwater ? 1 : 0;
     u.uCloudShift.value = env.time * 0.03;
-    const fogFar = Math.max(24, env.renderDistance * 16 - 6);
+    const fogFar = Math.max(24, env.renderDistance * 16);
+    const fogBand = Math.max(4, Math.min(64, fogFar / 10));
     if (env.inLava) { u.uFogColor.value.setRGB(0.9, 0.35, 0.05); u.uFogNear.value = 0; u.uFogFar.value = 2.5; }
     else if (env.underwater) { u.uFogColor.value.setRGB(0.05, 0.16, 0.35).multiplyScalar(0.3 + st.day * 0.7); u.uFogNear.value = 1; u.uFogFar.value = 22; }
     else {
       u.uFogColor.value.copy(st.horizon);
-      u.uFogNear.value = fogFar * (env.rain > 0.3 ? 0.35 : 0.62);
-      u.uFogFar.value = fogFar * (env.rain > 0.3 ? 0.85 : 1);
+      u.uFogNear.value = fogFar - fogBand;
+      u.uFogFar.value = fogFar;
+    }
+    const lodActive = !!this.lod && this.lod.distance > 0 && !env.underwater && !env.inLava && (env.cave ?? 0) < 0.6;
+    this.placeSky(lodActive);
+    if (lodActive) {
+      this.lod!.update(this.camera.position.x, this.camera.position.z, env.renderDistance);
+      u.uFogNear.value = 1e7; u.uFogFar.value = 1e7 + 1;
     }
     this.camera.updateMatrixWorld();
     u.uProj.value.copy(this.camera.projectionMatrix);
@@ -406,7 +599,10 @@ export class Renderer {
     u.uCamFar.value = this.camera.far;
     this.sky.update(this.camera, st, env.time, env.rain);
     this.sky.group.visible = !env.underwater && !env.inLava;
+    this.cullRadius = env.renderDistance + 1;
+    if (this.shadows && this.gfx.shadowRes) this.fullRanges();
     this.updateShadows();
+    this.cull();
     const post = this.post;
     const hand = this.showHand && !this.thirdPerson;
     if (hand) this.updateHand(dt, playerLight);
@@ -414,6 +610,7 @@ export class Renderer {
       this.gl.setRenderTarget(null);
       this.gl.setClearColor(u.uFogColor.value, 1);
       this.gl.clear(true, true, false);
+      if (lodActive) this.drawLod();
       this.camera.layers.enableAll();
       this.gl.render(this.scene, this.camera);
       this.drawCalls = this.gl.info.render.calls;
@@ -427,6 +624,7 @@ export class Renderer {
     this.gl.setRenderTarget(post.sceneRT);
     this.gl.setClearColor(u.uFogColor.value, 1);
     this.gl.clear(true, true, false);
+    if (lodActive) this.drawLod();
     let calls = 0, tris = 0;
     if (post.cfg.sceneTextures) {
       this.camera.layers.set(0);

@@ -79,6 +79,7 @@ export class Game {
   private room: RoomMeta | null = null;
   private saveTimer = 45;
   private frames = 0;
+  private lastInput = performance.now();
   private fpsT = 0;
   private fpsVal = 0;
   private debugOn = false;
@@ -110,6 +111,7 @@ export class Game {
     const tint = document.getElementById('tint') as HTMLDivElement;
     this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, tint);
     this.gen = new WorldGenerator(seed, arena);
+    this.renderer.setLodWorld(seed, arena);
     this.chunks = new ChunkManager(seed, arena, this.atlas.data, {
       loadStored: (cx, cz) => this.storedKeys?.has(`${cx},${cz}`) && this.worldMeta ? WorldStorage.loadChunk(this.worldMeta.id, cx, cz) : null,
       requestRemote: (cx, cz) => this.session?.requestChunk?.(cx, cz),
@@ -289,6 +291,9 @@ export class Game {
     this.loadStart = performance.now();
     this.last = performance.now();
     this.setHeld();
+    const poke = () => { this.lastInput = performance.now(); };
+    for (const ev of ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'wheel']) window.addEventListener(ev, poke, { passive: true });
+    this.disposers.push(() => { for (const ev of ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'wheel']) window.removeEventListener(ev, poke); });
     requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -457,6 +462,7 @@ export class Game {
     this.loadingEl?.remove();
     this.chunks?.dispose();
     this.renderer?.clearChunks();
+    this.renderer?.disposeLod();
     this.renderer?.entities.clear();
     this.renderer?.gl.dispose();
     this.unsub?.();
@@ -678,7 +684,12 @@ export class Game {
   private frame(t: number): void {
     if (!this.running) return;
     requestAnimationFrame((tt) => this.frame(tt));
-    const lim = getSettings().fpsLimit;
+    const st = getSettings();
+    let lim = st.fpsLimit;
+    if (st.idleFps !== false) {
+      const idle = !document.hasFocus() ? 15 : this.state === 'paused' ? 30 : performance.now() - this.lastInput > 90000 ? 30 : 0;
+      if (idle && (!lim || idle < lim)) lim = idle;
+    }
     if (lim > 0 && t - this.last < 1000 / lim - 1.5) return;
     const dt = Math.min(0.1, Math.max(0.0001, (t - this.last) / 1000));
     this.last = t;

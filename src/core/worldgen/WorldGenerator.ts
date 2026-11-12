@@ -124,6 +124,32 @@ export class WorldGenerator {
     return this.column(x, z).height;
   }
 
+  surface(col: Column, wx: number, wz: number, slope: number): [number, number, number] {
+    const h = col.height;
+    const b = col.biome.id;
+    const patch = this.nPatch.noise2(wx / 9, wz / 9);
+    let top: number = B.GRASS, filler: number = B.DIRT, depth = 3 + (hash2(wx, wz, this.seed) & 1);
+    const underwater = h < SEA_LEVEL;
+    if (b === 'desert') { top = B.SAND; filler = B.SAND; depth = 4; }
+    else if (b === 'beach' || b === 'island' && h <= SEA_LEVEL + 2) { top = B.SAND; filler = B.SAND; depth = 3; }
+    else if (b === 'snowy_tundra' || b === 'taiga' && col.temp < -0.5) { top = B.SNOWY_GRASS; }
+    else if (b === 'snowy_mountains') {
+      if (slope > 3) { top = B.STONE; filler = B.STONE; }
+      else top = h > 100 ? B.SNOW : B.SNOWY_GRASS;
+    } else if (b === 'mountains') {
+      if (slope > 3 || h > 118) { top = B.STONE; filler = B.STONE; }
+      else if (h > 108) top = B.SNOWY_GRASS;
+      else if (patch > 0.55) { top = B.GRAVEL; filler = B.GRAVEL; }
+    } else if (b === 'swamp' && patch > 0.3) { top = B.MUD; filler = B.MUD; }
+    if (underwater) {
+      if (b === 'ocean' || b === 'deep_ocean') { top = h < SEA_LEVEL - 16 ? B.GRAVEL : patch > 0.4 ? B.CLAY : B.SAND; filler = B.SAND; }
+      else if (b === 'river' || b === 'swamp') { top = patch > 0.35 ? B.CLAY : patch < -0.4 ? B.GRAVEL : B.SAND; filler = B.DIRT; if (b === 'swamp') top = patch > 0 ? B.MUD : B.DIRT; }
+      else if (top === B.GRASS || top === B.SNOWY_GRASS) { top = patch > 0.2 ? B.SAND : patch < -0.3 ? B.CLAY : B.DIRT; }
+      else if (top === B.SNOW) top = B.STONE;
+    }
+    return [top, filler, depth];
+  }
+
   generate(cx: number, cz: number): GeneratedChunk {
     if (this.arena) return { blocks: generateArenaChunk(this.arena, cx, cz), entities: [] };
     const blocks = new Uint16Array(CHUNK_VOLUME);
@@ -153,26 +179,7 @@ export class WorldGenerator {
           Math.abs(colAt(x, z + 1).height - h), Math.abs(colAt(x, z - 1).height - h),
         );
         const b = col.biome.id;
-        const patch = this.nPatch.noise2(wx / 9, wz / 9);
-        let top: number = B.GRASS, filler: number = B.DIRT, depth = 3 + (hash2(wx, wz, this.seed) & 1);
-        const underwater = h < SEA_LEVEL;
-        if (b === 'desert') { top = B.SAND; filler = B.SAND; depth = 4; }
-        else if (b === 'beach' || b === 'island' && h <= SEA_LEVEL + 2) { top = B.SAND; filler = B.SAND; depth = 3; }
-        else if (b === 'snowy_tundra' || b === 'taiga' && col.temp < -0.5) { top = B.SNOWY_GRASS; }
-        else if (b === 'snowy_mountains') {
-          if (slope > 3) { top = B.STONE; filler = B.STONE; }
-          else top = h > 100 ? B.SNOW : B.SNOWY_GRASS;
-        } else if (b === 'mountains') {
-          if (slope > 3 || h > 118) { top = B.STONE; filler = B.STONE; }
-          else if (h > 108) top = B.SNOWY_GRASS;
-          else if (patch > 0.55) { top = B.GRAVEL; filler = B.GRAVEL; }
-        } else if (b === 'swamp' && patch > 0.3) { top = B.MUD; filler = B.MUD; }
-        if (underwater) {
-          if (b === 'ocean' || b === 'deep_ocean') { top = h < SEA_LEVEL - 16 ? B.GRAVEL : patch > 0.4 ? B.CLAY : B.SAND; filler = B.SAND; }
-          else if (b === 'river' || b === 'swamp') { top = patch > 0.35 ? B.CLAY : patch < -0.4 ? B.GRAVEL : B.SAND; filler = B.DIRT; if (b === 'swamp') top = patch > 0 ? B.MUD : B.DIRT; }
-          else if (top === B.GRASS || top === B.SNOWY_GRASS) { top = patch > 0.2 ? B.SAND : patch < -0.3 ? B.CLAY : B.DIRT; }
-          else if (top === B.SNOW) top = B.STONE;
-        }
+        const [top, filler, depth] = this.surface(col, wx, wz, slope);
         set(x, 0, z, makeBlock(B.BEDROCK));
         for (let y = 1; y <= h; y++) {
           let v: number;

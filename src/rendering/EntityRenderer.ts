@@ -470,6 +470,8 @@ export class EntityRenderer {
 
   clear(): void { for (const id of [...this.views.keys()]) this.removeNow(id); }
 
+  cull: ((x: number, y: number, z: number) => boolean) | null = null;
+
   update(dt: number, now: number): void {
     const rt = now - this.interpDelay;
     for (const v of [...this.views.values()]) {
@@ -487,6 +489,8 @@ export class EntityRenderer {
         v.yaw = a.yaw + dy * t;
         v.pitch = a.pitch + (b.pitch - a.pitch) * t;
       }
+      if (this.cull && !v.dying && !this.cull(v.x, v.y + Math.min(1, v.h * 0.5), v.z)) { v.obj.visible = false; v.lastX = v.x; v.lastZ = v.z; continue; }
+      v.obj.visible = true;
       const moved = Math.hypot(v.x - v.lastX, v.z - v.lastZ);
       v.lastX = v.x; v.lastZ = v.z;
       v.walk += moved * 4.5;

@@ -479,6 +479,30 @@ export class TextureAtlas {
 
   private tileURLs = new Map<number, string>();
 
+  private lodTable: Uint8Array | null = null;
+
+  lodColors(): Uint8Array {
+    if (this.lodTable) return this.lodTable;
+    const out = new Uint8Array(256 * 4);
+    const c = document.createElement('canvas');
+    c.width = c.height = 4;
+    const g = c.getContext('2d', { willReadFrequently: true })!;
+    for (let id = 0; id < 256; id++) {
+      const tile = this.blockTileCanvas(id, 2) ?? this.blockTileCanvas(id, 0);
+      if (!tile) continue;
+      g.clearRect(0, 0, 4, 4);
+      g.imageSmoothingEnabled = true;
+      g.drawImage(tile, 0, 0, Math.min(tile.width, 16), Math.min(tile.height, 16), 0, 0, 4, 4);
+      const d = g.getImageData(0, 0, 4, 4).data;
+      let r = 0, gg = 0, b = 0, a = 0;
+      for (let i = 0; i < 64; i += 4) { const w = d[i + 3] / 255; r += d[i] * w; gg += d[i + 1] * w; b += d[i + 2] * w; a += w; }
+      if (a > 0) { out[id * 4] = r / a; out[id * 4 + 1] = gg / a; out[id * 4 + 2] = b / a; }
+      out[id * 4 + 3] = this.data.tintTable[id * 2];
+    }
+    this.lodTable = out;
+    return out;
+  }
+
   blockTileCanvas(blockIdNum: number, slot = 0): HTMLCanvasElement | null {
     const idx = this.data.blockTiles[blockIdNum * FACE_SLOTS + slot];
     return idx >= 0 ? this.tileCanvases[idx] ?? null : null;

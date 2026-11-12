@@ -278,9 +278,13 @@ void main() {
 #endif
 #ifdef CLOUD_SHADOWS
   if (uCloudShadow > 0.0 && uSunDir.y > 0.05) {
-    vec3 cp = vWorld + uSunDir * ((132.0 - vWorld.y) / uSunDir.y);
-    float cl = texture2D(uCloudMap, vec2((cp.x + uCloudShift) / 256.0, -cp.z / 256.0)).a;
-    sun *= 1.0 - smoothstep(0.3, 0.5, cl) * 0.4 * uCloudShadow;
+    vec3 cp = vWorld + uSunDir * ((132.0 - vWorld.y) / max(uSunDir.y, 0.2));
+    vec2 cuv = vec2((cp.x + uCloudShift) / 256.0, -cp.z / 256.0);
+    float tx = 1.0 / 256.0, cl = 0.0;
+    for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) cl += texture2D(uCloudMap, cuv + vec2(float(i) - 1.0, float(j) - 1.0) * tx * 1.5).a;
+    cl /= 9.0;
+    float fade = 1.0 - smoothstep(80.0, 140.0, vFogDepth);
+    sun *= 1.0 - smoothstep(0.25, 0.75, cl) * 0.28 * uCloudShadow * fade * smoothstep(0.05, 0.25, uSunDir.y);
   }
 #endif
   float sky = curve(skyL) * uDay;

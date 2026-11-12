@@ -8,6 +8,8 @@ import { drawAvatar } from './avatar';
 import { apiURL } from '../multiplayer/RemoteSession';
 import { mcScreen, mcButton, mcCycle, mcToggle, mcSlider, mcRow, mcHeading, mcText, mcInput } from './mc/Widgets';
 
+const LOD_STOPS = [0, 16, 32, 64, 128, 256, 512];
+
 export const REGIONS: [string, string][] = [
   ['auto', 'Automatic (nearest to the host)'], ['oc', 'Oceania'], ['apac', 'Asia-Pacific'], ['wnam', 'North America (West)'], ['enam', 'North America (East)'],
   ['sam', 'South America'], ['weur', 'Europe (West)'], ['eeur', 'Europe (East)'], ['me', 'Middle East'], ['afr', 'Africa'],
@@ -49,7 +51,7 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
         break;
       case 'video': {
         const presets: [GraphicsPreset, string][] = [['low', 'Fast'], ['medium', 'Fancy'], ['high', 'Fabulous'], ['ultra', 'Ultra'], ['custom', 'Custom']];
-        const maxRd = isTouchDevice() ? 12 : 32;
+        const maxRd = 32;
         scr = screen('Video Settings',
           mcRow(mcCycle('Graphics', presets, s.preset, (v) => { set({ preset: v }); scr.close(); open('video', back); }, { tip: 'Fast suits phones. Fancy suits most iPads. Fabulous adds soft shadows and reflective water. Ultra adds screen-space reflections.' }),
             mcSlider('Render Distance', 2, maxRd, 1, Math.min(s.renderDistance, maxRd), (v) => `${v} chunks`, (v) => set({ renderDistance: v }))),
@@ -63,6 +65,14 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
             mcCycle('Particles', [['high', 'All'], ['low', 'Decreased'], ['off', 'Minimal']], s.particles, (v) => set({ particles: v }))),
           mcRow(mcToggle('Smooth Lighting', s.smoothLighting, (v) => set({ smoothLighting: v })),
             mcToggle('Show FPS', s.showFps, (v) => set({ showFps: v }))),
+          mcHeading('Distant Terrain'),
+          mcRow(mcSlider('Distant Terrain', 0, LOD_STOPS.length - 1, 1, Math.max(0, LOD_STOPS.indexOf(LOD_STOPS.reduce((a, b) => (Math.abs(b - s.lodDistance) < Math.abs(a - s.lodDistance) ? b : a)))),
+            (v) => (LOD_STOPS[v] ? `${LOD_STOPS[v]} chunks` : 'OFF'), (v) => set({ lodDistance: LOD_STOPS[v] })),
+            mcCycle('Distant Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], s.lodQuality, (v) => set({ lodQuality: v }))),
+          mcText('Draws simplified terrain far past your render distance, built from the world seed (like Distant Horizons). Blocks you change far away show up once you get close.', { center: true, small: true }),
+          mcHeading('Performance'),
+          mcRow(mcToggle('Cave Culling', s.caveCulling, (v) => set({ caveCulling: v }), 'Skips drawing caves and rooms you cannot see, like Minecraft and Sodium.'),
+            mcToggle('Idle Frame Saver', s.idleFps, (v) => set({ idleFps: v }), 'Drops to 15 fps when the window is in the background and 30 fps when paused or idle, to save battery.')),
           mcHeading('Shaders'),
           mcRow(mcCycle('Shadows', [['off', 'OFF'], ['low', 'Low'], ['high', 'High'], ['ultra', 'Ultra']], s.shadowQuality, (v) => set({ shadowQuality: v })),
             mcSlider('Shadow Distance', 24, 128, 8, s.shadowDistance, (v) => `${v} blocks`, (v) => set({ shadowDistance: v }))),

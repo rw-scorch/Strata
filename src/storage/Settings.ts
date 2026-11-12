@@ -18,6 +18,10 @@ export interface Settings {
   advancedTooltips: boolean;
   preset: GraphicsPreset;
   renderDistance: number;
+  lodDistance: number;
+  lodQuality: 'low' | 'medium' | 'high';
+  caveCulling: boolean;
+  idleFps: boolean;
   resolutionScale: number;
   adaptiveResolution: boolean;
   shadows: boolean;
@@ -54,7 +58,6 @@ export interface Settings {
   shadowDistance: number;
   waterQuality: 'low' | 'high' | 'ultra';
   reflections: 'off' | 'low' | 'high';
-  volumetricFog: boolean;
   godRays: boolean;
   bloom: number;
   ambientOcclusion: 'standard' | 'enhanced';
@@ -80,32 +83,32 @@ export interface Settings {
 const KEY = 'strata.settings.v1';
 
 const LOW_FX: Partial<Settings> = {
-  shadowQuality: 'off', shadowDistance: 48, waterQuality: 'low', reflections: 'off', volumetricFog: false, godRays: false, bloom: 0,
+  shadowQuality: 'off', shadowDistance: 48, waterQuality: 'low', reflections: 'off', godRays: false, bloom: 0,
   ambientOcclusion: 'standard', motionBlur: 0, antiAliasing: 'off', depthOfField: false, autoExposure: false, lensFlare: false,
   cloudShadows: false, wetSurfaces: false, foliageLighting: false, glowingOres: false, vignette: false, textureQuality: 'high',
 };
 
 export const PRESETS: Record<Exclude<GraphicsPreset, 'custom'>, Partial<Settings>> = {
-  low: { ...LOW_FX, renderDistance: 4, resolutionScale: 0.75, shadows: false, particles: 'low', smoothLighting: true, clouds: false, adaptiveResolution: true },
+  low: { ...LOW_FX, renderDistance: 4, lodDistance: 16, lodQuality: 'low', resolutionScale: 0.75, shadows: false, particles: 'low', smoothLighting: true, clouds: false, adaptiveResolution: true },
   medium: {
-    ...LOW_FX, renderDistance: 6, resolutionScale: 1, shadows: false, particles: 'high', smoothLighting: true, clouds: true, adaptiveResolution: true,
+    ...LOW_FX, renderDistance: 6, lodDistance: 32, lodQuality: 'medium', resolutionScale: 1, shadows: false, particles: 'high', smoothLighting: true, clouds: true, adaptiveResolution: true,
     bloom: 0.45, antiAliasing: 'fxaa', cloudShadows: true, wetSurfaces: true, foliageLighting: true, glowingOres: true, vignette: true,
   },
   high: {
-    renderDistance: 8, resolutionScale: 1, shadows: true, particles: 'high', smoothLighting: true, clouds: true, adaptiveResolution: true,
-    shadowQuality: 'high', shadowDistance: 64, waterQuality: 'high', reflections: 'low', volumetricFog: true, godRays: true, bloom: 0.55,
+    renderDistance: 8, lodDistance: 64, lodQuality: 'medium', resolutionScale: 1, shadows: true, particles: 'high', smoothLighting: true, clouds: true, adaptiveResolution: true,
+    shadowQuality: 'high', shadowDistance: 64, waterQuality: 'high', reflections: 'low', godRays: true, bloom: 0.55,
     ambientOcclusion: 'standard', motionBlur: 0, antiAliasing: 'msaa', depthOfField: false, autoExposure: true, lensFlare: true,
     cloudShadows: true, wetSurfaces: true, foliageLighting: true, glowingOres: true, vignette: true, textureQuality: 'high',
   },
   ultra: {
-    renderDistance: 10, resolutionScale: 1, shadows: true, particles: 'high', smoothLighting: true, clouds: true, adaptiveResolution: true,
-    shadowQuality: 'ultra', shadowDistance: 96, waterQuality: 'ultra', reflections: 'high', volumetricFog: true, godRays: true, bloom: 0.6,
+    renderDistance: 10, lodDistance: 128, lodQuality: 'high', resolutionScale: 1, shadows: true, particles: 'high', smoothLighting: true, clouds: true, adaptiveResolution: true,
+    shadowQuality: 'ultra', shadowDistance: 96, waterQuality: 'ultra', reflections: 'high', godRays: true, bloom: 0.6,
     ambientOcclusion: 'enhanced', motionBlur: 0, antiAliasing: 'msaa', depthOfField: false, autoExposure: true, lensFlare: true,
     cloudShadows: true, wetSurfaces: true, foliageLighting: true, glowingOres: true, vignette: true, textureQuality: 'high',
   },
 };
 
-export const PRESET_KEYS: (keyof Settings)[] = ['renderDistance', 'resolutionScale', 'shadows', 'particles', 'smoothLighting', 'clouds', 'adaptiveResolution', ...(Object.keys(LOW_FX) as (keyof Settings)[])];
+export const PRESET_KEYS: (keyof Settings)[] = ['renderDistance', 'lodDistance', 'lodQuality', 'resolutionScale', 'shadows', 'particles', 'smoothLighting', 'clouds', 'adaptiveResolution', ...(Object.keys(LOW_FX) as (keyof Settings)[])];
 
 export function isTouchDevice(): boolean {
   if (typeof window === 'undefined') return false;
@@ -122,7 +125,7 @@ function defaults(): Settings {
   const lowEnd = !ipad && ((navigator.hardwareConcurrency ?? 4) <= 4 || /iPhone|Android/i.test(navigator.userAgent));
   const preset: GraphicsPreset = lowEnd ? 'low' : touch ? 'medium' : 'high';
   return {
-    preset, renderDistance: 6, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
+    preset, renderDistance: 6, lodDistance: 32, lodQuality: 'medium', caveCulling: true, idleFps: true, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
     fov: 72, showFps: false, sensitivity: 1, touchSensitivity: 1, joystickSize: 1, buttonSize: 1, leftHanded: false, invertY: false,
     controlScheme: 'auto', labs: false, guiScale: 0, touchLayout: 'full', buttonOpacity: 0.85, fireOverlay: 'low', chatTimestamps: false, showCoords: true, showMinimap: true, menuBlur: 5, advancedTooltips: false, autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
     difficulty: 'normal', viewBobbing: true, reconnect: true, region: 'auto', activePacks: [],
@@ -145,6 +148,10 @@ export function getSettings(): Settings {
       const saved = JSON.parse(raw) as Partial<Settings> & { _v?: number };
       current = { ...d, ...saved };
       if ((saved._v ?? 1) < 2 && current.preset !== 'custom') Object.assign(current, PRESETS[current.preset as Exclude<GraphicsPreset, 'custom'>]);
+      if (saved.lodDistance === undefined && current.preset !== 'custom') {
+        const pr = PRESETS[current.preset as Exclude<GraphicsPreset, 'custom'>];
+        current.lodDistance = pr.lodDistance ?? 32; current.lodQuality = pr.lodQuality ?? 'medium';
+      }
     }
   } catch { /* ignore */ }
   current ??= d;

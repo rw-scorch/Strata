@@ -189,6 +189,13 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
 
 - **World:** endless seeded terrain in 16×16×160 chunks. 15 biomes: plains, two forest types, desert, highlands, snowy peaks, tundra, taiga, swamp, jungle, beach, river, ocean, deep ocean and islands. Caves (tunnels and caverns), ravines, lava lakes, rivers, lakes, waterfalls, ore veins (coal, iron, gold, aetherite) and mossy boulders. Ruined cairns hold loot chests.
 - **Rendering:** worker-pool generation and greedy meshing with face culling, flood-fill sky and block light, smooth lighting with ambient occlusion, biome tinting, frustum culling, a texture atlas with in-place animation, real-time sun shadows (High preset), day/night sky with sun, moon and stars, clouds, fog, rain, snow, thunderstorms and lightning, water waves, plant sway, block particles, block outlines and crack overlays.
+- **Performance (v9):**
+  - Cave culling uses Minecraft's section visibility graph. Each 16×16×16 section records which of its faces connect through open space, and a search from the camera only draws sections you could actually see. It removed about 30% of triangles above ground and 68% in caves in testing, with identical images.
+  - Entities in hidden sections are skipped entirely, like the Entity Culling mod.
+  - Fog only covers the last tenth of your render distance (Java 1.18+ behaviour). Volumetric fog and cave darkening were removed. Touch devices can set render distance up to 32.
+  - The Idle Frame Saver (Dynamic FPS style) drops to 15 fps in the background and 30 fps when paused or idle.
+  - Distant Terrain draws simplified block-column terrain past render distance, up to 512 chunks, built in background workers from the world seed, like Distant Horizons. It uses a quadtree of tiles that get coarser with distance, includes forests, snow, sand and water, and uses colours from your active resource pack. It is drawn in its own depth pass, so the real terrain always wins where both exist, and it is hidden chunk by chunk as real chunks finish meshing. Settings: Video > Distant Terrain (OFF, 16 to 512 chunks) and Distant Detail.
+  - Cloud shadows are softer, follow the clouds exactly and fade with distance.
 - **Gameplay:** walking, sprinting, crouching (no edge falls), swimming, ladders, flying, fall damage, tool tiers and break times, drops, 60+ recipes with a recipe book, workbench, furnace with fuels, chests, doors, buckets and flowing water/lava, farming (hoe, seeds, wheat growth), saplings that grow, leaf decay, health, hunger, saturation, regeneration, starvation, armour, XP, death drops and respawn. Difficulty runs from Peaceful to Hard.
 - **Creatures:** Woolhorn, Mudsnout and Fernhen (can be lured with food); Hollowed (burns in daylight), Rattlebone (archer), Duskweaver (pounces, calm in bright light unless provoked); villagers with trades and a daily schedule. `/summon <creature>` works with commands enabled.
 - **Java-style systems (v8):**
@@ -254,7 +261,7 @@ Not yet tested:
 - Fluids use simplified Minecraft-style rules: 7-block water spread, 3-block lava spread, infinite water sources.
 - Torches can be placed on floors and walls. Logs are always vertical. There are no slabs, stairs or redstone.
 - In multiplayer, creatures are removed when their chunk unloads (no players nearby) and are not saved; single-player worlds save them. Light levels on the server are estimated from block data (exact for enclosed rooms and caves, slightly approximate around leaves and water).
-- Very high render distances (12+) are desktop-only and will be heavy on large worlds.
+- Very high render distances (16+) are heavy on tablets; Distant Terrain is the cheaper way to see far. Distant Terrain shows the generated world, so player builds far away only appear once their chunks load.
 
 ## Credits and licence notes
 

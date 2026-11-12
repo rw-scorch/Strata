@@ -5,7 +5,6 @@ export interface PostConfig {
   bloom: number;
   godRays: boolean;
   ssao: boolean;
-  fog: boolean;
   dof: boolean;
   motionBlur: number;
   autoExposure: boolean;
@@ -137,7 +136,7 @@ export class PostFX {
         gl_FragColor = vec4(vec3(mix(prev, target, uRate) / 2.0), 1.0); }`, { uSrc: { value: null }, uPrev: { value: null }, uRate: { value: 0.05 } });
     this.mComp = pass(`${LIN}
       uniform sampler2D uScene; uniform sampler2D uDepth; uniform sampler2D uHalf; uniform sampler2D uBloom; uniform sampler2D uRays; uniform sampler2D uAO; uniform sampler2D uExp;
-      uniform float uBloomAmt; uniform float uRaysOn; uniform float uAOOn; uniform float uExpOn; uniform float uFogOn; uniform float uDof; uniform float uMotion;
+      uniform float uBloomAmt; uniform float uRaysOn; uniform float uAOOn; uniform float uExpOn; uniform float uDof; uniform float uMotion;
       uniform mat4 uInvVP; uniform mat4 uPrevVP; uniform vec3 uCam; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uFogColor; uniform float uDay; uniform float uNight; uniform float uRain;
       uniform float uUnder; uniform float uLava; uniform float uFlash; uniform float uTime; uniform float uCave; uniform float uLensRain;
       uniform float uFilmic; uniform float uSat; uniform float uContrast; uniform float uVignette; uniform float uGrain; uniform float uChroma; uniform float uFlare; uniform vec2 uSun; uniform float uSunVis; uniform float uAspect; uniform vec2 uTexel;
@@ -176,18 +175,6 @@ export class PostFX {
           float a = texture2D(uAO, uv).r * 0.4 + (texture2D(uAO, uv + vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv - vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv + vec2(0.0, uTexel.y * 2.0)).r + texture2D(uAO, uv - vec2(0.0, uTexel.y * 2.0)).r) * 0.15;
           col *= mix(a, 1.0, smoothstep(40.0, 90.0, vz));
         }
-        if (uFogOn > 0.5 && uUnder < 0.5 && uLava < 0.5) {
-          vec3 rd = wp - uCam; float dist = sky ? 300.0 : length(rd); rd /= max(length(rd), 1e-4);
-          float k = 0.045, base = 64.0;
-          float h0 = max(uCam.y - base, 0.0);
-          float dens = (0.006 + uRain * 0.01) * exp(-h0 * k);
-          float fy = rd.y * k; float integ = abs(fy) > 1e-4 ? (1.0 - exp(-dist * fy)) / fy : dist;
-          float fogAmt = 1.0 - exp(-dens * integ);
-          float mie = pow(max(dot(rd, uSunDir), 0.0), 8.0);
-          vec3 inscat = uFogColor * (0.8 + 0.2 * uDay) + uSunColor * mie * 0.5 * uDay * (1.0 - uRain);
-          col = mix(col, inscat, fogAmt * (sky ? 0.35 : 1.0));
-          if (uCave > 0.0 && !sky) col = mix(col, vec3(0.06, 0.065, 0.08), (1.0 - exp(-dist * 0.02)) * uCave * 0.6);
-        }
         if (uRaysOn > 0.5) col += texture2D(uRays, uv).rgb;
         col += texture2D(uBloom, uv).rgb * uBloomAmt;
         float sunOcc = 0.0;
@@ -211,7 +198,7 @@ export class PostFX {
         gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }`, {
       uScene: { value: null }, uDepth: { value: null }, uHalf: { value: null }, uBloom: { value: null }, uRays: { value: null }, uAO: { value: null }, uExp: { value: null },
-      uBloomAmt: { value: 0 }, uRaysOn: { value: 0 }, uAOOn: { value: 0 }, uExpOn: { value: 0 }, uFogOn: { value: 0 }, uDof: { value: 0 }, uMotion: { value: 0 },
+      uBloomAmt: { value: 0 }, uRaysOn: { value: 0 }, uAOOn: { value: 0 }, uExpOn: { value: 0 }, uDof: { value: 0 }, uMotion: { value: 0 },
       uInvVP: { value: new THREE.Matrix4() }, uPrevVP: { value: new THREE.Matrix4() }, uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() }, uFogColor: { value: new THREE.Color() },
       uDay: { value: 1 }, uNight: { value: 0 }, uRain: { value: 0 }, uUnder: { value: 0 }, uLava: { value: 0 }, uFlash: { value: 0 }, uTime: { value: 0 }, uCave: { value: 0 }, uLensRain: { value: 0 },
       uFilmic: { value: 0 }, uSat: { value: 1 }, uContrast: { value: 1 }, uVignette: { value: 0 }, uGrain: { value: 0 }, uChroma: { value: 0 }, uFlare: { value: 0 }, uSun: { value: new THREE.Vector2() }, uSunVis: { value: 0 }, uAspect: { value: 1 }, uTexel: texel(),
@@ -347,7 +334,6 @@ export class PostFX {
     comp.uScene.value = this.sceneRT.texture;
     comp.uDepth.value = depth;
     comp.uHalf.value = this.halfRT.texture;
-    comp.uFogOn.value = c.fog ? 1 : 0;
     comp.uDof.value = c.dof ? 1 : 0;
     comp.uMotion.value = c.motionBlur;
     comp.uInvVP.value.copy(this.invVP);

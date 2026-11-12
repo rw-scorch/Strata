@@ -30,7 +30,6 @@ export function deriveGfx(s: Settings, pressure = 0): GfxConfig {
     bloom: pressure >= 3 ? 0 : s.bloom,
     godRays: s.godRays && pressure < 2,
     ssao: s.ambientOcclusion === 'enhanced' && pressure < 1,
-    fog: s.volumetricFog,
     dof: s.depthOfField && pressure < 2,
     motionBlur: s.motionBlur,
     autoExposure: s.autoExposure,
@@ -44,7 +43,7 @@ export function deriveGfx(s: Settings, pressure = 0): GfxConfig {
     contrast: s.contrast,
     sceneTextures: water > 0,
   };
-  const anyPost = p.msaa > 0 || p.bloom > 0 || p.godRays || p.ssao || p.fog || p.dof || p.motionBlur > 0 || p.autoExposure || p.fxaa
+  const anyPost = p.msaa > 0 || p.bloom > 0 || p.godRays || p.ssao || p.dof || p.motionBlur > 0 || p.autoExposure || p.fxaa
     || p.vignette || p.grain || p.chromatic || p.lensFlare || p.filmic || p.saturation !== 1 || p.contrast !== 1 || p.sceneTextures;
   if (!anyPost) { fx.water = 0; }
   return {

@@ -11,10 +11,11 @@ const RA = R * R;
 const VOL = RA * H;
 const FS = 8;
 
-export interface MeshBuffers { pos: Int16Array; uv: Int16Array; light: Uint8Array; tint: Uint8Array; idx: Uint16Array | Uint32Array; }
+export interface MeshBuffers { pos: Int16Array; uv: Int16Array; light: Uint8Array; tint: Uint8Array; idx: Uint16Array | Uint32Array; sec?: Uint32Array; }
+export const SECTIONS = Math.ceil(WORLD_HEIGHT / 16);
 export const POS_SCALE = 64;
 export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_GLOW = 32, F_WATER = 64;
-export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; }
+export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
 const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12 };
@@ -65,9 +66,29 @@ class Builder {
   }
   finish(): MeshBuffers | null {
     if (!this.ni) return null;
+    const nq = this.ni / 6;
+    const secOf = new Uint8Array(nq);
+    const counts = new Uint32Array(SECTIONS + 1);
+    const I = this.idx, P = this.pos, lim = 16 * POS_SCALE;
+    for (let q = 0; q < nq; q++) {
+      let my = Infinity;
+      for (let k = 0; k < 6; k++) { const y = P[I[q * 6 + k] * 3 + 1]; if (y < my) my = y; }
+      const sc = Math.max(0, Math.min(SECTIONS - 1, Math.floor((my + 1) / lim)));
+      secOf[q] = sc;
+      counts[sc + 1] += 6;
+    }
+    for (let i = 1; i <= SECTIONS; i++) counts[i] += counts[i - 1];
+    const sec = counts.slice();
+    const out = this.nv <= 65535 ? new Uint16Array(this.ni) : new Uint32Array(this.ni);
+    const at = counts.slice();
+    for (let q = 0; q < nq; q++) {
+      const o = at[secOf[q]];
+      for (let k = 0; k < 6; k++) out[o + k] = I[q * 6 + k];
+      at[secOf[q]] += 6;
+    }
     return {
       pos: this.pos.slice(0, this.nv * 3), uv: this.uv.slice(0, this.nv * 4), light: this.light.slice(0, this.nv * 4),
-      tint: this.tint.slice(0, this.nv * 4), idx: this.nv <= 65535 ? Uint16Array.from(this.idx.subarray(0, this.ni)) : this.idx.slice(0, this.ni),
+      tint: this.tint.slice(0, this.nv * 4), idx: out, sec,
     };
   }
 }
@@ -313,12 +334,14 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
           const L = maskLight[mi], A = maskAo[mi], T = maskTint[mi];
           let w = 1;
           while (u + w < dimU) {
+            if (ua === 1 && (u + w) % 16 === 0) break;
             const j = mi + w;
             if (maskTex[j] !== t || maskLight[j] !== L || maskAo[j] !== A || maskTint[j] !== T) break;
             w++;
           }
           let h = 1;
           outer: while (v + h < dimV) {
+            if (va === 1 && (v + h) % 16 === 0) break;
             const row = (v + h) * dimU + u;
             for (let k = 0; k < w; k++) {
               const j = row + k;
@@ -345,7 +368,55 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
     if (code === 12) { chests.push(x, y, z, (v >>> 8) & 3); continue; }
     special(ctx, code, id, v, x, y, z, rx, rz, smooth);
   }
-  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish(), chests: chests.length ? new Int32Array(chests) : null };
+  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish(), chests: chests.length ? new Int32Array(chests) : null, vis: visGraph() };
+}
+
+const visSeen = new Uint8Array(4096);
+const visQ = new Int32Array(4096);
+const OCC = new Uint8Array(256);
+for (const b of BLOCKS) if (b && b.opaque && b.render === 'cube') OCC[b.id] = 1;
+
+export function facePair(a: number, b: number): number {
+  if (a > b) { const t = a; a = b; b = t; }
+  return [0, 0, 1, 2, 3, 4, 0, 0, 5, 6, 7, 8, 0, 0, 0, 9, 10, 11, 0, 0, 0, 0, 12, 13, 0, 0, 0, 0, 0, 14][a * 6 + b] ?? 0;
+}
+
+function visGraph(): Uint16Array {
+  const out = new Uint16Array(SECTIONS);
+  for (let sc = 0; sc < SECTIONS; sc++) {
+    const y0 = sc * 16;
+    let open = 0;
+    for (let i = 0; i < 4096; i++) {
+      const x = i & 15, z = (i >> 4) & 15, y = y0 + (i >> 8);
+      const solid = y >= H || OCC[region[ridx(x + 16, y, z + 16)] & 255] === 1;
+      visSeen[i] = solid ? 1 : 0;
+      if (!solid) open++;
+    }
+    if (open === 0) { out[sc] = 0; continue; }
+    if (open === 4096) { out[sc] = 0x7fff; continue; }
+    let mask = 0;
+    for (let st = 0; st < 4096; st++) {
+      if (visSeen[st]) continue;
+      let head = 0, tail = 0, faces = 0;
+      visQ[tail++] = st; visSeen[st] = 1;
+      while (head < tail) {
+        const i = visQ[head++];
+        const x = i & 15, z = (i >> 4) & 15, y = i >> 8;
+        if (x === 0) faces |= 2; else if (x === 15) faces |= 1;
+        if (y === 0) faces |= 8; else if (y === 15) faces |= 4;
+        if (z === 0) faces |= 32; else if (z === 15) faces |= 16;
+        if (x > 0 && !visSeen[i - 1]) { visSeen[i - 1] = 1; visQ[tail++] = i - 1; }
+        if (x < 15 && !visSeen[i + 1]) { visSeen[i + 1] = 1; visQ[tail++] = i + 1; }
+        if (z > 0 && !visSeen[i - 16]) { visSeen[i - 16] = 1; visQ[tail++] = i - 16; }
+        if (z < 15 && !visSeen[i + 16]) { visSeen[i + 16] = 1; visQ[tail++] = i + 16; }
+        if (y > 0 && !visSeen[i - 256]) { visSeen[i - 256] = 1; visQ[tail++] = i - 256; }
+        if (y < 15 && !visSeen[i + 256]) { visSeen[i + 256] = 1; visQ[tail++] = i + 256; }
+      }
+      for (let a = 0; a < 6; a++) if (faces & (1 << a)) for (let b = a + 1; b < 6; b++) if (faces & (1 << b)) mask |= 1 << facePair(a, b);
+    }
+    out[sc] = mask;
+  }
+  return out;
 }
 
 function emitQuad(bd: Builder, d: number, axis: number, s: number, ua: number, u0: number, w: number, va: number, v0: number, h: number, tile: number, ov: number, L: number, A: number, T: number, tb: number): void {
