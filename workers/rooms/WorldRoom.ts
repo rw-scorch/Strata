@@ -67,6 +67,12 @@ function safeEqual(a: string, b: string): boolean {
   return d === 0;
 }
 
+function cleanSkin(v: unknown): { png: string; slim: boolean } | null {
+  const o = v as { png?: unknown; slim?: unknown } | null;
+  if (!o || typeof o.png !== 'string' || o.png.length > 12000 || !o.png.startsWith('data:image/png;base64,') || !/^[A-Za-z0-9+/=]+$/.test(o.png.slice(22))) return null;
+  return { png: o.png, slim: o.slim === true };
+}
+
 function defaultSettings(): RoomSettings { return { pvp: true, guestsBuild: true, cheats: false, personalPacks: true, voice: true }; }
 
 export class WorldRoom extends DurableObject<Env> {
@@ -444,7 +450,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private publicPlayer(p: SimPlayer): PublicPlayer {
-    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id) };
+    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id), skin: p.skin ?? null };
   }
 
   private systemChat(text: string, kind: Extract<S2C, { t: 'chat' }>['kind'] = 'system', to?: Session): void {
@@ -551,6 +557,7 @@ export class WorldRoom extends DurableObject<Env> {
     sim.setNow(Date.now());
     const p = this.playerFromData(id, name, row && row.data ? JSON.parse(row.data as string) : null);
     p.appearance = cleanAppearance(msg.appearance);
+    p.skin = cleanSkin(msg.skin);
     p.op = (id === m.ownerId && hash === m.ownerHash) || !!m.ops?.some((o) => o.id === id && o.hash === hash);
     if (spectate) {
       p.op = true; p.mode = 'creative'; p.vanished = true;
@@ -654,6 +661,14 @@ export class WorldRoom extends DurableObject<Env> {
       case 'kick': this.kick(s, msg.pid, 'kicked'); return;
       case 'mute': this.mute(s, msg.pid, !!msg.on); return;
       case 'rtc': this.relayRtc(s, p, msg); return;
+      case 'skin': {
+        const now = Date.now();
+        if (now - ((s as Session & { skinT?: number }).skinT ?? 0) < 5000) return;
+        (s as Session & { skinT?: number }).skinT = now;
+        p.skin = cleanSkin(msg.skin);
+        if (!p.vanished) this.broadcast({ t: 'pj', p: this.publicPlayer(p) });
+        return;
+      }
     }
   }
 

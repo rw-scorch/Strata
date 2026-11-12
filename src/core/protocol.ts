@@ -47,7 +47,8 @@ export interface RoomInfo {
   arena?: ArenaKind | null;
 }
 
-export interface PublicPlayer { id: string; name: string; appearance: Appearance; op: boolean; mode: GameMode; muted?: boolean; }
+export interface SkinRef { png: string; slim: boolean }
+export interface PublicPlayer { id: string; name: string; appearance: Appearance; op: boolean; mode: GameMode; muted?: boolean; skin?: SkinRef | null }
 
 export interface YouState {
   id: string; x: number; y: number; z: number; yaw: number; pitch: number;
@@ -56,7 +57,7 @@ export interface YouState {
 }
 
 export type C2S =
-  | { t: 'hello'; v: number; id: string; secret: string; name: string; appearance: Appearance; admin?: string; at?: string }
+  | { t: 'hello'; v: number; id: string; secret: string; name: string; appearance: Appearance; admin?: string; at?: string; skin?: SkinRef | null }
   | { t: 'mv'; p: number[] }
   | { t: 'chunks'; want: number[][] }
   | { t: 'dig'; a: 'start' | 'abort' | 'done'; x: number; y: number; z: number }
@@ -77,7 +78,8 @@ export type C2S =
   | { t: 'resync' }
   | { t: 'buy'; k: string }
   | { t: 'ue'; id: number }
-  | { t: 'rtc'; to: string; d: unknown };
+  | { t: 'rtc'; to: string; d: unknown }
+  | { t: 'skin'; skin: SkinRef | null };
 
 export type S2C =
   | { t: 'rules'; r: RuleSet }

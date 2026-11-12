@@ -1,3 +1,4 @@
+import { loadCustomSkin } from '../resources/skins';
 import { VoiceChat, VoiceState } from '../audio/VoiceChat';
 import type { RuleSet } from '../core/sim/WorldSim';
 import * as THREE from 'three';
@@ -341,7 +342,7 @@ export class Game {
     }, info.kind === 'remote' ? `room:${info.roomCode}` : `local:${info.seed}:${info.name}`);
     this.minimap.setPrefs(getSettings().showMinimap, getSettings().showCoords);
     this.applyRules();
-    this.chatUI.onWaypoint = (w) => { this.minimap?.add(w.name, w.x, w.y, w.z); toast(`Saved waypoint ${w.name}.`, 'info'); };
+    this.chatUI.onWaypoint = (w) => { const nw = this.minimap?.add(w.name, w.x, w.y, w.z); toast(`Saved waypoint ${w.name}.`, 'info'); if (nw && this.minimap) { this.desktop?.unlock(); this.minimap.editWaypoint(nw, () => {}); } };
     this.running = true;
     this.loadStart = performance.now();
     this.last = performance.now();
@@ -351,11 +352,32 @@ export class Game {
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
       if (e.code === 'KeyV' && !e.repeat) this.voice?.setPtt(down);
       if (e.code === 'KeyM' && down && !e.repeat && this.voice) { this.voice.setMuted(!this.voice.muted); }
+      if (down && !e.repeat && this.state === 'playing' && this.minimap) {
+        if (e.code === 'KeyN' && e.shiftKey) this.minimap.toggleHideAll();
+        else if (e.code === 'KeyN') { this.desktop?.unlock(); this.minimap.openBig(); }
+        else if (e.code === 'KeyB') {
+          const p = this.player;
+          const w = this.minimap.add(`Waypoint ${this.minimap.waypoints.length + 1}`, p.x, p.y, p.z);
+          toast(`Dropped ${w.name}. Press N to edit it.`, 'info');
+        }
+      }
     };
     const vd = (e: KeyboardEvent) => voiceKey(e, true), vu = (e: KeyboardEvent) => voiceKey(e, false);
     window.addEventListener('keydown', vd); window.addEventListener('keyup', vu);
     this.disposers.push(() => { window.removeEventListener('keydown', vd); window.removeEventListener('keyup', vu); this.voice?.disable(); this.voice = null; this.voiceEl?.remove(); this.voiceEl = null; });
     this.syncVoice();
+    const onSkin = () => {
+      this.renderer.selfSkin = loadCustomSkin();
+      this.renderer.refreshHand();
+      this.setHeld(true);
+      const rs = this.session as unknown as { sendSkin?: (s: unknown) => void };
+      rs.sendSkin?.(this.renderer.selfSkin);
+    };
+    this.renderer.selfSkin = loadCustomSkin();
+    this.renderer.refreshHand();
+    this.setHeld(true);
+    window.addEventListener('strata-skin', onSkin);
+    this.disposers.push(() => window.removeEventListener('strata-skin', onSkin));
     const poke = () => { this.lastInput = performance.now(); };
     for (const ev of ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'wheel']) window.addEventListener(ev, poke, { passive: true });
     this.disposers.push(() => { for (const ev of ['keydown', 'pointerdown', 'pointermove', 'touchstart', 'wheel']) window.removeEventListener(ev, poke); });
@@ -667,6 +689,7 @@ export class Game {
   }
 
   onDeath(msg: string): void {
+    if (this.minimap) { const p = this.player; this.minimap.addDeath(p.x, p.y, p.z); }
     this.inv?.close(true);
     this.closePause?.();
     this.desktop?.unlock();
@@ -699,7 +722,7 @@ export class Game {
     this.players.set(p.id, p);
     if (known) {
       const v = this.renderer?.entities.views.get(`p:${p.id}`);
-      if (v) this.renderer.entities.upsert(`p:${p.id}`, 'player', 0, v.x, v.y, v.z, v.yaw, v.pitch, v.flags, 0, performance.now(), { name: p.name, appearance: p.appearance });
+      if (v) this.renderer.entities.upsert(`p:${p.id}`, 'player', 0, v.x, v.y, v.z, v.yaw, v.pitch, v.flags, 0, performance.now(), { name: p.name, appearance: p.appearance, skin: p.skin ?? null });
     }
   }
 
@@ -707,7 +730,7 @@ export class Game {
 
   onPlayerMove(id: string, x: number, y: number, z: number, yaw: number, pitch: number, flags: number): void {
     const p = this.players.get(id);
-    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, 0, performance.now(), p ? { name: p.name, appearance: p.appearance } : undefined);
+    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, 0, performance.now(), p ? { name: p.name, appearance: p.appearance, skin: p.skin ?? null } : undefined);
   }
 
   onRoom(meta: RoomMeta, players: PublicPlayer[]): void {
@@ -824,7 +847,7 @@ export class Game {
         if (getBlock(this.chunks.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))).opaque) { dist = d - 0.3; break; }
       }
       cam.position.copy(eye).addScaledVector(dir, -dist);
-      this.renderer.entities.upsert('me', 'player', 0, this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0), 0, performance.now(), { name: me.name, appearance: me.appearance });
+      this.renderer.entities.upsert('me', 'player', 0, this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0), 0, performance.now(), { name: me.name, appearance: me.appearance, skin: this.renderer.selfSkin });
     } else cam.position.copy(eye);
     const draw = Math.min(1, this.interaction.drawing);
     const fovTarget = (st.fov + this.player.fovBoost * 9 * (this.player.flying ? 1.4 : 1)) * (1 - 0.15 * draw * draw);
@@ -874,7 +897,7 @@ export class Game {
     this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0;
     { const held = heldStack(this.session.me.inv); this.hud.setAttackCharge(attackCharge(performance.now() - this.interaction.lastSwing, attackStats(held).speed)); }
     if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
-    if (!loading) this.minimap?.update();
+    if (!loading && this.minimap) { this.minimap.update(); this.renderer.beams.set(this.minimap.visibleWaypoints(), this.minimap.version * 2 + (this.minimap.hideAll ? 1 : 0) + (this.minimap.mapAllowed ? 0 : 7919)); }
     this.hud.updateVitals(this.vitals, this.hurtShake > 0);
     this.frames++;
     this.fpsT += dt;

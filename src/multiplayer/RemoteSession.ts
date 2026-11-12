@@ -1,3 +1,4 @@
+import { loadCustomSkin } from '../resources/skins';
 import { PROTOCOL_VERSION, GameMode } from '../core/constants';
 import { WorldSim, SimPlayer, newPlayer, BlockEntity, Appearance, Weather } from '../core/sim/WorldSim';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -81,7 +82,7 @@ export class RemoteSession implements GameSession {
       let spec: { code?: string; key?: string; at?: string } = {};
       try { spec = JSON.parse(sessionStorage.getItem('strata.spectate') ?? '{}'); } catch { /* none */ }
       const admin = spec.code === this.code && spec.key ? { admin: spec.key, at: spec.at } : {};
-      this.send({ t: 'hello', v: PROTOCOL_VERSION, id: this.id.id, secret: this.id.secret, name: this.name, appearance: this.appearance, ...admin });
+      this.send({ t: 'hello', v: PROTOCOL_VERSION, id: this.id.id, secret: this.id.secret, name: this.name, appearance: this.appearance, skin: loadCustomSkin(), ...admin });
     };
     ws.onmessage = (e) => {
       this.inCount++;
@@ -364,6 +365,7 @@ export class RemoteSession implements GameSession {
   kick(pid: string): void { this.send({ t: 'kick', pid }); }
   mute(pid: string, on: boolean): void { this.send({ t: 'mute', pid, on }); }
   rtc(to: string, d: unknown): void { this.send({ t: 'rtc', to, d }); }
+  sendSkin(skin: { png: string; slim: boolean } | null): void { this.send({ t: 'skin', skin }); }
   getBlockEntity(key: string): BlockEntity | undefined { return this.sim?.blockEntities.get(key); }
   close(): void { this.closed = true; this.ws?.close(1000, 'leaving'); this.ws = null; this.state = 'offline'; }
   stats() { return { rtt: this.rtt, inRate: this.inRate, outRate: this.outRate, state: this.state }; }

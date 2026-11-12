@@ -1,3 +1,4 @@
+import { findCoords } from './waypointData';
 import type { RuleSet } from '../core/sim/WorldSim';
 import { mcButton, mcCycle, menuScale } from './mc/Widgets';
 import { Minimap } from './Minimap';
@@ -94,10 +95,12 @@ export class ChatUI {
     if (from && this.localMuted.has(from.id)) return;
     const d = new Date(ts);
     const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    const wp = Minimap.parse(text);
+    const found = Minimap.parse(text);
+    const loose = !found && from ? findCoords(text) : null;
+    const wp = found ?? (loose ? { name: `From ${from!.name}`, ...loose } : null);
     const full = from ? `<${from.name}> ${text}` : text;
     const el = h('div', { class: `line ${from ? 'msg' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, `<${from.name}>`) : null, text,
-      wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, 'Save waypoint') : null,
+      wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, found ? 'Save waypoint' : `Save ${wp.x} ${wp.y} ${wp.z}`) : null,
       h('button', { class: 'copy', tabindex: '-1' }, 'Copy'));
     el.dataset.text = full;
     const stick = this.box.scrollHeight - this.box.scrollTop - this.box.clientHeight < 30;

@@ -1,3 +1,5 @@
+import { loadCustomSkin, saveCustomSkin, readSkinFile, skinFromAppearance, canvas64, skinImage } from '../resources/skins';
+import { openSkinEditor, SkinPreview } from './SkinEditor';
 import { h, toast } from './dom';
 import { getSettings, updateSettings, GraphicsPreset, isTouchDevice, Settings } from '../storage/Settings';
 import { storageEstimate, requestPersistence } from '../storage/db';
@@ -165,17 +167,52 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
         break;
       case 'skin': {
         const prev = h('div', { class: 'mc-skin-prev' });
-        const redraw = () => { prev.replaceChildren(drawAvatar(getSettings().appearance, 5, true)); };
-        redraw();
+        let custom = loadCustomSkin();
+        let p3d: SkinPreview | null = null;
+        const redraw = () => {
+          p3d?.dispose(); p3d = null;
+          custom = loadCustomSkin();
+          const src = canvas64();
+          const draw = (img: CanvasImageSource) => { const g = src.getContext('2d')!; g.clearRect(0, 0, 64, 64); g.drawImage(img, 0, 0); p3d = new SkinPreview(src, 150); p3d.setSlim(custom?.slim ?? false); prev.replaceChildren(p3d.canvas); p3d.start(); };
+          if (custom) void skinImage(custom.png).then(draw).catch(() => draw(skinFromAppearance(getSettings().appearance)));
+          else draw(skinFromAppearance(getSettings().appearance));
+          status.textContent = custom ? `Using your custom skin (${custom.slim ? 'slim' : 'wide'} arms). Other players see it in multiplayer.` : 'Using the simple look below. Import a Java skin file (64×64 or old 64×32) or paint your own.';
+        };
+        const status = mcText('', { center: true, small: true });
         const pick = (label: string, key: 'skin' | 'hair' | 'shirt' | 'pants', n: number) =>
           mcCycle(label, Array.from({ length: n }, (_, i) => [i, String(i + 1)] as [number, string]), s.appearance[key], (v) => { updateSettings({ appearance: { ...getSettings().appearance, [key]: v } }); redraw(); });
+        const file = h('input', { type: 'file', accept: 'image/png', style: 'display:none' }) as HTMLInputElement;
+        file.addEventListener('change', async () => {
+          const f = file.files?.[0];
+          if (!f) return;
+          try { const r = await readSkinFile(f); saveCustomSkin(r.skin); redraw(); toast(r.converted ? 'Skin imported (converted to the 64×64 layout).' : 'Skin imported.', 'success'); }
+          catch (e) { toast((e as Error).message, 'error'); }
+          file.value = '';
+        });
+        const edit = async () => {
+          const c = canvas64();
+          if (custom) c.getContext('2d')!.drawImage(await skinImage(custom.png), 0, 0);
+          else c.getContext('2d')!.drawImage(skinFromAppearance(getSettings().appearance), 0, 0);
+          openSkinEditor(c, custom?.slim ?? false, (png, slim) => { saveCustomSkin({ png, slim }); redraw(); }, [
+            { name: 'My simple look', make: () => skinFromAppearance(getSettings().appearance) },
+            { name: 'Blank', make: () => canvas64() },
+          ]);
+        };
         scr = screen('Skin Customization',
-          prev,
+          prev, status,
           mcRow(mcInput(s.playerName, 'Wayfarer', (v) => set({ playerName: v.replace(/[<>]/g, '').slice(0, 16) }), 310, 16)),
+          mcRow(mcButton('Import Skin File...', () => file.click()), mcButton('Skin Editor...', () => void edit())),
+          mcRow(mcButton('Arms: Wide / Slim', () => { if (custom) { saveCustomSkin({ ...custom, slim: !custom.slim }); redraw(); } else toast('Import or paint a custom skin first.', 'info'); }),
+            mcButton('Download Skin', () => { const png = custom?.png ?? skinFromAppearance(getSettings().appearance).toDataURL('image/png'); const a = h('a', { href: png, download: 'strata-skin.png' }) as HTMLAnchorElement; document.body.appendChild(a); a.click(); a.remove(); })),
+          mcRow(mcButton('Use Simple Look', () => { saveCustomSkin(null); redraw(); }, 310, { disabled: false })),
+          mcHeading('Simple look'),
           mcRow(pick('Skin', 'skin', 8), pick('Hair', 'hair', 8)),
           mcRow(pick('Shirt', 'shirt', 12), pick('Trousers', 'pants', 12)),
-          mcText('Custom skin files arrive in a later update.', { center: true, small: true }),
+          file,
         );
+        const origClose = scr.close;
+        scr.close = () => { p3d?.dispose(); origClose(); };
+        redraw();
         break;
       }
       case 'access':

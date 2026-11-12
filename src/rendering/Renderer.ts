@@ -6,6 +6,7 @@ import { deriveGfx, GfxConfig } from './Graphics';
 import type { Settings } from '../storage/Settings';
 import { POS_SCALE, SECTIONS, facePair } from './Mesher';
 import { LodManager, LOD_SAMPLES } from './lod/LodManager';
+import { WaypointBeams } from './WaypointBeams';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { MeshResult } from './Mesher';
 import { Sky, computeSky, SkyState } from './Sky';
@@ -63,6 +64,9 @@ export class Renderer {
   private stamp = 0;
   cullRadius = 8;
   lod: LodManager | null = null;
+  readonly beams = new WaypointBeams();
+  selfSkin: { png: string; slim: boolean } | null = null;
+  refreshHand(): void { this.handItemId = -2; }
   private lodScene = new THREE.Scene();
   private lodCam = new THREE.PerspectiveCamera(70, 1, 2, 10000);
   private lodWorld: { seed: number; arena: ArenaKind | null } | null = null;
@@ -146,7 +150,7 @@ export class Renderer {
     this.crack = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), this.crackMat);
     this.crack.visible = false;
     this.crack.renderOrder = 9;
-    this.scene.add(this.outline, this.crack);
+    this.scene.add(this.outline, this.crack, this.beams.group);
     for (const o of [this.outline, this.crack, this.particles.points]) o.layers.set(2);
     this.weather.group.traverse((o) => o.layers.set(2));
     this.uniforms.uCloudMap.value = atlas.cloudTexture;
@@ -475,7 +479,7 @@ export class Renderer {
     this.handSkin = skin;
     if (this.handItem) { this.hand.remove(this.handItem); this.handItem.traverse((o) => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); }); }
     if (id < 0) {
-      const m = this.entities.armModel(skin);
+      const m = this.entities.armModel(skin, this.selfSkin);
       this.armVanilla = m.vanilla;
       if (m.vanilla) { m.obj.matrixAutoUpdate = false; firstPersonArmMatrix(0, m.obj.matrix); }
       else { m.obj.position.set(0.5, -0.5, -0.62); m.obj.rotation.set(1.2, 0.1, 0.25); }
@@ -537,7 +541,7 @@ export class Renderer {
     cam.up.set(0, 0, 1);
     cam.lookAt(center);
     cam.updateMatrixWorld();
-    const hide = [this.sky.group, this.sky.cloudMesh, this.particles.points, this.weather.group, this.outline, this.crack];
+    const hide = [this.sky.group, this.sky.cloudMesh, this.particles.points, this.weather.group, this.outline, this.crack, this.beams.group];
     const was = hide.map((o) => o.visible);
     for (const o of hide) o.visible = false;
     const entVis = this.entities.group.visible;
@@ -600,6 +604,7 @@ export class Renderer {
     this.sky.update(this.camera, st, env.time, env.rain);
     this.sky.group.visible = !env.underwater && !env.inLava;
     this.cullRadius = env.renderDistance + 1;
+    this.beams.update(this.camera.position);
     if (this.shadows && this.gfx.shadowRes) this.fullRanges();
     this.updateShadows();
     this.cull();

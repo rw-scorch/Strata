@@ -17,10 +17,15 @@ function client(id, secret, name, extra = {}) {
 }
 const a = client('owner-v10-0001', 'owner-secret-v10-0000', 'Alpha');
 await sleep(800);
-const b = client('guest-v10-0002', 'guest-secret-v10-0000', 'Bravo');
+const SKIN = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+const b = client('guest-v10-0002', 'guest-secret-v10-0000', 'Bravo', { skin: { png: SKIN, slim: true } });
 await sleep(1500);
 ok('both joined', !!a.welcome && !!b.welcome);
 ok('welcome has rules', !!a.welcome?.rules);
+ok('skin synced to other players', a.msgs.some((m) => m.t === 'pj' && m.p.skin?.png === SKIN && m.p.skin.slim === true));
+b.send({ t: 'skin', skin: { png: 'javascript:alert(1)', slim: false } });
+await sleep(300);
+ok('bad skin rejected', a.msgs.filter((m) => m.t === 'pj' && m.p.name === 'Bravo').at(-1).p.skin === null);
 const sp = a.welcome.you;
 a.send({ t: 'mv', p: [sp.x, sp.y, sp.z, 0, 0, 1] });
 b.send({ t: 'mv', p: [sp.x + 3, sp.y, sp.z, 0, 0, 1] });

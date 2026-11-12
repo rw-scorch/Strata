@@ -7,7 +7,7 @@ import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { WorldUniforms } from './ChunkMaterial';
-import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, VanillaSpec, RigPart } from './VanillaModels';
+import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, PLAYER_ARM_CUBES_SLIM, playerSpec, VanillaSpec, RigPart } from './VanillaModels';
 
 export const SKIN = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac, 0x5c3a21, 0xd4a373, 0xa0522d];
 export const HAIR = [0x2b1d0e, 0x5a3825, 0xb5651d, 0xe6c35c, 0x111111, 0xa83232, 0xdddddd, 0x3a5fcd];
@@ -192,7 +192,7 @@ export interface EntityView {
 }
 
 type Built = { obj: THREE.Group; parts: Map<string, THREE.Object3D>; mats: THREE.ShaderMaterial[]; spec?: VanillaSpec; rig?: Map<string, RigPart> };
-const armGeoCache: { g?: THREE.BufferGeometry } = {};
+const armGeoCache: { g?: THREE.BufferGeometry; s?: THREE.BufferGeometry } = {};
 
 export type LightProbe = (x: number, y: number, z: number) => number;
 
@@ -213,18 +213,35 @@ export class EntityRenderer {
     const now = performance.now();
     for (const v of [...this.views.values()]) {
       const app = (v as EntityView & { app?: Appearance }).app;
+      const skin = (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin;
       const snap = { id: v.id, kind: v.kind, type: v.type, x: v.x, y: v.y, z: v.z, yaw: v.yaw, pitch: v.pitch, flags: v.flags, extra: v.extra, name: v.name };
       this.removeNow(v.id);
-      this.upsert(snap.id, snap.kind, snap.type, snap.x, snap.y, snap.z, snap.yaw, snap.pitch, snap.flags, snap.extra, now, snap.name ? { name: snap.name, appearance: app } : undefined);
+      this.upsert(snap.id, snap.kind, snap.type, snap.x, snap.y, snap.z, snap.yaw, snap.pitch, snap.flags, snap.extra, now, snap.name ? { name: snap.name, appearance: app, skin } : undefined);
     }
   }
 
-  private vanilla(key: MobType | 'player', skin = 0, texKey?: string): Built | null {
-    const spec = VANILLA[key];
+  private skinTex = new Map<string, THREE.Texture>();
+
+  customSkinTexture(png: string): THREE.Texture {
+    let t = this.skinTex.get(png);
+    if (t) return t;
+    const img = new Image();
+    t = new THREE.Texture(img);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.flipY = false;
+    const tex = t;
+    img.onload = () => { tex.needsUpdate = true; };
+    img.src = png;
+    if (this.skinTex.size > 80) { const first = this.skinTex.keys().next().value!; this.skinTex.get(first)?.dispose(); this.skinTex.delete(first); }
+    this.skinTex.set(png, t);
+    return t;
+  }
+
+  private vanilla(key: MobType | 'player', skin = 0, texKey?: string, custom?: { png: string; slim: boolean }): Built | null {
+    const spec = key === 'player' && custom ? playerSpec(custom.slim) : VANILLA[key];
     if (!spec) return null;
     const count = this.atlas.playerSkinCount;
     const mainKey = key === 'player' ? (count ? `player${skin % count}` : '') : spec.main;
-    const tex = (texKey ? this.atlas.entityTextures.get(texKey) : undefined) ?? this.atlas.entityTextures.get(mainKey);
+    const tex = custom ? this.customSkinTexture(custom.png) : (texKey ? this.atlas.entityTextures.get(texKey) : undefined) ?? this.atlas.entityTextures.get(mainKey);
     if (!tex) return null;
     const mats: THREE.ShaderMaterial[] = [];
     const main = this.material(tex);
@@ -283,14 +300,15 @@ export class EntityRenderer {
     return { obj, parts, mats: [mat, emat] };
   }
 
-  armModel(skin: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[]; vanilla: boolean } {
+  armModel(skin: number, custom?: { png: string; slim: boolean } | null): { obj: THREE.Group; mats: THREE.ShaderMaterial[]; vanilla: boolean } {
     const obj = new THREE.Group();
     const count = this.atlas.playerSkinCount;
-    const tex = count ? this.atlas.entityTextures.get(`player${skin % count}`) : undefined;
+    const tex = custom ? this.customSkinTexture(custom.png) : count ? this.atlas.entityTextures.get(`player${skin % count}`) : undefined;
     if (tex) {
       const m = this.material(tex);
       armGeoCache.g ??= cubesGeometry(PLAYER_ARM_CUBES, 64, 64);
-      obj.add(new THREE.Mesh(armGeoCache.g, m));
+      armGeoCache.s ??= cubesGeometry(PLAYER_ARM_CUBES_SLIM, 64, 64);
+      obj.add(new THREE.Mesh(custom?.slim ? armGeoCache.s : armGeoCache.g, m));
       return { obj, mats: [m], vanilla: true };
     }
     const m = this.material();
@@ -370,9 +388,9 @@ export class EntityRenderer {
     return s;
   }
 
-  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance }): EntityView {
+  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance; skin?: { png: string; slim: boolean } | null }): EntityView {
     let v = this.views.get(id);
-    if (v && v.kind === 'player' && opts?.appearance && JSON.stringify(opts.appearance) !== JSON.stringify((v as EntityView & { app?: Appearance }).app)) {
+    if (v && v.kind === 'player' && opts?.appearance && (JSON.stringify(opts.appearance) !== JSON.stringify((v as EntityView & { app?: Appearance }).app) || (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : '') !== (v as EntityView & { skinKey?: string }).skinKey)) {
       this.removeNow(id);
       v = undefined;
     }
@@ -408,7 +426,7 @@ export class EntityRenderer {
         hw = def.hw; h = def.h;
       } else if (kind === 'player') {
         const ap = opts?.appearance ?? { skin: 0, hair: 0, shirt: 0, pants: 0 };
-        built = this.vanilla('player', ap.skin) ?? this.build(playerParts(ap));
+        built = (opts?.skin ? this.vanilla('player', ap.skin, undefined, opts.skin) : null) ?? this.vanilla('player', ap.skin) ?? this.build(playerParts(ap));
       } else if (kind === 'item') {
         const m = this.itemModel(type);
         built = { obj: m.obj, parts: new Map(), mats: m.mats };
@@ -431,7 +449,7 @@ export class EntityRenderer {
         age: Math.random() * 100, spd: 0, spec: built.spec, rig: built.rig,
         limbs: [...built.parts].filter(([n]) => /^leg([0-3LR])$/.test(n)).map(([n, o]) => { const c = n.slice(3); return [o, c === 'L' ? 0 : c === 'R' ? 1 : Number(c)] as [THREE.Object3D, number]; }),
       };
-      if (kind === 'player' && opts?.name) { v.name = opts.name; v.tag = this.nameTag(opts.name); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; }
+      if (kind === 'player' && opts?.name) { v.name = opts.name; v.tag = this.nameTag(opts.name); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; (v as EntityView & { skinKey?: string }).skinKey = (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : ''); (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin = opts.skin ?? null; }
       if (kind === 'mob') {
         const def = MOB_BY_CODE[type];
         const tg = this.tags.get(id) ?? (def?.type === 'quartermaster' ? { name: 'Quartermaster', color: '#f3d27a' } : undefined);

@@ -11,6 +11,22 @@ export interface VanillaSpec { key: string; main: EntityTexKey; overlay?: Entity
 
 const HALF_PI = Math.PI / 2;
 
+function slimPlayer(): VPart[] {
+  const parts = humanoid('player');
+  const ra = parts.find((p) => p.n === 'right_arm')!, la = parts.find((p) => p.n === 'left_arm')!;
+  ra.pivot = [-5, 2.5, 0];
+  la.pivot = [5, 2.5, 0];
+  ra.cubes = [{ o: [-2, -2, -2], s: [3, 12, 4], uv: [40, 16] }, { o: [-2, -2, -2], s: [3, 12, 4], uv: [40, 32], inf: 0.25 }];
+  la.cubes = [{ o: [-1, -2, -2], s: [3, 12, 4], uv: [32, 48] }, { o: [-1, -2, -2], s: [3, 12, 4], uv: [48, 48], inf: 0.25 }];
+  return parts;
+}
+
+export function playerSpec(slim: boolean): VanillaSpec {
+  return { key: slim ? 'player_slim' : 'player', main: 'player0', texH: 64, height: 1.8, modelH: 32, rig: 'humanoid', parts: slim ? slimPlayer() : humanoid('player') };
+}
+
+export const PLAYER_ARM_CUBES_SLIM: VCube[] = [{ o: [-2, -2, -2], s: [3, 12, 4], uv: [40, 16] }, { o: [-2, -2, -2], s: [3, 12, 4], uv: [40, 32], inf: 0.25 }];
+
 function humanoid(kind: 'player' | 'zombie' | 'skeleton'): VPart[] {
   const thin = kind === 'skeleton';
   const split = kind === 'player';

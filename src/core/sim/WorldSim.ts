@@ -52,6 +52,7 @@ export interface SimPlayer {
   homes?: Record<string, { x: number; y: number; z: number }>;
   back?: { x: number; y: number; z: number };
   vanished?: boolean;
+  skin?: { png: string; slim: boolean } | null;
 }
 
 export type EntityKind = 'mob' | 'item' | 'arrow';
