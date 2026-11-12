@@ -4,8 +4,8 @@ import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../sr
 import { WorldGenerator } from '../../src/core/worldgen/WorldGenerator';
 import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
-import { Minigame } from '../../src/core/minigames/Minigame';
-import { isArenaKind } from '../../src/core/minigames/arena';
+import { Minigame } from '../../src/core/labs/minigames/Minigame';
+import { isArenaKind } from '../../src/core/labs/minigames/arena';
 import { B, blockId } from '../../src/core/blocks';
 import { sanitizeInv, validateOp, invHash, validStack, cloneStack } from '../../src/core/inventory';
 import {
@@ -19,7 +19,7 @@ export interface Env {
   ACCOUNTS?: DurableObjectNamespace;
 }
 
-interface StoredMeta extends RoomMeta { ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
+interface StoredMeta extends RoomMeta { pvpV6?: boolean; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
 
 interface Session {
   ws: WebSocket;
@@ -56,7 +56,7 @@ async function sha256(s: string): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function defaultSettings(): RoomSettings { return { pvp: false, guestsBuild: true, cheats: false, personalPacks: true }; }
+function defaultSettings(): RoomSettings { return { pvp: true, guestsBuild: true, cheats: false, personalPacks: true }; }
 
 export class WorldRoom extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -148,6 +148,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.sim.time = m.time ?? 1000;
     this.sim.weather = (m.weather as 'clear') ?? 'clear';
     this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true };
+    if (!m.pvpV6) { m.settings.pvp = true; m.pvpV6 = true; this.sim.settings.pvp = true; this.saveMeta(); }
     if (!this.loaded) {
       for (const row of this.sql.exec(`SELECT k, data FROM be`).toArray()) {
         try {
@@ -295,7 +296,8 @@ export class WorldRoom extends DurableObject<Env> {
       createdAt: Date.now(), version: PROTOCOL_VERSION,
       pack: pack && typeof pack.hash === 'string' ? { name: cleanText(pack.name, 40), hash: cleanText(pack.hash, 80) } : null,
       arena, ops: [],
-      settings: { ...defaultSettings(), pvp: !!s.pvp || !!arena, guestsBuild: s.guestsBuild !== false, cheats: mode === 'creative' ? s.cheats !== false : !!s.cheats, personalPacks: s.personalPacks !== false },
+      pvpV6: true,
+      settings: { ...defaultSettings(), pvp: s.pvp !== false || !!arena, guestsBuild: s.guestsBuild !== false, cheats: mode === 'creative' ? s.cheats !== false : !!s.cheats, personalPacks: s.personalPacks !== false },
       region: cleanText(body.region, 8) || 'auto',
       ownerHash: await sha256(ownerSecret), time: 1000, weather: 'clear', dayCycle: true, muted: [], bans: {},
     };
@@ -525,8 +527,10 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       }
       case 'eat': sim.eat(p); return;
+      case 'bow': if (typeof msg.p === 'number' && typeof msg.y === 'number' && typeof msg.x === 'number') sim.shootBow(p, msg.p, msg.y, msg.x); return;
       case 'atk': if (isInt(msg.id, 0, 1e9)) sim.attack(p, msg.id); return;
       case 'ue': if (isInt(msg.id, 0, 1e9)) sim.useEntity(p, msg.id); return;
+      case 'trd': if (isInt(msg.id, 0, 1e9) && isInt(msg.i, 0, 64) && isInt(msg.n, 1, 64)) sim.trade(p, msg.id, msg.i, msg.n); return;
       case 'pvp': if (typeof msg.pid === 'string') sim.attackPlayer(p, msg.pid); return;
       case 'inv': {
         const op = validateOp(msg.op);
@@ -709,7 +713,7 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       case 'vitals': {
         const s = this.sessionFor(ev.p.id);
-        if (s) this.send(s, { t: 'vit', h: ev.p.health, f: ev.p.food, s: Math.round(ev.p.sat * 10) / 10, a: ev.p.air, xp: ev.p.xp, dead: ev.p.dead, mode: ev.p.mode });
+        if (s) this.send(s, { t: 'vit', h: ev.p.health, f: ev.p.food, s: Math.round(ev.p.sat * 10) / 10, a: ev.p.air, xp: ev.p.xp, dead: ev.p.dead, mode: ev.p.mode, fire: ev.p.fireT > 0 });
         return;
       }
       case 'inv': {
@@ -719,25 +723,26 @@ export class WorldRoom extends DurableObject<Env> {
       }
       case 'container': {
         this.dirtyBE.add(ev.key);
-        const be = this.sim!.blockEntities.get(ev.key);
         for (const s of this.sessions.values()) {
           if (!s.pid) continue;
           const p = this.sim!.players.get(s.pid);
-          if (!p || !p.screen.type || posKey(p.screen.x, p.screen.y, p.screen.z) !== ev.key) continue;
-          if (be) this.send(s, be.type === 'furnace' ? { t: 'cont', k: ev.key, type: 'furnace', items: be.items, burn: be.burn, burnMax: be.burnMax, cook: be.cook } : { t: 'cont', k: ev.key, type: 'chest', items: be.items });
+          if (!p || !p.screen.type) continue;
+          const v = this.sim!.containerView(p);
+          if (!v || !v.keys.includes(ev.key)) continue;
+          this.send(s, v.type === 'furnace' ? { t: 'cont', k: v.key, type: 'furnace', items: v.items, burn: v.burn, burnMax: v.burnMax, cook: v.cook } : { t: 'cont', k: v.key, type: 'chest', items: v.items });
         }
         return;
       }
+      case 'chestLid':
+        this.sendNear(ev.x + 0.5, ev.z + 0.5, 64, { t: 'lid', x: ev.x, y: ev.y, z: ev.z, n: ev.n });
+        return;
       case 'screen': {
         const s = this.sessionFor(ev.p.id);
         if (!s) return;
         const sc = ev.p.screen;
         this.send(s, { t: 'scr', type: sc.type, x: sc.x, y: sc.y, z: sc.z });
-        if (sc.type === 'chest' || sc.type === 'furnace') {
-          const k = posKey(sc.x, sc.y, sc.z);
-          const be = this.sim!.blockEntities.get(k);
-          if (be) this.send(s, be.type === 'furnace' ? { t: 'cont', k, type: 'furnace', items: be.items, burn: be.burn, burnMax: be.burnMax, cook: be.cook } : { t: 'cont', k, type: 'chest', items: be.items });
-        }
+        const v = this.sim!.containerView(ev.p);
+        if (v) this.send(s, v.type === 'furnace' ? { t: 'cont', k: v.key, type: 'furnace', items: v.items, burn: v.burn, burnMax: v.burnMax, cook: v.cook } : { t: 'cont', k: v.key, type: 'chest', items: v.items });
         return;
       }
       case 'hurt': {
@@ -763,6 +768,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'time': this.broadcast({ t: 'time', time: this.sim!.time, cycle: this.sim!.settings.dayCycle }); return;
       case 'crafted': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'crafted', r: ev.recipe.id, n: ev.times }); return; }
       case 'game': this.broadcast({ t: 'game', s: ev.state as never }); return;
+      case 'trade': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trade', id: ev.v.id, prof: ev.v.prof ?? 0, xp: ev.v.vxp ?? 0, uses: [...(ev.v.uses ?? [])].map((u) => u ?? 0) }); return; }
       case 'title': {
         const msg: S2C = { t: 'title', text: ev.text, sub: ev.sub };
         if (ev.to) { const s = this.sessionFor(ev.to); if (s) this.send(s, msg); } else this.broadcast(msg);

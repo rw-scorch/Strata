@@ -2,7 +2,7 @@ import { MOB_BY_CODE } from '../core/sim/mobs';
 import * as THREE from 'three';
 import { raycast, RayHit } from '../core/physics';
 import { getBlock, selectionBox, blockId } from '../core/blocks';
-import { getItem } from '../core/items';
+import { getItem, I } from '../core/items';
 import { breakTime, canHarvest } from '../core/sim/WorldSim';
 import { heldStack } from '../core/inventory';
 import { REACH_CREATIVE, REACH_SURVIVAL } from '../core/constants';
@@ -26,6 +26,7 @@ export class BlockInteraction {
   private breakCd = 0;
   private attackCd = 0;
   eating = 0;
+  drawing = 0;
   private ray = new THREE.Raycaster();
   onSwing: (() => void) | null = null;
   onDigSound: ((group: string, x: number, y: number, z: number) => void) | null = null;
@@ -60,7 +61,8 @@ export class BlockInteraction {
     this.entityTarget = entityFirst ? ent!.view : null;
     this.target = entityFirst ? null : hit;
 
-    const lure = this.entityTarget?.kind === 'mob' && held ? MOB_BY_CODE[this.entityTarget.type]?.lure?.includes(held.id) : false;
+    const tdef = this.entityTarget?.kind === 'mob' ? MOB_BY_CODE[this.entityTarget.type] : undefined;
+    const lure = !!tdef?.trader || (held ? !!tdef?.lure?.includes(held.id) : false);
     if (this.entityTarget && lure && input.usePressed && this.useCd <= 0) {
       session.useEntity(this.entityTarget.id);
       this.useCd = 0.3;
@@ -121,6 +123,18 @@ export class BlockInteraction {
       this.progress = 0;
     }
 
+    const bow = held?.id === I.BOW;
+    const tInteractive = !!t && !!getBlock(world.getBlock(t.x, t.y, t.z)).interactive;
+    if (bow) {
+      const hasArrow = creative || me.inv.slots.some((s) => s?.id === I.ARROW);
+      if (input.using && hasArrow && !tInteractive && !me.dead) this.drawing += dt;
+      else if (this.drawing > 0) {
+        const f = Math.min(1, this.drawing);
+        const power = Math.min(1, (f * f + 2 * f) / 3);
+        if (power >= 0.1) { session.shoot(power, player.yaw, player.pitch); this.onSwing?.(); }
+        this.drawing = 0;
+      }
+    } else this.drawing = 0;
     const food = item?.food && !creative;
     const wantsUse = input.usePressed || (input.using && this.useCd <= 0 && !food);
     if (food && input.using && !(t && getBlock(world.getBlock(t.x, t.y, t.z)).interactive)) {
@@ -130,7 +144,7 @@ export class BlockInteraction {
         if (this.eating >= 1.6) { session.eat(); this.eating = 0; }
       }
     } else this.eating = 0;
-    if (wantsUse && t && !this.entityTarget && !(food && !getBlock(world.getBlock(t.x, t.y, t.z)).interactive)) {
+    if (wantsUse && t && !this.entityTarget && !(bow && !tInteractive) && !(food && !getBlock(world.getBlock(t.x, t.y, t.z)).interactive)) {
       session.use(t.x, t.y, t.z, t.nx, t.ny, t.nz, input.touchMode && input.forcePlace);
       this.useCd = input.usePressed ? 0.25 : 0.2;
       this.onSwing?.();

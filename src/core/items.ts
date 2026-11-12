@@ -21,6 +21,7 @@ export interface ItemDef {
   food?: FoodInfo;
   armor?: ArmorInfo;
   fuel?: number;
+  durability?: number;
   tab: CreativeTab;
   tint?: number;
 }
@@ -30,7 +31,7 @@ export const I = {
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
-  ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293,
+  ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298,
 } as const;
 
 export const TOOL_MATERIALS = ['wood', 'stone', 'iron', 'gold', 'aetherite'] as const;
@@ -83,7 +84,10 @@ mat(I.PAPER, 'paper', 'Paper', 'Pressed sugar cane sheets.');
 mat(I.BOOK, 'book', 'Book', 'Bound in hide. Shelve them as you please.');
 mat(I.RED_DYE, 'red_dye', 'Crimson Dye', 'Pressed from poppies.');
 mat(I.YELLOW_DYE, 'yellow_dye', 'Saffron Dye', 'Pressed from dandelions.');
-mat(I.ARROW, 'arrow', 'Arrow', 'Fletched with feather and flint.');
+mat(I.ARROW, 'arrow', 'Arrow', 'Fletched with feather and flint.', { tab: 'combat' });
+add({ id: I.BOW, key: 'bow', name: 'Bow', desc: 'Hold to draw, release to loose an arrow.', kind: 'material', texture: 'bow', maxStack: 1, durability: 384, tab: 'combat' });
+mat(I.EMERALD, 'emerald', 'Emerald', 'Villagers trade for these gleaming gems.');
+for (let i = 0; i < 3; i++) add({ id: I.BOW_PULL0 + i, key: `bow_pulling_${i}`, name: 'Bow', desc: '', kind: 'material', texture: `bow_pulling_${i}`, maxStack: 1, tab: 'combat' });
 mat(I.ROTTEN_FLESH, 'rotten_flesh', 'Grave Flesh', 'Edible in a pinch, but it may sicken you.', { kind: 'food', food: { hunger: 4, saturation: 0.8 } });
 add({ id: I.DOOR, key: 'oak_door_item', name: 'Oak Door', desc: 'Place on the ground. Tap to open and close.', kind: 'placer', places: B.OAK_DOOR, texture: 'oak_door_item', tab: 'functional' });
 add({ id: I.BUCKET, key: 'bucket', name: 'Bucket', desc: 'Scoop up water or lava.', kind: 'bucket', texture: 'bucket', maxStack: 16, tab: 'tools' });
@@ -162,7 +166,7 @@ export function maxStack(id: number): number {
 
 export function maxDurability(id: number): number {
   const d = items[id];
-  return d?.tool?.durability ?? d?.armor?.durability ?? 0;
+  return d?.tool?.durability ?? d?.armor?.durability ?? d?.durability ?? 0;
 }
 
 export function fuelSeconds(id: number): number {
@@ -176,4 +180,4 @@ export function fuelSeconds(id: number): number {
   return 0;
 }
 
-export const CREATIVE_HIDDEN = new Set<number>([B.WATER, B.LAVA, B.FURNACE_LIT, B.OAK_DOOR, B.WHEAT, B.FARMLAND]);
+export const CREATIVE_HIDDEN = new Set<number>([B.WATER, B.LAVA, B.FURNACE_LIT, B.OAK_DOOR, B.WHEAT, B.FARMLAND, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2]);

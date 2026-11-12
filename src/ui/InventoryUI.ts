@@ -64,8 +64,9 @@ export class InventoryUI {
   }
 
   setContainer(items: (ItemStack | null)[], burn?: number, burnMax?: number, cook?: number): void {
+    const resized = (this.container?.items.length ?? -1) !== items.length;
     this.container = { items, burn, burnMax, cook };
-    if (this.isOpen) this.refresh();
+    if (this.isOpen) { if (resized && this.screen === 'chest') this.render(); else this.refresh(); }
   }
 
   close(fromServer = false): void {
@@ -247,7 +248,7 @@ export class InventoryUI {
     this.info = h('div', { class: 'inv-info' });
     const closeBtn = h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => this.close(), html: '&times;' });
     let top: HTMLElement;
-    const titleFor: Record<InvScreen, string> = { player: 'Inventory', creative: 'Architect\'s Palette', workbench: 'Workbench', chest: 'Chest', furnace: 'Furnace' };
+    const titleFor: Record<InvScreen, string> = { player: 'Inventory', creative: 'Architect\'s Palette', workbench: 'Workbench', chest: (this.container?.items.length === 54 ? 'Large Chest' : 'Chest'), furnace: 'Furnace' };
     const head = h('div', { class: 'inv-title' }, h('span', { class: 'grow' }, titleFor[this.screen]), this.bookToggle(), closeBtn);
     if (this.screen === 'player' || this.screen === 'workbench') {
       const n = this.screen === 'workbench' ? 3 : 2;
@@ -266,7 +267,8 @@ export class InventoryUI {
       top = h('div', { class: 'inv-top' }, ...parts);
     } else if (this.screen === 'chest') {
       const g = h('div', { class: 'grid grid-9' });
-      for (let i = 0; i < 27; i++) g.appendChild(this.slot(ref('cont', i), () => this.container?.items[i] ?? null));
+      const n = this.container?.items.length === 54 ? 54 : 27;
+      for (let i = 0; i < n; i++) g.appendChild(this.slot(ref('cont', i), () => this.container?.items[i] ?? null));
       top = g;
     } else if (this.screen === 'furnace') {
       this.flameEl = h('i');

@@ -1,4 +1,4 @@
-import type { ArenaKind } from '../core/minigames/arena';
+import type { ArenaKind } from '../core/labs/minigames/arena';
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../core/constants';
 import { ChunkData, chunkKey } from '../core/chunk';
 import { OPAQUE, LIGHT_EMIT, blockId } from '../core/blocks';

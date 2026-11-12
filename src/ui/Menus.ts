@@ -1,4 +1,4 @@
-import { ARENA_KINDS, ARENA_INFO, ArenaKind } from '../core/minigames/arena';
+import { ARENA_KINDS, ARENA_INFO, ArenaKind } from '../core/labs/minigames/arena';
 import { h, clear, toast, modal, confirmDialog, promptDialog, toggle, segmented, slider, select, copyText, fmtDate, fmtTime, download } from './dom';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord, getAccount, setAccount, accountRequest, markLoginSeen } from '../storage/Settings';
@@ -61,7 +61,7 @@ export class Menus {
         h('div', { class: 'menu-buttons' },
           h('button', { class: 'btn primary', onclick: () => this.worlds() }, 'Singleplayer'),
           h('button', { class: 'btn teal', onclick: () => this.multiplayer() }, 'Multiplayer'),
-          h('button', { class: 'btn', onclick: () => this.createWorld(false, 'spires') }, 'Arena games'),
+          getSettings().labs ? h('button', { class: 'btn', onclick: () => this.createWorld(false, 'spires') }, 'Arena games (Labs)') : null,
           h('div', { class: 'menu-row' }, h('button', { class: 'btn', onclick: () => this.app.openSettings() }, 'Settings'), h('button', { class: 'btn', onclick: () => this.app.openPacks() }, 'Resource Packs')),
           h('div', { class: 'menu-row' }, h('button', { class: 'btn ghost', onclick: () => this.credits() }, 'Credits'), this.app.canInstall() ? h('button', { class: 'btn ghost', onclick: () => this.app.install() }, 'Install app') : h('button', { class: 'btn ghost', onclick: () => this.profile() }, 'Profile')),
         ),
@@ -219,7 +219,7 @@ export class Menus {
     let difficulty: Difficulty = s.difficulty;
     let maxPlayers = DEFAULT_MAX_PLAYERS;
     let region = s.region;
-    let pvp = false, guestsBuild = true, cheats = false, sharePack = !!this.app.activePackRef(), personalPacks = true;
+    let pvp = true, guestsBuild = true, cheats = false, sharePack = !!this.app.activePackRef(), personalPacks = true;
     const name = h('input', { class: 'input', value: multi ? `${s.playerName || 'Wayfarer'}'s World` : 'New World', maxlength: 32 }) as HTMLInputElement;
     const seed = h('input', { class: 'input', placeholder: 'Leave blank for a random seed', maxlength: 40 }) as HTMLInputElement;
     const err = h('div');
@@ -234,13 +234,13 @@ export class Menus {
       }
     };
     renderModes();
-    const types = h('div', { class: 'mode-cards three' });
+    const types = h('div', { class: `mode-cards${getSettings().labs ? ' three' : ''}` });
     const modeBlock = h('div');
     const renderTypes = () => {
       clear(types);
       const opts: [ArenaKind | null, string, string, string][] = [
         [null, 'Open World', 'Endless', 'The full seeded world. Explore, build and survive.'],
-        ...ARENA_KINDS.map((k) => [k, ARENA_INFO[k].name, ARENA_INFO[k].alt, ARENA_INFO[k].desc] as [ArenaKind, string, string, string]),
+        ...(getSettings().labs || arena ? ARENA_KINDS : []).map((k) => [k, ARENA_INFO[k].name, ARENA_INFO[k].alt, ARENA_INFO[k].desc] as [ArenaKind, string, string, string]),
       ];
       for (const [k, title, sub, desc] of opts) {
         types.appendChild(h('button', { class: `mode-card${arena === k ? ' on' : ''}`, onclick: () => { arena = k; if (k) { mode = 'survival'; pvp = true; } renderTypes(); } },

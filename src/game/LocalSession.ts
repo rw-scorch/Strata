@@ -1,5 +1,5 @@
 import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity } from '../core/sim/WorldSim';
-import { Minigame, GameState } from '../core/minigames/Minigame';
+import { Minigame, GameState } from '../core/labs/minigames/Minigame';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { MOBS, MobType } from '../core/sim/mobs';
 import { ENT_KIND } from '../core/protocol';
@@ -78,7 +78,7 @@ export class LocalSession implements GameSession {
 
   private emitVitals(): void {
     const p = this.me;
-    this.ev.vitals({ health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, mode: p.mode });
+    this.ev.vitals({ health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, mode: p.mode, fire: p.fireT > 0 });
   }
 
   private onEvent(e: SimEvent): void {
@@ -96,14 +96,14 @@ export class LocalSession implements GameSession {
       case 'vitals': if (e.p === this.me) this.emitVitals(); return;
       case 'inv': if (e.p === this.me) ev.inventory(this.me.inv); return;
       case 'container': {
-        const be = this.sim.blockEntities.get(e.key);
-        const sc = this.me.screen;
-        if (be && sc.type && `${sc.x},${sc.y},${sc.z}` === e.key) {
-          if (be.type === 'furnace') ev.container(e.key, 'furnace', be.items, be.burn, be.burnMax, be.cook);
-          else ev.container(e.key, 'chest', be.items);
+        const v = this.sim.containerView(this.me);
+        if (v && v.keys.includes(e.key)) {
+          if (v.type === 'furnace') ev.container(v.key, 'furnace', v.items, v.burn, v.burnMax, v.cook);
+          else ev.container(v.key, 'chest', v.items);
         }
         return;
       }
+      case 'chestLid': ev.chestLid?.(e.x, e.y, e.z, e.n); return;
       case 'screen': {
         const sc = e.p.screen;
         ev.screen(sc.type, sc.x, sc.y, sc.z);
@@ -122,6 +122,7 @@ export class LocalSession implements GameSession {
       case 'crafted': ev.crafted(e.recipe.id, e.times); return;
       case 'game': ev.game(e.state as GameState); return;
       case 'title': if (!e.to || e.to === this.me.id) ev.title(e.text, e.sub); return;
+      case 'trade': if (e.p === this.me) ev.trade?.({ id: String(e.v.id), prof: e.v.prof ?? 0, xp: e.v.vxp ?? 0, uses: [...(e.v.uses ?? [])] }); return;
       case 'reject': return;
     }
   }
@@ -152,6 +153,8 @@ export class LocalSession implements GameSession {
   digDone(x: number, y: number, z: number): void { this.sim.setNow(performance.now()); this.sim.digFinish(this.me, x, y, z); }
   use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false): void { this.sim.use(this.me, x, y, z, nx, ny, nz, force); }
   eat(): void { this.sim.setNow(performance.now()); this.sim.eat(this.me); }
+  shoot(power: number, yaw: number, pitch: number): void { this.sim.setNow(performance.now()); this.sim.shootBow(this.me, power, yaw, pitch); }
+  trade(id: string, index: number, times: number): void { this.sim.setNow(performance.now()); this.sim.trade(this.me, Number(id), index, times); }
   useEntity(id: string): void { this.sim.setNow(performance.now()); this.sim.useEntity(this.me, Number(id)); }
   attack(id: string): void { this.sim.setNow(performance.now()); this.sim.attack(this.me, Number(id)); }
   attackPlayer(): void { /* single player */ }

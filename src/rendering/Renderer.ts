@@ -10,6 +10,7 @@ import { Sky, computeSky, SkyState } from './Sky';
 import { Particles } from './Particles';
 import { Weather } from './Weather';
 import { EntityRenderer, LightProbe } from './EntityRenderer';
+import { ChestRenderer } from './ChestRenderer';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { getItem } from '../core/items';
 import { firstPersonArmMatrix } from './VanillaModels';
@@ -39,6 +40,7 @@ export class Renderer {
   readonly particles: Particles;
   readonly weather: Weather;
   readonly entities: EntityRenderer;
+  readonly chests: ChestRenderer;
   atlas: TextureAtlas;
   private mats: { opaque: THREE.ShaderMaterial; cutout: THREE.ShaderMaterial; trans: THREE.ShaderMaterial };
   private chunks = new Map<string, ChunkMeshes>();
@@ -100,7 +102,8 @@ export class Renderer {
     this.particles = new Particles(this.uniforms);
     this.weather = new Weather();
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
-    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.weather.group, this.entities.group);
+    this.chests = new ChestRenderer(this.uniforms, atlas, probe);
+    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.weather.group, this.entities.group, this.chests.group);
     const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.outline = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));
     this.outline.visible = false;
@@ -164,6 +167,7 @@ export class Renderer {
     this.applyAtlasUniforms();
     this.sky.setTextures(a);
     this.entities.setAtlas(a);
+    this.chests.setAtlas(a);
     this.handItemId = -2;
     if (old !== a) old.dispose();
   }
@@ -194,7 +198,7 @@ export class Renderer {
   setFov(f: number): void { this.camera.fov = f; this.camera.updateProjectionMatrix(); }
 
   setChunkMesh(key: string, cx: number, cz: number, r: MeshResult): void {
-    this.removeChunk(key);
+    this.removeTerrain(key);
     const meshes: THREE.Mesh[] = [];
     const add = (b: MeshResult['opaque'], mat: THREE.ShaderMaterial, order: number, castShadow: boolean) => {
       if (!b) return;
@@ -213,13 +217,19 @@ export class Renderer {
     add(r.cutout, this.mats.cutout, 1, true);
     add(r.trans, this.mats.trans, 2, false);
     this.chunks.set(key, { meshes });
+    this.chests.setChunk(key, cx, cz, r.chests);
   }
 
-  removeChunk(key: string): void {
+  private removeTerrain(key: string): void {
     const c = this.chunks.get(key);
     if (!c) return;
     for (const m of c.meshes) { this.terrain.remove(m); m.geometry.dispose(); }
     this.chunks.delete(key);
+  }
+
+  removeChunk(key: string): void {
+    this.removeTerrain(key);
+    this.chests.remove(key);
   }
 
   clearChunks(): void { for (const k of [...this.chunks.keys()]) this.removeChunk(k); }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
-import { getItem } from '../core/items';
+import { PROFESSIONS } from '../core/trades';
+import { I, getItem } from '../core/items';
 import { BLOCKS } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
@@ -13,6 +14,23 @@ export const HAIR = [0x2b1d0e, 0x5a3825, 0xb5651d, 0xe6c35c, 0x111111, 0xa83232,
 export const CLOTH = [0x3366cc, 0xcc3333, 0x33aa55, 0xe0b030, 0x7a3fb5, 0x222831, 0xe8e8e8, 0xd2691e, 0x1aa3a3, 0xff69b4, 0x556b2f, 0x8b4513];
 
 interface PartSpec { n: string; s: [number, number, number]; p: [number, number, number]; o?: [number, number, number]; c: number; e?: boolean; parent?: string; r?: [number, number, number]; }
+
+const ROBE = [0x5a8a3a, 0xe8e0d0, 0x3a3a3a, 0x6a6a74, 0xd8d0c0, 0x7a5a2a, 0x7a3a8a, 0x8a6a4a];
+function villagerParts(prof: number): PartSpec[] {
+  const robe = ROBE[prof] ?? 0x6a5040;
+  return [
+    { n: 'body', s: [0.5, 0.75, 0.38], p: [0, 1.1, 0], c: 0x6a5040 },
+    { n: 'robe', s: [0.54, 1.1, 0.42], p: [0, 0.9, 0], c: robe },
+    { n: 'head', s: [0.5, 0.62, 0.5], p: [0, 1.48, 0], o: [0, 0.31, 0], c: 0xc8a080 },
+    { n: 'nose', s: [0.12, 0.25, 0.12], p: [0, 0, 0], o: [0, 0.18, -0.3], c: 0xb08868, parent: 'head' },
+    { n: 'brow', s: [0.42, 0.06, 0.02], p: [0, 0, 0], o: [0, 0.4, -0.26], c: 0x3a2a1a, parent: 'head' },
+    { n: 'eyeL', s: [0.08, 0.06, 0.02], p: [0, 0, 0], o: [-0.12, 0.34, -0.26], c: 0x2a6a2a, parent: 'head' },
+    { n: 'eyeR', s: [0.08, 0.06, 0.02], p: [0, 0, 0], o: [0.12, 0.34, -0.26], c: 0x2a6a2a, parent: 'head' },
+    { n: 'arms', s: [0.7, 0.24, 0.24], p: [0, 1.22, -0.2], r: [-0.75, 0, 0], c: robe },
+    { n: 'legL', s: [0.2, 0.7, 0.2], p: [-0.12, 0.7, 0], o: [0, -0.35, 0], c: 0x4a3a2a },
+    { n: 'legR', s: [0.2, 0.7, 0.2], p: [0.12, 0.7, 0], o: [0, -0.35, 0], c: 0x4a3a2a },
+  ];
+}
 
 const MOB_PARTS: Partial<Record<MobType, PartSpec[]>> = {
   woolhorn: [
@@ -201,12 +219,12 @@ export class EntityRenderer {
     }
   }
 
-  private vanilla(key: MobType | 'player', skin = 0): Built | null {
+  private vanilla(key: MobType | 'player', skin = 0, texKey?: string): Built | null {
     const spec = VANILLA[key];
     if (!spec) return null;
     const count = this.atlas.playerSkinCount;
     const mainKey = key === 'player' ? (count ? `player${skin % count}` : '') : spec.main;
-    const tex = this.atlas.entityTextures.get(mainKey);
+    const tex = (texKey ? this.atlas.entityTextures.get(texKey) : undefined) ?? this.atlas.entityTextures.get(mainKey);
     if (!tex) return null;
     const mats: THREE.ShaderMaterial[] = [];
     const main = this.material(tex);
@@ -367,7 +385,26 @@ export class EntityRenderer {
           const n = Number(id.replace(/\D/g, '')) || 0;
           const ap = def.type === 'quartermaster' ? { skin: 3, hair: 5, shirt: 7, pants: 2 } : { skin: n % 6, hair: n % 8, shirt: (n * 3) % 12, pants: (n * 5) % 12 };
           built = this.vanilla('player', def.type === 'quartermaster' ? 7 : n) ?? this.build(playerParts(ap));
-        } else built = this.vanilla(def.type) ?? this.build(MOB_PARTS[def.type] ?? MOB_PARTS.woolhorn!);
+        } else if (def.type === 'villager') {
+          const prof = Math.max(0, ((flags >> 9) & 15) - 1);
+          built = this.vanilla('villager', 0, `villager_${PROFESSIONS[prof] ?? 'farmer'}`) ?? this.build(villagerParts(prof));
+        } else {
+          const vb = this.vanilla(def.type);
+          if (vb && def.type === 'rattlebone') {
+            const ra = vb.parts.get('right_arm');
+            if (ra) {
+              const bm = this.itemModel(I.BOW);
+              const holder = new THREE.Group();
+              holder.position.set(-1, 10.5, 0);
+              bm.obj.scale.set(-30, -30, 30);
+              bm.obj.rotation.set(Math.PI / 2, Math.PI / 2, Math.PI / 4);
+              holder.add(bm.obj);
+              ra.add(holder);
+              vb.mats.push(...bm.mats);
+            }
+          }
+          built = vb ?? this.build(MOB_PARTS[def.type] ?? MOB_PARTS.woolhorn!);
+        }
         hw = def.hw; h = def.h;
       } else if (kind === 'player') {
         const ap = opts?.appearance ?? { skin: 0, hair: 0, shirt: 0, pants: 0 };

@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -132,7 +132,7 @@ def(33, 'sugar_cane', 'Sugar Cane', 'Grows beside water. Pressed into paper.', {
 def(34, 'crafting_table', 'Workbench', 'A 3x3 crafting surface for advanced recipes.', { faces: { px: 'crafting_table_side', nx: 'crafting_table_front', py: 'crafting_table_top', ny: 'oak_planks', pz: 'crafting_table_side', nz: 'crafting_table_front' }, hardness: 2.5, tool: 'axe', sound: 'wood', interactive: true, category: 'functional' });
 def(35, 'furnace', 'Furnace', 'Smelts ores and cooks food with fuel.', { faces: COL('furnace_side', 'furnace_top'), front: 'furnace_front', hardness: 3.5, tool: 'pickaxe', tier: 1, orientable: true, interactive: true, category: 'functional' });
 def(36, 'furnace_lit', 'Lit Furnace', '', { faces: COL('furnace_side', 'furnace_top'), front: 'furnace_front_on', hardness: 3.5, tool: 'pickaxe', tier: 1, lightEmit: 13, orientable: true, interactive: true, drops: [{ item: 35 }], category: 'hidden' });
-def(37, 'chest', 'Chest', 'Twenty-seven slots of safekeeping.', { faces: COL('chest_side', 'chest_top'), front: 'chest_front', hardness: 2.5, tool: 'axe', sound: 'wood', orientable: true, interactive: true, category: 'functional' });
+def(37, 'chest', 'Chest', 'Twenty-seven slots of safekeeping.', { faces: COL('chest_side', 'chest_top'), front: 'chest_front', render: 'chest', opaque: false, lightFilter: 0, hardness: 2.5, tool: 'axe', sound: 'wood', orientable: true, interactive: true, category: 'functional' });
 def(38, 'torch', 'Torch', 'Pushes back the dark. Keeps the Hollowed at bay.', { faces: ALL('torch'), render: 'torch', solid: false, opaque: false, lightFilter: 0, lightEmit: 14, hardness: 0, sound: 'wood', needsSupport: 'solid', category: 'functional' });
 def(39, 'glass', 'Glass', 'Clear panes of fused sand.', { faces: ALL('glass'), render: 'glass', opaque: false, lightFilter: 0, hardness: 0.3, drops: null, sound: 'glass' });
 def(40, 'bricks', 'Bricks', 'Fired clay, neatly mortared.', { faces: ALL('bricks'), hardness: 2, tool: 'pickaxe', tier: 1 });
@@ -246,6 +246,7 @@ export function blockBox(v: number): [number, number, number, number, number, nu
     return edgeBox(f, 3 / 16);
   }
   if (id === B.CACTUS) return [1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16];
+  if (id === B.CHEST) return [1 / 16, 0, 1 / 16, 15 / 16, 14 / 16, 15 / 16];
   if (!d.solid) return null;
   return [0, 0, 0, 1, 1, 1];
 }

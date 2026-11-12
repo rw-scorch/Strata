@@ -1,7 +1,7 @@
 import { I } from '../items';
 import { B } from '../blocks';
 
-export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster';
+export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager';
 
 export interface MobDrop { item: number; min: number; max: number; chance?: number; }
 
@@ -22,6 +22,7 @@ export interface MobDef {
   ranged?: boolean;
   climbs?: boolean;
   npc?: boolean;
+  trader?: boolean;
   desc: string;
 }
 
@@ -63,6 +64,10 @@ export const MOBS: Record<MobType, MobDef> = {
   quartermaster: {
     type: 'quartermaster', code: 7, name: 'Quartermaster', hostile: false, health: 1000, speed: 0, hw: 0.3, h: 1.9, damage: 0, drops: [], xp: 0, npc: true,
     desc: 'Trades ingots for gear. Hit or use to open the shop.',
+  },
+  villager: {
+    type: 'villager', code: 8, name: 'Villager', hostile: false, health: 20, speed: 1.6, hw: 0.3, h: 1.95, damage: 0, drops: [], xp: 0, trader: true,
+    desc: 'A village local. Use on them to trade emeralds for goods.',
   },
 };
 

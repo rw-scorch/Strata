@@ -4,8 +4,8 @@ import { WorldGenerator } from '../src/core/worldgen/WorldGenerator';
 import { ChunkData } from '../src/core/chunk';
 import { B, blockId } from '../src/core/blocks';
 import { I } from '../src/core/items';
-import { Minigame, GameState } from '../src/core/minigames/Minigame';
-import { ArenaKind, arenaLayout } from '../src/core/minigames/arena';
+import { Minigame, GameState } from '../src/core/labs/minigames/Minigame';
+import { ArenaKind, arenaLayout } from '../src/core/labs/minigames/arena';
 
 function arenaWorld(kind: ArenaKind) {
   const gen = new WorldGenerator(1, kind);

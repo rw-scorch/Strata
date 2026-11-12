@@ -14,10 +14,10 @@ const FS = 8;
 export interface MeshBuffers { pos: Int16Array; uv: Int16Array; light: Uint8Array; tint: Uint8Array; idx: Uint16Array | Uint32Array; }
 export const POS_SCALE = 64;
 export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_GLOW = 32, F_WATER = 64;
-export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; }
+export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12 };
 const CULLSELF = new Uint8Array(256);
 for (const b of BLOCKS) if (b) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(256);
@@ -335,15 +335,17 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
     }
   }
 
+  const chests: number[] = [];
   for (let y = 0; y < top; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const rx = x + 16, rz = z + 16;
     const v = region[ridx(rx, y, rz)];
     const id = v & 255;
     const code = RENDER[id];
     if (code < 5) continue;
+    if (code === 12) { chests.push(x, y, z, (v >>> 8) & 3); continue; }
     special(ctx, code, id, v, x, y, z, rx, rz, smooth);
   }
-  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish() };
+  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish(), chests: chests.length ? new Int32Array(chests) : null };
 }
 
 function emitQuad(bd: Builder, d: number, axis: number, s: number, ua: number, u0: number, w: number, va: number, v0: number, h: number, tile: number, ov: number, L: number, A: number, T: number, tb: number): void {

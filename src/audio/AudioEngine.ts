@@ -15,9 +15,9 @@ const MATERIAL: Record<string, { f: number; q: number; type: BiquadFilterType; d
   lava: { f: 300, q: 0.7, type: 'lowpass', dur: 0.4 },
 };
 
-const MOB_VOICE: Record<string, { base: number; kind: 'bleat' | 'grunt' | 'cluck' | 'groan' | 'rattle' | 'hiss' }> = {
+const MOB_VOICE: Record<string, { base: number; kind: 'bleat' | 'grunt' | 'cluck' | 'groan' | 'rattle' | 'hiss' | 'hum' }> = {
   woolhorn: { base: 420, kind: 'bleat' }, mudsnout: { base: 140, kind: 'grunt' }, fernhen: { base: 1300, kind: 'cluck' },
-  hollowed: { base: 95, kind: 'groan' }, rattlebone: { base: 0, kind: 'rattle' }, duskweaver: { base: 0, kind: 'hiss' },
+  hollowed: { base: 95, kind: 'groan' }, rattlebone: { base: 0, kind: 'rattle' }, duskweaver: { base: 0, kind: 'hiss' }, villager: { base: 210, kind: 'hum' },
 };
 
 export class AudioEngine {
@@ -259,10 +259,28 @@ export class AudioEngine {
           case 'groan': this.tone(dest, t, voice.base * p * rnd(), 'sawtooth', { a: 0.12, d: len * 2, v: 0.18 }, voice.base * 0.75, 4); this.noiseHit(dest, t, 300, 2, 'bandpass', { a: 0.1, d: len * 1.5, v: 0.1 }); break;
           case 'rattle': for (let i = 0; i < 6; i++) this.noiseHit(dest, t + i * 0.035, 2500 * rnd(), 6, 'bandpass', { a: 0.001, d: 0.03, v: 0.25 }); break;
           case 'hiss': this.noiseHit(dest, t, 4500 * p, 1, 'highpass', { a: 0.05, d: len, v: 0.2 }); break;
+          case 'hum': this.hum(dest, t, voice.base * p * rnd(), len, kind === 'hurt' ? -1 : 0); break;
         }
         break;
       }
+      case 'villager': this.hum(dest, t, 210 * rnd(), sub === 'yes' ? 0.28 : 0.4, sub === 'yes' ? 1 : 0); break;
     }
+  }
+
+  private hum(dest: AudioNode, t: number, f: number, len: number, bend: number): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.linearRampToValueAtTime(f * (bend > 0 ? 1.35 : bend < 0 ? 0.7 : 0.92), t + len);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.22, t + 0.04);
+    g.gain.linearRampToValueAtTime(0, t + len);
+    o.connect(bp); bp.connect(g); g.connect(dest);
+    o.start(t); o.stop(t + len + 0.05);
   }
 
   setRain(intensity: number, thunder: boolean): void {

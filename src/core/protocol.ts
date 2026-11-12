@@ -1,5 +1,5 @@
-import type { ArenaKind } from './minigames/arena';
-import type { GameState } from './minigames/Minigame';
+import type { ArenaKind } from './labs/minigames/arena';
+import type { GameState } from './labs/minigames/Minigame';
 import type { ScreenType } from './sim/WorldSim';
 import type { GameMode, Difficulty } from './constants';
 import type { Appearance } from './sim/WorldSim';
@@ -60,6 +60,8 @@ export type C2S =
   | { t: 'dig'; a: 'start' | 'abort' | 'done'; x: number; y: number; z: number }
   | { t: 'use'; x: number; y: number; z: number; nx: number; ny: number; nz: number; f?: number }
   | { t: 'eat' }
+  | { t: 'bow'; p: number; y: number; x: number }
+  | { t: 'trd'; id: number; i: number; n: number }
   | { t: 'atk'; id: number }
   | { t: 'pvp'; pid: string }
   | { t: 'inv'; op: InvOp; s: number }
@@ -82,7 +84,7 @@ export type S2C =
   | { t: 'pj'; p: PublicPlayer }
   | { t: 'pq'; id: string; name: string }
   | { t: 'ent'; a: number[][]; u: number[][]; r: number[] }
-  | { t: 'vit'; h: number; f: number; s: number; a: number; xp: number; dead: boolean; mode: GameMode }
+  | { t: 'vit'; h: number; f: number; s: number; a: number; xp: number; dead: boolean; mode: GameMode; fire?: boolean }
   | { t: 'inv'; inv: PlayerInv }
   | { t: 'ack'; s: number; ok: boolean; h: number }
   | { t: 'cont'; k: string; type: 'chest' | 'furnace'; items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number }
@@ -102,7 +104,9 @@ export type S2C =
   | { t: 'mode'; mode: GameMode }
   | { t: 'crafted'; r: string; n: number }
   | { t: 'game'; s: GameState }
-  | { t: 'title'; text: string; sub: string };
+  | { t: 'title'; text: string; sub: string }
+  | { t: 'trade'; id: number; prof: number; xp: number; uses: number[] }
+  | { t: 'lid'; x: number; y: number; z: number; n: number };
 
 export const ENT_KIND = { mob: 0, item: 1, arrow: 2 } as const;
 

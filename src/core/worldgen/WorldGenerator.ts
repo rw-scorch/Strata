@@ -5,7 +5,8 @@ import { B, makeBlock } from '../blocks';
 import { I, toolId } from '../items';
 import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
-import { ArenaKind, arenaLayout, generateArenaChunk } from '../minigames/arena';
+import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
+import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
 
 export interface Column {
   height: number;
@@ -32,6 +33,31 @@ export class WorldGenerator {
 
   readonly arena: ArenaKind | null;
   private flatCol: Column | null = null;
+  private villageCache = new Map<string, VillagePlan | null>();
+
+  village(rx: number, rz: number): VillagePlan | null {
+    if (this.arena) return null;
+    const k = `${rx},${rz}`;
+    if (!this.villageCache.has(k)) {
+      if (this.villageCache.size > 64) this.villageCache.clear();
+      this.villageCache.set(k, planVillage(this.seed, rx, rz, (x, z) => this.column(x, z)));
+    }
+    return this.villageCache.get(k)!;
+  }
+
+  villagesNear(x: number, z: number, r: number): VillagePlan[] {
+    const out: VillagePlan[] = [];
+    const R = VILLAGE_REGION;
+    for (let rz = Math.floor((z - r - 80) / R); rz <= Math.floor((z + r + 80) / R); rz++) {
+      for (let rx = Math.floor((x - r - 80) / R); rx <= Math.floor((x + r + 80) / R); rx++) {
+        const v = this.village(rx, rz);
+        if (!v) continue;
+        if (v.bounds.x1 + r < x || v.bounds.x0 - r > x || v.bounds.z1 + r < z || v.bounds.z0 - r > z) continue;
+        out.push(v);
+      }
+    }
+    return out;
+  }
 
   constructor(seed: number, arena: ArenaKind | null = null) {
     this.seed = seed >>> 0;
@@ -166,6 +192,7 @@ export class WorldGenerator {
     this.carveCaves(cx, cz, blocks, colAt);
     this.placeOres(rng, blocks, colAt);
     this.placeFeatures(cx, cz, cols, set, get, entities);
+    for (const v of this.villagesNear(bx + 8, bz + 8, 12)) stampVillage(v, bx, bz, S, set, get, (x, z) => this.column(x, z), entities);
     this.placeVegetation(cx, cz, rng, set, get, colAt);
     this.placeWaterfalls(rng, set, get, colAt);
     return { blocks, entities };

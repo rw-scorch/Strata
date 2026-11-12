@@ -39,6 +39,7 @@ export interface InvContext {
   creative: boolean;
   drop: (stack: ItemStack) => void;
   crafted?: (recipe: Recipe, times: number) => void;
+  split?: ((joined: (ItemStack | null)[]) => void) | null;
 }
 
 export function emptyInv(): PlayerInv {
@@ -513,7 +514,8 @@ export function heldStack(inv: PlayerInv): ItemStack | null {
 export function damageHeld(inv: PlayerInv, amount = 1): boolean {
   const s = inv.slots[inv.selected];
   if (!s) return false;
-  const max = getItem(s.id)?.tool?.durability;
+  const d = getItem(s.id);
+  const max = d?.tool?.durability ?? d?.durability;
   if (!max) return false;
   s.dmg = (s.dmg ?? 0) + amount;
   if (s.dmg >= max) { inv.slots[inv.selected] = null; return true; }

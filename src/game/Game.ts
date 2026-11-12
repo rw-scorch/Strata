@@ -15,20 +15,21 @@ import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { GameSession, SessionEvents, Vitals } from './Session';
 import { LocalSession } from './LocalSession';
 import { RemoteSession } from '../multiplayer/RemoteSession';
-import { ArenaUI } from '../ui/ArenaUI';
+import { TradeUI } from '../ui/TradeUI';
+import { ArenaUI } from '../ui/labs/ArenaUI';
 import { Minimap } from '../ui/Minimap';
-import type { ArenaKind } from '../core/minigames/arena';
+import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
 import { getBlock, blockId } from '../core/blocks';
 import { heldStack } from '../core/inventory';
-import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT } from '../core/constants';
+import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
 import { biomeNameAt, WorldGenerator } from '../core/worldgen/WorldGenerator';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
 import type { Weather } from '../core/sim/WorldSim';
-import { getItem } from '../core/items';
+import { getItem, I } from '../core/items';
 
 export interface AppHooks {
   exitToTitle(reason?: string): void;
@@ -55,6 +56,8 @@ export class Game {
   private mobile!: MobileControls;
   private interaction = new BlockInteraction();
   private hud!: HUD;
+  private bowShown = false;
+  private overlay!: { root: HTMLElement; wall: HTMLElement; fireL: HTMLElement; fireR: HTMLElement; wallId: number };
   private inv!: InventoryUI;
   private chatUI!: ChatUI;
   private atlas: TextureAtlas;
@@ -90,6 +93,7 @@ export class Game {
   private lastPlace = 0;
 
   private arena!: ArenaUI;
+  private tradeUI!: TradeUI;
   private caveFx = 0;
   private minimap: Minimap | null = null;
   constructor(app: AppHooks, atlas: TextureAtlas) {
@@ -114,12 +118,25 @@ export class Game {
       onUnload: (key) => this.renderer.removeChunk(key),
       saveChunk: (cx, cz, data) => { if (this.worldMeta) void WorldStorage.saveChunks(this.worldMeta.id, [{ cx, cz, data }]); },
     }, remote);
+    this.renderer.chests.getBlock = (x, y, z) => this.chunks.getBlock(x, y, z);
     const hudRoot = document.getElementById('hud-root')!;
     this.hud = new HUD(hudRoot, this.atlas);
+    {
+      const root = h('div', { class: 'screen-fx' });
+      const wall = h('div', { class: 'fx-wall' });
+      const fireL = h('div', { class: 'fx-fire l' });
+      const fireR = h('div', { class: 'fx-fire r' });
+      root.append(wall, fireL, fireR);
+      hudRoot.parentElement!.insertBefore(root, hudRoot);
+      this.overlay = { root, wall, fireL, fireR, wallId: -1 };
+      this.disposers.push(() => root.remove());
+    }
     this.inv = new InventoryUI(this.screens, this.atlas);
     this.inv.onClose = () => { if (this.state === 'inventory') this.setState('playing'); };
     this.arena = new ArenaUI(hudRoot, this.screens, this.atlas);
     this.arena.onShopClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
+    this.tradeUI = new TradeUI(this.screens, this.atlas);
+    this.tradeUI.onClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
     this.chatUI = new ChatUI(this.hud.chatBox, hudRoot);
     this.chatUI.onSend = (t) => this.session.chat(t);
     this.chatUI.onClose = () => { if (this.state === 'chat') this.setState('playing'); };
@@ -136,6 +153,7 @@ export class Game {
       onToggleHud: () => { const v = this.hud.root.style.visibility === 'hidden'; this.hud.root.style.visibility = v ? '' : 'hidden'; this.renderer.showHand = v; },
       onThirdPerson: () => this.toggleCamera(),
       onPointerLockLost: () => { if (this.state === 'playing' && !this.input.touchMode) this.pause(); },
+      onMouseMode: () => { if (getSettings().controlScheme !== 'touch') { this.mobile.setVisible(false); document.body.classList.remove('touch-active'); } },
     });
     this.mobile = new MobileControls(document.getElementById('touch-root')!, this.input, {
       onPause: () => this.pause(),
@@ -147,7 +165,9 @@ export class Game {
       isMultiplayer: () => this.session?.info.kind === 'remote',
       setCrouchToggled: () => { /* state kept in controls */ },
     });
-    const showTouch = () => { if (!this.mobile.visible && this.state !== 'loading') { this.mobile.setVisible(this.state === 'playing'); document.body.classList.add('touch-active'); } this.input.touchMode = true; };
+    this.input.touchMode = isTouchDevice();
+    if (this.input.touchMode) document.body.classList.add('touch-active');
+    const showTouch = () => { if (getSettings().controlScheme === 'mouse') return; if (!this.mobile.visible && this.state !== 'loading') { this.mobile.setVisible(this.state === 'playing'); document.body.classList.add('touch-active'); } this.input.touchMode = true; this.desktop?.unlock(); };
     const onTouch = () => showTouch();
     window.addEventListener('touchstart', onTouch, { passive: true });
     this.disposers.push(() => window.removeEventListener('touchstart', onTouch));
@@ -187,6 +207,8 @@ export class Game {
     screen: (t) => this.onScreen(t),
     game: (st) => { this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
     title: (t, s) => this.arena?.title(t, s),
+    trade: (info) => this.tradeUI?.update(info),
+    chestLid: (x, y, z, n) => { this.renderer?.chests.setOpen(x, y, z, n); audio.play(n > 0 ? 'chest.open' : 'chest.close', x + 0.5, y + 0.5, z + 0.5); },
     hurt: (a, c, fx, fz) => this.onHurt(a, c, fx, fz),
     death: (m) => this.onDeath(m),
     respawn: (x, y, z) => this.onRespawn(x, y, z),
@@ -294,7 +316,7 @@ export class Game {
       const mt = MODE_TITLES[this.session.me.mode];
       this.hud.message(`${this.session.info.name}`, 2.5);
       void mt;
-      if (!this.input.touchMode && !isTouchDevice()) this.desktop.lock();
+      if (!this.input.touchMode) this.desktop.lock();
       return true;
     }
     return false;
@@ -303,8 +325,8 @@ export class Game {
   private setState(s: State): void {
     this.state = s;
     const playing = s === 'playing';
-    this.mobile.setVisible(playing && (this.input.touchMode || isTouchDevice()));
-    if (playing && !this.input.touchMode && !isTouchDevice() && matchMedia('(pointer: fine)').matches) this.desktop?.lock();
+    this.mobile.setVisible(playing && this.input.touchMode);
+    if (playing && !this.input.touchMode) this.desktop?.lock();
     if (!playing) this.input.reset();
     this.hud.crosshair.style.display = playing ? '' : 'none';
     this.mobile.refreshState();
@@ -337,11 +359,16 @@ export class Game {
     this.chunks.setAtlas(a.data);
     this.hud.setAtlas(a);
     this.inv.setAtlas(a);
+    this.tradeUI?.setAtlas(a);
     this.setHeld(true);
   }
 
   private toggleInventory(): void {
-    if (this.state === 'inventory') { this.inv.close(); return; }
+    if (this.state === 'inventory') {
+      if (this.tradeUI?.isOpen) { this.tradeUI.close(); return; }
+      if (this.arena?.shopOpen) { this.arena.closeShop(); return; }
+      this.inv.close(); return;
+    }
     if (this.state !== 'playing') return;
     this.desktop.unlock();
     this.setState('inventory');
@@ -407,6 +434,7 @@ export class Game {
 
   private dispose(): void {
     this.arena?.dispose();
+    this.tradeUI?.dispose();
     this.minimap?.dispose();
     this.minimap = null;
     this.closePause?.();
@@ -430,8 +458,10 @@ export class Game {
   private setHeld(force = false): void {
     if (!this.session) return;
     const s = heldStack(this.session.me.inv);
+    let id = s?.id ?? null;
+    if (id === I.BOW && this.interaction?.drawing > 0) { const d = this.interaction.drawing; id = d > 0.9 ? I.BOW_PULL2 : d > 0.45 ? I.BOW_PULL1 : I.BOW_PULL0; }
     if (force) this.renderer.setHeld(-99, this.session.me.appearance.skin);
-    this.renderer.setHeld(s?.id ?? null, this.session.me.appearance.skin);
+    this.renderer.setHeld(id, this.session.me.appearance.skin);
   }
 
   private breakParticles(x: number, y: number, z: number, v: number, many: boolean): void {
@@ -472,6 +502,33 @@ export class Game {
     }
   }
 
+  private updateScreenFx(camId: number, now: number): void {
+    const o = this.overlay;
+    const d = getBlock(camId);
+    const inWall = !this.renderer.thirdPerson && camId !== 0 && d.solid && d.opaque && d.render === 'cube';
+    const wid = inWall ? camId : -1;
+    if (wid !== o.wallId) {
+      o.wallId = wid;
+      const url = wid >= 0 ? this.atlas.tileURL(wid) : null;
+      o.wall.style.display = url ? 'block' : 'none';
+      if (url) o.wall.style.backgroundImage = `url(${url})`;
+    }
+    const fire = !!this.vitals.fire && !this.renderer.thirdPerson && !this.vitals.dead && this.state !== 'loading';
+    const show = fire ? 'block' : 'none';
+    if (o.fireL.style.display !== show) {
+      o.fireL.style.display = o.fireR.style.display = show;
+      const url = this.atlas.hudURLs.fire;
+      if (fire && url) for (const f of [o.fireL, o.fireR]) { f.style.backgroundImage = `url(${url})`; f.style.backgroundSize = `100% ${this.atlas.fireFrames * 100}%`; }
+    }
+    if (fire) {
+      const n = this.atlas.fireFrames;
+      const fr = Math.floor(now / 50) % n;
+      const pos = n > 1 ? `0% ${(fr / (n - 1)) * 100}%` : '0% 0%';
+      o.fireL.style.backgroundPosition = pos;
+      o.fireR.style.backgroundPosition = n > 1 ? `0% ${(((fr + Math.floor(n / 2)) % n) / (n - 1)) * 100}%` : pos;
+    }
+  }
+
   onVitals(v: Vitals): void {
     const wasMode = this.vitals.mode;
     this.vitals = v;
@@ -484,6 +541,7 @@ export class Game {
     this.hud.updateInventory(this.session.me.inv);
     this.inv.refresh();
     this.arena?.refreshShop(this.session.me.inv);
+    this.tradeUI?.refresh(this.session.me.inv);
     this.setHeld();
   }
 
@@ -499,6 +557,13 @@ export class Game {
       this.arena.openShop(this.session.me.inv, (k) => this.session.buy?.(k));
       return;
     }
+    if (type === 'trade') {
+      this.desktop.unlock();
+      this.setState('inventory');
+      this.tradeUI.open(this.session.me.inv, (id, i, n) => this.session.trade(id, i, n));
+      return;
+    }
+    if (!type && this.tradeUI?.isOpen) { this.tradeUI.close(true); if (this.state === 'inventory') this.setState('playing'); return; }
     if (!type && this.arena?.shopOpen) { this.arena.closeShop(true); if (this.state === 'inventory') this.setState('playing'); return; }
     if (type) {
       this.desktop.unlock();
@@ -617,7 +682,7 @@ export class Game {
     const loading = this.state === 'loading';
     const local = s.info.kind === 'local';
     const frozen = local && (this.state === 'paused' || loading);
-    if (!frozen && this.dayCycle && !local) this.time += dt * 20;
+    if (!frozen && this.dayCycle && !local) this.time += dt * 20 * timeRate(this.time);
     if (local) this.time = (s as LocalSession).sim.time;
     if (playing) {
       const [lx, ly] = this.input.consumeLook();
@@ -671,7 +736,8 @@ export class Game {
       cam.position.copy(eye).addScaledVector(dir, -dist);
       this.renderer.entities.upsert('me', 'player', 0, this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0), 0, performance.now(), { name: me.name, appearance: me.appearance });
     } else cam.position.copy(eye);
-    const fovTarget = st.fov + this.player.fovBoost * 9 * (this.player.flying ? 1.4 : 1);
+    const draw = Math.min(1, this.interaction.drawing);
+    const fovTarget = (st.fov + this.player.fovBoost * 9 * (this.player.flying ? 1.4 : 1)) * (1 - 0.15 * draw * draw);
     if (Math.abs(cam.fov - fovTarget) > 0.05) this.renderer.setFov(cam.fov + (fovTarget - cam.fov) * Math.min(1, dt * 10));
 
     const rainTarget = this.weather === 'clear' ? 0 : 1;
@@ -680,9 +746,11 @@ export class Game {
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 3);
     const camBlock = this.chunks.getBlock(Math.floor(cam.position.x), Math.floor(cam.position.y), Math.floor(cam.position.z));
     const underwater = blockId(camBlock) === 12;
+    this.updateScreenFx(blockId(camBlock), now);
     const inLava = blockId(camBlock) === 13;
     this.renderer.entities.interpDelay = local ? 60 : 110;
     this.renderer.entities.update(dt, performance.now());
+    this.renderer.chests.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(64, st.renderDistance * 16));
     this.renderer.particles.update(dt, this.chunks);
     if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12 }, this.chunks);
     const biomeAt = (x: number, z: number) => this.gen!.column(x, z).biome;
@@ -712,7 +780,8 @@ export class Game {
 
     this.hud.tick(dt);
     this.chatUI.tick();
-    this.player.usingItem = this.interaction.eating > 0;
+    this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0;
+    if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
     if (!loading) this.minimap?.update();
     this.hud.updateVitals(this.vitals, this.hurtShake > 0);
     this.frames++;

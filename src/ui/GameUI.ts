@@ -17,14 +17,33 @@ export class ChatUI {
   onClose: (() => void) | null = null;
   localMuted = new Set<string>();
   private history: string[] = [];
+  private kbUpdate: (() => void) | null = null;
   private hIdx = -1;
 
   constructor(box: HTMLElement, parent: HTMLElement) {
     this.box = box;
-    this.input = h('input', { class: 'input', maxlength: 200, placeholder: 'Say something, or type / for commands', enterkeyhint: 'send', autocomplete: 'off', autocapitalize: 'sentences' }) as HTMLInputElement;
-    const send = h('button', { class: 'btn primary', onclick: () => this.submit() }, 'Send');
-    const close = h('button', { class: 'btn ghost', onclick: () => this.close() }, 'Close');
+    this.input = h('input', { class: 'input', maxlength: 256, placeholder: '', enterkeyhint: 'send', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: 'false' }) as HTMLInputElement;
+    const send = h('button', { class: 'btn primary touch-only', onclick: () => this.submit() }, 'Send');
+    const close = h('button', { class: 'btn ghost touch-only', onclick: () => this.close() }, 'Close');
     this.row = h('div', { class: 'chat-input-row' }, this.input, send, close);
+    const vv = window.visualViewport;
+    if (vv) {
+      const kb = () => {
+        const off = this.isOpen ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+        document.documentElement.style.setProperty('--kb', `${Math.round(off)}px`);
+      };
+      vv.addEventListener('resize', kb);
+      vv.addEventListener('scroll', kb);
+      this.kbUpdate = kb;
+    }
+    this.box.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      if (t.classList.contains('copy')) {
+        const line = t.closest('.line') as HTMLElement | null;
+        const text = line?.dataset.text ?? '';
+        void navigator.clipboard?.writeText(text).then(() => { t.textContent = 'Copied'; setTimeout(() => { t.textContent = 'Copy'; }, 1200); }).catch(() => { this.input.value += text; });
+      }
+    });
     this.input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') this.submit();
@@ -42,6 +61,8 @@ export class ChatUI {
     this.input.value = prefix;
     this.hIdx = -1;
     this.input.focus({ preventScroll: true });
+    this.kbUpdate?.();
+    this.box.scrollTop = this.box.scrollHeight;
   }
 
   close(): void {
@@ -50,6 +71,8 @@ export class ChatUI {
     this.row.classList.remove('show');
     this.box.classList.remove('open', 'chat-log-scroll');
     this.input.blur();
+    document.documentElement.style.setProperty('--kb', '0px');
+    this.box.scrollTop = this.box.scrollHeight;
     this.onClose?.();
   }
 
@@ -65,17 +88,29 @@ export class ChatUI {
     const d = new Date(ts);
     const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     const wp = Minimap.parse(text);
-    const el = h('div', { class: `line ${from ? 'chat' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, `${from.name}:`) : null, text,
-      wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, 'Save waypoint') : null);
+    const full = from ? `<${from.name}> ${text}` : text;
+    const el = h('div', { class: `line ${from ? 'msg' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, `<${from.name}>`) : null, text,
+      wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, 'Save waypoint') : null,
+      h('button', { class: 'copy', tabindex: '-1' }, 'Copy'));
+    el.dataset.text = full;
+    const stick = this.box.scrollHeight - this.box.scrollTop - this.box.clientHeight < 30;
     this.box.appendChild(el);
     this.lines.push({ el, t: performance.now() });
-    while (this.lines.length > 60) this.lines.shift()!.el.remove();
-    this.box.scrollTop = this.box.scrollHeight;
+    while (this.lines.length > 100) this.lines.shift()!.el.remove();
+    if (!this.isOpen || stick) this.box.scrollTop = this.box.scrollHeight;
+    this.tick();
   }
 
   tick(): void {
     const now = performance.now();
-    for (const l of this.lines) { l.el.classList.toggle('fade', !this.isOpen && now - l.t > 12000); l.el.classList.toggle('gone', !this.isOpen && now - l.t > 13200); }
+    const n = this.lines.length;
+    for (let i = 0; i < n; i++) {
+      const l = this.lines[i];
+      const age = now - l.t;
+      l.el.classList.toggle('over', n - i > 10);
+      l.el.classList.toggle('fade', !this.isOpen && age > 9000);
+      l.el.classList.toggle('gone', !this.isOpen && age > 10000);
+    }
   }
 }
 

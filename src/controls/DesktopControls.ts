@@ -9,6 +9,7 @@ export interface DesktopHooks {
   onToggleHud(): void;
   onThirdPerson(): void;
   onPointerLockLost(): void;
+  onMouseMode?(): void;
 }
 
 export class DesktopControls {
@@ -42,7 +43,14 @@ export class DesktopControls {
     });
     on('mousedown', (e) => {
       if (!this.hooks.isPlaying()) return;
-      if (!this.locked) { if (e.target === this.canvas) this.lock(); return; }
+      if (!this.locked) {
+        const t = e.target as HTMLElement | null;
+        if (t && t !== this.canvas && t.closest?.('button, input, textarea, select, a, .slot, .panel, .card, .minimap, .chat, [data-ui]')) return;
+        this.input.touchMode = false;
+        this.hooks.onMouseMode?.();
+        this.lock();
+        return;
+      }
       this.input.touchMode = false;
       if (e.button === 0) { this.input.breaking = true; this.input.attackPressed = true; }
       else if (e.button === 2) { this.input.using = true; this.input.usePressed = true; }
@@ -67,12 +75,26 @@ export class DesktopControls {
     this.disposers.push(() => document.removeEventListener('pointerlockchange', plc));
   }
 
+  private pending = false;
+  private lastFail = 0;
+
   lock(): void {
-    if (document.pointerLockElement === this.canvas) return;
+    if (document.pointerLockElement === this.canvas || this.pending) return;
+    if (performance.now() - this.lastFail < 400) return;
+    this.pending = true;
+    const done = () => { this.pending = false; };
+    const fail = () => { this.pending = false; this.lastFail = performance.now(); };
+    const plain = () => {
+      try {
+        const p = this.canvas.requestPointerLock?.() as unknown as Promise<void> | undefined;
+        if (p?.then) p.then(done, fail); else done();
+      } catch { fail(); }
+    };
     try {
       const r = this.canvas.requestPointerLock?.({ unadjustedMovement: true } as never) as unknown as Promise<void> | undefined;
-      r?.catch?.(() => this.canvas.requestPointerLock?.());
-    } catch { this.canvas.requestPointerLock?.(); }
+      if (r?.then) r.then(done, (e: { name?: string }) => { if (e?.name === 'NotSupportedError') plain(); else fail(); });
+      else done();
+    } catch { plain(); }
   }
 
   unlock(): void { if (document.pointerLockElement) document.exitPointerLock(); }

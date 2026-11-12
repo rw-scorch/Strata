@@ -1,4 +1,4 @@
-import type { ArenaKind } from '../core/minigames/arena';
+import type { ArenaKind } from '../core/labs/minigames/arena';
 import { dbGet, dbPut, dbDelete, dbKeys, dbAll, dbPutMany, prefixRange } from './db';
 import { encodeRLE, decodeRLE, u16ToBase64, base64ToU16 } from '../core/chunk';
 import { SAVE_VERSION, GameMode, Difficulty } from '../core/constants';

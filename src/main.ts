@@ -65,6 +65,10 @@ class App {
   async rebuildAtlas(ids: string[]): Promise<TextureAtlas> {
     const key = ids.join('|');
     if (this.atlas && key === this.atlasKey) return this.atlas;
+    if (ids.length) {
+      const up = await ResourcePackManager.upgrade(ids, (n) => toast(`Updating ${n} for this version...`, 'info', 2500));
+      if (up.missing.length && !(window as unknown as { __reimp?: boolean }).__reimp) (window as unknown as { __reimp?: boolean }).__reimp = true, toast(`Re-import ${up.missing.join(', ')} in Resource Packs to get the newest textures (bows, villagers, GUI).`, 'info', 9000);
+    }
     const composed = ids.length ? await ResourcePackManager.compose(ids) : null;
     const maxTile = isTouchDevice() ? 32 : 64;
     const next = new TextureAtlas(composed, maxTile);

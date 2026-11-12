@@ -1,13 +1,14 @@
+export interface TradeInfo { id: string; prof: number; xp: number; uses: number[]; }
 import type { GameMode, Difficulty } from '../core/constants';
 import type { PlayerInv, InvOp, ItemStack } from '../core/inventory';
 import type { Weather, Appearance, SimPlayer, BlockEntity, WorldSim, ScreenType } from '../core/sim/WorldSim';
-import type { GameState } from '../core/minigames/Minigame';
-import type { ArenaKind } from '../core/minigames/arena';
+import type { GameState } from '../core/labs/minigames/Minigame';
+import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
 
 export type ChatKind = 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error';
 
-export interface Vitals { health: number; food: number; sat: number; air: number; xp: number; dead: boolean; mode: GameMode; }
+export interface Vitals { health: number; food: number; sat: number; air: number; xp: number; dead: boolean; mode: GameMode; fire?: boolean; }
 
 export interface SessionEvents {
   block(x: number, y: number, z: number, v: number, old: number): void;
@@ -21,6 +22,8 @@ export interface SessionEvents {
   screen(type: ScreenType | null, x: number, y: number, z: number): void;
   game(state: GameState): void;
   title(text: string, sub: string): void;
+  trade?(info: TradeInfo): void;
+  chestLid?(x: number, y: number, z: number, n: number): void;
   hurt(amount: number, cause: string, fx: number, fz: number): void;
   death(msg: string): void;
   respawn(x: number, y: number, z: number): void;
@@ -65,6 +68,8 @@ export interface GameSession {
   eat(): void;
   attack(entityId: string): void;
   useEntity(entityId: string): void;
+  shoot(power: number, yaw: number, pitch: number): void;
+  trade(entityId: string, index: number, times: number): void;
   attackPlayer(pid: string): void;
   invOp(op: InvOp): void;
   chat(text: string): void;

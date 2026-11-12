@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
+import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
   B, BLOCKS, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT,
@@ -9,6 +9,7 @@ import {
   armorPoints, damageArmor, allStacks, CHEST_SIZE, FURNACE_SIZE, invHash, sameKind, cloneStack,
 } from '../inventory';
 import { findSmelt, Recipe } from '../crafting';
+import { PROFESSIONS, OFFERS, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
 import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium } from '../physics';
 import { Rng } from '../rng';
 import { WorldGenerator } from '../worldgen/WorldGenerator';
@@ -41,14 +42,14 @@ export interface SimPlayer {
   screen: { type: ScreenType | null; x: number; y: number; z: number };
   dig: { x: number; y: number; z: number; t: number } | null;
   hurtCd: number; fireT: number; peakY: number;
-  t: { lava: number; drown: number; cactus: number; void: number; starve: number; regen: number; fire: number };
-  lastAttack: number; lastEat: number; lastMove: number;
+  t: { lava: number; suffocate?: number; drown: number; cactus: number; void: number; starve: number; regen: number; fire: number };
+  lastAttack: number; lastEat: number; lastMove: number; lastShot?: number; wasFire?: boolean;
   op: boolean;
   sel: [number[] | null, number[] | null];
 }
 
 export type EntityKind = 'mob' | 'item' | 'arrow';
-export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop';
+export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade';
 
 export interface GameHooks {
   tick(): void;
@@ -87,6 +88,8 @@ export interface Entity extends Body {
   item?: ItemStack;
   pickupDelay?: number;
   shooter?: number;
+  shooterP?: string;
+  pickup?: boolean;
   dmg?: number;
   stuck?: number;
   target?: string | null;
@@ -102,6 +105,14 @@ export interface Entity extends Body {
   love?: number;
   breedCd?: number;
   baby?: number;
+  prof?: number;
+  vxp?: number;
+  uses?: number[];
+  home?: [number, number];
+  vid?: string;
+  vc?: [number, number];
+  tradeWith?: string;
+  restockAt?: number;
 }
 
 export type BlockEntity =
@@ -132,7 +143,9 @@ export type SimEvent =
   | { e: 'mode'; p: SimPlayer }
   | { e: 'crafted'; p: SimPlayer; recipe: Recipe; times: number }
   | { e: 'game'; state: unknown }
-  | { e: 'title'; text: string; sub: string; to?: string };
+  | { e: 'title'; text: string; sub: string; to?: string }
+  | { e: 'trade'; p: SimPlayer; v: Entity }
+  | { e: 'chestLid'; x: number; y: number; z: number; n: number };
 
 export interface SimOptions {
   seed: number;
@@ -153,6 +166,18 @@ const HOSTILE_CAP: Record<Difficulty, number> = { peaceful: 0, easy: 5, normal: 
 const PLAYER_HW = 0.3, PLAYER_H = 1.8;
 
 export function posKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
+
+export function chestPartner(store: { getBlock(x: number, y: number, z: number): number }, x: number, y: number, z: number): [number, number, number, boolean] | null {
+  const v = store.getBlock(x, y, z);
+  if (blockId(v) !== B.CHEST) return null;
+  const f = blockMeta(v) & 3;
+  const ax = f === 0 || f === 2 ? 1 : 0, az = 1 - ax;
+  const same = (k: number) => { const w = store.getBlock(x + ax * k, y, z + az * k); return blockId(w) === B.CHEST && (blockMeta(w) & 3) === f; };
+  let back = 0;
+  while (back < 32 && same(-(back + 1))) back++;
+  if (back % 2 === 0) return same(1) ? [x + ax, y, z + az, true] : null;
+  return [x - ax, y, z - az, false];
+}
 export function parsePosKey(k: string): [number, number, number] { const p = k.split(','); return [+p[0], +p[1], +p[2]]; }
 
 export function xpLevel(total: number): { level: number; progress: number; need: number } {
@@ -210,7 +235,7 @@ export class WorldSim {
   readonly emit: (ev: SimEvent) => void;
   readonly validateMoves: boolean;
   readonly authoritative: boolean;
-  settings: SimSettings = { pvp: false, cheats: true, guestsBuild: true, dayCycle: true, weatherCycle: true };
+  settings: SimSettings = { pvp: true, cheats: true, guestsBuild: true, dayCycle: true, weatherCycle: true };
   spawn: { x: number; y: number; z: number };
   game: GameHooks | null = null;
 
@@ -243,6 +268,8 @@ export class WorldSim {
   setNow(ms: number): void { this.now = ms; }
 
   get(x: number, y: number, z: number): number { return this.store.getBlock(x, y, z); }
+
+  private timeAcc = 0;
 
   dayFactor(): number {
     const t = this.time % TICKS_PER_DAY;
@@ -336,6 +363,7 @@ export class WorldSim {
     if (!e || e.kind !== 'mob' || p.dead) return false;
     if (Math.hypot(e.x - p.x, e.z - p.z) > 6) return false;
     const def = MOBS[e.type as MobType];
+    if (def?.trader) return this.openTrade(p, e);
     const held = heldStack(p.inv);
     if (!def?.lure || !held || !def.lure.includes(held.id)) return false;
     if (e.baby) { e.baby = Math.max(1, e.baby - 1200); }
@@ -346,6 +374,85 @@ export class WorldSim {
     this.emit({ e: 'sound', s: 'mob.eat', x: e.x, y: e.y, z: e.z });
     e.persistent = true;
     return true;
+  }
+
+  openTrade(p: SimPlayer, e: Entity): boolean {
+    if (e.health <= 0 || e.baby) return false;
+    for (const o of this.players.values()) if (o !== p && o.screen.type === 'trade' && e.tradeWith === o.id) { this.emit({ e: 'msg', text: 'That villager is busy trading.', kind: 'info', to: p.id }); return false; }
+    this.restock(e);
+    e.tradeWith = p.id;
+    this.openScreen(p, 'trade', Math.floor(e.x), Math.floor(e.y), Math.floor(e.z));
+    this.emit({ e: 'trade', p, v: e });
+    this.emit({ e: 'sound', s: 'villager.trade', x: e.x, y: e.y + 1.5, z: e.z });
+    return true;
+  }
+
+  private restock(e: Entity): void {
+    if (!e.uses) e.uses = [];
+    if ((e.restockAt ?? 0) <= this.tickCount) { e.uses = []; e.restockAt = this.tickCount + 12000; }
+  }
+
+  trade(p: SimPlayer, entityId: number, index: number, times = 1): boolean {
+    const e = this.entities.get(entityId);
+    if (!e || p.dead || p.screen.type !== 'trade' || e.tradeWith !== p.id || !Number.isInteger(index)) return false;
+    if (Math.hypot(e.x - p.x, e.z - p.z) > 8) return false;
+    const prof = PROFESSIONS[e.prof ?? 0] as Profession;
+    if (!unlocked(prof, e.vxp ?? 0).includes(index)) return false;
+    const of = OFFERS[prof][index];
+    this.restock(e);
+    const uses = e.uses!;
+    let done = 0;
+    times = Math.max(1, Math.min(64, Math.floor(times) || 1));
+    while (done < times && (uses[index] ?? 0) < of.max) {
+      const left = performTrade(p.inv, of);
+      if (!left) break;
+      if (left.count > 0) this.spawnItem(p.x, p.y + 1.2, p.z, left);
+      uses[index] = (uses[index] ?? 0) + 1;
+      const before = levelFor(e.vxp ?? 0);
+      e.vxp = (e.vxp ?? 0) + tradeXp(of);
+      if (levelFor(e.vxp) > before) this.emit({ e: 'particles', k: 'xp', x: e.x, y: e.y + 2.1, z: e.z });
+      if (p.mode === 'survival') this.giveXp(p, 3 + this.rng.int(4));
+      done++;
+    }
+    if (!done) return false;
+    this.emit({ e: 'inv', p });
+    this.emit({ e: 'trade', p, v: e });
+    this.emit({ e: 'sound', s: 'villager.yes', x: e.x, y: e.y + 1.5, z: e.z });
+    return true;
+  }
+
+  locateVillage(x: number, z: number): { x: number; y: number; z: number } | null {
+    let best: { x: number; y: number; z: number } | null = null, bd = Infinity;
+    for (const v of this.gen.villagesNear(x, z, 2400)) {
+      const d = Math.hypot(v.x - x, v.z - z);
+      if (d < bd) { bd = d; best = { x: v.x, y: v.y, z: v.z }; }
+    }
+    return best;
+  }
+
+  private populateVillages(p: SimPlayer): void {
+    for (const v of this.gen.villagesNear(p.x, p.z, 64)) {
+      if (!this.store.isLoaded(v.x, v.z)) continue;
+      let count = 0;
+      for (const e of this.entities.values()) if (e.vid === v.id) count++;
+      const target = Math.min(8, v.homes.length);
+      if (count >= target) continue;
+      const n = count === 0 ? target : this.rng.chance(0.05) ? 1 : 0;
+      for (let i = 0; i < n; i++) {
+        const home = v.homes[(count + i) % v.homes.length];
+        if (!this.store.isLoaded(home.x, home.z)) continue;
+        let y = -1;
+        for (let yy = Math.min(WORLD_HEIGHT - 3, v.y + 12); yy > Math.max(2, v.y - 12); yy--) {
+          if (standable(this.store, home.x, yy, home.z, true)) { y = yy; break; }
+        }
+        if (y < 0) continue;
+        const e = this.spawnMob('villager', home.x + 0.5, y, home.z + 0.5);
+        e.prof = Math.max(0, PROFESSIONS.indexOf(home.prof));
+        e.vid = v.id; e.home = [home.x + 0.5, home.z + 0.5]; e.vc = [v.x + 0.5, v.z + 0.5];
+        e.vxp = 0; e.uses = []; e.persistent = true;
+        e.flags = (e.prof + 1) << 9;
+      }
+    }
   }
 
   private scheduleFluidAround(x: number, y: number, z: number): void {
@@ -591,7 +698,7 @@ export class WorldSim {
     p.dead = true;
     p.dig = null;
     const msgs: Record<string, string> = {
-      fall: 'hit the ground too hard', lava: 'tried to swim in lava', drown: 'ran out of air', cactus: 'was pricked to death',
+      fall: 'hit the ground too hard', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death',
       void: 'fell out of the world', starve: 'starved to death', fire: 'burned to a crisp', arrow: 'was shot by a Rattlebone',
       kill: 'gave up on this life', player: `was struck down by ${killer ?? 'a rival'}`,
     };
@@ -635,12 +742,20 @@ export class WorldSim {
   invCtx(p: SimPlayer) {
     let container: (ItemStack | null)[] | null = null;
     let kind: 'chest' | 'furnace' | null = null;
+    let split: ((joined: (ItemStack | null)[]) => void) | null = null;
     if (p.screen.type === 'chest' || p.screen.type === 'furnace') {
       const be = this.getBlockEntity(p.screen.x, p.screen.y, p.screen.z);
       if (be && be.type === p.screen.type) { container = be.items; kind = be.type; }
+      const pr = be && be.type === 'chest' ? chestPartner(this.store, p.screen.x, p.screen.y, p.screen.z) : null;
+      const other = pr ? this.ensureBlockEntity(pr[0], pr[1], pr[2]) : null;
+      if (be && other && other.type === 'chest') {
+        const [a, b] = pr![3] ? [be, other] : [other, be];
+        container = [...a.items, ...b.items];
+        split = (j) => { for (let i = 0; i < a.items.length; i++) a.items[i] = j[i]; for (let i = 0; i < b.items.length; i++) b.items[i] = j[a.items.length + i]; };
+      }
     }
     return {
-      inv: p.inv, container, containerKind: kind, creative: p.mode === 'creative',
+      inv: p.inv, container, containerKind: kind, creative: p.mode === 'creative', split,
       drop: (s: ItemStack) => {
         const yaw = p.yaw;
         this.spawnItem(p.x, p.y + 1.3, p.z, s, -Math.sin(yaw) * 5, 2.5, -Math.cos(yaw) * 5, 30);
@@ -654,10 +769,13 @@ export class WorldSim {
     const ctx = this.invCtx(p);
     const wasFurnaceOut = op.t === 'click' && op.s.c === 'cont' && op.s.i === 2 && ctx.containerKind === 'furnace' || op.t === 'quick' && op.s.c === 'cont' && op.s.i === 2 && ctx.containerKind === 'furnace';
     const ok = applyInvOp(ctx, op);
+    if (ctx.split && ctx.container) ctx.split(ctx.container);
     if (ok) {
       if (ctx.container) {
         const k = posKey(p.screen.x, p.screen.y, p.screen.z);
         this.emit({ e: 'container', key: k });
+        const pr = ctx.split ? chestPartner(this.store, p.screen.x, p.screen.y, p.screen.z) : null;
+        if (pr) this.emit({ e: 'container', key: posKey(pr[0], pr[1], pr[2]) });
         if (ctx.containerKind === 'furnace') {
           this.activeFurnaces.add(k);
           if (wasFurnaceOut) {
@@ -666,7 +784,12 @@ export class WorldSim {
           }
         }
       }
-      if (op.t === 'close') { p.screen.type = null; this.emit({ e: 'screen', p }); }
+      if (op.t === 'close') {
+        const was = p.screen.type;
+        p.screen.type = null;
+        this.emit({ e: 'screen', p });
+        if (was === 'chest') this.emit({ e: 'chestLid', x: p.screen.x, y: p.screen.y, z: p.screen.z, n: this.chestViewers(p.screen.x, p.screen.y, p.screen.z) });
+      }
     }
     if (!ok) this.emit({ e: 'inv', p });
     return { ok, hash: invHash(p.inv) };
@@ -681,22 +804,50 @@ export class WorldSim {
     this.emit({ e: 'vitals', p });
   }
 
+  containerView(p: SimPlayer): { key: string; keys: string[]; type: 'chest' | 'furnace'; items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number } | null {
+    const sc = p.screen;
+    if (sc.type !== 'chest' && sc.type !== 'furnace') return null;
+    const be = this.getBlockEntity(sc.x, sc.y, sc.z);
+    if (!be || be.type !== sc.type) return null;
+    const key = posKey(sc.x, sc.y, sc.z);
+    if (be.type === 'furnace') return { key, keys: [key], type: 'furnace', items: be.items, burn: be.burn, burnMax: be.burnMax, cook: be.cook };
+    const pr = chestPartner(this.store, sc.x, sc.y, sc.z);
+    const other = pr ? this.getBlockEntity(pr[0], pr[1], pr[2]) : undefined;
+    if (!pr || !other || other.type !== 'chest') return { key, keys: [key], type: 'chest', items: be.items };
+    const [a, b] = pr[3] ? [be, other] : [other, be];
+    return { key, keys: [key, posKey(pr[0], pr[1], pr[2])], type: 'chest', items: [...a.items, ...b.items] };
+  }
+
+  chestViewers(x: number, y: number, z: number): number {
+    const pr = chestPartner(this.store, x, y, z);
+    let n = 0;
+    for (const o of this.players.values()) {
+      if (o.screen.type !== 'chest') continue;
+      if ((o.screen.x === x && o.screen.y === y && o.screen.z === z) || (pr && o.screen.x === pr[0] && o.screen.y === pr[1] && o.screen.z === pr[2])) n++;
+    }
+    return n;
+  }
+
   closeScreen(p: SimPlayer): void {
     if (!p.screen.type) return;
-    applyInvOp(this.invCtx(p), { t: 'close' });
+    { const ctx = this.invCtx(p); applyInvOp(ctx, { t: 'close' }); if (ctx.split && ctx.container) ctx.split(ctx.container); }
+    const was = p.screen.type;
     p.screen.type = null;
+    if (was === 'chest') this.emit({ e: 'chestLid', x: p.screen.x, y: p.screen.y, z: p.screen.z, n: this.chestViewers(p.screen.x, p.screen.y, p.screen.z) });
     this.emit({ e: 'screen', p });
     this.emit({ e: 'inv', p });
   }
 
   openScreen(p: SimPlayer, type: ScreenType, x: number, y: number, z: number): void {
-    if (p.screen.type) applyInvOp(this.invCtx(p), { t: 'close' });
+    const prev = p.screen.type === 'chest' ? { ...p.screen } : null;
+    if (p.screen.type) { const ctx = this.invCtx(p); applyInvOp(ctx, { t: 'close' }); if (ctx.split && ctx.container) ctx.split(ctx.container); }
     p.screen = { type, x, y, z };
     p.inv.craftSize = type === 'workbench' ? 3 : 2;
+    if (prev) this.emit({ e: 'chestLid', x: prev.x, y: prev.y, z: prev.z, n: this.chestViewers(prev.x, prev.y, prev.z) });
     if (type === 'chest' || type === 'furnace') this.ensureBlockEntity(x, y, z);
+    if (type === 'chest') { const pr = chestPartner(this.store, x, y, z); if (pr) this.ensureBlockEntity(pr[0], pr[1], pr[2]); this.emit({ e: 'chestLid', x, y, z, n: this.chestViewers(x, y, z) }); }
     this.emit({ e: 'screen', p });
     this.emit({ e: 'inv', p });
-    if (type === 'chest') this.emit({ e: 'sound', s: 'chest.open', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
   }
 
   digStart(p: SimPlayer, x: number, y: number, z: number): boolean {
@@ -857,6 +1008,18 @@ export class WorldSim {
       if (blockId(this.get(tx, ty, tz)) !== 0) return fail();
     }
     if (def.orientable) meta = (look + 2) & 3;
+    if (bid === B.CHEST && !(p.flags & MF.CROUCH)) {
+      for (const [dx, dz] of FACING_DIRS) {
+        const nv = this.get(tx + dx, ty, tz + dz);
+        if (blockId(nv) !== B.CHEST) continue;
+        const g = blockMeta(nv) & 3;
+        const [fx, fz] = FACING_DIRS[g];
+        if (fx * dx + fz * dz !== 0) continue;
+        if (chestPartner(this.store, tx + dx, ty, tz + dz)) continue;
+        meta = g;
+        break;
+      }
+    }
     if (bid === B.TORCH) {
       if (ny === 1) meta = 0;
       else if (ny === -1) return fail();
@@ -1007,7 +1170,11 @@ export class WorldSim {
   tick(): void {
     this.tickCount++;
     this.now += 50;
-    if (this.settings.dayCycle) this.time++;
+    if (this.settings.dayCycle) {
+      this.timeAcc += timeRate(this.time);
+      const step = Math.floor(this.timeAcc);
+      if (step > 0) { this.time += step; this.timeAcc -= step; }
+    }
     if (this.tickCount % 200 === 0) this.emit({ e: 'time' });
     this.tickWeather();
     for (const p of this.players.values()) this.tickPlayer(p);
@@ -1057,12 +1224,15 @@ export class WorldSim {
     if (p.mode === 'survival') {
       if (f & MF.LAVA) { p.fireT = 300; if (--p.t.lava <= 0) { p.t.lava = 10; this.damage(p, 4, 'lava', p.x, p.z, false); } }
       if (f & MF.WATER) p.fireT = 0;
+      if ((p.fireT > 0) !== !!p.wasFire) { p.wasFire = p.fireT > 0; changed = true; }
       if (p.fireT > 0) { p.fireT--; if (--p.t.fire <= 0) { p.t.fire = 20; if (!(f & MF.LAVA)) this.damage(p, 1, 'fire', p.x, p.z, false); } }
       if (f & MF.EYE_WATER) {
         p.air--;
         if (p.air <= 0) { p.air = 0; if (--p.t.drown <= 0) { p.t.drown = 20; this.damage(p, 2, 'drown', p.x, p.z, false, true); } }
         if (p.air % 20 === 0) changed = true;
       } else if (p.air < 300) { p.air = Math.min(300, p.air + 5); changed = true; }
+      const hb = getBlock(this.get(Math.floor(p.x), Math.floor(p.y + (f & MF.CROUCH ? 1.27 : 1.62)), Math.floor(p.z)));
+      if (hb.solid && hb.opaque && hb.render === 'cube') { p.t.suffocate = (p.t.suffocate ?? 10) - 1; if (p.t.suffocate <= 0) { p.t.suffocate = 10; this.damage(p, 1, 'suffocate', p.x, p.z, false, true); } }
       if (f & MF.CACTUS) { if (--p.t.cactus <= 0) { p.t.cactus = 10; this.damage(p, 1, 'cactus', p.x, p.z, false); } }
       if (p.y < -8) { if (--p.t.void <= 0) { p.t.void = 10; this.damage(p, 4, 'void', p.x, p.z, false, true); } }
       if (this.difficulty === 'peaceful') {
@@ -1323,8 +1493,10 @@ export class WorldSim {
       for (const e of this.entities.values()) {
         if (e.kind !== 'mob') continue;
         if (Math.hypot(e.x - p.x, e.z - p.z) > 64) continue;
-        if (MOBS[e.type as MobType].hostile) hostile++; else passive++;
+        const md = MOBS[e.type as MobType];
+        if (md.hostile) hostile++; else if (!md.trader && !md.npc) passive++;
       }
+      this.populateVillages(p);
       if (passive < 8 && this.rng.chance(0.08)) this.trySpawn(p, false);
       if (hostile < HOSTILE_CAP[this.difficulty] && this.rng.chance(0.5)) this.trySpawn(p, true);
     }
@@ -1439,22 +1611,57 @@ export class WorldSim {
   }
 
   private tickArrow(e: Entity): void {
-    if (e.age > 400) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    if (e.age > 400 && e.stuck === undefined) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
     if (e.stuck !== undefined) {
-      if (++e.stuck > 60) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); }
+      e.stuck++;
+      if (e.pickup && e.stuck > 5) {
+        for (const p of this.players.values()) {
+          if (p.dead || Math.abs(p.x - e.x) > 1.3 || Math.abs(p.z - e.z) > 1.3 || e.y < p.y - 0.8 || e.y > p.y + 2.2) continue;
+          if (giveItem(p.inv, { id: I.ARROW, count: 1 }) > 0) continue;
+          this.emit({ e: 'sound', s: 'item.pickup', x: e.x, y: e.y, z: e.z });
+          this.emit({ e: 'inv', p });
+          this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'pickup', by: p.id });
+          return;
+        }
+      }
+      if (e.stuck > (e.pickup ? 1200 : 60)) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); }
       return;
     }
     e.vy -= 20 * DT;
     const sp = Math.hypot(e.vx, e.vy, e.vz);
     const step = sp * DT;
     const dx = e.vx / sp, dy = e.vy / sp, dz = e.vz / sp;
+    e.vx *= 0.99; e.vy *= 0.99; e.vz *= 0.99;
+    if (e.shooterP) {
+      for (const m of this.entities.values()) {
+        if (m.kind !== 'mob' || m.health <= 0) continue;
+        for (let s = 0; s <= 6; s++) {
+          const t = (s / 6) * step;
+          const ax = e.x + dx * t, ay = e.y + dy * t, az = e.z + dz * t;
+          if (Math.abs(ax - m.x) < m.hw + 0.15 && Math.abs(az - m.z) < m.hw + 0.15 && ay > m.y && ay < m.y + m.h) {
+            const l = Math.hypot(dx, dz) || 1;
+            this.hurtMob(m, e.dmg ?? 3, e.shooterP, dx / l * 0.6, dz / l * 0.6);
+            if (m.fire === 0 && e.fire > 0) m.fire = 100;
+            this.entities.delete(e.id);
+            this.emit({ e: 'remove', id: e.id, why: 'hit' });
+            this.emit({ e: 'sound', s: 'arrow.hit', x: e.x, y: e.y, z: e.z });
+            return;
+          }
+        }
+      }
+    }
     for (const p of this.players.values()) {
-      if (p.dead || p.mode === 'creative') continue;
+      if (p.dead || p.mode === 'creative' || p.id === e.shooterP) continue;
+      if (e.shooterP) {
+        const sh = this.players.get(e.shooterP);
+        if (!this.settings.pvp || (sh && this.game && !this.game.canHurtPlayer(sh, p))) continue;
+      }
       for (let s = 0; s <= 4; s++) {
         const t = (s / 4) * step;
         const ax = e.x + dx * t, ay = e.y + dy * t, az = e.z + dz * t;
         if (Math.abs(ax - p.x) < 0.45 && Math.abs(az - p.z) < 0.45 && ay > p.y && ay < p.y + 1.85) {
-          this.damage(p, Math.max(1, Math.round((e.dmg ?? 3) * DIFF_DMG[this.difficulty])), 'arrow', e.x - e.vx, e.z - e.vz);
+          const sh = e.shooterP ? this.players.get(e.shooterP) : undefined;
+          this.damage(p, e.shooterP ? (e.dmg ?? 3) : Math.max(1, Math.round((e.dmg ?? 3) * DIFF_DMG[this.difficulty])), e.shooterP ? 'player' : 'arrow', e.x - e.vx, e.z - e.vz, true, false, sh?.name);
           this.entities.delete(e.id);
           this.emit({ e: 'remove', id: e.id, why: 'hit' });
           return;
@@ -1525,6 +1732,33 @@ export class WorldSim {
         }
       }
     } else {
+      if (def.trader) {
+        const tp = e.tradeWith ? this.players.get(e.tradeWith) : undefined;
+        if (tp && tp.screen.type === 'trade' && !tp.dead) {
+          e.path = null; e.wanderT = 40;
+          e.yaw = Math.atan2(-(tp.x - e.x), -(tp.z - e.z));
+        } else {
+          e.tradeWith = undefined;
+          if (!e.panic && e.age % 10 === 0) {
+            for (const o of this.entities.values()) {
+              if (o.kind !== 'mob' || !MOBS[o.type as MobType].hostile) continue;
+              if (Math.abs(o.x - e.x) < 7 && Math.abs(o.z - e.z) < 7 && Math.abs(o.y - e.y) < 4) { e.panic = 40; e.attacker = undefined; e.home && (e.path = null); break; }
+            }
+          }
+          if (!e.panic) {
+            const night = this.dayFactor() < 0.3;
+            const [hx, hz] = night && e.home ? e.home : e.vc ?? [e.x, e.z];
+            const d = Math.hypot(hx - e.x, hz - e.z);
+            if (night && e.home) {
+              if (d > 1.2) { goalX = hx; goalZ = hz; } else { e.path = null; e.wanderT = 40; }
+            } else if (d > 26) { goalX = hx; goalZ = hz; }
+            else if (e.age % 40 === 0) {
+              const near = this.nearestPlayer(e, 4, false);
+              if (near && this.rng.chance(0.5)) { e.path = null; e.wanderT = 30; e.yaw = Math.atan2(-(near.x - e.x), -(near.z - e.z)); }
+            }
+          } else if (e.vc) { goalX = e.vc[0]; goalZ = e.vc[1]; }
+        }
+      }
       if (e.panic! > 0) {
         e.panic!--;
         const att = e.attacker ? this.players.get(e.attacker) : undefined;
@@ -1608,6 +1842,7 @@ export class WorldSim {
     if (e.hurt > 0) flags |= 1;
     if (e.baby) flags |= 128;
     if (e.fire > 0) flags |= 2;
+    if (e.prof !== undefined) flags |= (e.prof + 1) << 9;
     e.flags = flags;
   }
 
@@ -1630,6 +1865,41 @@ export class WorldSim {
     this.emit({ e: 'sound', s: 'arrow.shoot', x: ox, y: oy, z: oz });
   }
 
+  shootBow(p: SimPlayer, power: number, yaw: number, pitch: number): boolean {
+    if (p.dead || !isFinite(power) || !isFinite(yaw) || !isFinite(pitch)) return false;
+    const held = heldStack(p.inv);
+    if (!held || held.id !== I.BOW) return false;
+    if (this.now - (p.lastShot ?? -1e9) < 250) return false;
+    power = Math.max(0, Math.min(1, power));
+    if (power < 0.1) return false;
+    const creative = p.mode === 'creative';
+    const ai = creative ? -1 : p.inv.slots.findIndex((s) => s?.id === I.ARROW);
+    if (!creative && ai < 0) return false;
+    p.lastShot = this.now;
+    if (!creative) {
+      const st = p.inv.slots[ai]!;
+      if (--st.count <= 0) p.inv.slots[ai] = null;
+      damageHeld(p.inv, 1);
+      this.emit({ e: 'inv', p });
+    }
+    pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+    const cp = Math.cos(pitch);
+    const dx = -Math.sin(yaw) * cp, dy = Math.sin(pitch), dz = -Math.cos(yaw) * cp;
+    const speed = 60 * power;
+    const ey = p.y + (p.flags & MF.CROUCH ? 1.27 : 1.62) - 0.1;
+    const crit = power >= 1;
+    const a: Entity = {
+      id: this.allocId(), kind: 'arrow', type: 'arrow', x: p.x + dx * 0.4, y: ey + dy * 0.4, z: p.z + dz * 0.4,
+      vx: dx * speed, vy: dy * speed, vz: dz * speed,
+      hw: 0.1, h: 0.1, onGround: false, hitH: false, hitCeil: false, yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: crit ? 4 : 0,
+      shooterP: p.id, pickup: !creative, dmg: Math.ceil(power * 6) + (crit ? this.rng.int(3) : 0),
+    };
+    this.entities.set(a.id, a);
+    this.emit({ e: 'spawn', ent: a });
+    this.emit({ e: 'sound', s: 'arrow.shoot', x: p.x, y: ey, z: p.z });
+    return true;
+  }
+
   setTime(ticks: number): void {
     this.time = Math.max(0, Math.floor(ticks));
     this.emit({ e: 'time' });
@@ -1643,8 +1913,13 @@ export class WorldSim {
     if (this.game) { const r = this.game.command(p, [cmd, ...parts.slice(1)]); if (r !== null) return r; }
     switch (cmd) {
       case 'help':
-        return 'Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /tp <x> <y> <z>, /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /kill';
+        return 'Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /tp <x> <y> <z>, /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /locate village, /kill';
       case 'seed': return `Seed: ${this.seed}`;
+      case 'locate': {
+        if ((parts[1] ?? 'village') !== 'village') return 'Usage: /locate village';
+        const v = this.locateVillage(p.x, p.z);
+        return v ? `Nearest village is at ${v.x} ${v.y + 1} ${v.z} (${Math.round(Math.hypot(v.x - p.x, v.z - p.z))} blocks away).` : 'No village found within 2400 blocks.';
+      }
       case 'time': {
         if (!allowed) return need();
         if (parts[1] === 'cycle') { this.settings.dayCycle = parts[2] !== 'off'; return `Day cycle ${this.settings.dayCycle ? 'on' : 'off'}.`; }

@@ -1,6 +1,6 @@
 export const GAME_NAME = 'Strata';
-export const GAME_VERSION = '1.0.0';
-export const PROTOCOL_VERSION = 4;
+export const GAME_VERSION = '0.6.0';
+export const PROTOCOL_VERSION = 5;
 /** Oldest client protocol a server still accepts, so players on a cached page keep working after a deploy. */
 export const MIN_PROTOCOL_VERSION = 3;
 export const SAVE_VERSION = 2;
@@ -12,6 +12,13 @@ export const SEA_LEVEL = 56;
 export const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
 
 export const TICKS_PER_DAY = 24000;
+
+export function timeRate(time: number): number {
+  const t = ((time % TICKS_PER_DAY) + TICKS_PER_DAY) % TICKS_PER_DAY;
+  if (t < 12000) return 1 / 3;
+  if (t >= 13000 && t < 23000) return 2;
+  return 1;
+}
 export const TICK_RATE = 20;
 
 export const REACH_SURVIVAL = 5;

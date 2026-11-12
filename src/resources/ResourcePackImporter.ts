@@ -37,7 +37,10 @@ export interface PackManifest {
   animations: Record<string, AnimInfo>;
   sounds: Record<string, string[]>;
   special: Record<string, string>;
+  importer?: number;
 }
+
+export const IMPORTER_VERSION = 6;
 
 export interface PackFiles { [path: string]: Uint8Array; }
 
@@ -91,7 +94,7 @@ const BEDROCK_ITEM_FILES: Record<string, string[]> = {
   cooked_pork: ['porkchop_cooked'], raw_mutton: ['mutton_raw'], cooked_mutton: ['mutton_cooked'], raw_poultry: ['chicken_raw'], cooked_poultry: ['chicken_cooked'],
   wheat_seeds: ['seeds_wheat'], wheat: ['wheat'], clay_ball: ['clay_ball'], brick: ['brick'], bucket: ['bucket_empty'], water_bucket: ['bucket_water'],
   lava_bucket: ['bucket_lava'], rotten_flesh: ['rotten_flesh'], paper: ['paper'], book: ['book_normal'], red_dye: ['dye_powder_red_new', 'dye_powder_red'],
-  yellow_dye: ['dye_powder_yellow_new', 'dye_powder_yellow'], arrow: ['arrow'], oak_door_item: ['door_wood'],
+  yellow_dye: ['dye_powder_yellow_new', 'dye_powder_yellow'], arrow: ['arrow'], oak_door_item: ['door_wood'], bow: ['bow_standby', 'bow'], emerald: ['emerald'], bow_pulling_0: ['bow_pulling_0'], bow_pulling_1: ['bow_pulling_1'], bow_pulling_2: ['bow_pulling_2'],
 };
 const BR_MAT: Record<string, string> = { wooden: 'wood', stone: 'stone', iron: 'iron', golden: 'gold', aetherite: 'diamond', leather: 'leather', gold: 'gold' };
 for (const m of ['wooden', 'stone', 'iron', 'golden', 'aetherite']) for (const t of ['pickaxe', 'axe', 'shovel', 'sword', 'hoe']) BEDROCK_ITEM_FILES[`${m}_${t}`] = [`${BR_MAT[m]}_${t}`];
@@ -321,7 +324,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       if (!it || it.kind === 'block' || it.blockIcon) continue;
       itemModelNames.set(it.key, javaItemName(it.key));
     }
-    for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door') itemModelNames.set(it.key, '');
+    for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door' && !itemModelNames.has(it.key)) itemModelNames.set(it.key, '');
     r.load([...itemModelNames.values()].filter(Boolean).map((n) => `assets/minecraft/models/item/${n}.json`));
     for (const [key, jn] of itemModelNames) {
       if (!jn) continue;
@@ -341,6 +344,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     special.food = 'gui/sprites/hud/food_full'; special.food_half = 'gui/sprites/hud/food_half'; special.food_empty = 'gui/sprites/hud/food_empty';
     special.armor = 'gui/sprites/hud/armor_full'; special.armor_half = 'gui/sprites/hud/armor_half'; special.armor_empty = 'gui/sprites/hud/armor_empty';
     special.bubble = 'gui/sprites/hud/air';
+    special.fire_0 = 'block/fire_0'; special.fire_1 = 'block/fire_1';
     const firstOf = (...cands: string[]) => cands.find((c) => z.has(`assets/minecraft/textures/${c}.png`));
     const ent: Record<string, string | undefined> = {
       ent_pig: firstOf('entity/pig/pig_temperate', 'entity/pig/temperate_pig', 'entity/pig/pig'),
@@ -351,12 +355,18 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       ent_skeleton: firstOf('entity/skeleton/skeleton'),
       ent_spider: firstOf('entity/spider/spider'),
       ent_spider_eyes: firstOf('entity/spider/spider_eyes', 'entity/spider_eyes'),
+      ent_villager: firstOf('entity/villager/villager'),
+      ent_chest: firstOf('entity/chest/normal'),
+      ent_chest_left: firstOf('entity/chest/normal_left'),
+      ent_chest_right: firstOf('entity/chest/normal_right'),
+      ent_villager_type: firstOf('entity/villager/type/plains'),
       gui_hotbar: firstOf('gui/sprites/hud/hotbar'),
       gui_hotbar_selection: firstOf('gui/sprites/hud/hotbar_selection'),
       gui_crosshair: firstOf('gui/sprites/hud/crosshair'),
       gui_slot: firstOf('gui/sprites/container/slot'),
     };
     ['steve', 'alex', 'ari', 'efe', 'kai', 'makena', 'noor', 'sunny', 'zuri'].forEach((n, i) => { ent[`ent_player${i}`] = firstOf(`entity/player/wide/${n}`, i === 0 ? 'entity/steve' : `entity/player/wide/${n}`); });
+    for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason']) ent[`ent_vprof_${pr}`] = firstOf(`entity/villager/profession/${pr}`);
     for (const [k, v] of Object.entries(ent)) if (v) special[k] = v;
     const altMoon = z.list('assets/minecraft/textures/environment/').find((n) => /moon/.test(n) && n.endsWith('.png'));
     if (!z.has(`assets/minecraft/textures/${special.moon}.png`) && altMoon) special.moon = altMoon.replace('assets/minecraft/textures/', '').replace(/\.png$/, '');
@@ -456,6 +466,9 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     add('s:ent_spider', ['textures/entity/spider/spider']);
     add('s:ent_spider_eyes', ['textures/entity/spider/spider_eyes', 'textures/entity/spider_eyes']);
     add('s:ent_player0', ['textures/entity/steve']);
+    add('s:ent_villager', ['textures/entity/villager2/villager', 'textures/entity/villager/villager']);
+    add('s:ent_villager_type', ['textures/entity/villager2/biomes/biome_plains']);
+    for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason']) add(`s:ent_vprof_${pr}`, [`textures/entity/villager2/professions/${pr}`, `textures/entity/villager/profession/${pr}`]);
     add('s:foliage_colormap', ['textures/colormap/foliage']);
     const paths = new Set<string>();
     for (const c of wanted.values()) for (const p of c) { paths.add(`${p}.png`); paths.add(`${p}.tga`); }
@@ -521,6 +534,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
   const hash = await sha256Hex(sortedPaths.flatMap((p) => [enc.encode(p), files[p]]));
   const sizeBytes = sortedPaths.reduce((n, p) => n + files[p].length, 0);
   const manifest: PackManifest = {
+    importer: IMPORTER_VERSION,
     id: `pack-${hash.slice(0, 16)}`, name: name.slice(0, 60) || 'Imported Pack', description: description.slice(0, 200),
     format: isJava ? 'java' : 'bedrock', formatVersion, hash, importedAt: Date.now(), sizeBytes, report,
     blockFaces, itemTextures, animations, sounds, special,

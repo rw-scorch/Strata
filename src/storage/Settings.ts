@@ -5,6 +5,8 @@ export type GraphicsPreset = 'low' | 'medium' | 'high' | 'ultra' | 'custom';
 export interface ButtonLayout { [id: string]: { x: number; y: number }; }
 
 export interface Settings {
+  controlScheme: 'auto' | 'touch' | 'mouse';
+  labs: boolean;
   preset: GraphicsPreset;
   renderDistance: number;
   resolutionScale: number;
@@ -97,7 +99,12 @@ export const PRESETS: Record<Exclude<GraphicsPreset, 'custom'>, Partial<Settings
 export const PRESET_KEYS: (keyof Settings)[] = ['renderDistance', 'resolutionScale', 'shadows', 'particles', 'smoothLighting', 'clouds', 'adaptiveResolution', ...(Object.keys(LOW_FX) as (keyof Settings)[])];
 
 export function isTouchDevice(): boolean {
-  return typeof window !== 'undefined' && (('ontouchstart' in window) || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches);
+  if (typeof window === 'undefined') return false;
+  const scheme = current?.controlScheme;
+  if (scheme === 'touch') return true;
+  if (scheme === 'mouse') return false;
+  const ipad = /iPad|iPhone|Android/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return ipad || matchMedia('(pointer: coarse)').matches;
 }
 
 function defaults(): Settings {
@@ -108,7 +115,7 @@ function defaults(): Settings {
   return {
     preset, renderDistance: 6, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
     fov: 72, showFps: false, sensitivity: 1, touchSensitivity: 1, joystickSize: 1, buttonSize: 1, leftHanded: false, invertY: false,
-    autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
+    controlScheme: 'auto', labs: false, autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
     difficulty: 'normal', viewBobbing: true, reconnect: true, region: 'auto', activePacks: [],
     playerName: '', appearance: { skin: Math.floor(Math.random() * 6), hair: Math.floor(Math.random() * 8), shirt: Math.floor(Math.random() * 12), pants: Math.floor(Math.random() * 12) },
     hudScale: 1, chatOpacity: 0.55, brightness: 0.5,

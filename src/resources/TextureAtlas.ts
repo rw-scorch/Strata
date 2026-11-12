@@ -71,6 +71,7 @@ export class TextureAtlas {
   readonly data: AtlasData;
   readonly anims: AnimatedTile[] = [];
   readonly hudURLs: Record<string, string> = {};
+  fireFrames = 1;
   readonly entityTextures = new Map<string, THREE.Texture>();
   readonly entityCanvases = new Map<string, HTMLCanvasElement>();
   sunTexture!: THREE.Texture;
@@ -216,7 +217,7 @@ export class TextureAtlas {
   private buildEntities(): void {
     if (!this.pack) return;
     for (const [k, path] of this.pack.special) {
-      if (!k.startsWith('ent_')) continue;
+      if (!k.startsWith('ent_') || k.startsWith('ent_vprof_') || k === 'ent_villager_type') continue;
       const src = this.pack.files.get(path);
       if (!src) continue;
       const c = toCanvas(src);
@@ -229,6 +230,27 @@ export class TextureAtlas {
       t.colorSpace = THREE.NoColorSpace;
       this.entityTextures.set(k.slice(4), t);
       this.entityCanvases.set(k.slice(4), c);
+    }
+    const base = this.entityCanvases.get('villager');
+    if (base) {
+      const layer = (key: string) => { const pth = this.pack!.special.get(key); const src = pth ? this.pack!.files.get(pth) : undefined; if (!src) return null; const c = toCanvas(src); return c.width === 64 && c.height === 64 ? c : null; };
+      const typeC = layer('ent_villager_type');
+      for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason']) {
+        const c = document.createElement('canvas');
+        c.width = 64; c.height = 64;
+        const g = c.getContext('2d')!;
+        g.drawImage(base, 0, 0);
+        if (typeC) g.drawImage(typeC, 0, 0);
+        const pc = layer(`ent_vprof_${pr}`);
+        if (pc) g.drawImage(pc, 0, 0);
+        const t = new THREE.CanvasTexture(c);
+        t.magFilter = THREE.NearestFilter;
+        t.minFilter = THREE.NearestMipmapLinearFilter;
+        t.generateMipmaps = true;
+        t.flipY = false;
+        t.colorSpace = THREE.NoColorSpace;
+        this.entityTextures.set(`villager_${pr}`, t);
+      }
     }
   }
 
@@ -426,6 +448,19 @@ export class TextureAtlas {
     this.iconURL = this.iconCanvas.toDataURL('image/png');
   }
 
+  private tileURLs = new Map<number, string>();
+
+  tileURL(blockIdNum: number, slot = 0): string | null {
+    const k = blockIdNum * 8 + slot;
+    if (this.tileURLs.has(k)) return this.tileURLs.get(k)!;
+    const idx = this.data.blockTiles[blockIdNum * FACE_SLOTS + slot];
+    const c = idx >= 0 ? this.tileCanvases[idx] : undefined;
+    if (!c) return null;
+    const url = c.toDataURL('image/png');
+    this.tileURLs.set(k, url);
+    return url;
+  }
+
   iconPos(id: number): { x: number; y: number } {
     const i = this.iconIndex.get(id) ?? 0;
     return { x: (i % ICON_COLS) * ICON_SIZE, y: Math.floor(i / ICON_COLS) * ICON_SIZE };
@@ -437,10 +472,12 @@ export class TextureAtlas {
     return [p.x / W, p.y / H, (p.x + ICON_SIZE) / W, (p.y + ICON_SIZE) / H];
   }
 
-  iconStyle(id: number, size: number): string {
+  iconStyle(id: number, _size?: number): string {
     const p = this.iconPos(id);
-    const scale = size / ICON_SIZE;
-    return `background-image:url(${this.iconURL});background-size:${this.iconCanvas.width * scale}px ${this.iconCanvas.height * scale}px;background-position:-${p.x * scale}px -${p.y * scale}px`;
+    const cols = this.iconCanvas.width / ICON_SIZE, rows = this.iconCanvas.height / ICON_SIZE;
+    const cx = p.x / ICON_SIZE, cy = p.y / ICON_SIZE;
+    const px = cols > 1 ? (cx / (cols - 1)) * 100 : 0, py = rows > 1 ? (cy / (rows - 1)) * 100 : 0;
+    return `background-image:url(${this.iconURL});background-size:${cols * 100}% ${rows * 100}%;background-position:${px.toFixed(4)}% ${py.toFixed(4)}%`;
   }
 
   private buildHud(): void {
@@ -451,6 +488,11 @@ export class TextureAtlas {
       const c = src ? toCanvas(src) : toCanvas(hudIcon(k));
       this.hudURLs[k] = c.toDataURL('image/png');
     }
+    const fp = this.pack?.special.get('fire_0');
+    const fsrc = fp ? this.pack!.files.get(fp) : undefined;
+    const fc = fsrc ? toCanvas(fsrc) : proceduralFire();
+    this.fireFrames = Math.max(1, Math.round(fc.height / fc.width));
+    this.hudURLs.fire = fc.toDataURL('image/png');
     for (const k of ['gui_hotbar', 'gui_hotbar_selection', 'gui_crosshair', 'gui_slot']) {
       const p = this.pack?.special.get(k);
       const src = p ? this.pack!.files.get(p) : undefined;
@@ -556,4 +598,35 @@ export function buildMips(base: ImageData, tileSize: number, levels: number): Im
     prev = next;
   }
   return out;
+}
+
+function proceduralFire(): HTMLCanvasElement {
+  const W = 16, F = 16;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = W * F;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(W, W * F);
+  const heat = new Float32Array(W * (W + 2));
+  let seed = 1337;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let warm = 0; warm < 40 + F; warm++) {
+    for (let x = 0; x < W; x++) heat[(W + 1) * W + x] = 0.7 + rnd() * 0.6;
+    const next = new Float32Array(heat.length);
+    for (let y = 0; y <= W; y++) for (let x = 0; x < W; x++) {
+      const b = heat[(y + 1) * W + x] * 2 + heat[(y + 1) * W + ((x + W - 1) % W)] + heat[(y + 1) * W + ((x + 1) % W)] + heat[y * W + x];
+      next[y * W + x] = Math.max(0, b / 5.06 - 0.012 * (1 - y / W));
+    }
+    next.set(heat.subarray((W + 1) * W), (W + 1) * W);
+    heat.set(next);
+    const f = warm - 40;
+    if (f < 0) continue;
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      const v = Math.min(1, heat[y * W + x] * 1.4);
+      const o = ((f * W + y) * W + x) * 4;
+      if (v < 0.2) { img.data[o + 3] = 0; continue; }
+      img.data[o] = 255; img.data[o + 1] = Math.round(80 + v * 175); img.data[o + 2] = Math.round(Math.max(0, v - 0.7) * 300); img.data[o + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  return c;
 }

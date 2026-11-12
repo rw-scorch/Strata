@@ -235,7 +235,7 @@ export class RemoteSession implements GameSession {
         return;
       case 'vit':
         Object.assign(this.me, { health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode });
-        ev.vitals({ health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode });
+        ev.vitals({ health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode, fire: !!m.fire });
         return;
       case 'inv': this.me.inv = sanitizeInv(m.inv); this.expected.clear(); ev.inventory(this.me.inv); return;
       case 'ack': {
@@ -279,6 +279,8 @@ export class RemoteSession implements GameSession {
       case 'crafted': ev.crafted(m.r, m.n); return;
       case 'game': ev.game(m.s); return;
       case 'title': ev.title(m.text, m.sub); return;
+      case 'lid': ev.chestLid?.(m.x, m.y, m.z, m.n); return;
+      case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses }); return;
       case 'pong': this.rtt = Date.now() - m.c; return;
     }
   }
@@ -333,6 +335,8 @@ export class RemoteSession implements GameSession {
     this.ev?.inventory(this.me.inv);
   }
   eat(): void { this.sim.eat(this.me); this.send({ t: 'eat' }); this.ev?.inventory(this.me.inv); }
+  shoot(power: number, yaw: number, pitch: number): void { this.flushMove(); this.send({ t: 'bow', p: power, y: yaw, x: pitch }); }
+  trade(id: string, index: number, times: number): void { this.send({ t: 'trd', id: Number(id), i: index, n: times }); }
   useEntity(id: string): void { this.flushMove(); this.send({ t: 'ue', id: Number(id) }); }
   attack(id: string): void { this.flushMove(); this.send({ t: 'atk', id: Number(id) }); }
   attackPlayer(pid: string): void { this.flushMove(); this.send({ t: 'pvp', pid }); }

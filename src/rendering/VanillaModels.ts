@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { MobType } from '../core/sim/mobs';
 
-export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | `player${number}`;
-export type Rig = 'humanoid' | 'quadruped' | 'chicken' | 'spider';
+export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | 'villager' | `player${number}`;
+export type Rig = 'humanoid' | 'quadruped' | 'chicken' | 'spider' | 'villager';
 type V3 = [number, number, number];
 
 export interface VCube { o: V3; s: V3; uv: [number, number]; inf?: number; mirror?: boolean; layer?: 'overlay' | 'emissive'; }
@@ -88,6 +88,18 @@ export const VANILLA: Partial<Record<MobType | 'player', VanillaSpec>> = {
         { n: `right_${n}_leg`, pivot: [-4, 15, z] as V3, rot: [0, yr, -zr] as V3, cubes: [{ o: [-15, -1, -1] as V3, s: [16, 2, 2] as V3, uv: [18, 0] as [number, number] }] },
         { n: `left_${n}_leg`, pivot: [4, 15, z] as V3, rot: [0, -yr, zr] as V3, cubes: [{ o: [-1, -1, -1] as V3, s: [16, 2, 2] as V3, uv: [18, 0] as [number, number] }] },
       ]),
+    ],
+  },
+  villager: {
+    key: 'villager', main: 'villager', texH: 64, height: 1.95, modelH: 34, rig: 'villager',
+    parts: [
+      { n: 'head', pivot: [0, 0, 0], cubes: [{ o: [-4, -10, -4], s: [8, 10, 8], uv: [0, 0] }, { o: [-4, -10, -4], s: [8, 10, 8], uv: [32, 0], inf: 0.51 }] },
+      { n: 'hat_rim', pivot: [0, 0, 0], rot: [-HALF_PI, 0, 0], parent: 'head', cubes: [{ o: [-8, -8, -6], s: [16, 16, 1], uv: [30, 47] }] },
+      { n: 'nose', pivot: [0, -2, 0], parent: 'head', cubes: [{ o: [-1, -1, -6], s: [2, 4, 2], uv: [24, 0] }] },
+      { n: 'body', pivot: [0, 0, 0], cubes: [{ o: [-4, 0, -3], s: [8, 12, 6], uv: [16, 20] }, { o: [-4, 0, -3], s: [8, 20, 6], uv: [0, 38], inf: 0.05 }] },
+      { n: 'arms', pivot: [0, 3, -1], rot: [-0.75, 0, 0], cubes: [{ o: [-8, -2, -2], s: [4, 8, 4], uv: [44, 22] }, { o: [4, -2, -2], s: [4, 8, 4], uv: [44, 22], mirror: true }, { o: [-4, 2, -2], s: [8, 4, 4], uv: [40, 38] }] },
+      { n: 'right_leg', pivot: [-2, 12, 0], cubes: [{ o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 22] }] },
+      { n: 'left_leg', pivot: [2, 12, 0], cubes: [{ o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 22], mirror: true }] },
     ],
   },
   player: { key: 'player', main: 'player0', texH: 64, height: 1.8, modelH: 32, rig: 'humanoid', parts: humanoid('player') },
@@ -227,6 +239,10 @@ export function animateVanilla(spec: VanillaSpec, rig: Map<string, RigPart>, s: 
       if (head) head.position.y = 4.2;
       body.position.y = 3.2; ra.position.y = 5.2; la.position.y = 5.2;
     }
+  } else if (spec.rig === 'villager') {
+    g('right_leg')!.rotation.x = c(s.ls * 0.6662) * 1.4 * s.amt * 0.5;
+    g('left_leg')!.rotation.x = c(s.ls * 0.6662 + PI) * 1.4 * s.amt * 0.5;
+    if (head && s.attack > 0) head.rotation.z = sn(s.age * 0.9) * 0.3 * s.attack;
   } else if (spec.rig === 'quadruped') {
     const a = c(s.ls * 0.6662) * 1.4 * s.amt, b = c(s.ls * 0.6662 + PI) * 1.4 * s.amt;
     g('right_hind_leg')!.rotation.x = a; g('left_hind_leg')!.rotation.x = b;

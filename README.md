@@ -44,7 +44,7 @@ Other scripts:
 
 Strata deploys as **one Cloudflare Worker**. It serves the static game from `dist/` (Workers Static Assets with SPA fallback) and routes `/api/*` and `/ws/*` to the Worker. Each multiplayer world is its own **Durable Object** (`WorldRoom`) with SQLite storage.
 
-Nothing else is required: no D1 database, no R2 bucket, no KV, no secrets and no environment variables. Durable Objects with SQLite storage are available on the Workers Free plan.
+Nothing else is required: no D1 database, no R2 bucket and no KV. One optional secret, `ADMIN_KEY`, lets you claim admin in any world with `/admin <phrase>`. Durable Objects with SQLite storage are available on the Workers Free plan.
 
 ### Option A: from your computer
 
@@ -61,6 +61,22 @@ Wrangler prints the live URL (`https://strata.<your-subdomain>.workers.dev`). Th
 2. In the Cloudflare dashboard, go to **Workers & Pages → Create → Import a repository** and pick the repo.
 3. Build command: `npm run build`. Deploy command: `npx wrangler deploy`. Leave the root directory as `/`.
 4. Save. Every push to your production branch builds and deploys.
+
+### Updating an existing deploy without losing anything
+
+Worlds and accounts live in Durable Object storage on Cloudflare, not in the repo, so updating code never touches them. Durable Object migrations in `wrangler.jsonc` only ever add classes.
+
+1. Make a backup branch: `git checkout main && git pull && git checkout -b backup-$(date +%Y%m%d) && git push -u origin HEAD && git checkout main`
+2. Check `"name"` in `wrangler.jsonc` matches your Worker's name in the dashboard.
+3. Put the new `strata-vN.zip` in the repo root, then run:
+   `Z=$(ls strata-v*.zip | sort -V | tail -1) && rm -rf /tmp/strata_new && unzip -q "$Z" -d /tmp/strata_new && cp -r /tmp/strata_new/strata/. . && rm -rf /tmp/strata_new "$Z" && npm install && npm run build && git add -A && git commit -m "Update Strata ($Z)" && git push`
+4. Workers Builds deploys the push. Roll back from the Deployments tab if needed.
+
+Set `ADMIN_KEY` once under Settings, Variables and Secrets (type Secret). It persists across deploys.
+
+Old clients keep working: the server accepts protocol versions from `MIN_PROTOCOL_VERSION` up to `PROTOCOL_VERSION`, new message fields are optional, and an outdated tab reloads itself once.
+
+If you use Workers Builds, do not also add the GitHub Actions deploy secrets below, or every push deploys twice.
 
 ### Option C: GitHub Actions
 

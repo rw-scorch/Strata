@@ -1,4 +1,4 @@
-import type { ArenaKind } from '../core/minigames/arena';
+import type { ArenaKind } from '../core/labs/minigames/arena';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { meshChunk, MeshBuffers } from '../rendering/Mesher';
 import type { AtlasData } from '../resources/TextureAtlas';

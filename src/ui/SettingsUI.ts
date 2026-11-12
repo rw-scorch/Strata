@@ -88,6 +88,7 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
       );
     } else if (tab === 'controls') {
       body.append(
+        select('Controls', [['auto', 'Automatic (switches on touch or mouse)'], ['mouse', 'Mouse and keyboard'], ['touch', 'Touch screen']], s.controlScheme, (v) => set({ controlScheme: v })),
         h('div', { class: 'section-title' }, 'Touch'),
         slider('Touch camera sensitivity', 0.3, 2.5, 0.05, s.touchSensitivity, (v) => v.toFixed(2), (v) => set({ touchSensitivity: v })),
         slider('Joystick size', 0.6, 1.6, 0.05, s.joystickSize, (v) => `${Math.round(v * 100)}%`, (v) => set({ joystickSize: v })),
@@ -145,6 +146,8 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
         select('Preferred server region for new worlds', REGIONS as [string, string][], s.region, (v) => set({ region: v })),
         h('div', { class: 'small muted' }, 'Region is a hint used when a world is first created. Each world stays in the region where it started.'),
         toggle('Reconnect automatically', s.reconnect, (v) => set({ reconnect: v })),
+        h('div', { class: 'section-title' }, 'Labs'),
+        toggle('Experimental arena modes', s.labs, (v) => set({ labs: v }), 'Shows Fortune Spires and Hearthfall. They are unfinished and may change.'),
       );
     } else if (tab === 'gameplay') {
       body.append(

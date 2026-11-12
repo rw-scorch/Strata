@@ -205,20 +205,27 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .loading-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--rust), var(--accent)); transition: width 0.2s; }
 
 /* chat */
-.chat { position: absolute; left: calc(10px + var(--sal)); bottom: calc(var(--slot) + 70px + var(--sab)); width: min(440px, 70vw); display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
-.chat .line { background: rgba(0, 0, 0, var(--chat-op, 0.55)); padding: 3px 8px; border-radius: 4px; font-size: 14px; line-height: 1.35; transition: opacity 1s; overflow-wrap: anywhere; }
+.chat { position: absolute; left: calc(4px + var(--sal)); bottom: calc(var(--slot) + 78px + var(--sab)); width: min(520px, 62vw); display: flex; flex-direction: column; gap: 0; pointer-events: none; font-family: var(--mc-font, 'Menlo', 'Consolas', ui-monospace, monospace); }
+.chat .line { background: rgba(0, 0, 0, var(--chat-op, 0.5)); padding: 1px 6px 2px; border-radius: 0; font-size: 14px; line-height: 18px; color: #fff; text-shadow: 2px 2px 0 #3f3f3f; transition: opacity 0.6s; overflow-wrap: anywhere; position: relative; }
 .chat .line.fade { opacity: 0; }
-.chat .line .ts { color: var(--muted); font-size: 11px; margin-right: 5px; font-variant-numeric: tabular-nums; }
-.chat .line .who { color: var(--accent); font-weight: 700; margin-right: 4px; }
-.chat .line.system { color: #c9d2db; font-style: italic; }
-.chat .line.join, .chat .line.leave { color: #ffe08a; }
-.chat .line.death { color: #ff9a8f; }
-.chat .line.error { color: #ff8b80; }
-.chat .line.info { color: #9fe0d6; }
-.chat.open .line { opacity: 1 !important; }
-.chat-input-row { position: fixed; left: calc(8px + var(--sal)); right: calc(8px + var(--sar)); top: calc(8px + var(--sat)); display: none; gap: 8px; pointer-events: auto; z-index: 30; }
+.chat .line .ts { display: none; }
+.chat.show-ts .line .ts { display: inline; color: #aaa; font-size: 12px; margin-right: 5px; }
+.chat .line .who { color: #fff; margin-right: 5px; }
+.chat .line.system { color: #aaaaaa; font-style: italic; }
+.chat .line.join, .chat .line.leave { color: #ffff55; }
+.chat .line.death { color: #ffffff; }
+.chat .line.error { color: #ff5555; }
+.chat .line.info { color: #aaaaaa; }
+.chat .line .copy { display: none; position: absolute; right: 2px; top: 1px; font: 11px/14px system-ui, sans-serif; padding: 1px 6px; border-radius: 3px; border: 0; background: rgba(255, 255, 255, 0.18); color: #fff; cursor: pointer; text-shadow: none; }
+.chat.open .line:hover .copy, .chat.open .line.sel .copy { display: block; }
+.chat.open .line { opacity: 1 !important; display: block !important; user-select: text; -webkit-user-select: text; cursor: text; }
+.chat.open { bottom: calc(46px + var(--sab) + var(--kb, 0px)); }
+.chat-input-row { position: fixed; left: calc(4px + var(--sal)); right: calc(4px + var(--sar)); bottom: calc(4px + var(--sab) + var(--kb, 0px)); display: none; gap: 6px; pointer-events: auto; z-index: 60; align-items: center; }
 .chat-input-row.show { display: flex; }
-.chat-log-scroll { pointer-events: auto; max-height: 50vh; overflow: auto; touch-action: pan-y; }
+.chat-input-row .input { flex: 1; min-height: 36px; border-radius: 0; border: 0; background: rgba(0, 0, 0, 0.55); color: #fff; font-family: var(--mc-font, 'Menlo', 'Consolas', ui-monospace, monospace); font-size: 15px; padding: 6px 8px; text-shadow: 2px 2px 0 #3f3f3f; }
+.chat-input-row .input:focus { outline: none; box-shadow: none; }
+.chat-input-row .btn { min-height: 36px; border-radius: 4px; padding: 0 12px; }
+.chat-log-scroll { pointer-events: auto; max-height: min(50vh, 380px); overflow: auto; touch-action: pan-y; }
 
 /* touch */
 .touch-layer { position: fixed; inset: 0; display: none; touch-action: none; z-index: 5; }
@@ -371,3 +378,48 @@ body.vanilla-slots .inv-screen .slot.hover { filter: brightness(1.25); }
 #hud-root > .minimap, #hud-root > .wp-markers { z-index: 6; }
 .chat .line.gone { display: none; }
 .chat .line { flex: none; }
+.chat:not(.open) .line.over { display: none; }
+.trade-screen .trade-card { width: min(720px, 96vw); max-height: 90vh; display: flex; flex-direction: column; }
+.trade-screen .card-head { align-items: flex-start; }
+.trade-screen .tr-title { flex: 1; min-width: 0; }
+.trade-screen .tr-title h2 { margin: 0 0 6px; }
+.trade-screen .tr-xp { height: 6px; border-radius: 3px; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.15); overflow: hidden; max-width: 240px; }
+.trade-screen .tr-xp-fill { height: 100%; background: linear-gradient(90deg, #7ce35a, #c8f56a); }
+.trade-screen .trade-body { gap: 10px; overflow: hidden; }
+.trade-screen .tr-wallet { display: flex; align-items: center; gap: 8px; font-weight: 800; }
+.trade-screen .tr-split { display: grid; grid-template-columns: minmax(200px, 0.9fr) 1.4fr; gap: 12px; min-height: 0; overflow: hidden; }
+.trade-screen .tr-list { display: flex; flex-direction: column; gap: 6px; overflow: auto; max-height: 56vh; padding-right: 4px; }
+.trade-screen .tr-offer { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.05); color: inherit; cursor: pointer; min-height: 48px; }
+.trade-screen .tr-offer.on { border-color: #f3c969; background: rgba(243, 201, 105, 0.16); }
+.trade-screen .tr-offer.poor { opacity: 0.72; }
+.trade-screen .tr-offer.out { opacity: 0.45; }
+.trade-screen .tr-offer.out .tr-arrow { color: #ff6a5a; }
+.trade-screen .tr-cost { display: inline-flex; gap: 4px; }
+.trade-screen .tr-arrow { font-weight: 900; opacity: 0.8; padding: 0 2px; }
+.trade-screen .tr-slot { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 4px; background: rgba(0, 0, 0, 0.35); box-shadow: inset 1px 1px 0 rgba(0, 0, 0, 0.5), inset -1px -1px 0 rgba(255, 255, 255, 0.12); flex: none; }
+.trade-screen .tr-slot.big { width: 56px; height: 56px; }
+.trade-screen .tr-slot.out-slot { box-shadow: 0 0 0 2px rgba(243, 201, 105, 0.5); }
+.trade-screen .tr-mini { position: relative; display: inline-flex; }
+.trade-screen .tr-ico { display: inline-block; image-rendering: pixelated; background-repeat: no-repeat; }
+.trade-screen .tr-n { position: absolute; right: 1px; bottom: -1px; font-size: 12px; font-weight: 900; text-shadow: 1px 1px 0 #000, -1px 0 0 #000; }
+.trade-screen .tr-slot.big .tr-n { font-size: 15px; }
+.trade-screen .tr-detail { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); }
+.trade-screen .tr-row { display: flex; align-items: flex-start; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.trade-screen .tr-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 120px; text-align: center; }
+.trade-screen .tr-big-arrow { font-size: 26px; font-weight: 900; align-self: center; margin-top: -24px; opacity: 0.85; }
+.trade-screen .tr-have { font-size: 13px; font-weight: 700; }
+.trade-screen .tr-have.bad { color: #ff8a7a; }
+.trade-screen .tr-have-n { font-size: 12px; opacity: 0.7; }
+.trade-screen .tr-stock { text-align: center; font-size: 13px; opacity: 0.75; }
+.trade-screen .tr-actions { display: flex; gap: 8px; justify-content: center; }
+.trade-screen .tr-actions .btn { min-width: 120px; min-height: 44px; }
+.trade-screen .tr-wait { padding: 20px; text-align: center; opacity: 0.75; }
+@media (max-width: 620px) { .trade-screen .tr-split { grid-template-columns: 1fr; } .trade-screen .tr-list { max-height: 30vh; } }
+.screen-fx { position: fixed; inset: 0; pointer-events: none; z-index: 4; overflow: hidden; }
+.screen-fx .fx-wall { display: none; position: absolute; inset: 0; background-size: 34vmax 34vmax; background-repeat: repeat; image-rendering: pixelated; filter: brightness(0.12); }
+.screen-fx .fx-fire { display: none; position: absolute; bottom: -6vh; width: 46vw; height: 46vw; max-height: 52vh; background-repeat: no-repeat; image-rendering: pixelated; opacity: 0.92; }
+.screen-fx .fx-fire.l { left: 2vw; transform: rotate(8deg); }
+.screen-fx .fx-fire.r { right: 2vw; transform: scaleX(-1) rotate(8deg); }
+.touch-only { display: none; }
+.touch-active .touch-only { display: inline-flex; }
+.chat .wp-save { margin-left: 8px; font: 11px/14px system-ui, sans-serif; padding: 1px 6px; border-radius: 3px; border: 0; background: rgba(85, 255, 85, 0.25); color: #fff; pointer-events: auto; text-shadow: none; }
