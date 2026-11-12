@@ -143,8 +143,8 @@ export class Minimap {
     const now = performance.now();
     const p = this.host.pos();
     const fx = Math.floor(p.x), fy = Math.floor(p.y), fz = Math.floor(p.z);
-    const dirs = ['S', 'SW', 'W', 'NW', 'N', 'NE', 'E', 'SE'];
-    const deg = ((-p.yaw * 180) / Math.PI + 360) % 360;
+    const dirs = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE'];
+    const deg = (((p.yaw * 180) / Math.PI) % 360 + 360) % 360;
     this.coords.textContent = `${fx}, ${fy}, ${fz}  ${dirs[Math.round(deg / 45) % 8]}`;
     this.updateMarkers(p);
     if (now - this.lastDraw < 250) return;
@@ -188,7 +188,7 @@ export class Minimap {
     }
     g.save();
     g.translate(size / 2, size / 2);
-    g.rotate(-p.yaw + Math.PI);
+    g.rotate(-p.yaw);
     g.fillStyle = '#ff4040'; g.strokeStyle = '#fff'; g.lineWidth = 1.5;
     g.beginPath(); g.moveTo(0, -7); g.lineTo(5, 5); g.lineTo(0, 2.5); g.lineTo(-5, 5); g.closePath(); g.fill(); g.stroke();
     g.restore();

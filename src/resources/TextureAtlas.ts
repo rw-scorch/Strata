@@ -131,7 +131,8 @@ export class TextureAtlas {
       blockTiles[o + 4] = get(faceKey('pz'));
       blockTiles[o + 5] = get(faceKey('nz'));
       blockTiles[o + 6] = b.front ? get(fo.front ?? b.front) : -1;
-      blockTiles[o + 7] = b.overlay ? get(fo.overlay ?? b.overlay) : -1;
+      const packFaces = Object.keys(fo).length > 0;
+      blockTiles[o + 7] = packFaces ? (fo.overlay ? get(fo.overlay) : -1) : b.overlay ? get(b.overlay) : -1;
       tintTable[b.id * 2] = b.tint ? TINT_CODE[b.tint] : 0;
       tintTable[b.id * 2 + 1] = b.tintFaces === 'top' ? 1 : 0;
     }

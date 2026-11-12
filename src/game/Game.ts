@@ -242,7 +242,7 @@ export class Game {
     const s = getSettings();
     const tint = document.getElementById('tint') as HTMLDivElement;
     this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => Math.max(this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, this.dynLightAt(x, y, z)), tint);
-    this.gen = new WorldGenerator(seed, arena);
+    this.gen = new WorldGenerator(seed, arena, remote ? { secret: null } : undefined);
     this.renderer.setLodWorld(seed, arena);
     this.chunks = new ChunkManager(seed, arena, this.atlas.data, {
       loadStored: (cx, cz) => this.storedKeys?.has(`${cx},${cz}`) && this.worldMeta ? WorldStorage.loadChunk(this.worldMeta.id, cx, cz) : null,
@@ -286,6 +286,7 @@ export class Game {
       onThirdPerson: () => this.toggleCamera(),
       onPointerLockLost: () => { if (this.state === 'playing' && !this.input.touchMode) this.pause(); },
       onMessage: (t) => this.chatUI?.add(null, t, 'info', Date.now()),
+      onSwapHands: () => { if (this.state === 'playing' && !this.vitals.dead) { this.session.invOp({ t: 'swapHand' }); this.setHeld(); } },
       onMouseMode: () => { if (getSettings().controlScheme !== 'touch') { this.mobile.setVisible(false); document.body.classList.remove('touch-active'); } },
     });
     this.mobile = new MobileControls(document.getElementById('touch-root')!, this.input, {
@@ -584,7 +585,7 @@ export class Game {
   private openPlayers(): void {
     if (this.session.info.kind !== 'remote') return;
     const rs = this.session as RemoteSession;
-    showPlayers([...rs.players.values()], rs.me.id, rs.me.op, this.chatUI.localMuted, { kick: (id) => rs.kick(id), mute: (id, on) => rs.mute(id, on), maxPlayers: rs.room.maxPlayers });
+    showPlayers([...rs.players.values()], rs.me.id, rs.me.op, this.chatUI.localMuted, { kick: (id) => rs.kick(id), mute: (id, on) => rs.mute(id, on), maxPlayers: rs.room.maxPlayers, command: (t) => rs.chat(t), tpa: this.rulesState.tpa !== false });
   }
 
   private toggleCamera(): void {
@@ -718,7 +719,7 @@ export class Game {
   private updateScreenFx(camId: number, now: number): void {
     const o = this.overlay;
     const d = getBlock(camId);
-    const inWall = !this.renderer.thirdPerson && camId !== 0 && d.solid && d.opaque && d.render === 'cube';
+    const inWall = camId !== 0 && d.solid && d.opaque && d.render === 'cube';
     const wid = inWall ? camId : -1;
     if (wid !== o.wallId) {
       o.wallId = wid;
@@ -900,7 +901,7 @@ export class Game {
     const loading = this.state === 'loading';
     const local = s.info.kind === 'local';
     const frozen = local && (this.state === 'paused' || loading);
-    if (!frozen && this.dayCycle && !local) this.time += dt * 20 * timeRate(this.time);
+    if (!frozen && this.dayCycle && !local) this.time += dt * 20 * timeRate(this.time, this.rulesState.dayLength, this.rulesState.nightLength);
     if (local) this.time = (s as LocalSession).sim.time;
     this.voice?.update();
     if (playing) {
@@ -949,9 +950,12 @@ export class Game {
       cam.updateMatrixWorld();
       cam.getWorldDirection(dir);
       let dist = 4;
-      for (let d = 0.5; d <= 4; d += 0.25) {
+      const solidAt = (x: number, y: number, z: number) => getBlock(this.chunks.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))).opaque;
+      outer: for (let d = 0.1; d <= 4; d += 0.1) {
         const p = eye.clone().addScaledVector(dir, -d);
-        if (getBlock(this.chunks.getBlock(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))).opaque) { dist = d - 0.3; break; }
+        for (const [ox, oy, oz] of [[0, 0, 0], [0.12, 0.12, 0.12], [-0.12, -0.12, 0.12], [0.12, -0.12, -0.12], [-0.12, 0.12, -0.12]]) {
+          if (solidAt(p.x + ox, p.y + oy, p.z + oz)) { dist = Math.max(0, d - 0.15); break outer; }
+        }
       }
       cam.position.copy(eye).addScaledVector(dir, -dist);
       this.renderer.entities.upsert('me', 'player', 0, this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0), 0, performance.now(), { name: me.name, appearance: me.appearance, skin: this.renderer.selfSkin });

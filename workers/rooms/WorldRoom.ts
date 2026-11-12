@@ -9,6 +9,7 @@ import { isArenaKind } from '../../src/core/labs/minigames/arena';
 import { B, blockId } from '../../src/core/blocks';
 import { sanitizeInv, validateOp, invHash, validStack, cloneStack } from '../../src/core/inventory';
 import { cleanPackList } from '../../src/core/datapack';
+import { ORE_REVEAL_RADIUS, maskChunk, exposedOres, revealAround, publicValue } from '../../src/core/antixray';
 import {
   C2S, S2C, RoomMeta, RoomInfo, PublicPlayer, RoomSettings, PackRef, ENT_KIND, q2, isNum, isInt, cleanName, cleanText, cleanAppearance,
 } from '../../src/core/protocol';
@@ -48,12 +49,15 @@ interface Session {
   rtcN?: number;
   rtcT?: number;
   dpT?: number;
+  oreSent?: Set<string>;
+  oreQueue?: string[];
 }
 
 interface Attachment { pid: string | null; name: string; op: boolean; }
 
 const TICK_MS = 50;
 const SIM_RADIUS = 4;
+const CHUNK_BUDGET = 700;
 const BLOCK_BROADCAST = 16 * 16;
 const ENTITY_RANGE = 96;
 const MAX_CACHE = 450;
@@ -140,7 +144,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (this.sim) return this.sim;
     const m = this.loadMeta()!;
     if (m.arena) { this.sql.exec('DELETE FROM chunks'); this.cache.clear(); }
-    this.gen = new WorldGenerator(m.seed, m.arena ?? null);
+    this.gen = new WorldGenerator(m.seed, m.arena ?? null, { secret: this.oreSeed() });
     const store: WorldStore = {
       getBlock: (x, y, z) => {
         const c = this.peekChunk(x >> 4, z >> 4);
@@ -165,6 +169,7 @@ export class WorldRoom extends DurableObject<Env> {
       seed: m.seed, store, gen: this.gen, difficulty: m.difficulty, emit: (ev) => this.onSimEvent(ev),
       validateMoves: true, authoritative: true, spawn,
     });
+    this.sim.serverMode = true;
     this.sim.time = m.time ?? 1000;
     this.sim.weather = (m.weather as 'clear') ?? 'clear';
     this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true, ...(m.rules ?? {}) };
@@ -191,6 +196,91 @@ export class WorldRoom extends DurableObject<Env> {
       for (let cz = -5; cz <= 4; cz++) for (let cx = -5; cx <= 4; cx++) this.getChunk(cx, cz);
     }
     return this.sim;
+  }
+
+  private oreSeed(): number {
+    const row = this.sql.exec(`SELECT v FROM kv WHERE k = 'oreSeed'`).toArray()[0];
+    if (row) return Number(row.v) >>> 0;
+    const v = crypto.getRandomValues(new Uint32Array(1))[0];
+    this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('oreSeed', ?)`, String(v));
+    return v;
+  }
+
+  private peekGet = (x: number, y: number, z: number): number | null => {
+    const c = this.peekChunk(x >> 4, z >> 4);
+    return c ? c.get(x & 15, y, z & 15) : null;
+  };
+
+  private forceGet = (x: number, y: number, z: number): number | null => this.getChunk(x >> 4, z >> 4).get(x & 15, y, z & 15);
+
+  private sendChunk(s: Session, p: SimPlayer, cx: number, cz: number): void {
+    const k = chunkKey(cx, cz);
+    const near = Math.max(Math.abs(cx - Math.floor(p.x / 16)), Math.abs(cz - Math.floor(p.z / 16))) <= ORE_REVEAL_RADIUS;
+    const world = near ? this.forceGet : this.peekGet;
+    let blocks: Uint16Array | null = null;
+    let modified = false;
+    const e = this.cache.get(k);
+    if (e) { blocks = e.c.blocks; modified = e.c.modified; e.used = this.ticks; }
+    else {
+      const row = this.sql.exec(`SELECT d FROM chunks WHERE k = ?`, k).toArray()[0];
+      if (row) {
+        const bytes = new Uint8Array(row.d as ArrayBuffer);
+        blocks = decodeRLE(new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)));
+        modified = true;
+      } else if (near) blocks = this.getChunk(cx, cz).blocks;
+    }
+    const so = (s.oreSent ??= new Set());
+    if (modified && blocks) {
+      this.send(s, { t: 'chunk', cx, cz, d: u16ToBase64(encodeRLE(maskChunk(blocks, cx, cz, world))) });
+      if (near) so.add(k); else so.delete(k);
+      return;
+    }
+    if (near && blocks) {
+      const o = exposedOres(blocks, cx, cz, world);
+      this.send(s, { t: 'chunk', cx, cz, d: null, o: o.length ? o : undefined });
+      so.add(k);
+      return;
+    }
+    so.delete(k);
+    this.send(s, { t: 'chunk', cx, cz, d: null });
+  }
+
+  private queueOres(s: Session, p: SimPlayer): void {
+    const so = (s.oreSent ??= new Set());
+    const q = (s.oreQueue ??= []);
+    const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
+    for (const k of so) {
+      const [cx, cz] = k.split(',').map(Number);
+      if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > ORE_REVEAL_RADIUS + 2) so.delete(k);
+    }
+    const R = ORE_REVEAL_RADIUS;
+    for (let r = 0; r <= R; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+      const k = chunkKey(pcx + dx, pcz + dz);
+      if (!so.has(k) && !q.includes(k)) q.push(k);
+    }
+    if (q.length > 400) q.splice(0, q.length - 400);
+  }
+
+  private processOres(budget: number): void {
+    let used = 0;
+    for (const s of this.sessions.values()) {
+      if (!s.pid || !s.oreQueue?.length) continue;
+      const p = this.sim!.players.get(s.pid);
+      if (!p) continue;
+      const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
+      let n = 0;
+      while (s.oreQueue.length && n < 3 && used < budget) {
+        const k = s.oreQueue.shift()!;
+        if (s.oreSent!.has(k)) continue;
+        const [cx, cz] = k.split(',').map(Number);
+        if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > ORE_REVEAL_RADIUS) continue;
+        const o = exposedOres(this.getChunk(cx, cz).blocks, cx, cz, this.forceGet);
+        if (o.length) this.send(s, { t: 'ores', cx, cz, o });
+        s.oreSent!.add(k);
+        n++; used++;
+      }
+    }
   }
 
   private peekChunk(cx: number, cz: number): ChunkData | null {
@@ -231,11 +321,17 @@ export class WorldRoom extends DurableObject<Env> {
     return c;
   }
 
+  private simRadius(): number {
+    const n = Math.max(1, this.sim?.players.size ?? 1);
+    return Math.max(1, Math.min(SIM_RADIUS, Math.floor((Math.sqrt(CHUNK_BUDGET / n) - 1) / 2)));
+  }
+
   private evict(): void {
     const needed = new Set<string>();
     for (const p of this.sim?.players.values() ?? []) {
       const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
-      for (let dz = -SIM_RADIUS; dz <= SIM_RADIUS; dz++) for (let dx = -SIM_RADIUS; dx <= SIM_RADIUS; dx++) needed.add(chunkKey(pcx + dx, pcz + dz));
+      const R = this.simRadius();
+      for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) needed.add(chunkKey(pcx + dx, pcz + dz));
     }
     if (this.meta?.arena) for (let cz = -5; cz <= 4; cz++) for (let cx = -5; cx <= 4; cx++) needed.add(chunkKey(cx, cz));
     const entries = [...this.cache.entries()].filter(([k]) => !needed.has(k)).sort((a, b) => a[1].used - b[1].used);
@@ -533,20 +629,22 @@ export class WorldRoom extends DurableObject<Env> {
     if (!/^[a-zA-Z0-9-]{8,64}$/.test(id) || secret.length < 16 || secret.length > 128) { this.sendErr(s, 'auth', 'Invalid player credentials.'); return; }
     const ban = m.bans[id];
     if (ban && ban > Date.now()) { this.sendErr(s, 'banned', 'You were removed from this world. Try again later.'); return; }
-    const existing = this.sessionFor(id);
+    if (this.joining.has(id)) { this.sendErr(s, 'duplicate', 'This player is already joining. Try again in a moment.'); return; }
     const adminKey = typeof (msg as { admin?: unknown }).admin === 'string' ? String((msg as { admin?: string }).admin) : '';
     const spectate = !!adminKey && !!this.env.ADMIN_KEY && safeEqual(adminKey, this.env.ADMIN_KEY);
     if (adminKey && !spectate) { this.sendErr(s, 'auth', 'That admin key is not correct.'); return; }
     const others = [...this.sessions.values()].filter((o) => o.pid && o.pid !== id && !this.sim?.players.get(o.pid)?.vanished).length;
     if (others >= m.maxPlayers && !spectate) { this.sendErr(s, 'full', `This world is full (${m.maxPlayers} players).`); return; }
+    this.joining.add(id);
+    try { await this.finishHello(s, msg, m, id, secret, spectate); } finally { this.joining.delete(id); }
+  }
+
+  private joining = new Set<string>();
+
+  private async finishHello(s: Session, msg: Extract<C2S, { t: 'hello' }>, m: NonNullable<ReturnType<WorldRoom['loadMeta']>>, id: string, secret: string, spectate: boolean): Promise<void> {
     const hash = await sha256(secret);
-    const row = this.sql.exec(`SELECT secret, data FROM players WHERE id = ?`, id).toArray()[0];
-    if (row && row.secret !== hash) { this.sendErr(s, 'auth', 'That player identity belongs to someone else.'); return; }
-    if (existing) {
-      this.sendErr(existing, 'duplicate', 'You joined from another tab or device.');
-      this.sessions.delete(existing.ws);
-      this.sim?.removePlayer(id);
-    }
+    const first = this.sql.exec(`SELECT secret FROM players WHERE id = ?`, id).toArray()[0];
+    if (first && first.secret !== hash) { this.sendErr(s, 'auth', 'That player identity belongs to someone else.'); return; }
     let name = cleanName(msg.name);
     if (this.env.ACCOUNTS) {
       try {
@@ -556,6 +654,15 @@ export class WorldRoom extends DurableObject<Env> {
         else if (r.owner && r.name) name = r.name;
       } catch { /* accounts unavailable: keep the requested name */ }
     }
+    if (!this.sessions.has(s.ws)) return;
+    const existing = this.sessionFor(id);
+    if (existing && existing !== s) {
+      this.sendErr(existing, 'duplicate', 'You joined from another tab or device.');
+      this.sessions.delete(existing.ws);
+      const old = this.sim?.players.get(id);
+      if (old) { this.sim!.removePlayer(id); this.savePlayer(old); }
+    }
+    const row = this.sql.exec(`SELECT secret, data FROM players WHERE id = ?`, id).toArray()[0];
     if (!row) this.sql.exec(`INSERT INTO players (id, secret, data) VALUES (?, ?, ?)`, id, hash, '');
     const sim = this.ensureSim();
     sim.setNow(Date.now());
@@ -591,7 +698,8 @@ export class WorldRoom extends DurableObject<Env> {
     const cx = Math.floor(p.x / 16), cz = Math.floor(p.z / 16);
     if (cx === s.chunkCX && cz === s.chunkCZ) return;
     s.chunkCX = cx; s.chunkCZ = cz;
-    for (let r = 0; r <= SIM_RADIUS; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    const R = this.simRadius();
+    for (let r = 0; r <= R; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
       const k = chunkKey(cx + dx, cz + dz);
       if (!this.cache.has(k)) this.loadQueue.push(k);
@@ -603,7 +711,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'mv': {
         const a = msg.p;
         if (!Array.isArray(a) || a.length < 6 || !a.every((n) => isNum(n))) { s.strikes++; return; }
-        if (sim.move(p, a[0], a[1], a[2], a[3], a[4], a[5] | 0)) this.queueChunks(s, p);
+        if (sim.move(p, a[0], a[1], a[2], a[3], a[4], a[5] | 0)) { const moved = Math.floor(p.x / 16) !== s.chunkCX || Math.floor(p.z / 16) !== s.chunkCZ; this.queueChunks(s, p); if (moved) this.queueOres(s, p); }
         return;
       }
       case 'chunks': {
@@ -612,18 +720,7 @@ export class WorldRoom extends DurableObject<Env> {
           if (!Array.isArray(w) || !isInt(w[0], -2e6, 2e6) || !isInt(w[1], -2e6, 2e6)) continue;
           const [cx, cz] = w;
           if (Math.max(Math.abs(cx - Math.floor(p.x / 16)), Math.abs(cz - Math.floor(p.z / 16))) > 20) continue;
-          const k = chunkKey(cx, cz);
-          const e = this.cache.get(k);
-          let d: string | null = null;
-          if (e) { if (e.c.modified) d = u16ToBase64(encodeRLE(e.c.blocks)); }
-          else {
-            const row = this.sql.exec(`SELECT d FROM chunks WHERE k = ?`, k).toArray()[0];
-            if (row) {
-              const bytes = new Uint8Array(row.d as ArrayBuffer);
-              d = u16ToBase64(new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)));
-            }
-          }
-          this.send(s, { t: 'chunk', cx, cz, d });
+          this.sendChunk(s, p, cx, cz);
         }
         return;
       }
@@ -855,10 +952,11 @@ export class WorldRoom extends DurableObject<Env> {
     switch (ev.e) {
       case 'block':
         this.blockBatch.push([ev.x, ev.y, ev.z, ev.v]);
+        revealAround(this.peekGet, ev.x, ev.y, ev.z, this.blockBatch);
         return;
       case 'reject': {
         const s = this.sessionFor(ev.p.id);
-        if (s) this.send(s, { t: 'blk', u: [[ev.x, ev.y, ev.z, this.sim!.get(ev.x, ev.y, ev.z)]] });
+        if (s) this.send(s, { t: 'blk', u: [[ev.x, ev.y, ev.z, publicValue(this.peekGet, ev.x, ev.y, ev.z)]] });
         return;
       }
       case 'sound': {
@@ -967,6 +1065,7 @@ export class WorldRoom extends DurableObject<Env> {
       this.getChunk(cx, cz);
       loads++;
     }
+    this.processOres(12);
     sim.setNow(now);
     sim.tick();
     this.flushBlocks();

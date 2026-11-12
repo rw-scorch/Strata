@@ -2,7 +2,7 @@ import { h, clear, toast, modal, confirmDialog } from './dom';
 import { ResourcePackManager, InstalledPack } from '../resources/ResourcePackManager';
 import { getSettings } from '../storage/Settings';
 import { TextureAtlas } from '../resources/TextureAtlas';
-import type { PackManifest } from '../resources/ResourcePackImporter';
+import { IMPORTER_VERSION, type PackManifest } from '../resources/ResourcePackImporter';
 
 export function showResourcePacks(parent: HTMLElement, apply: (ids: string[]) => Promise<void>, onClose: () => void, lockedNote?: string, autoImport = false): void {
   const list = h('div', { class: 'list' });
@@ -11,6 +11,7 @@ export function showResourcePacks(parent: HTMLElement, apply: (ids: string[]) =>
   const status = h('div', { class: 'small muted' });
   let order = [...getSettings().activePacks];
   let packs: InstalledPack[] = [];
+  let replaceId: string | null = null;
 
   const commit = async () => {
     busy = true;
@@ -33,6 +34,7 @@ export function showResourcePacks(parent: HTMLElement, apply: (ids: string[]) =>
         h('div', { class: 'meta' },
           h('div', { class: 'name' }, m.name, ' ', h('span', { class: `badge ${m.format === 'java' ? 'gold' : 'teal'}` }, m.format === 'java' ? `Java ${m.formatVersion}` : `Bedrock ${m.formatVersion}`)),
           h('div', { class: 'sub' }, `${r.mappedBlocks}/${r.totalBlocks} blocks · ${r.mappedItems}/${r.totalItems} items · ${r.animated} animated · ${(m.sizeBytes / 1048576).toFixed(1)} MB`),
+          (m.importer ?? 0) < IMPORTER_VERSION ? h('div', { class: 'sub outdated' }, 'Imported by an older version, so newer blocks, items, villagers and screens use Strata textures. ', h('button', { class: 'btn small primary', onclick: () => { replaceId = m.id; fileInput.click(); } }, 'Re-import this pack')) : null,
           m.description ? h('div', { class: 'sub' }, m.description) : null,
         ),
         h('div', { class: 'actions' },
@@ -103,6 +105,8 @@ export function showResourcePacks(parent: HTMLElement, apply: (ids: string[]) =>
     status.textContent = `Importing ${f.name}...`;
     try {
       const m = await ResourcePackManager.importFile(f);
+      if (replaceId && replaceId !== m.id) { const wasActive = order.includes(replaceId); await ResourcePackManager.remove(replaceId); order = order.filter((x) => x !== replaceId); if (!wasActive) order = order.filter((x) => x !== m.id); }
+      replaceId = null;
       status.textContent = '';
       toast(`Imported and activated "${m.name}"`, 'success');
       await load();

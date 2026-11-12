@@ -2,15 +2,19 @@ import { h, clear } from './dom';
 import { slotContent } from './HUD';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import type { GameSession, TradeInfo } from '../game/Session';
-import { ItemStack, SlotRef, craftResult, countItem, InvOp } from '../core/inventory';
-import { recipeSize, ingredientMatches, Recipe, Ingredient } from '../core/crafting';
+import { ItemStack, SlotRef, craftResult, countItem, InvOp, PlayerInv } from '../core/inventory';
+import { recipeSize, ingredientMatches, ingredientExample, Recipe, Ingredient } from '../core/crafting';
 import { ITEM_LIST, CREATIVE_HIDDEN, CreativeTab, I, toolId } from '../core/items';
 import { B } from '../core/blocks';
-import { drawAvatar } from './avatar';
+import { SkinPreview } from './SkinEditor';
+import { loadCustomSkin, skinFromAppearance, convertLegacy, detectSlim } from '../resources/skins';
 import { audio } from '../audio/AudioEngine';
 import { crop, sprite, label, guiScale, guiURL, nineSlice, tooltip, itemTooltipLines } from './mc/Gui';
 import { getSettings } from '../storage/Settings';
 import { OFFERS, PROFESSIONS, PROF_TITLE, LEVEL_NAMES, LEVEL_XP, levelFor, unlocked, canAfford } from '../core/trades';
+
+let sharedPreview: SkinPreview | null = null;
+let previewKey = '';
 
 export type InvScreen = 'player' | 'creative' | 'workbench' | 'chest' | 'furnace' | 'trade';
 type CTab = CreativeTab | 'search' | 'inventory';
@@ -41,6 +45,9 @@ export class InventoryUI {
   private bookSearch = '';
   private bookOpen = false;
   private bookPage = 0;
+  private bookTab: 'all' | 'tools' | 'building' | 'food' | 'misc' = 'all';
+  private bookCraftable = false;
+  private ghost: Recipe | null = null;
   private container: { items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number } | null = null;
   private trade: TradeInfo | null = null;
   private tradeSel = 0;
@@ -67,7 +74,7 @@ export class InventoryUI {
     this.cursorEl = h('div', { class: 'cursor-item mc', style: 'display:none' });
     parent.appendChild(this.root);
     document.body.appendChild(this.cursorEl);
-    const track = (e: PointerEvent) => { this.pointer = { x: e.clientX, y: e.clientY }; this.cursorEl.style.left = `${e.clientX}px`; this.cursorEl.style.top = `${e.clientY}px`; };
+    const track = (e: PointerEvent) => { this.pointer = { x: e.clientX, y: e.clientY }; this.trackPreview(e.clientX, e.clientY); this.cursorEl.style.left = `${e.clientX}px`; this.cursorEl.style.top = `${e.clientY}px`; };
     this.root.addEventListener('pointermove', (e) => { track(e); this.onDragMove(e); });
     this.root.addEventListener('pointerdown', (e) => {
       track(e);
@@ -139,6 +146,48 @@ export class InventoryUI {
   }
 
   private wheelT = 0;
+  private previewBox: HTMLElement | null = null;
+
+  private preview(x: number, y: number, w: number, hh: number, s: number): HTMLElement {
+    const box = h('div', { class: 'mc-preview', style: `left:${x * s}px;top:${y * s}px;width:${w * s}px;height:${hh * s}px` });
+    this.previewBox = box;
+    const me = this.session!.me;
+    const custom = loadCustomSkin();
+    const count = this.atlas.playerSkinCount;
+    const key = custom ? `c:${custom.png.length}:${custom.slim}` : count ? `p:${this.atlas.packHash}:${me.appearance.skin % count}` : `a:${JSON.stringify(me.appearance)}`;
+    if (!sharedPreview) { sharedPreview = new SkinPreview(skinFromAppearance(me.appearance), 160, 1.45); sharedPreview.persistent = true; sharedPreview.follow = { x: 0, y: 0 }; previewKey = ''; }
+    const pv = sharedPreview;
+    if (key !== previewKey) {
+      previewKey = key;
+      if (custom) {
+        const img = new Image();
+        img.onload = () => { const c = convertLegacy(img); pv.setSource(c); pv.setSlim(custom.slim); };
+        img.src = custom.png;
+      } else {
+        const c = (count ? this.atlas.entityCanvases.get(`player${me.appearance.skin % count}`) : null) ?? skinFromAppearance(me.appearance);
+        pv.setSource(c);
+        pv.setSlim(c.height === 64 && detectSlim(c));
+      }
+    }
+    pv.canvas.style.width = `${Math.min(w, hh / 1.45) * s}px`;
+    pv.canvas.style.height = `${Math.min(w * 1.45, hh) * s}px`;
+    box.appendChild(pv.canvas);
+    pv.start();
+    return box;
+  }
+
+  private trackPreview(cx: number, cy: number): void {
+    const b = this.previewBox;
+    if (!b || !sharedPreview?.follow) return;
+    const r = b.getBoundingClientRect();
+    sharedPreview.follow.x = (cx - (r.left + r.width / 2)) / Math.max(40, r.width);
+    sharedPreview.follow.y = (cy - (r.top + r.height * 0.25)) / Math.max(40, r.height);
+  }
+
+  private liveInv(): PlayerInv {
+    const self = this;
+    return new Proxy({} as PlayerInv, { get: (_t, k) => (self.session!.me.inv as unknown as Record<string | symbol, unknown>)[k] });
+  }
 
   private slot(parent: HTMLElement, ref: SlotRef | null, get: () => ItemStack | null, x: number, y: number, opts: { ghost?: number; action?: (e: PointerEvent) => void; fixed?: boolean; size?: number } = {}): HTMLElement {
     const s = this.s;
@@ -265,10 +314,12 @@ export class InventoryUI {
     for (const s of this.slotEls) {
       if (s.fixed) continue;
       clear(s.el);
+      s.el.classList.remove('ghost-out');
       const st = s.get();
       for (const n of slotContent(this.atlas, st, isz)) s.el.appendChild(n);
       if (!st && s.ghost !== undefined) s.el.appendChild(h('div', { class: 'ico ghost-ico', style: this.atlas.iconStyle(s.ghost, isz) }));
     }
+    this.paintGhost(isz);
     const cur = this.session.me.inv.cursor;
     clear(this.cursorEl);
     this.cursorEl.style.setProperty('--s', `${this.s}px`);
@@ -309,15 +360,16 @@ export class InventoryUI {
     const sess = this.session!;
     this.slotEls = [];
     this.litEl = this.burnEl = this.bookEl = this.thumb = null;
+    this.previewBox = null;
     this.gridRefill = null;
     clear(this.root);
     tooltip().hide();
     const [w, hgt] = this.layoutSize();
     const bookable = this.screen === 'player' || this.screen === 'workbench';
     const showBook = bookable && this.bookOpen;
-    const s = this.s = guiScale(w + (showBook ? 148 : 0), hgt + 8);
+    const s = this.s = guiScale(w + (showBook ? 182 : 0), hgt + 8);
     const win = h('div', { class: 'mc-win', style: `width:${w * s}px;height:${hgt * s}px;--s:${s}px` });
-    const inv = sess.me.inv;
+    const inv = this.liveInv();
     const ref = (c: SlotRef['c'], i: number): SlotRef => ({ c, i });
     const A = this.atlas;
     const invSlots = (x: number, y: number) => {
@@ -334,13 +386,12 @@ export class InventoryUI {
 
     if (this.screen === 'player') {
       win.appendChild(crop(A, 'gt:container/inventory', 256, 256, 0, 0, 176, 166, s));
-      win.appendChild(crop(A, 'gt:container/inventory', 256, 256, 100, 61, 18, 18, s, 76, 61));
       for (let i = 0; i < 4; i++) this.slot(win, ref('armor', i), () => inv.armor[i], 8, 8 + i * 18, { ghost: 334 + i });
-      const prev = h('div', { class: 'mc-preview', style: `left:${26 * s}px;top:${8 * s}px;width:${49 * s}px;height:${70 * s}px` }, drawAvatar(sess.me.appearance, Math.max(2, Math.round(s * 1.6)), true));
-      win.appendChild(prev);
+      win.appendChild(this.preview(26, 8, 49, 70, s));
       win.appendChild(label('Crafting', 97, 8, s));
       for (let i = 0; i < 4; i++) this.slot(win, ref('craft', i), () => inv.craft[i], 98 + (i % 2) * 18, 18 + Math.floor(i / 2) * 18);
       this.slot(win, ref('out', 0), () => craftResult(inv, this.session?.sim.book)?.stack ?? null, 154, 28);
+      this.slot(win, ref('off', 0), () => inv.off?.[0] ?? null, 77, 62);
       bookBtn(104, 61);
       invSlots(8, 84);
     } else if (this.screen === 'workbench') {
@@ -389,7 +440,7 @@ export class InventoryUI {
   private renderCreative(win: HTMLElement, s: number, invSlots: (x: number, y: number) => void): void {
     const A = this.atlas;
     const sess = this.session!;
-    const inv = sess.me.inv;
+    const inv = this.liveInv();
     const body = h('div', { class: 'mc-layer', style: `left:0;top:${28 * s}px;width:${195 * s}px;height:${136 * s}px` });
     const tabsBack = h('div', { class: 'mc-layer', style: 'inset:0' });
     const tabsFront = h('div', { class: 'mc-layer', style: 'inset:0;z-index:3' });
@@ -412,7 +463,8 @@ export class InventoryUI {
       const ghosts = [334, 335, 336, 337];
       const armorPos: [number, number][] = [[54, 6], [54, 33], [108, 6], [108, 33]];
       armorPos.forEach(([x, y], i) => this.slot(body, { c: 'armor', i }, () => inv.armor[i], x, y, { ghost: ghosts[i] }));
-      body.appendChild(h('div', { class: 'mc-preview', style: `left:${73 * s}px;top:${6 * s}px;width:${32 * s}px;height:${43 * s}px` }, drawAvatar(sess.me.appearance, Math.max(1, Math.round(s * 1.1)), true)));
+      this.slot(body, { c: 'off', i: 0 }, () => inv.off?.[0] ?? null, 35, 20);
+      body.appendChild(this.preview(73, 6, 32, 43, s));
       for (let r = 0; r < 3; r++) for (let c = 0; c < 9; c++) { const i = 9 + r * 9 + c; this.slot(body, { c: 'inv', i }, () => inv.slots[i], 9 + c * 18, 54 + r * 18); }
       for (let c = 0; c < 9; c++) this.slot(body, { c: 'inv', i: c }, () => inv.slots[c], 9 + c * 18, 112);
       const trash = this.slot(body, null, () => null, 173, 112, { fixed: true, action: () => { if (inv.cursor) this.op({ t: 'creativeDelete' }); } });
@@ -508,7 +560,7 @@ export class InventoryUI {
     if (!offers.includes(this.tradeSel)) this.tradeSel = offers[0] ?? 0;
     const maxScroll = Math.max(0, offers.length - 7);
     this.tradeScroll = Math.min(this.tradeScroll, maxScroll);
-    const inv = this.session!.me.inv;
+    const inv = this.liveInv();
     offers.slice(this.tradeScroll, this.tradeScroll + 7).forEach((oi, row) => {
       const of = OFFERS[prof][oi];
       const out = (info.uses[oi] ?? 0) >= of.max;
@@ -551,6 +603,14 @@ export class InventoryUI {
     for (const { el, i } of this.tradeAffordEls) el.classList.toggle('poor', !canAfford(this.session.me.inv, OFFERS[prof][i]));
   }
 
+  private showGhost(r: Recipe): void {
+    if (!this.session) return;
+    if (this.session.me.inv.craft.some(Boolean)) { audio.play('ui.error'); return; }
+    this.ghost = r;
+    audio.play('ui.click');
+    this.refresh();
+  }
+
   private canCraft(r: Recipe): boolean {
     const inv = this.session!.me.inv;
     const need = new Map<string, { ing: Ingredient; n: number }>();
@@ -564,11 +624,51 @@ export class InventoryUI {
     return true;
   }
 
+  private ghostCells(r: Recipe, size: number): (number | null)[] {
+    const cells: (number | null)[] = new Array(size * size).fill(null);
+    const ex = (ing: Ingredient) => (typeof ing === 'number' ? ing : Array.isArray(ing) ? ing[0] : ingredientExample(ing));
+    if (r.pattern) r.pattern.forEach((row, y) => { for (let x = 0; x < row.length; x++) if (row[x] !== ' ' && y < size && x < size) cells[y * size + x] = ex(r.key![row[x]]); });
+    else r.shapeless!.forEach((ing, i) => { if (i < cells.length) cells[i] = ex(ing); });
+    return cells;
+  }
+
+  private paintGhost(isz: number): void {
+    const g = this.ghost;
+    if (!g || !this.session) return;
+    const inv = this.session.me.inv;
+    if (inv.craft.some(Boolean)) { this.ghost = null; return; }
+    const cells = this.ghostCells(g, inv.craftSize);
+    for (const e of this.slotEls) {
+      if (!e.ref) continue;
+      if (e.ref.c === 'craft' && cells[e.ref.i] != null) e.el.appendChild(h('div', { class: 'ico ghost-ico ghost-recipe', style: this.atlas.iconStyle(cells[e.ref.i]!, isz) }));
+      if (e.ref.c === 'out') { clear(e.el); for (const n of slotContent(this.atlas, { id: g.result, count: g.count }, isz)) e.el.appendChild(n); e.el.classList.add('ghost-out'); }
+    }
+  }
+
   private recipeBook(s: number, hgt: number): HTMLElement {
     const A = this.atlas;
-    const book = h('div', { class: 'mc-win mc-book', style: `width:${147 * s}px;height:${166 * s}px;margin-right:${s}px;margin-top:${Math.max(0, (hgt - 166) / 2) * s}px;--s:${s}px` });
+    const book = h('div', { class: 'mc-win mc-book', style: `width:${147 * s}px;height:${166 * s}px;margin-left:${32 * s}px;margin-right:${s}px;margin-top:${Math.max(0, (hgt - 166) / 2) * s}px;--s:${s}px` });
+    const tabs: { id: InventoryUI['bookTab']; icon: number; name: string }[] = [
+      { id: 'all', icon: B.WORKBENCH, name: 'All recipes' }, { id: 'tools', icon: toolId(2, 0), name: 'Equipment' },
+      { id: 'building', icon: B.BRICKS, name: 'Building blocks' }, { id: 'food', icon: I.APPLE, name: 'Food' }, { id: 'misc', icon: B.TORCH, name: 'Miscellaneous' },
+    ];
+    tabs.forEach((t, i) => {
+      const sel = t.id === this.bookTab;
+      const el = sprite(A, sel ? 'gs:recipe_book/tab_selected' : 'gs:recipe_book/tab', 35, 27, s, sel ? -32 : -30, 5 + i * 27, 'mc-sprite mc-tab');
+      el.appendChild(h('div', { class: 'ico', style: `position:absolute;left:${(sel ? 9 : 9) * s}px;top:${5 * s}px;width:${16 * s}px;height:${16 * s}px;${A.iconStyle(t.icon)}` }));
+      el.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.bookTab = t.id; this.bookPage = 0; audio.play('ui.click'); this.render(); });
+      el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') tooltip().show(A, [{ text: t.name, color: '#ffffff' }], e.clientX, e.clientY); });
+      el.addEventListener('pointerleave', () => tooltip().hide());
+      book.appendChild(el);
+    });
     book.appendChild(crop(A, 'gt:recipe_book', 256, 256, 1, 1, 147, 166, s));
-    const input = h('input', { class: 'mc-input', value: this.bookSearch, placeholder: 'Search...', spellcheck: 'false', style: `left:${27 * s}px;top:${15 * s}px;width:${78 * s}px;height:${11 * s}px;font-size:${8 * s}px` }) as HTMLInputElement;
+    const fk = `gs:recipe_book/filter_${this.bookCraftable ? 'enabled' : 'disabled'}`;
+    const filter = sprite(A, fk, 26, 16, s, 110, 12, 'mc-sprite mc-btnimg');
+    filter.addEventListener('pointerenter', (e) => { filter.style.backgroundImage = `url(${guiURL(A, fk + '_highlighted')})`; if (e.pointerType === 'mouse') tooltip().show(A, [{ text: this.bookCraftable ? 'Showing craftable' : 'Showing all', color: '#ffffff' }], e.clientX, e.clientY); });
+    filter.addEventListener('pointerleave', () => { filter.style.backgroundImage = `url(${guiURL(A, fk)})`; tooltip().hide(); });
+    filter.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.bookCraftable = !this.bookCraftable; this.bookPage = 0; audio.play('ui.click'); this.render(); });
+    book.appendChild(filter);
+    const input = h('input', { class: 'mc-input', value: this.bookSearch, placeholder: 'Search...', spellcheck: 'false', style: `left:${27 * s}px;top:${15 * s}px;width:${79 * s}px;height:${11 * s}px;font-size:${8 * s}px` }) as HTMLInputElement;
     input.addEventListener('input', () => { this.bookSearch = input.value; this.bookPage = 0; this.refreshBook(); });
     input.addEventListener('keydown', (e) => e.stopPropagation());
     book.appendChild(input);
@@ -587,7 +687,9 @@ export class InventoryUI {
     const q = this.bookSearch.trim().toLowerCase();
     const recipes = this.session.sim.book.crafting.filter((r) => { const z = recipeSize(r); return z.w <= size && z.h <= size; })
       .filter((r) => !q || (ITEM_LIST.find((it) => it.id === r.result)?.name.toLowerCase().includes(q) ?? false))
+      .filter((r) => this.bookTab === 'all' || (this.bookTab === 'tools' ? r.group === 'tools' || r.group === 'combat' : this.bookTab === 'building' ? r.group === 'building' : this.bookTab === 'food' ? r.group === 'food' : r.group === 'basics' || r.group === 'decor'))
       .map((r) => ({ r, ok: this.canCraft(r) }))
+      .filter((x) => !this.bookCraftable || x.ok)
       .sort((a, b) => Number(b.ok) - Number(a.ok));
     const pages = Math.max(1, Math.ceil(recipes.length / 20));
     this.bookPage = Math.min(this.bookPage, pages - 1);
@@ -602,9 +704,10 @@ export class InventoryUI {
         e.stopPropagation();
         long = false;
         if (e.pointerType !== 'mouse') { this.tipFor({ id: r.result, count: 1 }, e.clientX, e.clientY - 40, 1400); lp = window.setTimeout(() => { long = true; if (ok) this.op({ t: 'fill', r: r.id, all: true }); }, 450); }
-        else if (ok) this.op({ t: 'fill', r: r.id, all: e.shiftKey });
+        else if (ok) { this.ghost = null; this.op({ t: 'fill', r: r.id, all: e.shiftKey }); }
+        else this.showGhost(r);
       });
-      el.addEventListener('pointerup', (e) => { clearTimeout(lp); if (e.pointerType !== 'mouse' && !long && ok) this.op({ t: 'fill', r: r.id, all: false }); });
+      el.addEventListener('pointerup', (e) => { clearTimeout(lp); if (e.pointerType !== 'mouse' && !long) { if (ok) { this.ghost = null; this.op({ t: 'fill', r: r.id, all: false }); } else this.showGhost(r); } });
       el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') this.tipFor({ id: r.result, count: r.count }, e.clientX, e.clientY); });
       el.addEventListener('pointerleave', () => tooltip().hide());
       grid.appendChild(el);

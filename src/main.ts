@@ -73,7 +73,7 @@ class App {
     if (this.atlas && key === this.atlasKey) return this.atlas;
     if (ids.length) {
       const up = await ResourcePackManager.upgrade(ids, (n) => toast(`Updating ${n} for this version...`, 'info', 2500));
-      if (up.missing.length && !(window as unknown as { __reimp?: boolean }).__reimp) (window as unknown as { __reimp?: boolean }).__reimp = true, toast(`Re-import ${up.missing.join(', ')} in Resource Packs to get the newest textures (bows, villagers, GUI).`, 'info', 9000);
+      if (up.missing.length && !(window as unknown as { __reimp?: boolean }).__reimp) (window as unknown as { __reimp?: boolean }).__reimp = true, toast(`${up.missing.join(', ')} was imported by an older version. Open Resource Packs and tap "Re-import this pack" to get textures for new blocks, villagers and screens.`, 'info', 15000);
     }
     const composed = ids.length ? await ResourcePackManager.compose(ids) : null;
     const maxTile = isTouchDevice() ? 32 : 64;

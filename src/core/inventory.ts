@@ -14,10 +14,11 @@ export interface PlayerInv {
   craftSize: 2 | 3;
   cursor: ItemStack | null;
   selected: number;
+  off: (ItemStack | null)[];
 }
 
 export type ContainerKind = 'chest' | 'furnace';
-export type SlotGroup = 'inv' | 'armor' | 'craft' | 'out' | 'cont';
+export type SlotGroup = 'inv' | 'armor' | 'craft' | 'out' | 'cont' | 'off';
 export interface SlotRef { c: SlotGroup; i: number; }
 
 export type InvOp =
@@ -31,7 +32,8 @@ export type InvOp =
   | { t: 'select'; i: number }
   | { t: 'fill'; r: string; all: boolean }
   | { t: 'close' }
-  | { t: 'swap'; s: SlotRef; h: number };
+  | { t: 'swap'; s: SlotRef; h: number }
+  | { t: 'swapHand' };
 
 export interface InvContext {
   inv: PlayerInv;
@@ -52,6 +54,7 @@ export function emptyInv(): PlayerInv {
     craftSize: 2,
     cursor: null,
     selected: 0,
+    off: [null],
   };
 }
 
@@ -70,6 +73,7 @@ export function cloneInv(inv: PlayerInv): PlayerInv {
     craftSize: inv.craftSize,
     cursor: cloneStack(inv.cursor),
     selected: inv.selected,
+    off: (inv.off ?? [null]).map(cloneStack),
   };
 }
 
@@ -95,6 +99,7 @@ export function sanitizeInv(raw: unknown): PlayerInv {
   fill(inv.slots, r.slots);
   fill(inv.armor, r.armor);
   fill(inv.craft, r.craft);
+  fill(inv.off, r.off);
   inv.cursor = validStack(r.cursor) ? cloneStack(r.cursor) : null;
   inv.selected = Number.isInteger(r.selected) && r.selected! >= 0 && r.selected! < 9 ? r.selected! : 0;
   inv.craftSize = r.craftSize === 3 ? 3 : 2;
@@ -107,6 +112,7 @@ function slotArray(ctx: InvContext, g: SlotGroup): (ItemStack | null)[] | null {
     case 'armor': return ctx.inv.armor;
     case 'craft': return ctx.inv.craft;
     case 'cont': return ctx.container;
+    case 'off': return (ctx.inv.off ??= [null]);
     default: return null;
   }
 }
@@ -299,7 +305,8 @@ function quickMove(ctx: InvContext, s: SlotRef, one = false): boolean {
   if (!stack) return false;
   const inv = ctx.inv;
   const moving = { ...stack, count: one ? 1 : stack.count };
-  let left = moving.count;
+  const total = moving.count;
+  let left = total;
   if (s.c === 'inv') {
     if (ctx.container) {
       if (ctx.containerKind === 'furnace') {
@@ -322,7 +329,7 @@ function quickMove(ctx: InvContext, s: SlotRef, one = false): boolean {
   } else {
     left = addToSlots(inv.slots, moving, s.c === 'cont' ? [...Array.from({ length: 9 }, (_, i) => 8 - i), ...Array.from({ length: 27 }, (_, i) => 35 - i)] : MAIN_FIRST);
   }
-  const moved = moving.count - Math.max(0, left);
+  const moved = total - Math.max(0, left);
   if (moved <= 0) return false;
   stack.count -= moved;
   if (stack.count <= 0) arr[s.i] = null;
@@ -444,6 +451,13 @@ export function applyInvOp(ctx: InvContext, op: InvOp): boolean {
       inv.craftSize = 2;
       return true;
     }
+    case 'swapHand': {
+      const off = (inv.off ??= [null]);
+      const a = inv.slots[inv.selected];
+      inv.slots[inv.selected] = off[0];
+      off[0] = a;
+      return true;
+    }
     case 'swap': {
       if (op.h < 0 || op.h > 8 || op.s.c === 'out') return false;
       const arr = slotArray(ctx, op.s.c);
@@ -466,7 +480,7 @@ export function validateOp(raw: unknown): InvOp | null {
   const ref = (v: unknown): SlotRef | null => {
     if (!v || typeof v !== 'object') return null;
     const r = v as Record<string, unknown>;
-    if (!['inv', 'armor', 'craft', 'out', 'cont'].includes(r.c as string)) return null;
+    if (!['inv', 'armor', 'craft', 'out', 'cont', 'off'].includes(r.c as string)) return null;
     if (!Number.isInteger(r.i) || (r.i as number) < 0 || (r.i as number) > 64) return null;
     return { c: r.c as SlotGroup, i: r.i as number };
   };
@@ -487,6 +501,7 @@ export function validateOp(raw: unknown): InvOp | null {
     case 'fill': return typeof o.r === 'string' && o.r.length <= 96 ? { t: 'fill', r: o.r, all: !!o.all } : null;
     case 'close': return { t: 'close' };
     case 'swap': { const s = ref(o.s); return s && Number.isInteger(o.h) ? { t: 'swap', s, h: o.h as number } : null; }
+    case 'swapHand': return { t: 'swapHand' };
   }
   return null;
 }
@@ -502,6 +517,7 @@ export function invHash(inv: PlayerInv): number {
   inv.armor.forEach(mixStack);
   inv.craft.forEach(mixStack);
   mixStack(inv.cursor);
+  (inv.off ?? [null]).forEach(mixStack);
   h ^= inv.selected;
   return Math.imul(h, 16777619) >>> 0;
 }
@@ -546,6 +562,6 @@ export function consumeHeld(inv: PlayerInv, n = 1): void {
 
 export function allStacks(inv: PlayerInv): ItemStack[] {
   const out: ItemStack[] = [];
-  for (const s of [...inv.slots, ...inv.armor, ...inv.craft, inv.cursor]) if (s) out.push(cloneStack(s)!);
+  for (const s of [...inv.slots, ...inv.armor, ...inv.craft, inv.cursor, ...(inv.off ?? [])]) if (s) out.push(cloneStack(s)!);
   return out;
 }

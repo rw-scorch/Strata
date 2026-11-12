@@ -66,7 +66,7 @@ export class ChunkManager implements WorldStore {
       const w = new Worker(new URL('../workers/ChunkWorker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (e) => this.onWorker(i, e.data);
       w.onerror = (e) => console.error('chunk worker error', e.message);
-      w.postMessage({ t: 'init', seed, arena, atlas });
+      w.postMessage({ t: 'init', seed, arena, atlas, client: remote });
       this.workers.push(w);
       this.busy.push(false);
     }
@@ -137,6 +137,10 @@ export class ChunkManager implements WorldStore {
     }
   }
 
+  applyOres(cx: number, cz: number, ores: number[]): void {
+    for (let i = 0; i + 1 < ores.length; i += 2) { const n = ores[i]; this.applyRemote(cx * 16 + (n & 15), n >> 8, cz * 16 + ((n >> 4) & 15), ores[i + 1]); }
+  }
+
   applyRemote(x: number, y: number, z: number, v: number): void {
     const c = this.get_(x >> 4, z >> 4);
     if (!c) return;
@@ -149,11 +153,12 @@ export class ChunkManager implements WorldStore {
     if (urgent) { c.urgent = true; c.lazyAt = 0; }
   }
 
-  receiveRemote(cx: number, cz: number, data: Uint16Array | null): void {
+  receiveRemote(cx: number, cz: number, data: Uint16Array | null, ores?: number[]): void {
     const c = this.get_(cx, cz);
     if (!c || c.remote === 'done') return;
     c.remote = 'done';
     c.remoteData = data;
+    if (ores) for (let i = 0; i + 1 < ores.length; i += 2) { const n = ores[i]; c.pending.push([cx * 16 + (n & 15), n >> 8, cz * 16 + ((n >> 4) & 15), ores[i + 1]]); }
     this.tryFinalize(c);
   }
 

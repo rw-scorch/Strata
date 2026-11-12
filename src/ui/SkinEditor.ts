@@ -43,11 +43,11 @@ export class SkinPreview {
   private rig: ReturnType<typeof buildVanilla>['rig'] | null = null;
   private spec = playerSpec(false);
 
-  constructor(private src: HTMLCanvasElement, size: number) {
-    this.canvas = h('canvas', { width: size, height: Math.round(size * 1.3), class: 'skin-3d' }) as HTMLCanvasElement;
+  constructor(private src: HTMLCanvasElement, size: number, aspect = 1.3) {
+    this.canvas = h('canvas', { width: size, height: Math.round(size * aspect), class: 'skin-3d' }) as HTMLCanvasElement;
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-    this.cam = new THREE.PerspectiveCamera(32, 1 / 1.3, 0.1, 50);
+    this.cam = new THREE.PerspectiveCamera(32, 1 / aspect, 0.1, 50);
     this.cam.position.set(0, 1.0, 4.4);
     this.cam.lookAt(0, 0.95, 0);
     this.tex = new THREE.CanvasTexture(src);
@@ -73,16 +73,32 @@ export class SkinPreview {
 
   refresh(): void { this.tex.needsUpdate = true; }
 
+  follow: { x: number; y: number } | null = null;
+  persistent = false;
+  private away = 0;
+
+  setSource(src: HTMLCanvasElement): void { this.src = src; this.tex.image = src; this.tex.needsUpdate = true; }
+
   start(): void {
+    if (this.raf) return;
     const loop = () => {
-      if (this.canvas.isConnected) this.attached = true;
+      if (this.canvas.isConnected) { this.attached = true; this.away = 0; }
+      else if (this.persistent) { if (++this.away > 90) { this.raf = 0; return; } this.raf = requestAnimationFrame(loop); return; }
       else if (this.attached || this.t > 10) { this.dispose(); return; }
       this.raf = requestAnimationFrame(loop);
       this.t += 1 / 60;
-      if (!this.dragging) this.yaw += 0.004;
       if (this.model && this.rig) {
-        this.model.rotation.y = this.yaw;
-        animateVanilla(this.spec, this.rig, { ls: this.t * 3, amt: 0.35, age: this.t * 20, pitch: 0, aggressive: false, attack: 0, crouch: false, type: 'player' });
+        if (this.follow) {
+          const fx = Math.max(-1, Math.min(1, this.follow.x)), fy = Math.max(-1, Math.min(1, this.follow.y));
+          this.model.rotation.y = Math.PI + Math.atan(fx * 1.6) * 0.35;
+          animateVanilla(this.spec, this.rig, { ls: 0, amt: 0, age: this.t * 20, pitch: Math.atan(fy * 1.6) * 0.35, aggressive: false, attack: 0, crouch: false, type: 'player' });
+          const head = this.rig.get('head')?.obj;
+          if (head) head.rotation.y += Math.atan(fx * 1.6) * 0.55;
+        } else {
+          if (!this.dragging) this.yaw += 0.004;
+          this.model.rotation.y = this.yaw;
+          animateVanilla(this.spec, this.rig, { ls: this.t * 3, amt: 0.35, age: this.t * 20, pitch: 0, aggressive: false, attack: 0, crouch: false, type: 'player' });
+        }
       }
       this.renderer.render(this.scene, this.cam);
     };

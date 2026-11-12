@@ -153,6 +153,7 @@ export class MobileControls {
   }
 
   private down(e: PointerEvent): void {
+    if (e.pointerType === 'mouse' && !this.editing) return;
     e.preventDefault();
     this.input.touchMode = true;
     const btn = (e.target as HTMLElement).closest('.tbtn') as HTMLButtonElement | null;
@@ -197,6 +198,7 @@ export class MobileControls {
   }
 
   private move(e: PointerEvent): void {
+    if (e.pointerType === 'mouse' && !this.editing) return;
     if (this.editing) { this.dragMove(e); return; }
     if (e.pointerId === this.joyId) { e.preventDefault(); this.updateJoy(e.clientX, e.clientY); return; }
     if (e.pointerId === this.camId) {

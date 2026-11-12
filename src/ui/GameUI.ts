@@ -5,7 +5,7 @@ import { Minimap } from './Minimap';
 import { h, clear, toast, modal, toggle, segmented, copyText, confirmDialog, slider } from './dom';
 import type { ChatKind } from '../game/Session';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
-import { DIFFICULTIES, Difficulty, MAX_PLAYERS_LIMIT } from '../core/constants';
+import { DIFFICULTIES, Difficulty, MAX_PLAYERS_LIMIT, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH } from '../core/constants';
 import { BLOCKS } from '../core/blocks';
 import { getItem } from '../core/items';
 
@@ -101,6 +101,9 @@ export class ChatUI {
     const full = from ? `<${from.name}> ${text}` : text;
     const el = h('div', { class: `line ${from ? 'msg' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, `<${from.name}>`) : null, text,
       wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, found ? 'Save waypoint' : `Save ${wp.x} ${wp.y} ${wp.z}`) : null,
+      !from && /Type \/tpaccept or \/tpdeny/.test(text) ? h('span', { class: 'tpa-btns' },
+        h('button', { class: 'wp-save tpa-yes', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/tpaccept'); (e.target as HTMLElement).parentElement!.remove(); } }, 'Accept'),
+        h('button', { class: 'wp-save tpa-no', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/tpdeny'); (e.target as HTMLElement).parentElement!.remove(); } }, 'Deny')) : null,
       h('button', { class: 'copy', tabindex: '-1' }, 'Copy'));
     el.dataset.text = full;
     const stick = this.box.scrollHeight - this.box.scrollTop - this.box.clientHeight < 30;
@@ -177,7 +180,7 @@ export function showInvite(code: string, name: string): void {
   modal('Invite friends', body, [{ label: 'Done', kind: 'primary' }]);
 }
 
-export function showPlayers(players: PublicPlayer[], meId: string, isOwner: boolean, localMuted: Set<string>, act: { kick(id: string): void; mute(id: string, on: boolean): void; maxPlayers: number }): void {
+export function showPlayers(players: PublicPlayer[], meId: string, isOwner: boolean, localMuted: Set<string>, act: { kick(id: string): void; mute(id: string, on: boolean): void; maxPlayers: number; command?(text: string): void; tpa?: boolean }): void {
   const list = h('div', { class: 'stack' });
   const render = () => {
     clear(list);
@@ -192,6 +195,10 @@ export function showPlayers(players: PublicPlayer[], meId: string, isOwner: bool
       );
       if (!me) {
         const hidden = localMuted.has(p.id);
+        if (act.command && (act.tpa !== false || isOwner)) {
+          row.appendChild(h('button', { class: 'btn small primary', title: 'Ask to teleport to this player', onclick: () => { act.command!(isOwner ? `/tp ${p.name}` : `/tpa ${p.name}`); if (isOwner) document.querySelector('.modal-backdrop')?.remove(); } }, isOwner ? 'Teleport' : 'Request TP'));
+          if (!isOwner) row.appendChild(h('button', { class: 'btn small', title: 'Ask this player to teleport to you', onclick: () => act.command!(`/tpahere ${p.name}`) }, 'Invite here'));
+        }
         row.appendChild(h('button', { class: 'btn small ghost', onclick: () => { if (hidden) localMuted.delete(p.id); else localMuted.add(p.id); render(); } }, hidden ? 'Show chat' : 'Hide chat'));
         if (isOwner) {
           row.appendChild(h('button', { class: 'btn small', onclick: () => { act.mute(p.id, !p.muted); p.muted = !p.muted; render(); } }, p.muted ? 'Unmute' : 'Mute'));
@@ -207,7 +214,7 @@ export function showPlayers(players: PublicPlayer[], meId: string, isOwner: bool
 
 export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string; difficulty?: Difficulty; maxPlayers?: number; settings?: Partial<RoomMeta['settings']>; pack?: RoomMeta['pack'] }) => void, activePack: { name: string; hash: string } | null, rules: RuleSet = {}, onRules?: (cmds: string[]) => void): void {
   const s = { ...room.settings };
-  const r = { map: rules.allowMinimap !== false, coords: rules.allowCoords !== false, homes: rules.maxHomes ?? 2, tpa: rules.tpa !== false };
+  const r = { map: rules.allowMinimap !== false, coords: rules.allowCoords !== false, homes: rules.maxHomes ?? 2, tpa: rules.tpa !== false, day: rules.dayLength ?? DEFAULT_DAY_LENGTH, night: rules.nightLength ?? DEFAULT_NIGHT_LENGTH };
   let name = room.name, diff = room.difficulty, max = room.maxPlayers;
   let pack = room.pack;
   const packLine = h('div', { class: 'small muted' });
@@ -228,6 +235,8 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
     toggle('Coordinates allowed', r.coords, (v) => { r.coords = v; }, 'When off, coordinates are hidden from the HUD and debug screen, to stop screen-peeking.'),
     slider('Homes per player', 0, 10, 1, r.homes, (v) => (v ? String(v) : 'Off'), (v) => { r.homes = v; }),
     toggle('Teleport requests (/tpa)', r.tpa, (v) => { r.tpa = v; }),
+    slider('Daytime length', 1, 20, 1, Math.round(r.day * 2), (v) => `${v / 2}x (${Math.round((10 * v) / 2)} min)`, (v) => { r.day = v / 2; }),
+    slider('Night length', 1, 8, 1, Math.round(r.night * 4), (v) => `${v / 4}x (${((25 * v) / 12).toFixed(1)} min)`, (v) => { r.night = v / 4; }),
     h('div', { class: 'section-title' }, 'Shared resource pack'),
     packLine,
     h('div', { class: 'row' },
@@ -244,6 +253,8 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
       if (r.coords !== (rules.allowCoords !== false)) cmds.push(`/gamerule showCoordinates ${r.coords}`);
       if (r.homes !== (rules.maxHomes ?? 2)) cmds.push(`/gamerule maxHomes ${r.homes}`);
       if (r.tpa !== (rules.tpa !== false)) cmds.push(`/gamerule allowTpa ${r.tpa}`);
+      if (r.day !== (rules.dayLength ?? DEFAULT_DAY_LENGTH)) cmds.push(`/gamerule dayLength ${r.day}`);
+      if (r.night !== (rules.nightLength ?? DEFAULT_NIGHT_LENGTH)) cmds.push(`/gamerule nightLength ${r.night}`);
       if (cmds.length) onRules?.(cmds);
     } },
   ]);

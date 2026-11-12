@@ -1,8 +1,8 @@
 export const GAME_NAME = 'Strata';
-export const GAME_VERSION = '0.12.0';
-export const PROTOCOL_VERSION = 7;
+export const GAME_VERSION = '0.13.0';
+export const PROTOCOL_VERSION = 8;
 /** Oldest client protocol a server still accepts, so players on a cached page keep working after a deploy. */
-export const MIN_PROTOCOL_VERSION = 7;
+export const MIN_PROTOCOL_VERSION = 8;
 export const SAVE_VERSION = 2;
 
 export const CHUNK_SIZE = 16;
@@ -13,10 +13,12 @@ export const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
 
 export const TICKS_PER_DAY = 24000;
 
-export function timeRate(time: number): number {
+export const DEFAULT_DAY_LENGTH = 3;
+export const DEFAULT_NIGHT_LENGTH = 0.5;
+export function timeRate(time: number, day = DEFAULT_DAY_LENGTH, night = DEFAULT_NIGHT_LENGTH): number {
   const t = ((time % TICKS_PER_DAY) + TICKS_PER_DAY) % TICKS_PER_DAY;
-  if (t < 12000) return 1 / 3;
-  if (t >= 13000 && t < 23000) return 2;
+  if (t < 12000) return 1 / Math.max(0.25, day);
+  if (t >= 13000 && t < 23000) return 1 / Math.max(0.25, night);
   return 1;
 }
 export const TICK_RATE = 20;
@@ -25,7 +27,7 @@ export const REACH_SURVIVAL = 5;
 export const REACH_CREATIVE = 7;
 
 export const DEFAULT_MAX_PLAYERS = 20;
-export const MAX_PLAYERS_LIMIT = 50;
+export const MAX_PLAYERS_LIMIT = 100;
 
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ROOM_CODE_LENGTH = 8;

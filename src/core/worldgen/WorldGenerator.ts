@@ -18,7 +18,8 @@ export interface Column {
 }
 
 export interface GenBlockEntity { x: number; y: number; z: number; type: 'chest'; items: (ItemStack | null)[]; }
-export interface GeneratedChunk { blocks: Uint16Array; entities: GenBlockEntity[]; }
+export interface GeneratedChunk { blocks: Uint16Array; entities: GenBlockEntity[]; special?: boolean; }
+export interface GenOptions { secret?: number | null; }
 
 const S = CHUNK_SIZE;
 const M = 5;
@@ -59,9 +60,12 @@ export class WorldGenerator {
     return out;
   }
 
-  constructor(seed: number, arena: ArenaKind | null = null) {
+  readonly oreSeed: number | null;
+
+  constructor(seed: number, arena: ArenaKind | null = null, opts?: GenOptions) {
     this.seed = seed >>> 0;
     this.arena = arena;
+    this.oreSeed = opts && 'secret' in opts ? (opts.secret === null || opts.secret === undefined ? null : opts.secret >>> 0) : mix32(this.seed ^ 0x0a5e7c11);
     let k = 0;
     const mk = () => new Simplex(mix32(this.seed + 0x1234567 * ++k));
     this.nCont = mk(); this.nErode = mk(); this.nPeak = mk(); this.nTemp = mk(); this.nHum = mk();
@@ -134,11 +138,12 @@ export class WorldGenerator {
     else if (b === 'beach' || b === 'island' && h <= SEA_LEVEL + 2) { top = B.SAND; filler = B.SAND; depth = 3; }
     else if (b === 'snowy_tundra' || b === 'taiga' && col.temp < -0.5) { top = B.SNOWY_GRASS; }
     else if (b === 'snowy_mountains') {
-      if (slope > 3) { top = B.STONE; filler = B.STONE; }
-      else top = h > 100 ? B.SNOW : B.SNOWY_GRASS;
+      if (slope > 4) { top = B.STONE; filler = B.STONE; }
+      else if (h > 92 || slope > 1) { top = B.SNOW; filler = B.SNOW; depth = 2 + (hash2(wx, wz, this.seed) & 1); }
+      else top = B.SNOWY_GRASS;
     } else if (b === 'mountains') {
-      if (slope > 3 || h > 118) { top = B.STONE; filler = B.STONE; }
-      else if (h > 108) top = B.SNOWY_GRASS;
+      if (slope > 4) { top = B.STONE; filler = B.STONE; }
+      else if (h > 104) { top = B.SNOW; filler = B.SNOW; depth = 2; }
       else if (patch > 0.55) { top = B.GRAVEL; filler = B.GRAVEL; }
     } else if (b === 'swamp' && patch > 0.3) { top = B.MUD; filler = B.MUD; }
     if (underwater) {
@@ -197,7 +202,7 @@ export class WorldGenerator {
     }
 
     this.carveCaves(cx, cz, blocks, colAt);
-    this.placeOres(rng, blocks, colAt);
+    this.placeOres(rng, blocks, colAt, cx, cz);
     this.placeFeatures(cx, cz, cols, set, get, entities);
     for (const v of this.villagesNear(bx + 8, bz + 8, 12)) stampVillage(v, bx, bz, S, set, get, (x, z) => this.column(x, z), entities);
     this.placeVegetation(cx, cz, rng, set, get, colAt);
@@ -275,12 +280,14 @@ export class WorldGenerator {
     }
   }
 
-  private placeOres(rng: Rng, blocks: Uint16Array, colAt: (x: number, z: number) => Column): void {
+  private placeOres(pub: Rng, blocks: Uint16Array, colAt: (x: number, z: number) => Column, cx: number, cz: number): void {
+    let rng = pub;
+    let write = false;
     const vein = (ore: number, count: number, size: number, minY: number, maxY: number) => {
       for (let n = 0; n < count; n++) {
         let x = rng.int(S), y = minY + rng.int(maxY - minY), z = rng.int(S);
         for (let k = 0; k < size; k++) {
-          if (x >= 0 && x < S && z >= 0 && z < S && y > 0 && y < WORLD_HEIGHT) {
+          if (write && x >= 0 && x < S && z >= 0 && z < S && y > 0 && y < WORLD_HEIGHT) {
             const i = (y * S + z) * S + x;
             if ((blocks[i] & 0xff) === B.STONE) blocks[i] = ore;
           }
@@ -290,12 +297,22 @@ export class WorldGenerator {
       }
     };
     const mountain = colAt(8, 8).mountain > 0.4;
-    vein(B.COAL_ORE, 18, 10, 6, mountain ? 130 : 90);
-    vein(B.IRON_ORE, 12, 7, 4, 70);
-    vein(B.GOLD_ORE, 3, 7, 4, 34);
-    vein(B.AETHERITE_ORE, rng.chance(0.75) ? 2 : 1, 5, 3, 18);
+    const ores = () => {
+      vein(B.COAL_ORE, 18, 10, 6, mountain ? 130 : 90);
+      vein(B.IRON_ORE, 12, 7, 4, 70);
+      vein(B.GOLD_ORE, 3, 7, 4, 34);
+      vein(B.AETHERITE_ORE, rng.chance(0.75) ? 2 : 1, 5, 3, 18);
+    };
+    ores();
+    write = true;
     vein(B.GRAVEL, 4, 24, 8, 70);
     vein(B.DIRT, 5, 24, 8, 80);
+    write = false;
+    if (mountain) vein(B.IRON_ORE, 4, 6, 70, 120);
+    if (this.oreSeed === null) return;
+    rng = new Rng(hash2(cx, cz, this.oreSeed));
+    write = true;
+    ores();
     if (mountain) vein(B.IRON_ORE, 4, 6, 70, 120);
   }
 

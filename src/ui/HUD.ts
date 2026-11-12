@@ -33,6 +33,7 @@ export function slotPx(): number {
 export class HUD {
   readonly root: HTMLElement;
   private hotbar: HTMLElement;
+  private offEl!: HTMLElement;
   private slots: HTMLElement[] = [];
   private hearts: HTMLElement;
   private food: HTMLElement;
@@ -72,6 +73,8 @@ export class HUD {
     this.hotbar = h('div', { class: 'mc-hotbar' });
     this.selEl = h('div', { class: 'mc-hotsel' });
     this.hotbar.appendChild(this.selEl);
+    this.offEl = h('div', { class: 'mc-offhand' }, h('div', { class: 'slot mc' }));
+    this.hotbar.appendChild(this.offEl);
     for (let i = 0; i < 9; i++) {
       const s = h('div', { class: 'slot mc hb', 'data-i': i, style: `left:calc(var(--hs) * ${20 * i + 2});top:calc(var(--hs) * 2)` });
       let timer = 0;
@@ -139,6 +142,7 @@ export class HUD {
     const root = document.documentElement;
     root.style.setProperty('--hb-img', `url(${u.hotbar ?? guiFallback('gs:hud/hotbar')!.toDataURL()})`);
     root.style.setProperty('--hb-sel', `url(${u.hotbar_selection ?? guiFallback('gs:hud/hotbar_selection')!.toDataURL()})`);
+    { const off = this.atlas.guiURL('gs:hud/hotbar_offhand_left') ?? guiFallback('gs:hud/hotbar_offhand_left')?.toDataURL(); if (off) root.style.setProperty('--hb-off', `url(${off})`); }
     root.style.setProperty('--atk-bg', `url(${guiURL(this.atlas, 'gs:hud/crosshair_attack_indicator_background')})`);
     root.style.setProperty('--atk-fg', `url(${guiURL(this.atlas, 'gs:hud/crosshair_attack_indicator_progress')})`);
     root.style.setProperty('--xp-bg', `url(${guiURL(this.atlas, 'gs:hud/experience_bar_background')})`);
@@ -154,10 +158,15 @@ export class HUD {
   show(v: boolean): void { this.root.classList.toggle('show', v); }
 
   updateInventory(inv: PlayerInv): void {
-    const key = JSON.stringify(inv.slots.slice(0, 9)) + inv.selected;
+    const key = JSON.stringify(inv.slots.slice(0, 9)) + inv.selected + JSON.stringify(inv.off ?? null);
     if (key === this.lastInvKey) return;
     this.lastInvKey = key;
     const size = 16 * this.hs;
+    const off = inv.off?.[0] ?? null;
+    this.offEl.style.display = off ? 'block' : 'none';
+    const os = this.offEl.firstElementChild as HTMLElement;
+    clear(os);
+    if (off) for (const n of slotContent(this.atlas, off, size)) os.appendChild(n);
     for (let i = 0; i < 9; i++) {
       const el = this.slots[i];
       clear(el);
@@ -190,6 +199,36 @@ export class HUD {
 
   foodStats = true;
 
+  private satCache = new Map<string, string | null>();
+
+  private satOutline(src: string | null | undefined): string | null {
+    if (!src) return null;
+    if (this.satCache.has(src)) return this.satCache.get(src)!;
+    this.satCache.set(src, null);
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth, hgt = img.naturalHeight;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = hgt;
+      const g = c.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, w, hgt);
+      const out = g.createImageData(w, hgt);
+      const op = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < hgt && d.data[(y * w + x) * 4 + 3] > 40;
+      for (let y = 0; y < hgt; y++) for (let x = 0; x < w; x++) {
+        if (!op(x, y)) continue;
+        if (op(x - 1, y) && op(x + 1, y) && op(x, y - 1) && op(x, y + 1)) continue;
+        const k = (y * w + x) * 4;
+        out.data[k] = 255; out.data[k + 1] = 214; out.data[k + 2] = 60; out.data[k + 3] = 255;
+      }
+      g.putImageData(out, 0, 0);
+      this.satCache.set(src, c.toDataURL());
+      this.lastVit = '';
+    };
+    img.src = src;
+    return null;
+  }
+
   updateVitals(v: Vitals, hurtShake: boolean, held?: { hunger: number; saturation: number } | null): void {
     const flash = held && this.foodStats ? Math.floor(performance.now() / 400) % 2 : 0;
     const key = `${v.health}|${v.food}|${Math.ceil(v.air / 30)}|${v.xp}|${v.mode}|${this.foodStats ? Math.round(v.sat * 2) : 0}|${held ? `${held.hunger},${held.saturation},${flash}` : ''}`;
@@ -216,12 +255,14 @@ export class HUD {
         if (fv >= 1) this.food.appendChild(icon(fv >= 2 ? u.food : u.food_half, fx));
         if (this.foodStats) {
           const sv = v.sat - i * 2;
-          if (sv > 0) this.food.appendChild(h('div', { class: 'sat-ov', style: `left:calc(var(--hs) * ${fx});clip-path:inset(0 0 0 ${sv >= 2 ? 0 : 50}%)` }));
+          const ol = this.satOutline(u.food);
+          const part = (n: number) => `${(1 - Math.min(1, Math.ceil(Math.min(2, n) * 2) / 4)) * 100}%`;
+          if (sv > 0 && ol) this.food.appendChild(icon(ol, fx)).style.clipPath = `inset(0 0 0 ${part(sv)})`;
           if (held && flash) {
             const nf = Math.min(20, v.food + held.hunger) - i * 2;
             if (nf > fv && nf >= 1) this.food.appendChild(icon(nf >= 2 ? u.food : u.food_half, fx)).classList.add('food-preview');
             const ns = Math.min(Math.min(20, v.food + held.hunger), v.sat + held.saturation) - i * 2;
-            if (ns > Math.max(0, sv)) this.food.appendChild(h('div', { class: 'sat-ov preview', style: `left:calc(var(--hs) * ${fx});clip-path:inset(0 0 0 ${ns >= 2 ? 0 : 50}%)` }));
+            if (ns > Math.max(0, sv) && ol) { const e = icon(ol, fx); e.style.clipPath = `inset(0 0 0 ${part(ns)})`; e.classList.add('sat-preview'); this.food.appendChild(e); }
           }
         }
       }

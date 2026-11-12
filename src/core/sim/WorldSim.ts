@@ -1,4 +1,4 @@
-import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
+import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
   B, BLOCKS, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE,
@@ -176,13 +176,14 @@ export interface SimOptions {
 
 export interface SimSettings {
   pvp: boolean; cheats: boolean; guestsBuild: boolean; dayCycle: boolean; weatherCycle: boolean;
+  dayLength?: number; nightLength?: number;
   simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number;
   maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean;
 }
 
 const DT = 1 / 20;
 const DIFF_DMG: Record<Difficulty, number> = { peaceful: 0, easy: 0.5, normal: 1, hard: 1.5 };
-export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords'] as const;
+export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength'] as const;
 export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
 export function ruleSnapshot(s: SimSettings): RuleSet {
   const out: Record<string, unknown> = {};
@@ -281,6 +282,7 @@ export class WorldSim {
   readonly authoritative: boolean;
   settings: SimSettings = { pvp: true, cheats: true, guestsBuild: true, dayCycle: true, weatherCycle: true };
   book: RecipeBook = BASE_BOOK;
+  serverMode = false;
 
   dataPacks: DataRecipes[] = [];
 
@@ -522,19 +524,28 @@ export class WorldSim {
     for (const v of this.gen.villagesNear(p.x, p.z, 64)) {
       if (!this.store.isLoaded(v.x, v.z)) continue;
       let count = 0;
-      for (const e of this.entities.values()) if (e.vid === v.id) count++;
+      for (const e of this.entities.values()) {
+        if (e.vid !== v.id) continue;
+        count++;
+        if (e.bed && Math.hypot(e.x - e.bed[0], e.z - e.bed[1]) < 7 && e.y > v.y + 3) {
+          const bx = Math.floor(e.bed[0]), bz = Math.floor(e.bed[1]);
+          for (let yy = Math.max(2, v.y - 10); yy < v.y + 14; yy++) if (standable(this.store, bx, yy, bz, true)) { if (yy < e.y - 2) { e.x = e.bed[0]; e.y = yy; e.z = e.bed[1]; e.vx = e.vy = e.vz = 0; } break; }
+        }
+      }
       const target = Math.min(8, v.homes.length);
       if (count >= target) continue;
       const n = count === 0 ? target : this.rng.chance(0.05) ? 1 : 0;
       for (let i = 0; i < n; i++) {
         const home = v.homes[(count + i) % v.homes.length];
         if (!this.store.isLoaded(home.x, home.z)) continue;
+        const sx = home.ix ?? home.x, sz = home.iz ?? home.z;
+        if (!this.store.isLoaded(sx, sz)) continue;
         let y = -1;
-        for (let yy = Math.min(WORLD_HEIGHT - 3, v.y + 12); yy > Math.max(2, v.y - 12); yy--) {
-          if (standable(this.store, home.x, yy, home.z, true)) { y = yy; break; }
+        for (let yy = Math.max(2, v.y - 10); yy < Math.min(WORLD_HEIGHT - 3, v.y + 14); yy++) {
+          if (standable(this.store, sx, yy, sz, true)) { y = yy; break; }
         }
         if (y < 0) continue;
-        const e = this.spawnMob('villager', home.x + 0.5, y, home.z + 0.5);
+        const e = this.spawnMob('villager', sx + 0.5, y, sz + 0.5);
         e.prof = Math.max(0, PROFESSIONS.indexOf(home.prof));
         e.vid = v.id; e.home = [home.x + 0.5, home.z + 0.5]; e.vc = [v.x + 0.5, v.z + 0.5];
         if (home.ix !== undefined && home.iz !== undefined) { e.bed = [home.ix + 0.5, home.iz + 0.5]; e.work = e.bed; }
@@ -703,6 +714,7 @@ export class WorldSim {
     const p = this.players.get(id);
     if (!p) return;
     if (p.screen.type) this.closeScreen(p);
+    else if (p.inv.cursor || p.inv.craft.some(Boolean)) applyInvOp(this.invCtx(p), { t: 'close' });
     this.game?.onLeave(p);
     this.players.delete(id);
   }
@@ -1047,6 +1059,16 @@ export class WorldSim {
     if (stack?.id === I.BONE_MEAL) return this.boneMeal(p, x, y, z);
     if (item?.kind === 'bucket') return this.useBucket(p, x, y, z, nx, ny, nz, stack!);
     if (item?.kind === 'food' && !(item.places)) return false;
+    const off = p.inv.off?.[0];
+    if ((!item || item.places === undefined) && off && getItem(off.id)?.places !== undefined) {
+      const sel = p.inv.selected, main = p.inv.slots[sel];
+      p.inv.slots[sel] = off;
+      const ok = this.place(p, x, y, z, nx, ny, nz);
+      p.inv.off[0] = p.inv.slots[sel];
+      p.inv.slots[sel] = main;
+      if (ok) this.emit({ e: 'inv', p });
+      return ok;
+    }
     return this.place(p, x, y, z, nx, ny, nz);
   }
 
@@ -1339,7 +1361,7 @@ export class WorldSim {
     this.tickCount++;
     this.now += 50;
     if (this.settings.dayCycle) {
-      this.timeAcc += timeRate(this.time);
+      this.timeAcc += timeRate(this.time, this.settings.dayLength, this.settings.nightLength);
       const step = Math.floor(this.timeAcc);
       if (step > 0) { this.time += step; this.timeAcc -= step; }
     }
@@ -2317,7 +2339,7 @@ export class WorldSim {
       }
       case 'help':
         return 'Teleports: /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /tp <x> <y> <z>, /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /locate village, /gamerule <rule> [value], /kill';
-      case 'seed': return `Seed: ${this.seed}`;
+      case 'seed': if (this.serverMode && !p.op) return 'Only operators can see the seed on a server.'; return `Seed: ${this.seed}`;
       case 'gamerule': {
         const rules: Record<string, [() => string, (v: string) => string | null]> = {
           randomtickspeed: [() => String(this.settings.randomTickSpeed ?? 3), (v) => { const n = Math.floor(Number(v)); if (!Number.isFinite(n) || n < 0 || n > 64) return 'Use a number from 0 to 64.'; this.settings.randomTickSpeed = n; return null; }],
@@ -2328,11 +2350,13 @@ export class WorldSim {
           allowtpa: [() => String(this.settings.tpa !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.tpa = v === 'true'; return null; }],
           showminimap: [() => String(this.settings.allowMinimap !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.allowMinimap = v === 'true'; return null; }],
           showcoordinates: [() => String(this.settings.allowCoords !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.allowCoords = v === 'true'; return null; }],
+          daylength: [() => String(this.settings.dayLength ?? DEFAULT_DAY_LENGTH), (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0.25 || n > 10) return 'Use a multiplier from 0.25 to 10 (3 means daytime lasts three times as long as Java).'; this.settings.dayLength = Math.round(n * 100) / 100; return null; }],
+          nightlength: [() => String(this.settings.nightLength ?? DEFAULT_NIGHT_LENGTH), (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0.25 || n > 10) return 'Use a multiplier from 0.25 to 10 (1 is the Java night length).'; this.settings.nightLength = Math.round(n * 100) / 100; return null; }],
           dodaylightcycle: [() => String(this.settings.dayCycle), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.dayCycle = v === 'true'; return null; }],
         };
         const name = (parts[1] ?? '').toLowerCase();
         const rule = rules[name];
-        if (!rule) return 'Rules: randomTickSpeed, doMobSpawning, simulationDistance, mobCap, doDaylightCycle, maxHomes, allowTpa, showMinimap, showCoordinates';
+        if (!rule) return 'Rules: randomTickSpeed, doMobSpawning, simulationDistance, mobCap, doDaylightCycle, dayLength, nightLength, maxHomes, allowTpa, showMinimap, showCoordinates';
         if (parts[2] === undefined) return `Gamerule ${parts[1]} is currently set to: ${rule[0]()}`;
         if (!allowed) return need();
         const err = rule[1](parts[2].toLowerCase());
@@ -2391,8 +2415,17 @@ export class WorldSim {
       }
       case 'tp': {
         if (!allowed) return need();
+        if (parts.length === 2 || parts.length === 3) {
+          const who = parts.length === 3 ? this.findPlayer(parts[1]) : p;
+          const to = this.findPlayer(parts[parts.length - 1]);
+          if (!who || !to) return 'No player by that name.';
+          who.back = { x: who.x, y: who.y, z: who.z };
+          who.x = to.x; who.y = to.y; who.z = to.z; who.peakY = to.y;
+          this.emit({ e: 'tp', p: who });
+          return `Teleported ${who === p ? 'to' : `${who.name} to`} ${to.name}.`;
+        }
         const [x, y, z] = parts.slice(1, 4).map(Number);
-        if (![x, y, z].every(Number.isFinite)) return 'Usage: /tp <x> <y> <z>';
+        if (![x, y, z].every(Number.isFinite)) return 'Usage: /tp <x> <y> <z> or /tp <player> or /tp <player> <player>';
         p.x = x; p.y = y; p.z = z; p.peakY = y;
         this.emit({ e: 'tp', p });
         return `Teleported to ${x} ${y} ${z}.`;

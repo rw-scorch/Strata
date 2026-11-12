@@ -89,7 +89,8 @@ export type S2C =
   | { t: 'rtc'; from: string; d: unknown }
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
   | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
-  | { t: 'chunk'; cx: number; cz: number; d: string | null }
+  | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[] }
+  | { t: 'ores'; cx: number; cz: number; o: number[] }
   | { t: 'blk'; u: number[][] }
   | { t: 'pl'; u: (string | number)[][] }
   | { t: 'pj'; p: PublicPlayer }

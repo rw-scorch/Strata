@@ -141,7 +141,7 @@ export class RemoteSession implements GameSession {
     this.room = w.room;
     if (first) {
       this.sim = new WorldSim({
-        seed: w.room.seed, store: this.chunks!, gen: new WorldGenerator(w.room.seed, w.room.arena ?? null), difficulty: w.room.difficulty, emit: (e) => {
+        seed: w.room.seed, store: this.chunks!, gen: new WorldGenerator(w.room.seed, w.room.arena ?? null, { secret: null }), difficulty: w.room.difficulty, emit: (e) => {
           if (e.e === 'sound' && e.src && e.src === this.me?.id) this.ev?.sound(e.s, e.x, e.y, e.z, e.vol, e.pitch);
           else if (e.e === 'particles' && e.src && e.src === this.me?.id) this.ev?.fx(e.k, e.x, e.y, e.z, e.d);
         },
@@ -211,10 +211,11 @@ export class RemoteSession implements GameSession {
       case 'chunk': {
         let data: Uint16Array | null = null;
         if (m.d) { try { data = decodeRLE(base64ToU16(m.d)); } catch { data = null; } }
-        if (this.chunks!.chunkReady(m.cx, m.cz)) ev.chunkData(m.cx, m.cz, data);
-        else this.chunks!.receiveRemote(m.cx, m.cz, data);
+        if (this.chunks!.chunkReady(m.cx, m.cz)) { ev.chunkData(m.cx, m.cz, data); if (m.o) this.chunks!.applyOres(m.cx, m.cz, m.o); }
+        else this.chunks!.receiveRemote(m.cx, m.cz, data, m.o);
         return;
       }
+      case 'ores': if (Array.isArray(m.o)) this.chunks?.applyOres(m.cx, m.cz, m.o); return;
       case 'blk': for (const u of m.u) this.chunks!.applyRemote(u[0], u[1], u[2], u[3]); return;
       case 'pl':
         for (const r of m.u) {
@@ -248,7 +249,7 @@ export class RemoteSession implements GameSession {
         Object.assign(this.me, { health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode });
         ev.vitals({ health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode, fire: !!m.fire });
         return;
-      case 'inv': this.me.inv = sanitizeInv(m.inv); this.expected.clear(); ev.inventory(this.me.inv); return;
+      case 'inv': Object.assign(this.me.inv, sanitizeInv(m.inv)); this.expected.clear(); ev.inventory(this.me.inv); return;
       case 'ack': {
         const exp = this.expected.get(m.s);
         this.expected.delete(m.s);

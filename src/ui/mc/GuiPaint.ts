@@ -235,6 +235,27 @@ function paint(key: string): HTMLCanvasElement | null {
     for (let i = 0; i < 9; i++) { const x = 1 + i * 20; g.fillRect(x, 1, 20, 1); g.fillRect(x, 20, 20, 1); g.fillRect(x, 1, 1, 20); g.fillRect(x + 19, 1, 1, 20); }
     return c;
   }
+  if (key === 'gs:hud/hotbar_offhand_left') {
+    const [c, g] = canvas(29, 24);
+    g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(1, 1, 22, 22);
+    g.fillStyle = 'rgba(20,20,20,0.9)'; g.fillRect(1, 1, 22, 1); g.fillRect(1, 22, 22, 1); g.fillRect(1, 1, 1, 22); g.fillRect(22, 1, 1, 22);
+    g.fillStyle = 'rgba(150,150,150,0.55)'; g.fillRect(2, 2, 20, 1); g.fillRect(2, 21, 20, 1); g.fillRect(2, 2, 1, 20); g.fillRect(21, 2, 1, 20);
+    return c;
+  }
+  if (key === 'gs:recipe_book/filter_enabled' || key === 'gs:recipe_book/filter_disabled' || key === 'gs:recipe_book/filter_enabled_highlighted' || key === 'gs:recipe_book/filter_disabled_highlighted') {
+    const [c, g] = canvas(26, 16);
+    panel(g, 0, 0, 26, 16);
+    g.fillStyle = '#8a5a2b'; g.fillRect(8, 3, 10, 10); g.fillStyle = '#c08a4a'; g.fillRect(9, 4, 8, 3);
+    if (key.includes('enabled')) { g.fillStyle = '#d02020'; for (let i = 0; i < 8; i++) { g.fillRect(9 + i, 4 + i, 2, 1); g.fillRect(16 - i, 4 + i, 2, 1); } }
+    if (key.includes('highlighted')) { g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(1, 1, 24, 14); }
+    return c;
+  }
+  if (key === 'gs:recipe_book/tab' || key === 'gs:recipe_book/tab_selected') {
+    const [c, g] = canvas(35, 27);
+    panel(g, 0, 0, 39, 27);
+    if (key === 'gs:recipe_book/tab') { g.fillStyle = 'rgba(0,0,0,0.2)'; g.fillRect(0, 0, 35, 27); }
+    return c;
+  }
   if (key === 'gs:hud/hotbar_selection') {
     const [c, g] = canvas(24, 23);
     g.fillStyle = '#000'; g.fillRect(0, 0, 24, 23);

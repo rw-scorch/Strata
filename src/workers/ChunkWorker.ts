@@ -7,7 +7,7 @@ let gen: WorldGenerator | null = null;
 let atlas: AtlasData | null = null;
 
 type InMsg =
-  | { t: 'init'; seed: number; arena?: ArenaKind | null; atlas: AtlasData }
+  | { t: 'init'; seed: number; arena?: ArenaKind | null; atlas: AtlasData; client?: boolean }
   | { t: 'atlas'; atlas: AtlasData }
   | { t: 'gen'; id: number; cx: number; cz: number }
   | { t: 'mesh'; id: number; cx: number; cz: number; chunks: (Uint16Array | null)[]; smooth: boolean; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' } };
@@ -22,7 +22,7 @@ function transfers(b: MeshBuffers | null, out: Transferable[]): void {
 scope.onmessage = (e) => {
   const m = e.data;
   try {
-    if (m.t === 'init') { gen = new WorldGenerator(m.seed, m.arena ?? null); atlas = m.atlas; return; }
+    if (m.t === 'init') { gen = new WorldGenerator(m.seed, m.arena ?? null, m.client ? { secret: null } : undefined); atlas = m.atlas; return; }
     if (m.t === 'atlas') { atlas = m.atlas; return; }
     if (!gen || !atlas) throw new Error('worker not initialised');
     if (m.t === 'gen') {

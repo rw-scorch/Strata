@@ -40,7 +40,7 @@ export interface PackManifest {
   importer?: number;
 }
 
-export const IMPORTER_VERSION = 9;
+export const IMPORTER_VERSION = 10;
 
 export const GUI_SPRITES = [
   'container/slot_highlight_back', 'container/slot_highlight_front', 'container/furnace/burn_progress', 'container/furnace/lit_progress',
@@ -52,6 +52,7 @@ export const GUI_SPRITES = [
   'tooltip/background', 'tooltip/frame', 'hud/crosshair_attack_indicator_background', 'hud/crosshair_attack_indicator_progress', 'hud/crosshair_attack_indicator_full', 'hud/experience_bar_background', 'hud/experience_bar_progress', 'hud/air', 'hud/air_empty', 'hud/air_bursting',
   'recipe_book/button', 'recipe_book/button_highlighted', 'recipe_book/slot_craftable', 'recipe_book/slot_uncraftable', 'recipe_book/slot_many_craftable', 'recipe_book/slot_many_uncraftable',
   'recipe_book/page_forward', 'recipe_book/page_backward', 'recipe_book/page_forward_highlighted', 'recipe_book/page_backward_highlighted', 'recipe_book/tab', 'recipe_book/tab_selected',
+  'recipe_book/filter_enabled', 'recipe_book/filter_disabled', 'recipe_book/filter_enabled_highlighted', 'recipe_book/filter_disabled_highlighted', 'hud/hotbar_offhand_left', 'container/slot/shield', 'icon/search',
 ];
 export const GUI_TEXTURES = ['container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
 
