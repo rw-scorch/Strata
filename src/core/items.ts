@@ -1,4 +1,4 @@
-import { BLOCKS, B, ToolType, COLORS, COLOR_NAMES, DyeColor } from './blocks';
+import { BLOCKS, B, ToolType, COLORS, COLOR_NAMES, DyeColor, SHAPE_MATS, SLAB_ITEM, STAIRS_ITEM } from './blocks';
 
 export type ItemKind = 'block' | 'tool' | 'food' | 'armor' | 'material' | 'bucket' | 'placer';
 export type CreativeTab = 'building' | 'nature' | 'functional' | 'tools' | 'combat' | 'food' | 'materials';
@@ -17,6 +17,7 @@ export interface ItemDef {
   texture: string;
   blockIcon: boolean;
   places?: number;
+  placeMeta?: number;
   tool?: ToolInfo;
   food?: FoodInfo;
   armor?: ArmorInfo;
@@ -32,7 +33,7 @@ export const I = {
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
   ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298, BONE_MEAL: 299,
-  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370, REDSTONE: 371,
+  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370, REDSTONE: 371, GUNPOWDER: 372, FLINT_AND_STEEL: 373,
 } as const;
 
 const NEW_DYES = COLORS.filter((c) => c !== 'red' && c !== 'yellow');
@@ -66,6 +67,11 @@ for (const b of BLOCKS) {
   });
 }
 
+SHAPE_MATS.forEach((m, i) => {
+  add({ id: SLAB_ITEM + i, key: `${m.key}_slab`, name: `${m.name} Slab`, desc: 'Half a block. Place two of the same together for a full block.', kind: 'block', places: B.SLAB, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
+  add({ id: STAIRS_ITEM + i, key: `${m.key}_stairs`, name: `${m.name} Stairs`, desc: 'Climb without jumping. Place on the underside of a block to turn them upside down.', kind: 'block', places: B.STAIRS, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
+});
+
 const mat = (id: number, key: string, name: string, desc: string, extra: Partial<ItemDef> = {}) =>
   add({ id, key, name, desc, kind: 'material', texture: key, ...extra });
 
@@ -77,6 +83,8 @@ mat(I.IRON_INGOT, 'iron_ingot', 'Iron Ingot', 'Forged from ore. Strong tools awa
 mat(I.GOLD_INGOT, 'gold_ingot', 'Gold Ingot', 'Soft but swift. Gold tools mine fast and wear quickly.');
 mat(I.AETHERITE, 'aetherite', 'Aetherite Shard', 'A crystal from the deep strata. The finest tool material.');
 mat(I.FLINT, 'flint', 'Flint', 'A sharp stone knapped from gravel.');
+mat(I.GUNPOWDER, 'blastpowder', 'Blastpowder', 'Coal, flint and Emberdust ground together. Packs a punch.');
+add({ id: I.FLINT_AND_STEEL, key: 'firestriker', name: 'Firestriker', desc: 'Strike it on a Thunder Keg to light the fuse.', kind: 'material', texture: 'firestriker', maxStack: 1, durability: 64, tab: 'tools' });
 mat(I.FEATHER, 'feather', 'Feather', 'Plucked from a Fernhen. Fletches arrows.');
 mat(I.STRING, 'string', 'Silk Thread', 'Spun by a Duskweaver. Strong and fine.');
 mat(I.BONE, 'bone', 'Bone', 'Left behind by a Rattlebone.');

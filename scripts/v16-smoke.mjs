@@ -8,7 +8,7 @@ const code = created.code;
 const ws = new WebSocket(`${wsBase}/ws/${code}`);
 const a = { msgs: [], welcome: null, blocks: new Map() };
 ws.onmessage = (e) => { const m = JSON.parse(e.data); a.msgs.push(m); if (m.t === 'welcome') a.welcome = m; if (m.t === 'blk') for (const u of m.u) a.blocks.set(`${u[0]},${u[1]},${u[2]}`, u[3]); };
-ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 12, id: 'owner-ember-0001', secret: 'owner-secret-ember-0000', name: 'Alpha', appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
+ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 13, id: 'owner-ember-0001', secret: 'owner-secret-ember-0000', name: 'Alpha', appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
 const send = (m) => ws.send(JSON.stringify(m));
 const say = async (t, ms = 950) => { send({ t: 'chat', text: t }); await sleep(ms); };
 await sleep(1500);

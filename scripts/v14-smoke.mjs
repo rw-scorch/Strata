@@ -9,7 +9,7 @@ function client(id, secret, name) {
   const ws = new WebSocket(`${wsBase}/ws/${code}`);
   const c = { ws, msgs: [], welcome: null };
   ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome') c.welcome = m; };
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 12, id, secret, name, appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 13, id, secret, name, appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
   c.send = (m) => ws.send(JSON.stringify(m));
   c.say = async (t, wait = 350) => { c.send({ t: 'chat', text: t }); await sleep(wait); };
   c.chats = () => c.msgs.filter((m) => m.t === 'chat').map((m) => m.text);

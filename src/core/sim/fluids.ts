@@ -92,7 +92,8 @@ export function tickFluid(world: FluidWorld, x: number, y: number, z: number): v
   if (next > maxLevel) return;
   if (!isSource && blockId(below) === id) return;
   if (!isSolid(below) && blockId(below) !== id && !isSource && !(meta & FALLING)) return;
-  for (const [dx, dz] of DIRS) {
+  const dirs = spreadDirs(w, x, y, z, id);
+  for (const [dx, dz] of dirs) {
     const nx = x + dx, nz = z + dz;
     if (!w.loaded(nx, nz)) continue;
     const n = w.get(nx, y, nz);
@@ -108,6 +109,46 @@ export function tickFluid(world: FluidWorld, x: number, y: number, z: number): v
     w.set(nx, y, nz, makeBlock(id, next));
     w.schedule(nx, y, nz, delay);
   }
+}
+
+function passable(w: FluidWorld, x: number, y: number, z: number, id: number): boolean {
+  if (!w.loaded(x, z)) return false;
+  const n = w.get(x, y, z);
+  if (blockId(n) === id) return blockMeta(n) !== 0;
+  return canFlowInto(n, id);
+}
+
+function hole(w: FluidWorld, x: number, y: number, z: number, id: number): boolean {
+  if (y <= 0) return false;
+  const b = w.get(x, y - 1, z);
+  return blockId(b) === id || canFlowInto(b, id);
+}
+
+function slope(w: FluidWorld, x: number, y: number, z: number, depth: number, from: number, id: number, max: number): number {
+  let best = 1000;
+  for (let i = 0; i < 4; i++) {
+    if (i === from) continue;
+    const [dx, dz] = DIRS[i];
+    const nx = x + dx, nz = z + dz;
+    if (!passable(w, nx, y, nz, id)) continue;
+    if (hole(w, nx, y, nz, id)) return depth;
+    if (depth < max) best = Math.min(best, slope(w, nx, y, nz, depth + 1, i ^ 1, id, max));
+  }
+  return best;
+}
+
+function spreadDirs(w: FluidWorld, x: number, y: number, z: number, id: number): [number, number][] {
+  const max = id === B.LAVA ? 2 : 4;
+  const cost = [1000, 1000, 1000, 1000];
+  let min = 1000;
+  for (let i = 0; i < 4; i++) {
+    const [dx, dz] = DIRS[i];
+    const nx = x + dx, nz = z + dz;
+    if (!passable(w, nx, y, nz, id)) continue;
+    cost[i] = hole(w, nx, y, nz, id) ? 0 : slope(w, nx, y, nz, 1, i ^ 1, id, max);
+    min = Math.min(min, cost[i]);
+  }
+  return DIRS.filter((_, i) => cost[i] === min || (min === 1000));
 }
 
 function interact(w: FluidWorld, x: number, y: number, z: number, v: number): boolean {

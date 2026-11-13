@@ -16,6 +16,7 @@ export interface ChunkSourceHooks {
   saveChunk?(cx: number, cz: number, data: Uint16Array): void;
   genLevel?(cx: number, cz: number): number;
   onLoaded?(cx: number, cz: number): void;
+  onSurface?(cx: number, cz: number, blocks: Uint16Array): void;
 }
 
 interface CChunk {
@@ -185,6 +186,7 @@ export class ChunkManager implements WorldStore {
     for (const [x, y, z, v] of c.pending) c.data.set(x & 15, y, z & 15, v);
     c.pending = [];
     this.hooks.onLoaded?.(c.cx, c.cz);
+    this.hooks.onSurface?.(c.cx, c.cz, c.data.blocks);
     c.dirty = true;
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const n = this.get_(c.cx + dx, c.cz + dz);
@@ -311,6 +313,7 @@ export class ChunkManager implements WorldStore {
   }
 
   private unload(c: CChunk): void {
+    if (c.data && c.data.modified) this.hooks.onSurface?.(c.cx, c.cz, c.data.blocks);
     if (c.saveDirty && c.data) { this.hooks.saveChunk?.(c.cx, c.cz, c.data.blocks); c.saveDirty = false; }
     this.chunks.delete(c.nkey);
     if (this.lastC === c) this.lastC = null;

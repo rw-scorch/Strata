@@ -145,6 +145,8 @@ export class LocalSession implements GameSession {
       case 'tp': ev.teleport(e.p.x, e.p.y, e.p.z); return;
       case 'msg': if (e.to && e.to !== this.me.id) return; ev.chat(null, e.text, e.kind === 'death' ? 'death' : e.kind === 'error' ? 'error' : 'info', Date.now()); return;
       case 'lightning': ev.lightning(e.x, e.y, e.z); return;
+      case 'pmove': ev.pistonMove?.(e.l); return;
+      case 'boom': ev.boom?.(e.x, e.y, e.z, e.r); return;
       case 'weather': ev.weather(e.w); return;
       case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;
       case 'rules': ev.rules?.(ruleSnapshot(this.sim.settings)); return;
@@ -181,7 +183,7 @@ export class LocalSession implements GameSession {
   digStart(x: number, y: number, z: number): void { this.sim.setNow(performance.now()); this.sim.digStart(this.me, x, y, z); }
   digAbort(): void { this.sim.digAbort(this.me); }
   digDone(x: number, y: number, z: number): void { this.sim.setNow(performance.now()); this.sim.digFinish(this.me, x, y, z); }
-  use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false): void { this.sim.use(this.me, x, y, z, nx, ny, nz, force); }
+  use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false, hy = 0.5): void { this.sim.use(this.me, x, y, z, nx, ny, nz, force, hy); }
   eat(): void { this.sim.setNow(performance.now()); this.sim.eat(this.me); }
   swing(): void { this.sim.setNow(performance.now()); this.sim.swing(this.me); }
   shoot(power: number, yaw: number, pitch: number): void { this.sim.setNow(performance.now()); this.sim.shootBow(this.me, power, yaw, pitch); }

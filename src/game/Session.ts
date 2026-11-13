@@ -14,7 +14,7 @@ export interface Vitals { health: number; food: number; sat: number; air: number
 
 export interface SessionEvents {
   block(x: number, y: number, z: number, v: number, old: number): void;
-  entity(id: string, kind: 'mob' | 'item' | 'arrow', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
+  entity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
   entityRemove(id: string, death: boolean, pickupBy?: string): void;
   sound(name: string, x: number, y: number, z: number, vol?: number, pitch?: number): void;
   fx(kind: string, x: number, y: number, z: number, data?: number): void;
@@ -36,9 +36,11 @@ export interface SessionEvents {
   time(time: number, cycle: boolean): void;
   weather(w: Weather): void;
   lightning(x: number, y: number, z: number): void;
+  pistonMove?(list: number[]): void;
+  boom?(x: number, y: number, z: number, r: number): void;
   player(p: PublicPlayer): void;
   playerLeft(id: string, name: string): void;
-  playerMove(id: string, x: number, y: number, z: number, yaw: number, pitch: number, flags: number): void;
+  playerMove(id: string, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, health?: number, creative?: boolean): void;
   room(meta: RoomMeta, players: PublicPlayer[]): void;
   mode(mode: GameMode): void;
   crafted(recipeId: string, times: number): void;
@@ -71,7 +73,7 @@ export interface GameSession {
   digStart(x: number, y: number, z: number): void;
   digAbort(): void;
   digDone(x: number, y: number, z: number): void;
-  use(x: number, y: number, z: number, nx: number, ny: number, nz: number, forcePlace?: boolean): void;
+  use(x: number, y: number, z: number, nx: number, ny: number, nz: number, forcePlace?: boolean, hy?: number): void;
   eat(): void;
   attack(entityId: string): void;
   useEntity(entityId: string): void;

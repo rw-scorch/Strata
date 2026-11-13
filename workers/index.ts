@@ -1,3 +1,4 @@
+import { cleanKey, keyHint } from './adminKey';
 import { WorldRoom, Env } from './rooms/WorldRoom';
 import { Accounts } from './accounts/Accounts';
 import { Registry } from './registry/Registry';
@@ -53,18 +54,19 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 function adminAuth(req: Request, env: Env): Response | null {
-  if (!env.ADMIN_KEY) return json({ error: 'This server has no ADMIN_KEY secret set. Add one in the Cloudflare dashboard to use the admin console.' }, 503);
+  if (!cleanKey(env.ADMIN_KEY)) return json({ error: 'This server has no ADMIN_KEY secret set. Add one in the Cloudflare dashboard to use the admin console.' }, 503);
   const ip = req.headers.get('cf-connecting-ip') ?? 'local';
   const now = Date.now();
   const f = adminFails.get(ip);
   if (f && now - f.t < 60000 && f.n >= 5) return json({ error: 'Too many wrong keys. Wait a minute.' }, 429);
   let key = (req.headers.get('x-admin-key') ?? '').trim();
   try { key = decodeURIComponent(key).trim(); } catch { /* raw header */ }
-  if (!key || !safeEqual(key, env.ADMIN_KEY.trim())) {
+  key = cleanKey(key);
+  if (!key || !safeEqual(key, cleanKey(env.ADMIN_KEY))) {
     const g = f && now - f.t < 60000 ? f : { n: 0, t: now };
     g.n++;
     adminFails.set(ip, g);
-    return json({ error: 'Wrong admin key.' }, 401);
+    return json({ error: keyHint(key, cleanKey(env.ADMIN_KEY)) }, 401);
   }
   return null;
 }

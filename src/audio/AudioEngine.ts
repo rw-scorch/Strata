@@ -275,6 +275,14 @@ export class AudioEngine {
         this.tone(dest, t, (on ? 600 : 480) * rnd(), 'square', { a: 0.001, d: 0.03, v: 0.06 });
         break;
       }
+      case 'piston': this.noiseHit(dest, t, sub === 'out' ? 520 : 420, 2, 'bandpass', { a: 0.005, d: 0.22, v: 0.45 }, sub === 'out' ? 1.4 : 0.7); this.tone(dest, t, sub === 'out' ? 140 : 120, 'sawtooth', { a: 0.005, d: 0.15, v: 0.08 }, sub === 'out' ? 180 : 90); break;
+      case 'tnt': this.noiseHit(dest, t, 3500, 1, 'highpass', { a: 0.02, d: 0.9, v: 0.3 }, 0.8); break;
+      case 'fire': this.noiseHit(dest, t, 2500, 2, 'bandpass', { a: 0.002, d: 0.25, v: 0.35 }, 1.3); break;
+      case 'explode': {
+        this.noiseHit(dest, t, 900, 0.5, 'lowpass', { a: 0.003, d: 0.5, v: 1 }, 0.3);
+        this.noiseHit(dest, t + 0.02, 160, 0.5, 'lowpass', { a: 0.01, d: 1.8, v: 0.9 }, 0.5);
+        break;
+      }
       case 'redstone': this.noiseHit(dest, t, 4000, 1, 'highpass', { a: 0.01, d: 0.35, v: 0.25 }, 0.4); break;
       case 'bucket': this.noiseHit(dest, t, sub === 'empty' ? 900 : 600, 1, 'lowpass', { a: 0.01, d: 0.4, v: 0.4 }); break;
       case 'tool': this.noiseHit(dest, t, 3000, 3, 'bandpass', { a: 0.002, d: 0.3, v: 0.5 }); this.tone(dest, t, 1800, 'square', { a: 0.002, d: 0.2, v: 0.08 }, 900); break;

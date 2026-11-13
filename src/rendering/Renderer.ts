@@ -13,6 +13,7 @@ import { Sky, computeSky, SkyState } from './Sky';
 import { Particles } from './Particles';
 import { Weather } from './Weather';
 import { EntityRenderer, LightProbe } from './EntityRenderer';
+import { MovingBlocks } from './MovingBlocks';
 import { ChestRenderer } from './ChestRenderer';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { getItem } from '../core/items';
@@ -47,6 +48,7 @@ export class Renderer {
   readonly particles: Particles;
   readonly weather: Weather;
   readonly entities: EntityRenderer;
+  readonly moving: MovingBlocks;
   readonly chests: ChestRenderer;
   atlas: TextureAtlas;
   private mats: { opaque: THREE.ShaderMaterial; cutout: THREE.ShaderMaterial; trans: THREE.ShaderMaterial };
@@ -133,6 +135,7 @@ export class Renderer {
     this.weather = new Weather();
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
     this.chests = new ChestRenderer(this.uniforms, atlas, probe);
+    this.moving = new MovingBlocks(this.mats);
     this.entities.cull = (x, y, z) => this.sectionVisible(x, y, z);
     this.particles.leafLook = (id) => {
       const d = this.atlas.data;
@@ -141,7 +144,7 @@ export class Renderer {
       const c = tint === 3 ? [128, 167, 85] : tint === 4 ? [97, 153, 97] : tint ? [104, 168, 52] : [255, 255, 255];
       return { tile, r: c[0] / 255, g: c[1] / 255, b: c[2] / 255 };
     };
-    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.weather.group, this.entities.group, this.chests.group);
+    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.weather.group, this.entities.group, this.chests.group, this.moving.group);
     const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.outline = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));
     this.outline.visible = false;
@@ -289,9 +292,18 @@ export class Renderer {
     this.sky.setTextures(a);
     this.entities.setAtlas(a);
     this.chests.setAtlas(a);
+    this.moving.clear();
+    if (this.moving.ctx) this.moving.ctx = { ...this.moving.ctx, atlas: a.data };
     this.lod?.setColors(a.lodColors());
     this.handItemId = -2;
     if (old !== a) old.dispose();
+  }
+
+  private canvasKey = '';
+
+  addSurface(cx: number, cz: number, blocks: Uint16Array): void {
+    if (this.lod) this.lod.addSurface(cx, cz, blocks);
+    else if (this.lodWorld && !this.lodWorld.arena) LodManager.record(this.lodWorld.seed, cx, cz, blocks);
   }
 
   resize(): void {
@@ -299,13 +311,13 @@ export class Renderer {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const scale = dpr * this.resScale * this.maxResScale;
     if (this.post) {
-      this.gl.setPixelRatio(dpr);
-      this.gl.setSize(w, h, false);
+      const key = `${w}x${h}@${dpr}`;
+      if (key !== this.canvasKey) { this.canvasKey = key; this.gl.setPixelRatio(dpr); this.gl.setSize(w, h, false); }
       this.post.setSize(w * scale, h * scale);
       this.viewW = this.post.width; this.viewH = this.post.height;
     } else {
-      this.gl.setPixelRatio(scale);
-      this.gl.setSize(w, h, false);
+      const key = `${w}x${h}@${scale}`;
+      if (key !== this.canvasKey) { this.canvasKey = key; this.gl.setPixelRatio(scale); this.gl.setSize(w, h, false); }
       const v = this.gl.getDrawingBufferSize(new THREE.Vector2());
       this.viewW = v.x; this.viewH = v.y;
     }

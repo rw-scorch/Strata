@@ -1,3 +1,4 @@
+import { cleanKey, keyHint } from '../adminKey';
 import { DurableObject } from 'cloudflare:workers';
 import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
@@ -693,7 +694,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (ban && ban > Date.now()) { this.sendErr(s, 'banned', 'You were removed from this world. Try again later.'); return; }
     if (this.joining.has(id)) { this.sendErr(s, 'duplicate', 'This player is already joining. Try again in a moment.'); return; }
     const adminKey = typeof (msg as { admin?: unknown }).admin === 'string' ? String((msg as { admin?: string }).admin) : '';
-    const spectate = !!adminKey && !!this.env.ADMIN_KEY && safeEqual(adminKey.trim(), this.env.ADMIN_KEY.trim());
+    const spectate = !!adminKey && !!cleanKey(this.env.ADMIN_KEY) && safeEqual(cleanKey(adminKey), cleanKey(this.env.ADMIN_KEY));
     if (adminKey && !spectate) { this.sendErr(s, 'auth', 'That admin key is not correct.'); return; }
     const others = [...this.sessions.values()].filter((o) => o.pid && o.pid !== id && !this.sim?.players.get(o.pid)?.vanished).length;
     if (others >= m.maxPlayers && !spectate) { this.sendErr(s, 'full', `This world is full (${m.maxPlayers} players).`); return; }
@@ -797,7 +798,7 @@ export class WorldRoom extends DurableObject<Env> {
       }
       case 'use': {
         if (![msg.x, msg.y, msg.z, msg.nx, msg.ny, msg.nz].every((n) => isInt(n))) { s.strikes++; return; }
-        sim.use(p, msg.x, msg.y, msg.z, msg.nx, msg.ny, msg.nz, msg.f === 1);
+        sim.use(p, msg.x, msg.y, msg.z, msg.nx, msg.ny, msg.nz, msg.f === 1, typeof msg.h === 'number' && msg.h >= 0 && msg.h <= 1 ? msg.h : 0.5);
         return;
       }
       case 'eat': sim.eat(p); return;
@@ -903,8 +904,8 @@ export class WorldRoom extends DurableObject<Env> {
   private async claimAdmin(s: Session, p: SimPlayer, keyIn: string): Promise<void> {
     let key = keyIn;
     if (p.op) { this.systemChat('You already have admin rights in this world.', 'info', s); return; }
-    const secret = (this.env.ADMIN_KEY ?? '').trim();
-    key = key.trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, '');
+    const secret = cleanKey(this.env.ADMIN_KEY);
+    key = cleanKey(key);
     if (!secret) { this.systemChat('This server has no admin key set. The world owner can grant admin with /op <name>.', 'error', s); return; }
     const now = Date.now();
     if (now - (s.adminT ?? 0) > 60000) { s.adminTries = 0; s.adminT = now; }
@@ -913,7 +914,7 @@ export class WorldRoom extends DurableObject<Env> {
     const [a, b] = await Promise.all([sha256(key), sha256(secret)]);
     let diff = a.length ^ b.length;
     for (let i = 0; i < Math.min(a.length, b.length); i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    if (diff !== 0 || !key) { this.systemChat('That admin key is not correct. Keys are case-sensitive; type it exactly as saved in Cloudflare.', 'error', s); return; }
+    if (diff !== 0 || !key) { this.systemChat(keyHint(key, secret), 'error', s); return; }
     this.grantOp(p, s, true);
     this.systemChat(`${p.name} is now an admin.`);
   }
@@ -1092,6 +1093,8 @@ export class WorldRoom extends DurableObject<Env> {
         else this.systemChat(ev.text, ev.kind);
         return;
       case 'lightning': this.broadcast({ t: 'bolt', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z) }); return;
+      case 'pmove': this.sendNear(ev.l[0], ev.l[2], 96, { t: 'pmove', l: ev.l }); return;
+      case 'boom': this.sendNear(ev.x, ev.z, 128, { t: 'boom', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), r: ev.r }); return;
       case 'weather': this.broadcast({ t: 'wx', w: ev.w }); return;
       case 'time': this.broadcast({ t: 'time', time: this.sim!.time, cycle: this.sim!.settings.dayCycle }); return;
       case 'rules': this.saveMeta(); this.broadcast({ t: 'rules', r: ruleSnapshot(this.sim!.settings) }); return;
@@ -1173,7 +1176,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (p.id === s.pid) continue;
         if (p.vanished && !s.op) continue;
         if (!full && me && Math.abs(p.x - me.x) + Math.abs(p.z - me.z) > 192) continue;
-        const row = [p.id, q2(p.x), q2(p.y), q2(p.z), Math.round(p.yaw * 100) / 100, Math.round(p.pitch * 100) / 100, p.flags | (p.dead ? 1 << 14 : 0)];
+        const row = [p.id, q2(p.x), q2(p.y), q2(p.z), Math.round(p.yaw * 100) / 100, Math.round(p.pitch * 100) / 100, p.flags | (p.dead ? 1 << 14 : 0), Math.ceil(p.health), p.mode === 'creative' ? 1 : 0];
         const key = row.slice(1).join(',');
         if (s.sentPlayers.get(p.id) === key) continue;
         s.sentPlayers.set(p.id, key);

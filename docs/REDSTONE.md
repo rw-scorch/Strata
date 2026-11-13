@@ -20,7 +20,14 @@ This is the plan for adding Java Edition style redstone to Strata, so players ca
    - Dropper and dispenser: 4-tick delay, rising edge only, quasi-connectivity. Droppers feed a container in front or drop the item. Dispensers place and pick up water and lava, use bone meal, fire arrows, and drop anything else.
    - Hopper: 8-tick cooldown, pushes before it pulls, pulls from containers or dropped items above, feeds furnaces by Java's slot rules, and locks while powered.
    - Comparators read hoppers, droppers and dispensers.
-4) **Not yet:** smooth piston animation on the client (blocks snap after 2 ticks), slime and honey blocks, daylight detector, target block, items carried by water at Java speeds, shape (PP) updates as a separate pass, and phases 3 and 4.
+4) **v18 additions:**
+   - Java's piston structure resolver: Tidegel (slime) and Sapwax (honey) blocks drag every block stuck to them, they do not stick to each other, and the 12-block limit counts the whole structure.
+   - Block states are captured before anything is destroyed, and moving blocks are placed farthest first, like Java. A Thunder Keg (TNT) that is lit by an update in the middle of a push still arrives, so TNT duplicators work. A torch, flower or other block that breaks when pushed does the job of Java's coral fan.
+   - Short pulses: a sticky piston that is unpowered before its push finishes leaves the block behind ("spitting").
+   - Entities move with the blocks over the 2 ticks: a piston facing up lifts you, pushed blocks shove you out of the way, and blocks moving sideways carry you only if they are sticky.
+   - Smooth piston animation on the client.
+   - Thunder Keg (TNT): 4-second fuse, Java's explosion rays and blast resistance, chain reactions, no block damage in water, and dispensers can place lit kegs.
+5) **Not yet:** daylight detector, target block, items carried by water at Java speeds, shape (PP) updates as a separate pass, and phases 3 and 4.
 
 ## Goals
 

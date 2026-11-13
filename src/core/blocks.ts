@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -68,7 +68,7 @@ export const B = {
   SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178, KELP: 179, KELP_PLANT: 180, SEAGRASS: 181, VINE: 182,
   REDSTONE_WIRE: 183, REDSTONE_TORCH: 184, LEVER: 185, STONE_BUTTON: 186, OAK_BUTTON: 187, STONE_PRESSURE_PLATE: 188, OAK_PRESSURE_PLATE: 189,
   REDSTONE_BLOCK: 190, REDSTONE_LAMP: 191, REDSTONE_LAMP_LIT: 192, UNLIT_REDSTONE_TORCH: 193, REDSTONE_ORE: 194, REPEATER: 195, COMPARATOR: 196,
-  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204,
+  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204, SLIME_BLOCK: 205, HONEY_BLOCK: 206, TNT: 207, SLAB: 208, STAIRS: 209,
 } as const;
 
 export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
@@ -258,6 +258,11 @@ def(200, 'piston_head', 'Piston Head', '', { faces: ALL('piston_side'), front: '
 def(201, 'moving_piston', 'Moving Block', '', { faces: ALL('stone'), render: 'none', solid: false, opaque: false, lightFilter: 0, hardness: -1, drops: null, category: 'hidden' });
 def(202, 'hopper', 'Hopper', 'Catches items from above and passes them on, one at a time.', { faces: { ...ALL('hopper_outside'), py: 'hopper_top' }, ...RS6, lightFilter: 0, interactive: true, drops: [{ item: 'self' }] });
 def(203, 'dropper', 'Dropper', 'Drops one item when powered, or feeds it into a container in front.', { faces: { ...ALL('furnace_side'), py: 'furnace_top', ny: 'furnace_top' }, front: 'dropper_front', ...RS6, opaque: true, hardness: 3.5, tier: 1, interactive: true, drops: [{ item: 'self' }] });
+def(205, 'slime_block', 'Tidegel Block', 'Wobbly kelp jelly. Pistons drag every block stuck to it, and you bounce when you land on it.', { faces: ALL('slime_block'), render: 'translucent', opaque: false, lightFilter: 1, hardness: 0, sound: 'cloth', category: 'functional', drops: [{ item: 'self' }] });
+def(206, 'honey_block', 'Sapwax Block', 'Thick and sticky. Pistons drag blocks stuck to it, but it will not stick to Tidegel.', { faces: { ...ALL('honey_block_side'), py: 'honey_block_top', ny: 'honey_block_bottom' }, render: 'translucent', opaque: false, lightFilter: 1, hardness: 0, sound: 'cloth', category: 'functional', drops: [{ item: 'self' }] });
+def(207, 'tnt', 'Thunder Keg', 'Blasts a crater four blocks wide. Light it with a Firestriker, Ember power or another blast.', { faces: { ...ALL('tnt_side'), py: 'tnt_top', ny: 'tnt_bottom' }, hardness: 0, sound: 'grass', category: 'functional', drops: [{ item: 'self' }] });
+def(208, 'slab', 'Slab', 'Half a block. Two of the same make a full block.', { faces: ALL('stone'), render: 'shape', opaque: false, lightFilter: 0, hardness: 1.5, sound: 'stone', category: 'hidden', drops: [{ item: 'self' }] });
+def(209, 'stairs', 'Stairs', 'Walk straight up them, no jumping needed.', { faces: ALL('stone'), render: 'shape', opaque: false, lightFilter: 0, hardness: 1.5, sound: 'stone', category: 'hidden', drops: [{ item: 'self' }] });
 def(204, 'dispenser', 'Dispenser', 'Uses or fires one item when powered: buckets, bone meal, arrows and more.', { faces: { ...ALL('furnace_side'), py: 'furnace_top', ny: 'furnace_top' }, front: 'dispenser_front', ...RS6, opaque: true, hardness: 3.5, tier: 1, interactive: true, drops: [{ item: 'self' }] });
 
 export function isWaterPlant(id: number): boolean { return id === 179 || id === 180 || id === 181; }
@@ -333,6 +338,34 @@ export function torchBox(meta: number): [number, number, number, number, number,
   return [cx - 2.5 / 16, 3 / 16, cz - 2.5 / 16, cx + 2.5 / 16, 13 / 16, cz + 2.5 / 16];
 }
 
+export const SHAPE_MATS: { id: number; key: string; name: string }[] = [
+  { id: B.OAK_PLANKS, key: 'oak', name: 'Oak' }, { id: B.BIRCH_PLANKS, key: 'birch', name: 'Birch' }, { id: B.SPRUCE_PLANKS, key: 'spruce', name: 'Spruce' },
+  { id: B.JUNGLE_PLANKS, key: 'jungle', name: 'Jungle' }, { id: B.COBBLESTONE, key: 'cobblestone', name: 'Cobblestone' }, { id: B.STONE, key: 'stone', name: 'Stone' },
+  { id: B.SMOOTH_STONE, key: 'smooth_stone', name: 'Smooth Stone' }, { id: B.STONE_BRICKS, key: 'stone_brick', name: 'Stone Brick' },
+  { id: B.MOSSY_COBBLESTONE, key: 'mossy_cobblestone', name: 'Mossy Cobblestone' }, { id: B.MOSSY_STONE_BRICKS, key: 'mossy_stone_brick', name: 'Mossy Stone Brick' },
+  { id: B.BRICKS, key: 'brick', name: 'Brick' }, { id: B.SANDSTONE, key: 'sandstone', name: 'Sandstone' }, { id: B.CUT_SANDSTONE, key: 'cut_sandstone', name: 'Cut Sandstone' },
+  { id: B.SMOOTH_SANDSTONE, key: 'smooth_sandstone', name: 'Smooth Sandstone' }, { id: B.TUFF, key: 'tuff', name: 'Tuff' }, { id: B.POLISHED_TUFF, key: 'polished_tuff', name: 'Polished Tuff' },
+  { id: B.TUFF_BRICKS, key: 'tuff_brick', name: 'Tuff Brick' }, { id: B.CUT_COPPER, key: 'cut_copper', name: 'Cut Copper' },
+];
+export const SLAB_ITEM = 400, STAIRS_ITEM = 440, SLAB_TOP = 32, STAIRS_UP = 128;
+
+export function shapeBoxes(v: number): [number, number, number, number, number, number][] {
+  const id = v & 0xff, m = v >>> 8;
+  if (id === B.SLAB) return [m & SLAB_TOP ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1]];
+  const up = !!(m & STAIRS_UP), [dx, dz] = FACING_DIRS[(m >> 5) & 3];
+  const base: [number, number, number, number, number, number] = up ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1];
+  const y0 = up ? 0 : 0.5, y1 = up ? 0.5 : 1;
+  const x0 = dx > 0 ? 0.5 : 0, x1 = dx < 0 ? 0.5 : 1, z0 = dz > 0 ? 0.5 : 0, z1 = dz < 0 ? 0.5 : 1;
+  return [base, [x0, y0, z0, x1, y1, z1]];
+}
+
+export function blockBoxes(v: number): [number, number, number, number, number, number][] | null {
+  const id = v & 0xff;
+  if (id === B.SLAB || id === B.STAIRS) return shapeBoxes(v);
+  const b = blockBox(v);
+  return b ? [b] : null;
+}
+
 export function blockBox(v: number): [number, number, number, number, number, number] | null {
   const id = v & 0xff;
   const d = defs[id];
@@ -345,6 +378,7 @@ export function blockBox(v: number): [number, number, number, number, number, nu
   }
   if (id === B.CACTUS) return [1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16];
   if (id === B.CHEST) return [1 / 16, 0, 1 / 16, 15 / 16, 14 / 16, 15 / 16];
+  if (id === B.SLAB) return shapeBoxes(v)[0];
   if (!d.solid) return null;
   return [0, 0, 0, 1, 1, 1];
 }

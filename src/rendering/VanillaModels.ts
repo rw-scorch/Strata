@@ -215,7 +215,7 @@ export function buildVanilla(spec: VanillaSpec, mainMat: THREE.ShaderMaterial, o
   return { obj, parts, rig };
 }
 
-export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; }
+export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; swim?: number; }
 
 function reset(rig: Map<string, RigPart>): void {
   for (const r of rig.values()) { r.obj.position.copy(r.pos); r.obj.rotation.copy(r.rot); }
@@ -249,6 +249,17 @@ export function animateVanilla(spec: VanillaSpec, rig: Map<string, RigPart>, s: 
     }
     const bob = c(s.age * 0.09) * 0.05 + 0.05, bx = sn(s.age * 0.067) * 0.05;
     ra.rotation.z += bob; la.rotation.z -= bob; ra.rotation.x += bx; la.rotation.x -= bx;
+    const sw = s.swim ?? 0;
+    if (sw > 0) {
+      const t = s.age * 0.16;
+      const stroke = (1 - c(t)) / 2;
+      const mixTo = (o: { rotation: { x: number; y: number; z: number } }, x: number, z: number) => { o.rotation.x += (x - o.rotation.x) * sw; o.rotation.z += (z - o.rotation.z) * sw; };
+      mixTo(ra, -PI + PI * stroke, sn(t) * 0.9 + 0.2);
+      mixTo(la, -PI + PI * stroke, -(sn(t) * 0.9 + 0.2));
+      mixTo(rl, sn(s.age * 0.5) * 0.35, 0);
+      mixTo(ll, -sn(s.age * 0.5) * 0.35, 0);
+      if (head) head.rotation.x += (-0.9 - head.rotation.x) * sw * 0.8;
+    }
     if (s.crouch) {
       body.rotation.x = 0.5; ra.rotation.x += 0.4; la.rotation.x += 0.4;
       rl.position.z = 4; ll.position.z = 4; rl.position.y = 12.2; ll.position.y = 12.2;

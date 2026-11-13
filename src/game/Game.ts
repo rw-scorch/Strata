@@ -146,7 +146,12 @@ export class Game {
       if (ent.kind === 'mob') {
         const def = MOB_BY_CODE[ent.type];
         if (def) { lines = [{ t: def.name }, { t: 'Strata', c: '#5555ff' }]; hearts = [ent.extra, def.health]; }
-      } else if (ent.kind === 'player') lines = [{ t: ent.name ?? 'Player' }, { t: 'Player', c: '#5555ff' }];
+      } else if (ent.kind === 'player') {
+        const creative = !!(ent.extra & 256);
+        const pvp = !!this.interaction?.pvpCheck?.();
+        lines = [{ t: ent.name ?? 'Player' }, { t: creative ? 'Creative mode: cannot be hurt' : pvp ? 'PvP on' : 'PvP is off in this world', c: creative || !pvp ? '#aaaaaa' : '#ff5555' }, { t: 'Player', c: '#5555ff' }];
+        if (!creative) hearts = [ent.extra & 255, 20];
+      }
       else if (ent.kind === 'item') { const it = getItem(ent.type); lines = [{ t: `${it?.name ?? 'Item'}${ent.extra > 1 ? ` × ${ent.extra}` : ''}` }]; }
     } else if (st.lookInfo && this.state === 'playing' && this.interaction?.target) {
       const t = this.interaction.target;
@@ -251,6 +256,7 @@ export class Game {
     this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => Math.max(this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, this.dynLightAt(x, y, z)), tint);
     this.gen = new WorldGenerator(seed, arena, remote ? { secret: null } : undefined);
     this.renderer.setLodWorld(seed, arena);
+    this.renderer.moving.ctx = { atlas: this.atlas.data, gen: this.gen };
     this.chunks = new ChunkManager(seed, arena, this.atlas.data, {
       loadStored: (cx, cz) => this.storedKeys?.has(`${cx},${cz}`) && this.worldMeta ? WorldStorage.loadChunk(this.worldMeta.id, cx, cz) : null,
       requestRemote: (cx, cz) => this.session?.requestChunk?.(cx, cz),
@@ -258,10 +264,23 @@ export class Game {
       onMesh: (key, cx, cz, r) => this.renderer.setChunkMesh(key, cx, cz, r),
       onUnload: (key) => this.renderer.removeChunk(key),
       saveChunk: (cx, cz, data) => { if (this.worldMeta) void WorldStorage.saveChunks(this.worldMeta.id, [{ cx, cz, data }]); },
+      onSurface: (cx, cz, blocks) => this.renderer?.addSurface(cx, cz, blocks),
       onLoaded: (cx, cz) => { if (this.session instanceof LocalSession) this.session.sim.rs.queueRevalidate(cx, cz); },
       genLevel: (cx, cz) => (this.session instanceof LocalSession ? this.session.chunkLevel(cx, cz) : undefined) ?? GEN_LEVEL,
     }, remote);
     this.renderer.chests.getBlock = (x, y, z) => this.chunks.getBlock(x, y, z);
+    this.player.others = () => {
+      const out: { x: number; y: number; z: number; hw: number; h: number }[] = [];
+      const px = this.player.x, pz = this.player.z;
+      for (const v of this.renderer.entities.views.values()) {
+        if (v.kind !== 'player' && v.kind !== 'mob') continue;
+        if (v.kind === 'player' && (v.flags & (1 << 14) || v.flags & 8)) continue;
+        if (v.kind === 'mob' && v.dying > 0) continue;
+        if (Math.abs(v.x - px) > 2 || Math.abs(v.z - pz) > 2) continue;
+        out.push({ x: v.x, y: v.y, z: v.z, hw: v.hw, h: v.h });
+      }
+      return out;
+    };
     const hudRoot = document.getElementById('hud-root')!;
     this.hud = new HUD(hudRoot, this.atlas);
     {
@@ -366,9 +385,11 @@ export class Game {
     time: (t, cycle) => { this.time = t; this.dayCycle = cycle; },
     weather: (w) => { this.weather = w; },
     lightning: (x, y, z) => this.onLightning(x, y, z),
+    pistonMove: (l) => this.renderer?.moving.add(l, performance.now()),
+    boom: (x, y, z, r) => this.onBoom(x, y, z, r),
     player: (p) => this.onPlayer(p),
     playerLeft: (id) => this.onPlayerLeft(id),
-    playerMove: (id, x, y, z, yaw, pitch, f) => this.onPlayerMove(id, x, y, z, yaw, pitch, f),
+    playerMove: (id, x, y, z, yaw, pitch, f, hp, cr) => this.onPlayerMove(id, x, y, z, yaw, pitch, f, hp, cr),
     room: (m, ps) => this.onRoom(m, ps),
     mode: () => this.onMode(),
     crafted: () => this.onCrafted(),
@@ -709,7 +730,7 @@ export class Game {
   // ---- SessionEvents ----
   private onBlock(): void { /* chunk data is updated by the store */ }
 
-  onEntity(id: string, kind: 'mob' | 'item' | 'arrow', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
+  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
     this.renderer?.entities.upsert(id, kind, type, x, y, z, yaw, 0, flags, extra, performance.now());
   }
 
@@ -870,6 +891,17 @@ export class Game {
 
 
 
+  onBoom(x: number, y: number, z: number, r: number): void {
+    if (!this.renderer) return;
+    const p = this.renderer.particles;
+    for (let i = 0; i < 6; i++) p.puff(x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r * 0.6, z + (Math.random() - 0.5) * r, 0.85, 0.85, 0.85, 16, 2.5, -0.5, 0.35, 1.6);
+    p.puff(x, y, z, 1, 0.75, 0.35, 24, 6, 2, 0.2, 0.5);
+    const d = Math.hypot(this.player.x - x, this.player.y - y, this.player.z - z);
+    if (d < r * 6) this.shake = Math.max(this.shake, (1 - d / (r * 6)) * 0.6);
+  }
+
+  private shake = 0;
+
   onLightning(x: number, y: number, z: number): void {
     this.renderer?.weather.lightning(x, y, z);
     const d = Math.hypot(x - this.player.x, z - this.player.z);
@@ -888,9 +920,11 @@ export class Game {
 
   onPlayerLeft(id: string): void { this.players.delete(id); this.renderer?.entities.removeNow(`p:${id}`); }
 
-  onPlayerMove(id: string, x: number, y: number, z: number, yaw: number, pitch: number, flags: number): void {
+  onPlayerMove(id: string, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, hp = -1, creative = false): void {
     const p = this.players.get(id);
-    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, 0, performance.now(), p ? { name: p.name, appearance: p.appearance, skin: p.skin ?? null } : undefined);
+    const prev = this.renderer?.entities.views.get(`p:${id}`);
+    const extra = hp >= 0 ? hp | (creative ? 1 << 8 : 0) : prev?.extra ?? 20;
+    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, extra, performance.now(), p ? { name: p.name, appearance: p.appearance, skin: p.skin ?? null } : undefined);
   }
 
   onRoom(meta: RoomMeta, players: PublicPlayer[]): void {
@@ -1029,6 +1063,8 @@ export class Game {
     const inLava = blockId(camBlock) === 13;
     this.renderer.entities.interpDelay = local ? 60 : 110;
     this.renderer.entities.update(dt, performance.now());
+    this.renderer.moving.update(performance.now(), (x, y, z) => this.chunks.getBlock(x, y, z));
+    if (this.shake > 0) { this.shake = Math.max(0, this.shake - dt * 1.2); this.renderer.camera.position.x += (Math.random() - 0.5) * this.shake * 0.3; this.renderer.camera.position.y += (Math.random() - 0.5) * this.shake * 0.3; }
     this.renderer.chests.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(64, st.renderDistance * 16));
     this.renderer.particles.update(dt, this.chunks);
     if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12 }, this.chunks);

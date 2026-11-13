@@ -12,7 +12,7 @@ import type { ChunkManager } from '../game/ChunkManager';
 import type { Identity } from '../storage/Settings';
 
 const FATAL = new Set(['kicked', 'banned', 'auth', 'version', 'unavailable', 'full', 'duplicate']);
-const KIND = ['mob', 'item', 'arrow'] as const;
+const KIND = ['mob', 'item', 'arrow', 'tnt'] as const;
 
 export function wsURL(code: string): string {
   const base = import.meta.env.VITE_SERVER_URL as string | undefined;
@@ -219,10 +219,10 @@ export class RemoteSession implements GameSession {
       case 'blk': for (const u of m.u) this.chunks!.applyRemote(u[0], u[1], u[2], u[3]); return;
       case 'pl':
         for (const r of m.u) {
-          const [id, x, y, z, yaw, pitch, flags] = r as [string, number, number, number, number, number, number];
+          const [id, x, y, z, yaw, pitch, flags, hp, cr] = r as [string, number, number, number, number, number, number, number?, number?];
           const sp = this.sim.players.get(id);
-          if (sp) { sp.x = x; sp.y = y; sp.z = z; sp.dead = !!(flags & (1 << 14)); }
-          ev.playerMove(id, x, y, z, yaw, pitch, flags);
+          if (sp) { sp.x = x; sp.y = y; sp.z = z; sp.dead = !!(flags & (1 << 14)); if (typeof hp === 'number') sp.health = hp; }
+          ev.playerMove(id, x, y, z, yaw, pitch, flags, typeof hp === 'number' ? hp : -1, cr === 1);
         }
         return;
       case 'pj': {
@@ -280,6 +280,8 @@ export class RemoteSession implements GameSession {
       case 'time': this.sim.time = m.time; this.sim.settings.dayCycle = m.cycle; ev.time(m.time, m.cycle); return;
       case 'wx': this.sim.weather = m.w as Weather; ev.weather(m.w as Weather); return;
       case 'bolt': ev.lightning(m.x, m.y, m.z); return;
+      case 'pmove': ev.pistonMove?.(m.l); return;
+      case 'boom': ev.boom?.(m.x, m.y, m.z, m.r); return;
       case 'room':
         this.room = m.room;
         this.info.name = m.room.name;
@@ -345,10 +347,10 @@ export class RemoteSession implements GameSession {
     this.sim.digFinish(this.me, x, y, z);
     this.send({ t: 'dig', a: 'done', x, y, z });
   }
-  use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false): void {
+  use(x: number, y: number, z: number, nx: number, ny: number, nz: number, force = false, hy = 0.5): void {
     this.flushMove();
-    this.sim.use(this.me, x, y, z, nx, ny, nz, force);
-    this.send({ t: 'use', x, y, z, nx, ny, nz, f: force ? 1 : 0 });
+    this.sim.use(this.me, x, y, z, nx, ny, nz, force, hy);
+    this.send({ t: 'use', x, y, z, nx, ny, nz, f: force ? 1 : 0, h: Math.round(hy * 100) / 100 });
     this.ev?.inventory(this.me.inv);
   }
   eat(): void { this.sim.eat(this.me); this.send({ t: 'eat' }); this.ev?.inventory(this.me.inv); }

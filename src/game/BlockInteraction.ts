@@ -59,7 +59,7 @@ export class BlockInteraction {
     const item = held ? getItem(held.id) : undefined;
     const fluids = item?.kind === 'bucket' && held!.id === 282 || item?.key === 'lily_pad';
     const hit = blocked || me.dead ? null : raycast(world, origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, reach, fluids);
-    const ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, Math.min(reach, creative ? 6 : 4.5), (v) => v.kind === 'mob' || (v.kind === 'player' && v.id !== 'me' && !!this.pvpCheck?.()));
+    const ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, Math.min(reach, creative ? 6 : 4.5), (v) => v.kind === 'mob' || (v.kind === 'player' && v.id !== 'me' && !(v.flags & (1 << 14))));
     const entityFirst = ent && (!hit || ent.dist < hit.dist);
     this.entityTarget = entityFirst ? ent!.view : null;
     this.target = entityFirst ? null : hit;
@@ -76,7 +76,7 @@ export class BlockInteraction {
     if (this.entityTarget && (input.attackPressed || (input.usePressed && input.touchAim)) && this.attackCd <= 0) {
       const v = this.entityTarget;
       if (v.kind === 'mob') session.attack(v.id);
-      else session.attackPlayer(v.id.replace(/^p:/, ''));
+      else if (this.pvpCheck?.() && !(v.extra & 256)) session.attackPlayer(v.id.replace(/^p:/, ''));
       this.attackCd = 0.05;
       this.lastSwing = performance.now();
       this.onSwing?.();
@@ -151,7 +151,7 @@ export class BlockInteraction {
       }
     } else this.eating = 0;
     if (wantsUse && t && !this.entityTarget && !(bow && !tInteractive) && !(food && !getBlock(world.getBlock(t.x, t.y, t.z)).interactive)) {
-      session.use(t.x, t.y, t.z, t.nx, t.ny, t.nz, input.touchMode && input.forcePlace);
+      session.use(t.x, t.y, t.z, t.nx, t.ny, t.nz, input.touchMode && input.forcePlace, Math.max(0, Math.min(1, t.hy - t.y)));
       this.useCd = input.usePressed ? 0.25 : 0.2;
       this.onSwing?.();
     } else if (input.usePressed && food && !t) {

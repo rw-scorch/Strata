@@ -1,4 +1,4 @@
-import { blockBox, selectionBox, B, getBlock, isFluid, isWaterPlant } from './blocks';
+import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant } from './blocks';
 
 export interface BlockReader {
   getBlock(x: number, y: number, z: number): number;
@@ -22,9 +22,9 @@ function collectBoxes(world: BlockReader, x0: number, y0: number, z0: number, x1
   for (let y = iy0; y <= iy1; y++) for (let z = iz0; z <= iz1; z++) for (let x = ix0; x <= ix1; x++) {
     const v = world.getBlock(x, y, z);
     if (v === 0) continue;
-    const bb = blockBox(v);
-    if (!bb) continue;
-    out.push(x + bb[0], y + bb[1], z + bb[2], x + bb[3], y + bb[4], z + bb[5]);
+    const list = blockBoxes(v);
+    if (!list) continue;
+    for (const bb of list) out.push(x + bb[0], y + bb[1], z + bb[2], x + bb[3], y + bb[4], z + bb[5]);
   }
 }
 

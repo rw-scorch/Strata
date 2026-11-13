@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS, BlockDef, B } from '../core/blocks';
+import { BLOCKS, BlockDef, B, SHAPE_MATS } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
 import { BIOMES } from '../core/worldgen/biomes';
 import { defaultBlockTexture, defaultItemTexture, cloudTexture, hudIcon, Px } from './DefaultTextures';
@@ -389,6 +389,63 @@ export class TextureAtlas {
     draw(right, 0.6, !!tintColor && !tintTop, [s, -h, 0, s * 0.98, cx, cy], overlay);
   }
 
+  private iconBoxes(id: number): { b: number[]; top: number; left: number; right: number }[] | null {
+    const t = this.data.blockTiles, o = id * FACE_SLOTS, sp = this.data.special;
+    const px = (a: number[]) => a.map((n) => n / 16);
+    const it = ITEMS[id];
+    if (it?.places === B.SLAB || it?.places === B.STAIRS) {
+      const m = SHAPE_MATS[it.placeMeta ?? 0], mo = m.id * FACE_SLOTS;
+      const tl = { top: t[mo + 2], left: t[mo + 4], right: t[mo] };
+      if (it.places === B.SLAB) return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }];
+      return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }, { b: [0, 0.5, 0, 1, 1, 0.5], ...tl }];
+    }
+    if (id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) return [{ b: px([1, 7, 1, 15, 8, 15]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
+    if (id === B.STONE_BUTTON || id === B.OAK_BUTTON) return [{ b: px([5, 6, 6, 11, 10, 10]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
+    if (id === B.PISTON || id === B.STICKY_PISTON) return [{ b: [0, 0, 0, 1, 1, 1], top: id === B.PISTON ? sp.piston_top : sp.piston_top_sticky, left: sp.piston_side, right: sp.piston_side }];
+    if (id === B.HOPPER) {
+      const p = this.pack?.itemTextures.get('hopper');
+      if (p && this.pack!.files.has(p)) return null;
+      const out = sp.hopper_outside;
+      return [
+        { b: px([6, 0, 6, 10, 4, 10]), top: out, left: out, right: out },
+        { b: px([4, 4, 4, 12, 10, 12]), top: out, left: out, right: out },
+        { b: px([0, 10, 0, 16, 16, 16]), top: sp.hopper_top, left: out, right: out },
+      ];
+    }
+    return null;
+  }
+
+  private drawIsoBoxes(g: CanvasRenderingContext2D, boxes: { b: number[]; top: number; left: number; right: number }[], x0: number, y0: number, size: number): void {
+    const s = size * 0.5, h = s * 0.5, cx = x0 + size / 2, cy = y0 + size * 0.5;
+    const P = (X: number, Y: number, Z: number): [number, number] => [cx + s * (X - Z), cy - s + h * (X + Z) + 0.98 * s * (1 - Y)];
+    const fw = this.data.tileSize;
+    const face = (tile: number, shade: number, o: [number, number], u: [number, number], v: [number, number], crop: number[]) => {
+      const c = this.tileCanvases[tile];
+      if (!c) return;
+      const fc = document.createElement('canvas');
+      fc.width = fc.height = fw;
+      const fg = fc.getContext('2d')!;
+      fg.imageSmoothingEnabled = false;
+      fg.drawImage(c, 0, 0, c.width, c.width, 0, 0, fw, fw);
+      const d = fg.getImageData(0, 0, fw, fw);
+      for (let i = 0; i < d.data.length; i += 4) { d.data[i] *= shade; d.data[i + 1] *= shade; d.data[i + 2] *= shade; }
+      fg.putImageData(d, 0, 0);
+      const sx = crop[0] * fw, sy = crop[1] * fw, sw = Math.max(1, (crop[2] - crop[0]) * fw), sh = Math.max(1, (crop[3] - crop[1]) * fw);
+      g.save();
+      g.setTransform(u[0] - o[0], u[1] - o[1], v[0] - o[0], v[1] - o[1], o[0], o[1]);
+      g.drawImage(fc, sx, sy, sw, sh, 0, 0, 1, 1);
+      g.restore();
+    };
+    g.imageSmoothingEnabled = false;
+    const order = [...boxes].sort((a, b) => a.b[1] - b.b[1] || (a.b[0] + a.b[2]) - (b.b[0] + b.b[2]));
+    for (const { b, top, left, right } of order) {
+      const [x1, y1, z1, x2, y2, z2] = b;
+      face(top, 1, P(x1, y2, z1), P(x2, y2, z1), P(x1, y2, z2), [x1, z1, x2, z2]);
+      face(left, 0.78, P(x1, y2, z2), P(x2, y2, z2), P(x1, y1, z2), [x1, 1 - y2, x2, 1 - y1]);
+      face(right, 0.6, P(x2, y2, z2), P(x2, y2, z1), P(x2, y1, z2), [1 - z2, 1 - y2, 1 - z1, 1 - y1]);
+    }
+  }
+
   private buildIcons(): void {
     const list = ITEMS.filter(Boolean);
     const rows = Math.ceil(list.length / ICON_COLS) + 1;
@@ -400,7 +457,11 @@ export class TextureAtlas {
     for (const it of list) {
       const x = (i % ICON_COLS) * ICON_SIZE, y = Math.floor(i / ICON_COLS) * ICON_SIZE;
       const b = it.kind === 'block' && it.blockIcon ? BLOCKS[it.id] : null;
-      if (b) this.drawIsoBlock(g, b, x + 1, y + 1, ICON_SIZE - 2);
+      const boxes = it.kind === 'block' ? this.iconBoxes(it.id) : null;
+      const sprite = it.id === B.HOPPER && !boxes ? this.itemSource(it) : null;
+      if (boxes) this.drawIsoBoxes(g, boxes, x + 1, y + 1, ICON_SIZE - 2);
+      else if (sprite) g.drawImage(sprite, 0, 0, sprite.width, sprite.width, x, y, ICON_SIZE, ICON_SIZE);
+      else if (b) this.drawIsoBlock(g, b, x + 1, y + 1, ICON_SIZE - 2);
       else {
         let src: HTMLCanvasElement | null = null;
         if (it.kind === 'block') {

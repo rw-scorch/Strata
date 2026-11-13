@@ -241,7 +241,7 @@ export class HUD {
 
   updateVitals(v: Vitals, hurtShake: boolean, held?: { hunger: number; saturation: number } | null): void {
     const flash = held && this.foodStats ? Math.floor(performance.now() / 400) % 2 : 0;
-    const key = `${v.absorb ?? 0}|${v.health}|${v.food}|${Math.ceil(v.air / 30)}|${v.xp}|${v.mode}|${this.foodStats ? Math.round(v.sat * 2) : 0}|${held ? `${held.hunger},${held.saturation},${flash}` : ''}`;
+    const key = `${v.absorb ?? 0}|${v.health}|${v.food}|${v.air >= 300 ? 'full' : Math.ceil(v.air / 30)}|${v.xp}|${v.mode}|${this.foodStats ? Math.round(v.sat * 2) : 0}|${held ? `${held.hunger},${held.saturation},${flash}` : ''}`;
     this.survival = v.mode === 'survival';
     this.hearts.classList.toggle('shake', hurtShake);
     if (key === this.lastVit) return;

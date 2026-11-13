@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
 import { PROFESSIONS } from '../core/trades';
 import { I, getItem } from '../core/items';
-import { BLOCKS } from '../core/blocks';
+import { BLOCKS, B } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
@@ -164,7 +164,7 @@ interface Snap { t: number; x: number; y: number; z: number; yaw: number; pitch:
 
 export interface EntityView {
   id: string;
-  kind: 'mob' | 'item' | 'arrow' | 'player';
+  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'player';
   type: number;
   obj: THREE.Group;
   parts: Map<string, THREE.Object3D>;
@@ -177,6 +177,7 @@ export interface EntityView {
   lastX: number; lastZ: number;
   dying: number;
   hurtT: number;
+  swimT?: number;
   lightT: number;
   light: number;
   name?: string;
@@ -260,20 +261,21 @@ export class EntityRenderer {
   private material(map: THREE.Texture | null = null, emissive = false): THREE.ShaderMaterial {
     const m = new THREE.ShaderMaterial({
       uniforms: {
-        uFogColor: this.u.uFogColor, uFogNear: this.u.uFogNear, uFogFar: this.u.uFogFar, uLight: { value: 1 }, uHurt: { value: 0 },
+        uFogColor: this.u.uFogColor, uFogNear: this.u.uFogNear, uFogFar: this.u.uFogFar, uLight: { value: 1 }, uHurt: { value: 0 }, uWhite: { value: 0 },
         uMap: { value: map }, uUseMap: { value: map ? 1 : 0 }, uEmissive: { value: emissive ? 1 : 0 }, uOpacity: { value: 1 },
       },
       vertexShader: `attribute vec3 color; varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade;
         void main(){ vColor = color; vUv = uv; vec3 n = normalize(mat3(modelMatrix) * normal);
         vShade = 0.6 + 0.4 * max(n.y, 0.0) + 0.15 * abs(n.z) - 0.12 * max(-n.y, 0.0);
         vec4 mv = modelViewMatrix * vec4(position, 1.0); vFog = length(mv.xyz); gl_Position = projectionMatrix * mv; }`,
-      fragmentShader: `uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar; uniform float uLight; uniform float uHurt;
+      fragmentShader: `uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar; uniform float uLight; uniform float uHurt; uniform float uWhite;
         uniform sampler2D uMap; uniform float uUseMap; uniform float uEmissive; uniform float uOpacity;
         varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade;
         void main(){ vec4 base = vec4(vColor, 1.0);
           if (uUseMap > 0.5) { vec4 t = texture2D(uMap, vUv); if (t.a < 0.5) discard; base.rgb *= t.rgb; }
           float l = mix(uLight * vShade, 1.6, uEmissive);
           vec3 c = mix(base.rgb * l, vec3(1.0, 0.12, 0.08), uHurt * 0.55);
+          c = mix(c, vec3(1.0), uWhite);
           gl_FragColor = vec4(mix(c, uFogColor, smoothstep(uFogNear, uFogFar, vFog)), uOpacity); }`,
       side: map ? THREE.DoubleSide : THREE.FrontSide,
       transparent: false,
@@ -431,6 +433,14 @@ export class EntityRenderer {
         const m = this.itemModel(type);
         built = { obj: m.obj, parts: new Map(), mats: m.mats };
         hw = 0.15; h = 0.3;
+      } else if (kind === 'tnt') {
+        const im = this.itemModel(B.TNT);
+        im.obj.scale.setScalar(0.98 / 0.26);
+        im.obj.position.y = 0.49;
+        const g = new THREE.Group();
+        g.add(im.obj);
+        built = { obj: g, parts: new Map(), mats: im.mats };
+        hw = 0.49; h = 0.98;
       } else {
         const g = new THREE.Group();
         const m = this.material();
@@ -530,12 +540,17 @@ export class EntityRenderer {
         const aggressive = (v.flags & 16) !== 0;
         const mtype = v.kind === 'mob' ? MOB_BY_CODE[v.type]?.type ?? '' : 'player';
         if (v.spec && v.rig) {
-          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0, type: mtype });
+          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0 });
         } else {
           this.animateSimple(v, amp, aggressive, mtype);
         }
         if (v.kind === 'player') {
-          const crouch = (v.flags & 2) !== 0;
+          const swimming = (v.flags & 16) !== 0 && (v.flags & 4) !== 0;
+          v.swimT = Math.max(0, Math.min(1, (v.swimT ?? 0) + (swimming ? dt : -dt) * 5));
+          v.obj.rotation.order = 'YXZ';
+          v.obj.rotation.x = -(v.swimT ?? 0) * Math.PI / 2;
+          if (v.swimT) { v.obj.position.y += v.swimT * 0.35; v.obj.position.x += Math.sin(v.yaw) * 0.9 * v.swimT; v.obj.position.z += Math.cos(v.yaw) * 0.9 * v.swimT; }
+          const crouch = (v.flags & 2) !== 0 && !v.swimT;
           if (!v.rig) {
             const body = v.parts.get('body'), head = v.parts.get('head');
             if (body) body.rotation.x = crouch ? -0.35 : 0;
@@ -557,6 +572,7 @@ export class EntityRenderer {
       if (v.lightT <= 0) { v.lightT = 0.25 + Math.random() * 0.1; v.light = this.probe(v.x, v.y + Math.min(1.2, v.h * 0.6), v.z); }
       const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
       for (const m of v.mats) { m.uniforms.uLight.value = Math.max(0.2, v.light); if (!v.dying) m.uniforms.uHurt.value = hurt; }
+      if (v.kind === 'tnt') for (const m of v.mats) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
   }

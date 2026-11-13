@@ -64,7 +64,7 @@ export type C2S =
   | { t: 'mv'; p: number[] }
   | { t: 'chunks'; want: number[][] }
   | { t: 'dig'; a: 'start' | 'abort' | 'done'; x: number; y: number; z: number }
-  | { t: 'use'; x: number; y: number; z: number; nx: number; ny: number; nz: number; f?: number }
+  | { t: 'use'; x: number; y: number; z: number; nx: number; ny: number; nz: number; f?: number; h?: number }
   | { t: 'eat' }
   | { t: 'bow'; p: number; y: number; x: number }
   | { t: 'sw' }
@@ -111,6 +111,8 @@ export type S2C =
   | { t: 'fx'; k: string; x: number; y: number; z: number; d?: number }
   | { t: 'hurt'; a: number; c: string; fx: number; fz: number; k?: number }
   | { t: 'phurt'; id: string }
+  | { t: 'pmove'; l: number[] }
+  | { t: 'boom'; x: number; y: number; z: number; r: number }
   | { t: 'death'; msg: string }
   | { t: 'respawn'; x: number; y: number; z: number }
   | { t: 'tp'; x: number; y: number; z: number }
@@ -127,7 +129,7 @@ export type S2C =
   | { t: 'trade'; id: number; prof: number; xp: number; uses: number[] }
   | { t: 'lid'; x: number; y: number; z: number; n: number };
 
-export const ENT_KIND = { mob: 0, item: 1, arrow: 2 } as const;
+export const ENT_KIND = { mob: 0, item: 1, arrow: 2, tnt: 3 } as const;
 
 export function q2(n: number): number { return Math.round(n * 100) / 100; }
 

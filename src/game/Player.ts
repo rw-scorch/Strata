@@ -11,6 +11,7 @@ const GRAVITY = 0.08;
 
 function slipperiness(id: number): number {
   if (id === B.ICE || id === B.PACKED_ICE) return 0.98;
+  if (id === B.SLIME_BLOCK) return 0.8;
   return 0.6;
 }
 
@@ -74,6 +75,9 @@ export class LocalPlayer {
     return f;
   }
 
+  swimming = false;
+  others: () => { x: number; y: number; z: number; hw: number; h: number }[] = () => [];
+
   update(dt: number, input: InputState, world: BlockReader & { isLoaded(x: number, z: number): boolean }, mode: GameMode, dead: boolean): void {
     this.landed = false;
     this.enteredWater = false;
@@ -92,7 +96,7 @@ export class LocalPlayer {
     }
     if (n === 5) this.acc = 0;
     this.alpha = Math.min(1, this.acc / TICK);
-    const targetEye = this.crouching ? 1.27 : 1.62;
+    const targetEye = this.swimming ? 0.4 : this.crouching ? 1.27 : 1.62;
     this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 18);
     this.fovBoost += ((this.sprinting && this.speedBps > 2 ? 1 : 0) - this.fovBoost) * Math.min(1, dt * 8);
   }
@@ -113,7 +117,10 @@ export class LocalPlayer {
       if (wantCrouch) this.crouching = true;
       else if (this.canStand(world)) this.crouching = false;
     }
-    b.h = this.crouching ? 1.5 : 1.8;
+    const wantSwim = this.sprinting && m.water && !this.flying && (m.eyeWater || this.swimming);
+    if (wantSwim) this.swimming = true;
+    else if (this.swimming) { b.h = 1.8; if (this.canStand(world)) this.swimming = false; }
+    b.h = this.swimming ? 0.6 : this.crouching ? 1.5 : 1.8;
 
     let strafe = Math.max(-1, Math.min(1, input.moveX));
     let forward = Math.max(-1, Math.min(1, input.moveZ));
@@ -123,6 +130,19 @@ export class LocalPlayer {
     if (this.crouching && !this.flying) { strafe *= 0.3; forward *= 0.3; }
     if (this.usingItem && !this.flying) { strafe *= 0.2; forward *= 0.2; }
     strafe *= 0.98; forward *= 0.98;
+
+    if (!this.flying) for (const o of this.others()) {
+      if (Math.abs(o.y - b.y) > Math.max(b.h, o.h)) continue;
+      if (o.y + o.h <= b.y || o.y >= b.y + b.h) continue;
+      let dx = o.x - b.x, dz = o.z - b.z;
+      if (Math.abs(dx) >= HW + o.hw || Math.abs(dz) >= HW + o.hw) continue;
+      let d = Math.max(Math.abs(dx), Math.abs(dz));
+      if (d < 0.01) continue;
+      d = Math.sqrt(d);
+      dx /= d; dz /= d;
+      const f = Math.min(1, 1 / d) * 0.05;
+      b.vx -= dx * f; b.vz -= dz * f;
+    }
 
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const moveRelative = (speed: number) => {
@@ -143,7 +163,8 @@ export class LocalPlayer {
     } else if (input.jump || this.shouldAutoJump(world, strafe, forward)) {
       if (inFluid) b.vy += 0.04;
       else if (b.onGround && this.noJumpDelay === 0) {
-        b.vy = 0.42;
+        const jb = blockId(world.getBlock(Math.floor(b.x), Math.floor(b.y - 0.5000001), Math.floor(b.z)));
+        b.vy = jb === B.HONEY_BLOCK ? 0.21 : 0.42;
         if (this.sprinting) { b.vx += -sin * 0.2; b.vz += -cos * 0.2; }
         this.noJumpDelay = 10;
         this.jumpedFlag = true;
@@ -190,7 +211,14 @@ export class LocalPlayer {
         b.vy = Math.max(b.vy, -0.15);
         if (this.crouching && b.vy < 0) b.vy = 0;
       }
+      const vyPre = b.vy;
       this.move(world, b.vx, b.vy, b.vz);
+      if (b.onGround) {
+        const ub = blockId(world.getBlock(Math.floor(b.x), Math.floor(b.y - 0.2), Math.floor(b.z)));
+        if (ub === B.SLIME_BLOCK && !this.crouching && vyPre < -0.1) { b.vy = -vyPre; b.onGround = false; }
+        else if (ub === B.SLIME_BLOCK && Math.abs(vyPre) < 0.1 && !this.crouching) { const k = 0.4 + Math.abs(vyPre) * 0.2; b.vx *= k; b.vz *= k; }
+        if (ub === B.HONEY_BLOCK) { b.vx *= 0.4; b.vz *= 0.4; }
+      }
       if ((b.hitH || input.jump) && m.ladder) b.vy = 0.2;
       b.vy = (b.vy - GRAVITY) * 0.98;
       b.vx *= f; b.vz *= f;

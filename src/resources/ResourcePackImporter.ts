@@ -41,7 +41,7 @@ export interface PackManifest {
   catalog?: string;
 }
 
-export const IMPORTER_VERSION = 13;
+export const IMPORTER_VERSION = 14;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -103,7 +103,7 @@ const RS6_TEX = ['observer_back', 'observer_back_on', 'piston_inner', 'hopper_in
 
 const JAVA_ITEM_NAMES: Record<string, string> = {
   aetherite: 'diamond', raw_pork: 'porkchop', cooked_pork: 'cooked_porkchop', raw_mutton: 'mutton', raw_poultry: 'chicken',
-  cooked_poultry: 'cooked_chicken', oak_door_item: 'oak_door',
+  cooked_poultry: 'cooked_chicken', oak_door_item: 'oak_door', blastpowder: 'gunpowder', firestriker: 'flint_and_steel',
 };
 
 export function javaItemName(key: string): string {
@@ -379,6 +379,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       itemModelNames.set(it.key, javaItemName(it.key));
     }
     for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door' && !itemModelNames.has(it.key)) itemModelNames.set(it.key, BLOCKS[it.id]?.render === 'redstone' ? it.key : '');
+    itemModelNames.set('hopper', 'hopper');
     r.load([...itemModelNames.values()].filter(Boolean).map((n) => `assets/minecraft/models/item/${n}.json`));
     for (const [key, jn] of itemModelNames) {
       if (!jn) continue;

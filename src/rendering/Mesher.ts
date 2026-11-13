@@ -1,5 +1,5 @@
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -19,7 +19,7 @@ export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_G
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14 };
 const CULLSELF = new Uint8Array(256);
 for (const b of BLOCKS) if (b) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(256);
@@ -568,6 +568,12 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       return;
     }
     case 13: { redstoneMesh(ctx, id, v, x, y, z, sk, bl); return; }
+    case 14: {
+      const mat = SHAPE_MATS[(v >>> 8) & 31] ?? SHAPE_MATS[0];
+      const tiles = ctx.atlas.blockTiles;
+      for (const b of shapeBoxes(v)) boxFaces(builders[0], x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5], (d) => tiles[mat.id * FS + d], sk, bl, 255, 255, 255);
+      return;
+    }
     case 8: {
       const tile = tiles[id * FS + 4];
       const TE = LIGHT_EMIT[id] > 0 ? F_EMIT : 0;

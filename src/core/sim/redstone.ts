@@ -26,8 +26,19 @@ export interface RsHost {
   sound(s: string, x: number, y: number, z: number): void;
   smoke(x: number, y: number, z: number): void;
   breakBlock(x: number, y: number, z: number): void;
-  pushEntities(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dx: number, dy: number, dz: number): void;
+  moveEntities(cells: MoveCell[], dir: number, from: number, to: number): void;
+  animate(list: number[]): void;
+  primeTnt(x: number, y: number, z: number, fuse: number): void;
   dispense(x: number, y: number, z: number, v: number, dir: number): void;
+}
+
+export interface MoveCell { x: number; y: number; z: number; sticky: boolean }
+
+export function isSticky(v: number): boolean { const id = v & 0xff; return id === B.SLIME_BLOCK || id === B.HONEY_BLOCK; }
+export function stickTogether(a: number, b: number): boolean {
+  const ia = a & 0xff, ib = b & 0xff;
+  if ((ia === B.SLIME_BLOCK && ib === B.HONEY_BLOCK) || (ia === B.HONEY_BLOCK && ib === B.SLIME_BLOCK)) return false;
+  return isSticky(a) || isSticky(b);
 }
 
 interface Sched { x: number; y: number; z: number; due: number; prio: number; seq: number; id: number }
@@ -36,7 +47,7 @@ const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
 
 const conductorTable = new Uint8Array(256);
 for (const b of BLOCKS) if (b && b.solid && b.opaque && b.render === 'cube' && b.id !== B.REDSTONE_BLOCK && b.id !== B.GLOWSTONE) conductorTable[b.id] = 1;
-conductorTable[B.DROPPER] = conductorTable[B.DISPENSER] = 1;
+conductorTable[B.DROPPER] = conductorTable[B.DISPENSER] = conductorTable[B.SLIME_BLOCK] = 1;
 
 export function isConductor(v: number): boolean { return conductorTable[v & 0xff] === 1; }
 
@@ -240,6 +251,7 @@ export class Redstone {
       return;
     }
     if (id === B.OAK_DOOR) { this.doorCheck(x, y, z, v); return; }
+    if (id === B.TNT) { if (this.hasNeighborSignal(x, y, z)) this.h.primeTnt(x, y, z, 80); return; }
     if (isPiston(id)) { this.pistonCheck(x, y, z, v); return; }
     if (id === B.HOPPER) {
       const off = this.hasNeighborSignal(x, y, z), m = blockMeta(v);
@@ -279,6 +291,7 @@ export class Redstone {
     if (isTorch(nid)) this.neighborChanged(x, y, z);
     if (isLamp(nid)) this.neighborChanged(x, y, z);
     if (nid === B.OAK_DOOR) this.doorCheck(x, y, z, v);
+    if (nid === B.TNT && oid !== B.TNT) this.neighborChanged(x, y, z);
     if (isPiston(nid) || nid === B.HOPPER || nid === B.DROPPER || nid === B.DISPENSER) this.neighborChanged(x, y, z);
     if (oid === B.PISTON_HEAD && nid !== B.PISTON_HEAD) {
       const f = blockMeta(old) & 7, [dx, dy, dz] = DIR6[opp(f)];
@@ -454,7 +467,7 @@ export class Redstone {
 
   private events: { x: number; y: number; z: number; type: number }[] = [];
   private eventKeys = new Set<string>();
-  private moving: { x: number; y: number; z: number; v: number; due: number }[] = [];
+  private moving: { x: number; y: number; z: number; v: number; due: number; pid: string }[] = [];
 
   private pistonSignal(x: number, y: number, z: number, facing: number): boolean {
     for (let d = 0; d < 6; d++) {
@@ -475,25 +488,81 @@ export class Redstone {
     const should = this.pistonSignal(x, y, z, f);
     const k = key(x, y, z);
     if (this.eventKeys.has(k)) return;
-    if (should && !ext) { if (this.resolve(x, y, z, f)) { this.events.push({ x, y, z, type: 0 }); this.eventKeys.add(k); } }
+    if (should && !ext) { if (this.resolve(x, y, z, f, true)) { this.events.push({ x, y, z, type: 0 }); this.eventKeys.add(k); } }
     else if (!should && ext) { this.events.push({ x, y, z, type: 1 }); this.eventKeys.add(k); }
   }
 
-  private resolve(x: number, y: number, z: number, f: number): { push: [number, number, number][]; destroy: [number, number, number] | null } | null {
-    const [dx, dy, dz] = DIR6[f];
+  private resolve(x: number, y: number, z: number, f: number, extending: boolean): { push: [number, number, number][]; destroy: [number, number, number][] } | null {
+    const pd = extending ? f : opp(f);
+    const [pdx, pdy, pdz] = DIR6[pd];
+    const [fx, fy, fz] = DIR6[f];
+    const sx = extending ? x + fx : x + fx * 2, sy = extending ? y + fy : y + fy * 2, sz = extending ? z + fz : z + fz * 2;
     const push: [number, number, number][] = [];
-    let cx = x + dx, cy = y + dy, cz = z + dz;
-    for (;;) {
-      if (cy < 0 || cy >= 255) return null;
-      if (!this.h.loaded(cx, cz)) return null;
-      const r = pushReaction(this.g(cx, cy, cz));
-      if (r === 'empty') return { push, destroy: null };
-      if (r === 'destroy') return { push, destroy: [cx, cy, cz] };
-      if (r === 'block') return null;
-      push.push([cx, cy, cz]);
-      if (push.length > 12) return null;
-      cx += dx; cy += dy; cz += dz;
+    const destroy: [number, number, number][] = [];
+    const pk = new Set<string>();
+    const isBase = (a: number, b: number, c: number) => a === x && b === y && c === z;
+    const can = (a: number, b: number, c: number, allowDestroy: boolean): boolean => {
+      if (b < 0 || b >= 255 || !this.h.loaded(a, c)) return false;
+      const r = pushReaction(this.g(a, b, c));
+      if (r === 'block') return false;
+      if (r === 'destroy') return allowDestroy;
+      return true;
+    };
+    const empty = (a: number, b: number, c: number) => pushReaction(this.g(a, b, c)) === 'empty';
+    const add = (a: number, b: number, c: number) => { push.push([a, b, c]); pk.add(key(a, b, c)); };
+    const line = (ox: number, oy: number, oz: number): boolean => {
+      let st = this.g(ox, oy, oz);
+      if (empty(ox, oy, oz)) return true;
+      if (!can(ox, oy, oz, false)) return true;
+      if (isBase(ox, oy, oz) || pk.has(key(ox, oy, oz))) return true;
+      let i = 1;
+      if (i + push.length > 12) return false;
+      while (isSticky(st)) {
+        const bx = ox - pdx * i, by = oy - pdy * i, bz = oz - pdz * i;
+        const old = st;
+        st = this.g(bx, by, bz);
+        if (empty(bx, by, bz) || !stickTogether(old, st) || !can(bx, by, bz, false) || isBase(bx, by, bz)) break;
+        i++;
+        if (i + push.length > 12) return false;
+      }
+      let l = 0;
+      for (let j = i - 1; j >= 0; j--) { add(ox - pdx * j, oy - pdy * j, oz - pdz * j); l++; }
+      for (let i1 = 1; ; i1++) {
+        const nx = ox + pdx * i1, ny = oy + pdy * i1, nz = oz + pdz * i1;
+        const j1 = push.findIndex((q) => q[0] === nx && q[1] === ny && q[2] === nz);
+        if (j1 > -1) {
+          const head = push.slice(0, j1), mid = push.slice(push.length - l), tail = push.slice(j1, push.length - l);
+          push.length = 0;
+          push.push(...head, ...mid, ...tail);
+          for (let k = 0; k <= j1 + l - 1 && k < push.length; k++) if (isSticky(this.g(...push[k])) && !branch(...push[k])) return false;
+          return true;
+        }
+        if (empty(nx, ny, nz)) return true;
+        if (!can(nx, ny, nz, true) || isBase(nx, ny, nz)) return false;
+        if (pushReaction(this.g(nx, ny, nz)) === 'destroy') { destroy.push([nx, ny, nz]); return true; }
+        if (push.length >= 12) return false;
+        add(nx, ny, nz);
+        l++;
+      }
+    };
+    const branch = (bx: number, by: number, bz: number): boolean => {
+      const st = this.g(bx, by, bz);
+      for (let d = 0; d < 6; d++) {
+        if ((d >> 1) === (pd >> 1)) continue;
+        const [dx, dy, dz] = DIR6[d];
+        const nx = bx + dx, ny = by + dy, nz = bz + dz;
+        if (stickTogether(this.g(nx, ny, nz), st) && !line(nx, ny, nz)) return false;
+      }
+      return true;
+    };
+    if (!can(sx, sy, sz, false)) {
+      if (extending && pushReaction(this.g(sx, sy, sz)) === 'destroy') { destroy.push([sx, sy, sz]); return { push, destroy }; }
+      if (empty(sx, sy, sz)) return { push, destroy };
+      return null;
     }
+    if (!line(sx, sy, sz)) return null;
+    for (let k = 0; k < push.length; k++) if (isSticky(this.g(...push[k])) && !branch(...push[k])) return null;
+    return { push, destroy };
   }
 
   tickBlockEvents(): void {
@@ -511,66 +580,97 @@ export class Redstone {
     const id = blockId(v), m = blockMeta(v), f = m & 7;
     const powered = this.pistonSignal(x, y, z, f);
     const [dx, dy, dz] = DIR6[f];
+    const pid = key(x, y, z);
     if (type === 0) {
       if (!powered || m & PISTON_EXT) return;
-      const r = this.resolve(x, y, z, f);
+      const r = this.resolve(x, y, z, f, true);
       if (!r) return;
-      if (r.destroy) this.h.breakBlock(r.destroy[0], r.destroy[1], r.destroy[2]);
-      const due = this.h.tick() + 2;
-      const changed: [number, number, number][] = [];
-      for (let i = r.push.length - 1; i >= 0; i--) {
-        const [sx, sy, sz] = r.push[i];
-        const bv = this.g(sx, sy, sz);
-        this.h.setState(sx + dx, sy + dy, sz + dz, B.MOVING_PISTON);
-        this.moving.push({ x: sx + dx, y: sy + dy, z: sz + dz, v: bv, due });
-        changed.push([sx + dx, sy + dy, sz + dz]);
-      }
-      this.h.setState(x + dx, y + dy, z + dz, makeBlock(B.PISTON_HEAD, f | (id === B.STICKY_PISTON ? 8 : 0)));
+      const head = makeBlock(B.PISTON_HEAD, f | (id === B.STICKY_PISTON ? 8 : 0));
       this.h.setState(x, y, z, makeBlock(id, m | PISTON_EXT));
-      changed.push([x + dx, y + dy, z + dz], [x, y, z]);
-      const n = r.push.length;
-      const lo = [Math.min(x + dx, x + dx * (n + 1)), Math.min(y + dy, y + dy * (n + 1)), Math.min(z + dz, z + dz * (n + 1))];
-      const hi = [Math.max(x + dx, x + dx * (n + 1)) + 1, Math.max(y + dy, y + dy * (n + 1)) + 1, Math.max(z + dz, z + dz * (n + 1)) + 1];
-      this.h.pushEntities(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], dx, dy, dz);
+      this.moveBlocks(x, y, z, f, r, pid, [x + dx, y + dy, z + dz, head]);
       this.h.sound('piston.out', x, y, z);
-      for (const [cx, cy, cz] of changed) this.updateNeighbors(cx, cy, cz);
       return;
     }
-    if (powered) return;
-    if (!(m & PISTON_EXT)) return;
+    if (powered || !(m & PISTON_EXT)) return;
+    const pending = this.moving.filter((mv) => mv.pid === pid);
+    const spit = pending.length > 0;
+    if (spit) { this.moving = this.moving.filter((mv) => mv.pid !== pid); for (const mv of pending) this.place(mv); }
     const hx = x + dx, hy = y + dy, hz = z + dz;
-    if (blockId(this.g(hx, hy, hz)) === B.PISTON_HEAD) this.h.setState(hx, hy, hz, 0);
     this.h.setState(x, y, z, makeBlock(id, m & ~PISTON_EXT));
-    if (id === B.STICKY_PISTON) {
-      const sx = hx + dx, sy = hy + dy, sz = hz + dz;
-      const sv = this.g(sx, sy, sz);
-      if (pushReaction(sv) === 'normal') {
-        this.h.setState(sx, sy, sz, 0);
-        this.h.setState(hx, hy, hz, B.MOVING_PISTON);
-        this.moving.push({ x: hx, y: hy, z: hz, v: sv, due: this.h.tick() + 2 });
-        this.updateNeighbors(sx, sy, sz);
-      }
+    const hv = this.g(hx, hy, hz);
+    if (blockId(hv) === B.PISTON_HEAD) this.h.setState(hx, hy, hz, 0);
+    const anim: number[] = blockId(hv) === B.PISTON_HEAD ? [hx, hy, hz, x, y, z, hv] : [];
+    if (id === B.STICKY_PISTON && !spit) {
+      const r = this.resolve(x, y, z, f, false);
+      if (r && r.push.length) { this.moveBlocks(x, y, z, opp(f), r, pid, null, anim); this.h.sound('piston.in', x, y, z); this.updateNeighbors(x, y, z); return; }
     }
+    if (anim.length) this.h.animate(anim);
     this.h.sound('piston.in', x, y, z);
     this.updateNeighbors(hx, hy, hz);
     this.updateNeighbors(x, y, z);
+  }
+
+  private moveBlocks(x: number, y: number, z: number, dir: number, r: { push: [number, number, number][]; destroy: [number, number, number][] }, pid: string, head: [number, number, number, number] | null, anim: number[] = []): void {
+    const [dx, dy, dz] = DIR6[dir];
+    const states = r.push.map(([a, b, c]) => this.g(a, b, c));
+    for (let k = r.destroy.length - 1; k >= 0; k--) this.h.breakBlock(...r.destroy[k]);
+    const left = new Set(r.push.map(([a, b, c]) => key(a, b, c)));
+    const due = this.h.tick() + 2;
+    const cells: MoveCell[] = [];
+    for (let k = r.push.length - 1; k >= 0; k--) {
+      const [a, b, c] = r.push[k];
+      const tx = a + dx, ty = b + dy, tz = c + dz;
+      left.delete(key(tx, ty, tz));
+      this.h.setState(tx, ty, tz, B.MOVING_PISTON);
+      this.moving.push({ x: tx, y: ty, z: tz, v: states[k], due, pid });
+      cells.push({ x: tx, y: ty, z: tz, sticky: isSticky(states[k]) });
+      anim.push(a, b, c, tx, ty, tz, states[k]);
+    }
+    if (head) {
+      left.delete(key(head[0], head[1], head[2]));
+      this.h.setState(head[0], head[1], head[2], B.MOVING_PISTON);
+      this.moving.push({ x: head[0], y: head[1], z: head[2], v: head[3], due, pid });
+      cells.push({ x: head[0], y: head[1], z: head[2], sticky: false });
+      anim.push(x, y, z, head[0], head[1], head[2], head[3]);
+    }
+    for (const k of left) { const [a, b, c] = k.split(',').map(Number); this.h.setState(a, b, c, 0); }
+    if (cells.length) this.motion.push({ cells, dir, step: 0 });
+    this.stepMotion(this.motion[this.motion.length - 1]);
+    if (anim.length) this.h.animate(anim);
+    for (let k = r.destroy.length - 1; k >= 0; k--) this.updateNeighbors(...r.destroy[k]);
+    for (const k of left) { const [a, b, c] = k.split(',').map(Number); this.updateNeighbors(a, b, c); }
+    for (let k = r.push.length - 1; k >= 0; k--) { const [a, b, c] = r.push[k]; this.updateNeighbors(a + dx, b + dy, c + dz); }
+    if (head) this.updateNeighbors(head[0], head[1], head[2]);
+    this.updateNeighbors(x, y, z);
+  }
+
+  private motion: { cells: MoveCell[]; dir: number; step: number }[] = [];
+
+  private stepMotion(mo: { cells: MoveCell[]; dir: number; step: number } | undefined): void {
+    if (!mo) return;
+    mo.step++;
+    this.h.moveEntities(mo.cells, mo.dir, (mo.step - 1) * 0.5, mo.step * 0.5);
+  }
+
+  private place(mv: { x: number; y: number; z: number; v: number }): void {
+    if (blockId(this.g(mv.x, mv.y, mv.z)) !== B.MOVING_PISTON) return;
+    this.arrivals(mv.x, mv.y, mv.z, mv.v);
+    if (blockId(mv.v) === B.OBSERVER && !(blockMeta(mv.v) & OBS_ON)) this.schedule(mv.x, mv.y, mv.z, 2);
   }
 
   arrivals: (x: number, y: number, z: number, v: number) => void = () => {};
   onHopper: (x: number, y: number, z: number) => void = () => {};
 
   tickMoving(): void {
+    for (const mo of this.motion) if (mo.step < 2) this.stepMotion(mo);
+    this.motion = this.motion.filter((mo) => mo.step < 2);
     if (!this.moving.length) return;
     const now = this.h.tick();
     const keep: typeof this.moving = [];
     const done: typeof this.moving = [];
     for (const mv of this.moving) (mv.due <= now ? done : keep).push(mv);
     this.moving = keep;
-    for (const mv of done) {
-      if (blockId(this.g(mv.x, mv.y, mv.z)) !== B.MOVING_PISTON) continue;
-      this.arrivals(mv.x, mv.y, mv.z, mv.v);
-      if (blockId(mv.v) === B.OBSERVER && !(blockMeta(mv.v) & OBS_ON)) this.schedule(mv.x, mv.y, mv.z, 2);
-    }
+    for (const mv of done) this.place(mv);
   }
 
   get movingCount(): number { return this.moving.length; }

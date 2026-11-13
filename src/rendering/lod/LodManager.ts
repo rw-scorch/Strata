@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import type { ArenaKind } from '../../core/labs/minigames/arena';
 import type { LodTileMesh } from './LodMesher';
+import { BLOCKS } from '../../core/blocks';
 
 interface Tile { key: string; x0: number; z0: number; size: number; mesh: THREE.Mesh | null; pending: boolean }
 
 const ROOT = 4096;
+
+const SURF = new Map<number, Map<string, { h: Uint8Array; id: Uint8Array }>>();
+const SKIP_TOP = new Uint8Array(256);
+for (const b of BLOCKS) if (b && (b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'redstone' || b.render === 'none' || b.render === 'ladder')) SKIP_TOP[b.id] = 1;
 
 export const LOD_SAMPLES: Record<'low' | 'medium' | 'high', number> = { low: 16, medium: 32, high: 48 };
 
@@ -27,6 +32,8 @@ export class LodManager {
   private maskData = new Uint8Array(1);
 
   constructor(seed: number, arena: ArenaKind | null, colors: Uint8Array, uniforms: { uDay: { value: number }; uFogColor: { value: THREE.Color }; uSkyColor: { value: THREE.Color } }) {
+    this.surfaces = LodManager.pending(seed);
+    this.seed = seed;
     this.mask = new THREE.DataTexture(this.maskData, 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
     this.mask.magFilter = THREE.NearestFilter;
     this.mask.minFilter = THREE.NearestFilter;
@@ -66,6 +73,7 @@ export class LodManager {
       w.onmessage = (e) => this.onWorker(i, e.data);
       w.onerror = (e) => console.error('lod worker error', e.message);
       w.postMessage({ t: 'init', seed, arena, colors });
+      for (const [k, s] of this.surfaces) { const [cx, cz] = k.split(',').map(Number); w.postMessage({ t: 'surf', cx, cz, h: s.h, id: s.id }); }
       this.workers.push(w);
       this.busy.push(false);
     }
@@ -112,6 +120,45 @@ export class LodManager {
     this.mask.needsUpdate = true;
     this.material.uniforms.uMaskOrigin.value.set(ox, oz);
     this.material.uniforms.uMaskSize.value = size;
+  }
+
+  private surfaces: Map<string, { h: Uint8Array; id: Uint8Array }>;
+
+  static pending(seed: number): Map<string, { h: Uint8Array; id: Uint8Array }> {
+    let m = SURF.get(seed);
+    if (!m) { SURF.clear(); m = new Map(); SURF.set(seed, m); }
+    return m;
+  }
+
+  static record(seed: number, cx: number, cz: number, blocks: Uint16Array): { h: Uint8Array; id: Uint8Array } | null {
+    const h = new Uint8Array(256), id = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) {
+      for (let y = 255; y >= 0; y--) {
+        const b = blocks[(y * 16 + (i >> 4)) * 16 + (i & 15)] & 0xff;
+        if (b && SKIP_TOP[b] !== 1) { h[i] = y; id[i] = b; break; }
+      }
+    }
+    const k = `${cx},${cz}`;
+    const map = LodManager.pending(seed);
+    const prev = map.get(k);
+    if (prev && prev.h.every((v, i) => v === h[i]) && prev.id.every((v, i) => v === id[i])) return null;
+    const s = { h, id };
+    map.set(k, s);
+    return s;
+  }
+
+  private seed = 0;
+
+  addSurface(cx: number, cz: number, blocks: Uint16Array): void {
+    const s = LodManager.record(this.seed, cx, cz, blocks);
+    if (!s) return;
+    const { h, id } = s;
+    for (const w of this.workers) w.postMessage({ t: 'surf', cx, cz, h, id });
+    const x0 = cx * 16, z0 = cz * 16;
+    for (const t of this.tiles.values()) {
+      if (!t.mesh || this.queue.includes(t) || [...this.jobs.values()].includes(t)) continue;
+      if (x0 < t.x0 + t.size && t.x0 < x0 + 16 && z0 < t.z0 + t.size && t.z0 < z0 + 16) { t.pending = true; this.queue.push(t); }
+    }
   }
 
   get tileCount(): number { let n = 0; for (const t of this.tiles.values()) if (t.mesh) n++; return n; }
@@ -204,6 +251,7 @@ export class LodManager {
       g.setIndex(new THREE.BufferAttribute(m.mesh.idx, 1));
       g.boundingBox = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(t.size, 256, t.size));
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(t.size / 2, 96, t.size / 2), Math.hypot(t.size / 2, t.size / 2, 128));
+      this.dropMesh(t);
       const mesh = new THREE.Mesh(g, this.material);
       mesh.position.set(t.x0, 0, t.z0);
       mesh.matrixAutoUpdate = false;

@@ -10,6 +10,8 @@ const LEAF_TINT: Record<number, [number, number, number] | null> = { 0: null, 1:
 const TREE_CELL = (b: string) => (b === 'jungle' || b === 'forest' || b === 'birch_forest' || b === 'taiga' ? 4 : 6);
 
 export class LodMesher {
+  surf = new Map<string, { h: Uint8Array; id: Uint8Array }>();
+
   constructor(private gen: WorldGenerator, private colors: Uint8Array) {}
 
   private blockColor(id: number, col: Column, out: number[]): void {
@@ -66,7 +68,20 @@ export class LodMesher {
       if (j < W - 1) slope = Math.max(slope, Math.abs(cols[k + W].height - h));
       slope /= Math.max(1, s / 2);
       let top = h + 1;
-      if (h < SEA_LEVEL) {
+      const sc = this.surf.get(`${wx >> 4},${wz >> 4}`);
+      const si = (wz & 15) * 16 + (wx & 15);
+      if (sc && sc.id[si]) {
+        const bid = sc.id[si];
+        top = sc.h[si] + 1;
+        this.blockColor(bid, col, rgb);
+        if (bid === B.WATER) {
+          const w = col.biome.water;
+          rgb[0] = rgb[0] * w[0] / 255; rgb[1] = rgb[1] * w[1] / 255; rgb[2] = rgb[2] * w[2] / 255;
+        } else if (bid === B.OAK_LEAVES || bid === B.BIRCH_LEAVES || bid === B.SPRUCE_LEAVES || bid === B.JUNGLE_LEAVES) {
+          const lt = LEAF_TINT[bid === B.BIRCH_LEAVES ? 1 : bid === B.SPRUCE_LEAVES ? 2 : 0];
+          if (lt && this.colors[bid * 4 + 3] === 0) { rgb[0] = rgb[0] * lt[0] / 255; rgb[1] = rgb[1] * lt[1] / 255; rgb[2] = rgb[2] * lt[2] / 255; }
+        }
+      } else if (h < SEA_LEVEL) {
         top = SEA_LEVEL + 1;
         if (col.biome.cold) this.blockColor(B.ICE, col, rgb);
         else {

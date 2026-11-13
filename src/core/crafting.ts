@@ -1,4 +1,4 @@
-import { B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId } from './blocks';
+import { B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, SLAB_ITEM, STAIRS_ITEM } from './blocks';
 import { I, toolId, armorId, dyeId } from './items';
 import type { ItemStack } from './inventory';
 
@@ -95,6 +95,16 @@ shapeless('redstone_from_block', 'basics', I.REDSTONE, 9, [B.REDSTONE_BLOCK]);
 shaped('redstone_lamp', 'decor', B.REDSTONE_LAMP, 1, [' R ', 'RGR', ' R '], { R: I.REDSTONE, G: B.GLOWSTONE });
 shaped('repeater', 'decor', B.REPEATER, 1, ['TRT', 'SSS'], { T: B.REDSTONE_TORCH, R: I.REDSTONE, S: B.STONE });
 shaped('comparator', 'decor', B.COMPARATOR, 1, [' T ', 'TCT', 'SSS'], { T: B.REDSTONE_TORCH, C: I.COPPER_INGOT, S: B.STONE });
+SHAPE_MATS.forEach((m, i) => {
+  shaped(`${m.key}_slab`, 'building', SLAB_ITEM + i, 6, ['XXX'], { X: m.id });
+  shaped(`${m.key}_stairs`, 'building', STAIRS_ITEM + i, 4, ['X  ', 'XX ', 'XXX'], { X: m.id });
+});
+shapeless('blastpowder', 'decor', I.GUNPOWDER, 2, [I.COAL, I.FLINT, I.REDSTONE]);
+shapeless('blastpowder_charcoal', 'decor', I.GUNPOWDER, 2, [I.CHARCOAL, I.FLINT, I.REDSTONE]);
+shaped('tnt', 'decor', B.TNT, 1, ['GSG', 'SGS', 'GSG'], { G: I.GUNPOWDER, S: B.SAND });
+shapeless('firestriker', 'tools', I.FLINT_AND_STEEL, 1, [I.IRON_INGOT, I.FLINT]);
+shaped('slime_block', 'decor', B.SLIME_BLOCK, 1, ['KCK', 'CKC', 'KCK'], { K: I.DRIED_KELP, C: I.CLAY_BALL });
+shaped('honey_block', 'decor', B.HONEY_BLOCK, 1, ['SS', 'SS'], { S: B.SUGAR_CANE });
 shaped('observer', 'decor', B.OBSERVER, 1, ['CCC', 'RRQ', 'CCC'], { C: B.COBBLESTONE, R: I.REDSTONE, Q: I.COPPER_INGOT });
 shaped('piston', 'decor', B.PISTON, 1, ['PPP', 'CIC', 'CRC'], { P: 'planks', C: B.COBBLESTONE, I: I.IRON_INGOT, R: I.REDSTONE });
 shaped('sticky_piston', 'decor', B.STICKY_PISTON, 1, ['S', 'P'], { S: I.CLAY_BALL, P: B.PISTON });

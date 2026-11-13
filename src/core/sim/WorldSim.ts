@@ -2,6 +2,7 @@ import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, 
 import {
   B, BLOCKS, isPowder, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE, isWaterPlant, isWaterLike,
+  SHAPE_MATS, SLAB_TOP, STAIRS_UP, SLAB_ITEM, STAIRS_ITEM,
 } from '../blocks';
 import { getItem, I, fuelSeconds } from '../items';
 import {
@@ -67,7 +68,7 @@ export interface SimPlayer {
   screenTitle?: string;
 }
 
-export type EntityKind = 'mob' | 'item' | 'arrow';
+export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt';
 export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade';
 
 export interface GameHooks {
@@ -96,7 +97,8 @@ export interface GameHooks {
 export interface Entity extends Body {
   id: number;
   kind: EntityKind;
-  type: MobType | 'item' | 'arrow';
+  type: MobType | 'item' | 'arrow' | 'tnt';
+  fuse?: number;
   yaw: number;
   health: number;
   maxHealth: number;
@@ -107,6 +109,7 @@ export interface Entity extends Body {
   item?: ItemStack;
   pickupDelay?: number;
   shooter?: number;
+  los?: boolean;
   shooterP?: string;
   pickup?: boolean;
   dmg?: number;
@@ -166,6 +169,8 @@ export type SimEvent =
   | { e: 'tp'; p: SimPlayer }
   | { e: 'msg'; text: string; kind: 'system' | 'death' | 'info' | 'error'; to?: string }
   | { e: 'lightning'; x: number; y: number; z: number }
+  | { e: 'pmove'; l: number[] }
+  | { e: 'boom'; x: number; y: number; z: number; r: number }
   | { e: 'reject'; p: SimPlayer; x: number; y: number; z: number }
   | { e: 'stats'; p: SimPlayer }
   | { e: 'weather'; w: Weather }
@@ -358,13 +363,9 @@ export class WorldSim {
         this.spawnDrops(x, y, z, v, null, true);
         this.emit({ e: 'particles', k: 'break', x: x + 0.5, y: y + 0.5, z: z + 0.5, d: v });
       },
-      pushEntities: (x0, y0, z0, x1, y1, z1, dx, dy, dz) => {
-        for (const e of this.entities.values()) if (e.x + e.hw > x0 && e.x - e.hw < x1 && e.y + e.h > y0 && e.y < y1 && e.z + e.hw > z0 && e.z - e.hw < z1) { e.x += dx; e.y += dy; e.z += dz; }
-        for (const p of this.players.values()) if (!p.dead && p.x + 0.3 > x0 && p.x - 0.3 < x1 && p.y + 1.8 > y0 && p.y < y1 && p.z + 0.3 > z0 && p.z - 0.3 < z1) {
-          p.x += dx; p.y += dy; p.z += dz;
-          this.emit({ e: 'tp', p });
-        }
-      },
+      moveEntities: (cells, dir, from, to) => this.moveEntities(cells, dir, from, to),
+      animate: (l) => this.emit({ e: 'pmove', l }),
+      primeTnt: (x, y, z, fuse) => this.primeTnt(x, y, z, fuse),
       dispense: (x, y, z, v, dir) => this.dispense(x, y, z, v, dir),
     });
     this.rs.arrivals = (x, y, z, v) => this.setBlock(x, y, z, v);
@@ -413,6 +414,7 @@ export class WorldSim {
     }
     if ((oid === B.HOPPER || oid === B.DROPPER || oid === B.DISPENSER) && nid !== oid) this.removeBlockEntity(x, y, z, true);
     this.scheduleFluidAround(x, y, z);
+    this.fluidContact(x, y, z, isWaterPlant(nid) ? B.WATER : nid);
     this.checkSupport(x, y + 1, z);
     for (let f = 0; f < 4; f++) {
       const [dx, dz] = FACING_DIRS[f];
@@ -712,6 +714,8 @@ export class WorldSim {
   blockDrops(v: number, stack: ItemStack | null, natural: boolean): ItemStack[] {
     const d = getBlock(v);
     const id = d.id;
+    if (id === B.SLAB) return [{ id: SLAB_ITEM + (blockMeta(v) & 31), count: 1 }];
+    if (id === B.STAIRS) return [{ id: STAIRS_ITEM + (blockMeta(v) & 31), count: 1 }];
     if (!natural && stack?.id === I.SHEARS && (d.render === 'leaves' || id === B.VINE || id === B.SEAGRASS || id === B.TALL_GRASS || id === B.FERN || id === B.DEAD_BUSH)) return [{ id, count: 1 }];
     if (!d.drops) return [];
     if (!natural && !canHarvest(v, stack)) return [];
@@ -919,10 +923,14 @@ export class WorldSim {
       else if (flags & MF.WATER) p.exh += horiz * 0.01;
       if (flags & MF.JUMP && !(prevFlags & MF.JUMP)) p.exh += flags & MF.SPRINT ? 0.2 : 0.05;
     }
-    const safe = flags & (MF.WATER | MF.LADDER | MF.FLY) || p.mode === 'creative';
+    const onSlime = !(flags & MF.CROUCH) && blockId(this.get(Math.floor(x), Math.floor(y - 0.6), Math.floor(z))) === B.SLIME_BLOCK;
+    const safe = flags & (MF.WATER | MF.LADDER | MF.FLY) || p.mode === 'creative' || onSlime;
     if (safe) p.peakY = y;
     else if (flags & MF.GROUND) {
-      const fall = p.peakY - y;
+      const under = blockId(this.get(Math.floor(x), Math.floor(y - 0.2), Math.floor(z)));
+      let fall = p.peakY - y;
+      if (under === B.SLIME_BLOCK && !(flags & MF.CROUCH)) fall = 0;
+      if (under === B.HONEY_BLOCK) fall = 3 + (fall - 3) * 0.2;
       if (fall > 3.0001) this.damage(p, Math.ceil(fall - 3), 'fall', p.x, p.z, false);
       p.peakY = y;
     } else p.peakY = Math.max(p.peakY, y);
@@ -1227,7 +1235,7 @@ export class WorldSim {
     }
   }
 
-  use(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number, forcePlace = false): boolean {
+  use(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number, forcePlace = false, hy = 0.5): boolean {
     if (p.dead) return false;
     if (Math.abs(nx) + Math.abs(ny) + Math.abs(nz) !== 1) return false;
     if (!this.inReach(p, x, y, z)) { this.emit({ e: 'reject', p, x: x + nx, y: y + ny, z: z + nz }); return false; }
@@ -1243,6 +1251,15 @@ export class WorldSim {
       if (id === B.VAULT) return this.openVault(p, x, y, z);
       if (id === B.FURNACE || id === B.FURNACE_LIT) { this.openScreen(p, 'furnace', x, y, z); return true; }
       if (id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER) { this.openScreen(p, 'chest', x, y, z); return true; }
+    }
+    if (stack?.id === I.FLINT_AND_STEEL && id === B.TNT) {
+      if (!this.canBuild(p)) return false;
+      if (this.authoritative) this.primeTnt(x, y, z, 80);
+      this.emit({ e: 'sound', s: 'fire.ignite', x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
+      if (p.mode === 'survival') { damageHeld(p.inv, 1); this.emit({ e: 'inv', p }); }
+      return true;
+    }
+    if (d.interactive && !(crouch && stack) && !(forcePlace && stack && getItem(stack.id)?.places !== undefined)) {
       if (id === B.LEVER || isButton(id) || isDiode(id)) { if (!this.canBuild(p)) return false; return this.authoritative ? this.rs.use(x, y, z, v) : true; }
       if (id === B.OAK_DOOR) {
         if (!this.canBuild(p)) return false;
@@ -1270,13 +1287,13 @@ export class WorldSim {
     if ((!item || item.places === undefined) && off && getItem(off.id)?.places !== undefined) {
       const sel = p.inv.selected, main = p.inv.slots[sel];
       p.inv.slots[sel] = off;
-      const ok = this.place(p, x, y, z, nx, ny, nz);
+      const ok = this.place(p, x, y, z, nx, ny, nz, hy);
       p.inv.off[0] = p.inv.slots[sel];
       p.inv.slots[sel] = main;
       if (ok) this.emit({ e: 'inv', p });
       return ok;
     }
-    return this.place(p, x, y, z, nx, ny, nz);
+    return this.place(p, x, y, z, nx, ny, nz, hy);
   }
 
   applyBoneMeal(x: number, y: number, z: number, src?: string): boolean {
@@ -1345,7 +1362,7 @@ export class WorldSim {
     return true;
   }
 
-  place(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number): boolean {
+  place(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number, hy = 0.5): boolean {
     const stack = heldStack(p.inv);
     const item = stack ? getItem(stack.id) : undefined;
     if (!stack || !item || item.places === undefined) return false;
@@ -1359,10 +1376,19 @@ export class WorldSim {
     if (ty < 1 || ty >= WORLD_HEIGHT - 1) return fail();
     if (!this.store.isLoaded(tx, tz)) return fail();
     if (!this.inReach(p, tx, ty, tz)) return fail();
-    const target = this.get(tx, ty, tz);
-    if (!isReplaceable(target)) return fail();
+    let target = this.get(tx, ty, tz);
+    let combine = -1;
+    if (bid === B.SLAB) {
+      const mat = item.placeMeta ?? 0;
+      const same = (v: number) => blockId(v) === B.SLAB && (blockMeta(v) & 31) === mat;
+      if (same(clicked) && ((ny === 1 && !(blockMeta(clicked) & SLAB_TOP)) || (ny === -1 && blockMeta(clicked) & SLAB_TOP))) { tx = x; ty = y; tz = z; target = clicked; combine = SHAPE_MATS[mat].id; }
+      else if (same(target)) combine = SHAPE_MATS[mat].id;
+    }
+    if (!isReplaceable(target) && combine < 0) return fail();
     let meta = 0;
     const look = facingFromYaw(p.yaw);
+    if (bid === B.SLAB) meta = (item.placeMeta ?? 0) | (ny === -1 || (ny === 0 && hy > 0.5) ? SLAB_TOP : 0);
+    if (bid === B.STAIRS) meta = (item.placeMeta ?? 0) | (look << 5) | (ny === -1 || (ny === 0 && hy > 0.5) ? STAIRS_UP : 0);
     const def = BLOCKS[bid];
     if (bid === B.LILY_PAD) {
       if (blockId(clicked) !== B.WATER) return fail();
@@ -1408,7 +1434,7 @@ export class WorldSim {
       meta = FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz);
     }
     if (def.render === 'leaves') meta = 1;
-    let v = makeBlock(bid, meta);
+    let v = combine >= 0 ? makeBlock(combine, 0) : makeBlock(bid, meta);
     if (bid === B.OAK_DOOR) {
       const above = this.get(tx, ty + 1, tz);
       if (!isReplaceable(above) || !isSolid(this.get(tx, ty - 1, tz))) return fail();
@@ -1521,7 +1547,7 @@ export class WorldSim {
     if (!t || t.dead || t === p) return false;
     if (this.game && !this.game.canHurtPlayer(p, t)) return false;
     const dx = t.x - p.x, dy = t.y - p.y, dz = t.z - p.z;
-    if (dx * dx + dy * dy + dz * dz > 25) return false;
+    if (dx * dx + dy * dy + dz * dz > 36) return false;
     if (this.now - p.lastAttack < 45) return false;
     const st = this.strike(p);
     if (st.crit) this.emit({ e: 'particles', k: 'crit', x: t.x, y: t.y + 1.8, z: t.z });
@@ -1650,7 +1676,7 @@ export class WorldSim {
     const f = p.flags;
     let changed = false;
     if (p.mode === 'survival') {
-      const med = sampleMedium(this.store, p.x, p.y, p.z, 0.3, f & MF.CROUCH ? 1.5 : 1.8, 1.62);
+      const med = sampleMedium(this.store, p.x, p.y, p.z, f & MF.LAVA ? 0.3 : 0.15, f & MF.CROUCH ? 1.5 : 1.8, 1.62);
       if (med.lava) { p.fireT = 300; if (--p.t.lava <= 0) { p.t.lava = 10; this.damage(p, 4, 'lava', p.x, p.z, false); } }
       if (med.water || (f & MF.WATER && !med.lava)) p.fireT = 0;
       if ((p.fireT > 0) !== !!p.wasFire) { p.wasFire = p.fireT > 0; changed = true; }
@@ -1662,7 +1688,7 @@ export class WorldSim {
         if (p.air <= 0) { p.air = 0; if (--p.t.drown <= 0) { p.t.drown = 20; this.damage(p, 2, 'drown', p.x, p.z, false, true); } }
         if (p.air % 20 === 0) changed = true;
       } else if (p.air < 300) { p.air = Math.min(300, p.air + 5); changed = true; }
-      const hb = getBlock(this.get(Math.floor(p.x), Math.floor(p.y + (f & MF.CROUCH ? 1.27 : 1.62)), Math.floor(p.z)));
+      const hb = getBlock(this.get(Math.floor(p.x), Math.floor(p.y + ((f & MF.WATER) && (f & MF.SPRINT) ? 0.4 : f & MF.CROUCH ? 1.27 : 1.62)), Math.floor(p.z)));
       if (hb.solid && hb.opaque && hb.render === 'cube') { p.t.suffocate = (p.t.suffocate ?? 10) - 1; if (p.t.suffocate <= 0) { p.t.suffocate = 10; this.damage(p, 1, 'suffocate', p.x, p.z, false, true); } }
       if (f & MF.CACTUS) { if (--p.t.cactus <= 0) { p.t.cactus = 10; this.damage(p, 1, 'cactus', p.x, p.z, false); } }
       if (p.y < -8) { if (--p.t.void <= 0) { p.t.void = 10; this.damage(p, 4, 'void', p.x, p.z, false, true); } }
@@ -1688,7 +1714,7 @@ export class WorldSim {
         }
       }
     } else {
-      p.air = 300;
+      if (p.air < 300) { p.air = 300; changed = true; }
       if (p.health < 20 || p.food < 20) { p.health = 20; p.food = 20; changed = true; }
     }
     if (changed) this.emit({ e: 'vitals', p });
@@ -1717,6 +1743,154 @@ export class WorldSim {
         if ((n === B.WATER && (nid === B.LAVA || oid === B.LAVA)) || (n === B.LAVA && (nid === B.WATER || oid === B.WATER))) this.scheduleFluid(x + dx, y + dy, z + dz, 1);
       }
     }
+    this.fluidContact(x, y, z, nid);
+  }
+
+  private fluidContact(x: number, y: number, z: number, nid: number): void {
+    if (nid !== B.LAVA && nid !== B.WATER) return;
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const n0 = blockId(this.get(x + dx, y + dy, z + dz)), n = isWaterPlant(n0) ? B.WATER : n0;
+      if (nid === B.LAVA && n === B.WATER && dy !== -1) { this.scheduleFluid(x, y, z, 1); return; }
+      if (nid === B.WATER && n === B.LAVA && dy !== 1) this.scheduleFluid(x + dx, y + dy, z + dz, 1);
+    }
+  }
+
+  private moveEntities(cells: { x: number; y: number; z: number; sticky: boolean }[], dir: number, from: number, to: number): void {
+    const [dx, dy, dz] = DIR6[dir];
+    const axis = dx ? 0 : dy ? 1 : 2, sgn = dx + dy + dz;
+    const shift = new Map<Entity | SimPlayer, number>();
+    const bodies: { o: Entity | SimPlayer; hw: number; h: number }[] = [];
+    for (const e of this.entities.values()) if (e.kind !== 'mob' || e.health > 0) bodies.push({ o: e, hw: e.hw, h: e.h });
+    for (const p of this.players.values()) if (!p.dead && !(p.flags & MF.FLY && p.mode === 'creative' && false)) bodies.push({ o: p, hw: 0.3, h: p.flags & MF.CROUCH ? 1.5 : 1.8 });
+    for (const c of cells) {
+      const off = -(1 - to);
+      const bx = c.x + dx * off, by = c.y + dy * off, bz = c.z + dz * off;
+      const box = [bx, by, bz, bx + 1, by + 1, bz + 1];
+      for (const b of bodies) {
+        const o = b.o;
+        if (Math.abs(o.x - bx - 0.5) > 2 || Math.abs(o.z - bz - 0.5) > 2 || Math.abs(o.y - by) > 3) continue;
+        const lo = [o.x - b.hw, o.y, o.z - b.hw], hi = [o.x + b.hw, o.y + b.h, o.z + b.hw];
+        const hits = lo[0] < box[3] && hi[0] > box[0] && lo[1] < box[4] && hi[1] > box[1] && lo[2] < box[5] && hi[2] > box[2];
+        let need = 0;
+        if (hits) need = (sgn > 0 ? box[3 + axis] - lo[axis] : hi[axis] - box[axis]) + 0.01;
+        else if (c.sticky && dir !== 3) {
+          const prevTop = box[4] - dy * (to - from);
+          const over = lo[0] < box[3] && hi[0] > box[0] && lo[2] < box[5] && hi[2] > box[2];
+          if (over && Math.abs(o.y - prevTop) < 0.1) need = to - from;
+        }
+        if (need > 0) shift.set(o, Math.max(shift.get(o) ?? 0, Math.min(1.01, need)));
+      }
+    }
+    for (const [o, n] of shift) {
+      o.x += dx * n; o.y += dy * n; o.z += dz * n;
+      if ('inv' in o) { (o as SimPlayer).peakY = o.y; this.emit({ e: 'tp', p: o as SimPlayer }); }
+    }
+  }
+
+  primeTnt(x: number, y: number, z: number, fuse: number): void {
+    if (blockId(this.get(x, y, z)) !== B.TNT) return;
+    this.setBlock(x, y, z, 0);
+    const a = this.rng.next() * Math.PI * 2;
+    const e: Entity = {
+      id: this.allocId(), kind: 'tnt', type: 'tnt', x: x + 0.5, y, z: z + 0.5, vx: -Math.sin(a) * 0.4, vy: 4, vz: -Math.cos(a) * 0.4,
+      hw: 0.49, h: 0.98, onGround: false, hitH: false, hitCeil: false, yaw: 0, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0, fuse,
+    };
+    this.entities.set(e.id, e);
+    this.emit({ e: 'spawn', ent: e });
+    this.emit({ e: 'sound', s: 'tnt.primed', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+  }
+
+  private tickTnt(e: Entity): void {
+    e.vy -= 0.8;
+    moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
+    e.vx *= 0.98; e.vy *= 0.98; e.vz *= 0.98;
+    if (e.onGround) { e.vx *= 0.7; e.vz *= 0.7; e.vy *= -0.5; if (Math.abs(e.vy) < 1) e.vy = 0; }
+    e.fuse = (e.fuse ?? 80) - 1;
+    e.flags = (e.fuse >> 2) & 1;
+    if (e.fuse > 0) return;
+    this.entities.delete(e.id);
+    this.emit({ e: 'remove', id: e.id, why: 'despawn' });
+    this.explode(e.x, e.y + 0.0625, e.z, 4);
+  }
+
+  private blastRes(v: number): number {
+    const d = getBlock(v), id = blockId(v);
+    if (d.hardness < 0) return 3600000;
+    if (id === B.OBSIDIAN) return 1200;
+    if (d.fluid) return 100;
+    if (d.category === 'ore') return 3;
+    if (d.tool === 'pickaxe' && d.hardness >= 1.5) return 6;
+    if (d.tool === 'axe') return 3;
+    return d.hardness;
+  }
+
+  explode(x: number, y: number, z: number, power: number): void {
+    const cv = this.get(Math.floor(x), Math.floor(y), Math.floor(z));
+    const wet = !!getBlock(cv).fluid;
+    const hit = new Set<string>();
+    if (!wet) {
+      for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) for (let k = 0; k < 16; k++) {
+        if (i !== 0 && i !== 15 && j !== 0 && j !== 15 && k !== 0 && k !== 15) continue;
+        let rx = i / 15 * 2 - 1, ry = j / 15 * 2 - 1, rz = k / 15 * 2 - 1;
+        const l = Math.hypot(rx, ry, rz);
+        rx /= l; ry /= l; rz /= l;
+        let f = power * (0.7 + this.rng.next() * 0.6);
+        let px = x, py = y, pz = z;
+        while (f > 0) {
+          const bx = Math.floor(px), by = Math.floor(py), bz = Math.floor(pz);
+          if (by < 0 || by >= WORLD_HEIGHT || !this.store.isLoaded(bx, bz)) break;
+          const v = this.get(bx, by, bz);
+          if (blockId(v) || getBlock(v).fluid) f -= (this.blastRes(v) + 0.3) * 0.3;
+          if (f > 0 && blockId(v) && !getBlock(v).fluid) hit.add(posKey(bx, by, bz));
+          px += rx * 0.3; py += ry * 0.3; pz += rz * 0.3;
+          f -= 0.22500001;
+        }
+      }
+    }
+    const r = power * 2;
+    const exposure = (bx: number, by: number, bz: number, hw: number, h: number): number => {
+      let seen = 0, n = 0;
+      for (const sy of [0.1, 0.5, 0.9]) for (const sx of [-0.8, 0.8]) {
+        const tx = bx + sx * hw, ty = by + sy * h, tz = bz;
+        const ddx = tx - x, ddy = ty - y, ddz = tz - z, len = Math.hypot(ddx, ddy, ddz);
+        n++;
+        if (len < 0.01) { seen++; continue; }
+        const rh = raycast(this.store, x, y, z, ddx / len, ddy / len, ddz / len, len);
+        if (!rh || !isSolid(rh.value)) seen++;
+      }
+      return seen / n;
+    };
+    const impactOf = (bx: number, by: number, bz: number, hw: number, h: number): number => {
+      const dist = Math.hypot(bx - x, by + h / 2 - y, bz - z) / r;
+      if (dist > 1) return 0;
+      return (1 - dist) * exposure(bx, by, bz, hw, h);
+    };
+    for (const e of [...this.entities.values()]) {
+      if (Math.abs(e.x - x) > r + 1 || Math.abs(e.y - y) > r + 1 || Math.abs(e.z - z) > r + 1) continue;
+      const imp = impactOf(e.x, e.y, e.z, e.hw, e.h);
+      if (imp <= 0) continue;
+      const ddx = e.x - x, ddy = e.y + e.h / 2 - y, ddz = e.z - z, dl = Math.hypot(ddx, ddy, ddz) || 1;
+      if (e.kind === 'mob') this.hurtMob(e, Math.floor((imp * imp + imp) / 2 * 7 * r + 1), null, ddx / dl * imp, ddz / dl * imp, imp);
+      else if (e.kind === 'item' && imp > 0.5) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); continue; }
+      e.vx += ddx / dl * imp * 20; e.vy += ddy / dl * imp * 20; e.vz += ddz / dl * imp * 20;
+    }
+    for (const p of this.players.values()) {
+      if (p.dead || p.mode === 'creative') continue;
+      if (Math.abs(p.x - x) > r + 1 || Math.abs(p.y - y) > r + 1 || Math.abs(p.z - z) > r + 1) continue;
+      const imp = impactOf(p.x, p.y, p.z, 0.3, 1.8);
+      if (imp <= 0) continue;
+      this.damage(p, Math.floor((imp * imp + imp) / 2 * 7 * r + 1), 'explosion', x, z, true, false, undefined, imp * 1.6);
+    }
+    const list = [...hit].map(parsePosKey);
+    for (const [bx, by, bz] of list) {
+      const v = this.get(bx, by, bz);
+      if (!blockId(v)) continue;
+      if (blockId(v) === B.TNT) { this.primeTnt(bx, by, bz, 10 + this.rng.int(20)); continue; }
+      this.setBlock(bx, by, bz, 0);
+      this.spawnDrops(bx, by, bz, v, null, true);
+    }
+    this.emit({ e: 'boom', x, y, z, r: power });
+    this.emit({ e: 'sound', s: 'explode', x, y, z, vol: 4 });
   }
 
   private containerSlots(x: number, y: number, z: number): (ItemStack | null)[][] | null {
@@ -1866,6 +2040,17 @@ export class WorldSim {
       return;
     }
     if (s.id === I.BONE_MEAL) { if (this.applyBoneMeal(tx, ty, tz)) take(); return; }
+    if (s.id === B.TNT) {
+      if (!isReplaceable(tv) || getBlock(tv).fluid) { eject(); return; }
+      take();
+      this.setBlock(tx, ty, tz, B.TNT);
+      this.primeTnt(tx, ty, tz, 80);
+      return;
+    }
+    if (s.id === I.FLINT_AND_STEEL) {
+      if (tid === B.TNT) { this.primeTnt(tx, ty, tz, 80); s.dmg = (s.dmg ?? 0) + 1; if (s.dmg >= 64) be.items[i] = null; this.emit({ e: 'container', key: posKey(x, y, z) }); }
+      return;
+    }
     if (s.id === I.ARROW) {
       take();
       const sp = 30;
@@ -2376,6 +2561,7 @@ export class WorldSim {
     if (e.hurt > 0) e.hurt--;
     if (e.kind === 'item') return this.tickItem(e);
     if (e.kind === 'arrow') return this.tickArrow(e);
+    if (e.kind === 'tnt') return this.tickTnt(e);
     this.tickMob(e);
   }
 
@@ -2439,11 +2625,13 @@ export class WorldSim {
     const step = sp * DT;
     const dx = e.vx / sp, dy = e.vy / sp, dz = e.vz / sp;
     e.vx *= 0.99; e.vy *= 0.99; e.vz *= 0.99;
+    const wall = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
+    const reach = wall && isSolid(wall.value) ? wall.dist : step;
     if (e.shooterP) {
       for (const m of this.entities.values()) {
         if (m.kind !== 'mob' || m.health <= 0) continue;
         for (let s = 0; s <= 6; s++) {
-          const t = (s / 6) * step;
+          const t = (s / 6) * reach;
           const ax = e.x + dx * t, ay = e.y + dy * t, az = e.z + dz * t;
           if (Math.abs(ax - m.x) < m.hw + 0.15 && Math.abs(az - m.z) < m.hw + 0.15 && ay > m.y && ay < m.y + m.h) {
             const l = Math.hypot(dx, dz) || 1;
@@ -2464,7 +2652,7 @@ export class WorldSim {
         if (!this.settings.pvp || (sh && this.game && !this.game.canHurtPlayer(sh, p))) continue;
       }
       for (let s = 0; s <= 4; s++) {
-        const t = (s / 4) * step;
+        const t = (s / 4) * reach;
         const ax = e.x + dx * t, ay = e.y + dy * t, az = e.z + dz * t;
         if (Math.abs(ax - p.x) < 0.45 && Math.abs(az - p.z) < 0.45 && ay > p.y && ay < p.y + 1.85) {
           const sh = e.shooterP ? this.players.get(e.shooterP) : undefined;
@@ -2518,7 +2706,8 @@ export class WorldSim {
         const dy = target.y - e.y;
         e.yaw = Math.atan2(-dx, -dz);
         if (def.ranged) {
-          const los = e.age % 5 === 0 ? this.lineOfSight(e, target) : true;
+          if (e.age % 5 === 0 || e.los === undefined) e.los = this.lineOfSight(e, target);
+          const los = e.los;
           if (dist > 10 || !los) { goalX = target.x; goalZ = target.z; }
           else if (dist < 5) { goalX = e.x - dx; goalZ = e.z - dz; speed *= 0.9; }
           else { e.path = null; }
