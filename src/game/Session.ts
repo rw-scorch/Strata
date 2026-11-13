@@ -28,6 +28,7 @@ export interface SessionEvents {
   trade?(info: TradeInfo): void;
   chestLid?(x: number, y: number, z: number, n: number): void;
   hurt(amount: number, cause: string, fx: number, fz: number, kb?: number): void;
+  playerHurt?(id: string): void;
   death(msg: string): void;
   respawn(x: number, y: number, z: number): void;
   teleport(x: number, y: number, z: number): void;

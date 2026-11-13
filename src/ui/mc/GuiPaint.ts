@@ -81,6 +81,21 @@ function paint(key: string): HTMLCanvasElement | null {
       inventoryPart(g, 7, 83);
       return c;
     }
+    case 'gt:container/hopper': {
+      const [c, g] = canvas(256, 256);
+      panel(g, 0, 0, 176, 133);
+      grid(g, 43, 19, 5, 1);
+      grid(g, 7, 50, 9, 3);
+      grid(g, 7, 108, 9, 1);
+      return c;
+    }
+    case 'gt:container/dispenser': {
+      const [c, g] = canvas(256, 256);
+      panel(g, 0, 0, 176, 166);
+      grid(g, 61, 16, 3, 3);
+      inventoryPart(g, 7, 83);
+      return c;
+    }
     case 'gt:container/generic_54': {
       const [c, g] = canvas(256, 256);
       panel(g, 0, 0, 176, 222);

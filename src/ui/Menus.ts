@@ -384,7 +384,7 @@ export class Menus {
     const list = h('div', { class: 'stack' });
     const status = h('div', { class: 'small muted' });
     const api = async (path: string, body?: unknown) => {
-      const res = await fetch(apiURL(path), { method: body ? 'POST' : 'GET', headers: { 'x-admin-key': keyIn.value.trim(), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      const res = await fetch(apiURL(path), { method: body ? 'POST' : 'GET', headers: { 'x-admin-key': encodeURIComponent(keyIn.value.trim()), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
       const j = await res.json().catch(() => ({})) as Record<string, unknown>;
       if (!res.ok) throw new Error(String(j.error ?? res.status));
       return j;

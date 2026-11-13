@@ -58,8 +58,9 @@ function adminAuth(req: Request, env: Env): Response | null {
   const now = Date.now();
   const f = adminFails.get(ip);
   if (f && now - f.t < 60000 && f.n >= 5) return json({ error: 'Too many wrong keys. Wait a minute.' }, 429);
-  const key = req.headers.get('x-admin-key') ?? '';
-  if (!key || !safeEqual(key, env.ADMIN_KEY)) {
+  let key = (req.headers.get('x-admin-key') ?? '').trim();
+  try { key = decodeURIComponent(key).trim(); } catch { /* raw header */ }
+  if (!key || !safeEqual(key, env.ADMIN_KEY.trim())) {
     const g = f && now - f.t < 60000 ? f : { n: 0, t: now };
     g.n++;
     adminFails.set(ip, g);

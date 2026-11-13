@@ -358,7 +358,7 @@ export class InventoryUI {
 
   private layoutSize(): [number, number] {
     switch (this.screen) {
-      case 'chest': { const rows = this.container?.items.length === 54 ? 6 : 3; return [176, 114 + rows * 18]; }
+      case 'chest': { const n = this.container?.items.length ?? 27; if (n === 5) return [176, 133]; if (n === 9) return [176, 166]; const rows = n === 54 ? 6 : 3; return [176, 114 + rows * 18]; }
       case 'creative': return [195, 136 + 56];
       case 'trade': return [276, 166];
       default: return [176, 166];
@@ -424,6 +424,21 @@ export class InventoryUI {
       win.append(lit, burn);
       this.litEl = lit; this.burnEl = burn;
       invSlots(8, 84);
+    } else if (this.screen === 'chest' && (this.container?.items.length === 5 || this.container?.items.length === 9)) {
+      const n = this.container!.items.length;
+      if (n === 5) {
+        win.appendChild(crop(A, 'gt:container/hopper', 256, 256, 0, 0, 176, 133, s));
+        win.appendChild(label(this.title ?? 'Hopper', 8, 6, s));
+        win.appendChild(label('Inventory', 8, 40, s));
+        for (let i = 0; i < 5; i++) this.slot(win, ref('cont', i), () => this.container?.items[i] ?? null, 44 + i * 18, 20);
+        invSlots(8, 51);
+      } else {
+        win.appendChild(crop(A, 'gt:container/dispenser', 256, 256, 0, 0, 176, 166, s));
+        win.appendChild(label(this.title ?? 'Dispenser', 88, 6, s, { center: true }));
+        win.appendChild(label('Inventory', 8, 72, s));
+        for (let i = 0; i < 9; i++) this.slot(win, ref('cont', i), () => this.container?.items[i] ?? null, 62 + (i % 3) * 18, 17 + Math.floor(i / 3) * 18);
+        invSlots(8, 84);
+      }
     } else if (this.screen === 'chest') {
       const rows = this.container?.items.length === 54 ? 6 : 3;
       win.appendChild(crop(A, 'gt:container/generic_54', 256, 256, 0, 0, 176, rows * 18 + 17, s));

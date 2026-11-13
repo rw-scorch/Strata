@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -68,6 +68,7 @@ export const B = {
   SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178, KELP: 179, KELP_PLANT: 180, SEAGRASS: 181, VINE: 182,
   REDSTONE_WIRE: 183, REDSTONE_TORCH: 184, LEVER: 185, STONE_BUTTON: 186, OAK_BUTTON: 187, STONE_PRESSURE_PLATE: 188, OAK_PRESSURE_PLATE: 189,
   REDSTONE_BLOCK: 190, REDSTONE_LAMP: 191, REDSTONE_LAMP_LIT: 192, UNLIT_REDSTONE_TORCH: 193, REDSTONE_ORE: 194, REPEATER: 195, COMPARATOR: 196,
+  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204,
 } as const;
 
 export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
@@ -248,6 +249,16 @@ def(193, 'unlit_redstone_torch', 'Ember Torch', '', { faces: ALL('redstone_torch
 def(194, 'redstone_ore', 'Ember Ore', 'Deep red veins that crumble into Emberdust.', { faces: ALL('redstone_ore'), hardness: 3, tool: 'pickaxe', tier: 2, drops: [{ item: 371, min: 4, max: 5 }], xp: [1, 5], category: 'ore' });
 def(195, 'repeater', 'Ember Relay', 'Restores a signal to full strength after a delay of 1 to 4 ticks. Tap to change the delay.', { faces: { ...ALL('smooth_stone'), py: 'repeater' }, front: 'repeater_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
 def(196, 'comparator', 'Ember Gauge', 'Compares or subtracts signals, and reads how full a container is. Tap to switch modes.', { faces: { ...ALL('smooth_stone'), py: 'comparator' }, front: 'comparator_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
+
+const RS6: Partial<BlockDef> = { render: 'rs6', solid: true, opaque: false, lightFilter: 15, hardness: 3, tool: 'pickaxe', sound: 'stone', category: 'functional', needsSupport: null, cullSelf: false };
+def(197, 'observer', 'Watcher', 'Its face watches one block. When that block changes, it sends a short pulse out of its back.', { faces: { ...ALL('observer_side'), py: 'observer_top', ny: 'observer_top' }, front: 'observer_front', ...RS6, opaque: true, drops: [{ item: 'self' }] });
+def(198, 'piston', 'Piston', 'Pushes up to 12 blocks when powered.', { faces: { ...ALL('piston_side'), ny: 'piston_bottom' }, front: 'piston_top', ...RS6, hardness: 1.5, drops: [{ item: 'self' }] });
+def(199, 'sticky_piston', 'Sticky Piston', 'Pushes like a piston, and pulls the block back when unpowered.', { faces: { ...ALL('piston_side'), ny: 'piston_bottom' }, front: 'piston_top_sticky', ...RS6, hardness: 1.5, drops: [{ item: 'self' }] });
+def(200, 'piston_head', 'Piston Head', '', { faces: ALL('piston_side'), front: 'piston_top', ...RS6, lightFilter: 0, hardness: 1.5, drops: [], category: 'hidden' });
+def(201, 'moving_piston', 'Moving Block', '', { faces: ALL('stone'), render: 'none', solid: false, opaque: false, lightFilter: 0, hardness: -1, drops: null, category: 'hidden' });
+def(202, 'hopper', 'Hopper', 'Catches items from above and passes them on, one at a time.', { faces: { ...ALL('hopper_outside'), py: 'hopper_top' }, ...RS6, lightFilter: 0, interactive: true, drops: [{ item: 'self' }] });
+def(203, 'dropper', 'Dropper', 'Drops one item when powered, or feeds it into a container in front.', { faces: { ...ALL('furnace_side'), py: 'furnace_top', ny: 'furnace_top' }, front: 'dropper_front', ...RS6, opaque: true, hardness: 3.5, tier: 1, interactive: true, drops: [{ item: 'self' }] });
+def(204, 'dispenser', 'Dispenser', 'Uses or fires one item when powered: buckets, bone meal, arrows and more.', { faces: { ...ALL('furnace_side'), py: 'furnace_top', ny: 'furnace_top' }, front: 'dispenser_front', ...RS6, opaque: true, hardness: 3.5, tier: 1, interactive: true, drops: [{ item: 'self' }] });
 
 export function isWaterPlant(id: number): boolean { return id === 179 || id === 180 || id === 181; }
 export function isWaterLike(v: number): boolean { const id = v & 0xff; return id === 12 || id === 179 || id === 180 || id === 181; }

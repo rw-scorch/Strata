@@ -14,7 +14,13 @@ This is the plan for adding Java Edition style redstone to Strata, so players ca
    - Dust is solved as a whole network, with updates sent once per changed wire, nearest the source first.
    - Ember Ore appears only in newly generated chunks.
    - Strata names: Emberdust is redstone dust; Ember Relay is the repeater; Ember Gauge is the comparator. The Gauge uses a copper ingot where Java uses nether quartz.
-3) **Not yet:** shape (PP) updates as a separate pass, quasi-connectivity (needs pistons), and everything in phases 2 to 4.
+3) **Phase 2 (motion and items): mostly done in v17.**
+   - Piston and sticky piston: block events, 2-tick moving blocks, the 12-block limit, immovable blocks (obsidian, spawners, containers, extended pistons), blocks that break when pushed, entities pushed along, and quasi-connectivity (a piston also counts power at the block above it).
+   - Watcher (observer): a 2-tick pulse out of its back when the block it faces changes, including when it is moved by a piston.
+   - Dropper and dispenser: 4-tick delay, rising edge only, quasi-connectivity. Droppers feed a container in front or drop the item. Dispensers place and pick up water and lava, use bone meal, fire arrows, and drop anything else.
+   - Hopper: 8-tick cooldown, pushes before it pulls, pulls from containers or dropped items above, feeds furnaces by Java's slot rules, and locks while powered.
+   - Comparators read hoppers, droppers and dispensers.
+4) **Not yet:** smooth piston animation on the client (blocks snap after 2 ticks), slime and honey blocks, daylight detector, target block, items carried by water at Java speeds, shape (PP) updates as a separate pass, and phases 3 and 4.
 
 ## Goals
 

@@ -3,6 +3,7 @@
   "name": "strata",
   "main": "workers/index.ts",
   "compatibility_date": "2026-11-01",
+  "keep_vars": true,
   "observability": { "enabled": true },
   "assets": {
     "directory": "./dist",

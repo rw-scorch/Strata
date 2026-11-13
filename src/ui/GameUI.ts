@@ -25,7 +25,7 @@ export class ChatUI {
 
   constructor(box: HTMLElement, parent: HTMLElement) {
     this.box = box;
-    this.input = h('input', { class: 'input', maxlength: 256, placeholder: '', enterkeyhint: 'send', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: 'false' }) as HTMLInputElement;
+    this.input = h('input', { class: 'input', maxlength: 256, placeholder: '', enterkeyhint: 'send', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' }) as HTMLInputElement;
     const send = h('button', { class: 'btn primary touch-only', onclick: () => this.submit() }, 'Send');
     const close = h('button', { class: 'btn ghost touch-only', onclick: () => this.close() }, 'Close');
     this.row = h('div', { class: 'chat-input-row' }, this.input, send, close);

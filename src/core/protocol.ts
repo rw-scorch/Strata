@@ -110,6 +110,7 @@ export type S2C =
   | { t: 'snd'; s: string; x: number; y: number; z: number; v?: number; p?: number }
   | { t: 'fx'; k: string; x: number; y: number; z: number; d?: number }
   | { t: 'hurt'; a: number; c: string; fx: number; fz: number; k?: number }
+  | { t: 'phurt'; id: string }
   | { t: 'death'; msg: string }
   | { t: 'respawn'; x: number; y: number; z: number }
   | { t: 'tp'; x: number; y: number; z: number }

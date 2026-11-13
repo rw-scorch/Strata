@@ -693,7 +693,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (ban && ban > Date.now()) { this.sendErr(s, 'banned', 'You were removed from this world. Try again later.'); return; }
     if (this.joining.has(id)) { this.sendErr(s, 'duplicate', 'This player is already joining. Try again in a moment.'); return; }
     const adminKey = typeof (msg as { admin?: unknown }).admin === 'string' ? String((msg as { admin?: string }).admin) : '';
-    const spectate = !!adminKey && !!this.env.ADMIN_KEY && safeEqual(adminKey, this.env.ADMIN_KEY);
+    const spectate = !!adminKey && !!this.env.ADMIN_KEY && safeEqual(adminKey.trim(), this.env.ADMIN_KEY.trim());
     if (adminKey && !spectate) { this.sendErr(s, 'auth', 'That admin key is not correct.'); return; }
     const others = [...this.sessions.values()].filter((o) => o.pid && o.pid !== id && !this.sim?.players.get(o.pid)?.vanished).length;
     if (others >= m.maxPlayers && !spectate) { this.sendErr(s, 'full', `This world is full (${m.maxPlayers} players).`); return; }
@@ -880,7 +880,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (text.startsWith('/')) {
       const [cmd, arg] = text.slice(1).split(/\s+/, 2);
       const lc = cmd.toLowerCase();
-      if (lc === 'admin') { void this.claimAdmin(s, p, arg ?? ''); return; }
+      if (lc === 'admin') { void this.claimAdmin(s, p, text.slice(1 + cmd.length).trim()); return; }
       if (lc === 'op' || lc === 'deop') { this.setOp(s, p, arg ?? '', lc === 'op', sim); return; }
       if (lc === 'list') { this.systemChat(`Online: ${[...sim.players.values()].map((x) => x.name).join(', ')}`, 'info', s); return; }
       if (lc === 'kick' || lc === 'mute' || lc === 'unmute') {
@@ -900,9 +900,11 @@ export class WorldRoom extends DurableObject<Env> {
     this.broadcast({ t: 'chat', from: { id: p.id, name: p.name }, text, kind: 'chat', ts: now });
   }
 
-  private async claimAdmin(s: Session, p: SimPlayer, key: string): Promise<void> {
+  private async claimAdmin(s: Session, p: SimPlayer, keyIn: string): Promise<void> {
+    let key = keyIn;
     if (p.op) { this.systemChat('You already have admin rights in this world.', 'info', s); return; }
-    const secret = this.env.ADMIN_KEY;
+    const secret = (this.env.ADMIN_KEY ?? '').trim();
+    key = key.trim().replace(/^["'“”‘’]+|["'“”‘’]+$/g, '');
     if (!secret) { this.systemChat('This server has no admin key set. The world owner can grant admin with /op <name>.', 'error', s); return; }
     const now = Date.now();
     if (now - (s.adminT ?? 0) > 60000) { s.adminTries = 0; s.adminT = now; }
@@ -911,7 +913,7 @@ export class WorldRoom extends DurableObject<Env> {
     const [a, b] = await Promise.all([sha256(key), sha256(secret)]);
     let diff = a.length ^ b.length;
     for (let i = 0; i < Math.min(a.length, b.length); i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    if (diff !== 0 || !key) { this.systemChat('That admin key is not correct.', 'error', s); return; }
+    if (diff !== 0 || !key) { this.systemChat('That admin key is not correct. Keys are case-sensitive; type it exactly as saved in Cloudflare.', 'error', s); return; }
     this.grantOp(p, s, true);
     this.systemChat(`${p.name} is now an admin.`);
   }
@@ -1073,6 +1075,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'hurt': {
         const s = this.sessionFor(ev.p.id);
         if (s) this.send(s, { t: 'hurt', a: ev.amount, c: ev.cause, fx: q2(ev.fx), fz: q2(ev.fz), k: ev.kb });
+        this.broadcast({ t: 'phurt', id: ev.p.id }, s);
         return;
       }
       case 'death': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'death', msg: ev.msg }); return; }

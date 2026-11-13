@@ -19,7 +19,7 @@ export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_G
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13 };
 const CULLSELF = new Uint8Array(256);
 for (const b of BLOCKS) if (b) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(256);
@@ -658,6 +658,135 @@ function placeBox(face: number, b: number[]): number[] {
   }
 }
 
+const D6_TO_BOX = [1, 0, 3, 2, 5, 4];
+const D6V: number[][] = [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];
+
+function orientPt(f: number, x: number, y: number, z: number): number[] {
+  switch (f) {
+    case 2: return [x, 1 - y, 1 - z];
+    case 4: return [x, z, 1 - y];
+    case 5: return [x, 1 - z, y];
+    case 1: return [y, 1 - x, z];
+    case 0: return [1 - y, x, z];
+    default: return [x, y, z];
+  }
+}
+
+function cross(a: number[], b: number[]): number[] { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+
+function rs6Mesh(ctx: MesherContext, id: number, meta: number, x: number, y: number, z: number, sk0: number, bl0: number): void {
+  const sp = ctx.atlas.special;
+  const cut = builders[1];
+  const rx = x + 16, rz = z + 16;
+  const f = meta & 7;
+  const fv = D6V[f > 5 ? 3 : f];
+  const full = id === B.OBSERVER || id === B.DROPPER || id === B.DISPENSER || ((id === B.PISTON || id === B.STICKY_PISTON) && !(meta & 8));
+  const light = (d: number): [number, number] => {
+    const n = NORMALS[d];
+    const ax = rx + n[0], ay = y + n[1], az = rz + n[2];
+    if (!full && (sk0 || bl0)) return [sk0, bl0];
+    return [cellSky(ax, ay, az) * 17, (ay < 0 || ay >= H ? 0 : blk[ridx(ax, ay, az)]) * 17];
+  };
+  const upFor = (n: number[]): number[] => {
+    const dot = n[0] * fv[0] + n[1] * fv[1] + n[2] * fv[2];
+    if (dot === 0) return fv;
+    if (n[1] !== 0) return [0, 0, -1];
+    return [0, 1, 0];
+  };
+  const obox = (lb: number[], tileFor: (d: number, along: number) => number, skipD?: (d: number) => boolean, flags = 0, cull = false, uvFn?: (d: number, p: number[]) => number[]) => {
+    const a = orientPt(f, lb[0], lb[1], lb[2]), b = orientPt(f, lb[3], lb[4], lb[5]);
+    const x0 = Math.min(a[0], b[0]), y0 = Math.min(a[1], b[1]), z0 = Math.min(a[2], b[2]);
+    const x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]), z1 = Math.max(a[2], b[2]);
+    const faces: number[][][] = [
+      [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
+      [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
+      [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]],
+      [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+      [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+      [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]],
+    ];
+    for (let d = 0; d < 6; d++) {
+      if (skipD?.(d)) continue;
+      const n = NORMALS[d];
+      const onEdge = (n[0] > 0 && x1 === 1) || (n[0] < 0 && x0 === 0) || (n[1] > 0 && y1 === 1) || (n[1] < 0 && y0 === 0) || (n[2] > 0 && z1 === 1) || (n[2] < 0 && z0 === 0);
+      if (cull && onEdge) {
+        const ny = y + n[1];
+        if (ny >= 0 && ny < H && OPAQUE[region[ridx(rx + n[0], ny, rz + n[2])] & 255]) continue;
+      }
+      const along = n[0] * fv[0] + n[1] * fv[1] + n[2] * fv[2];
+      const up = upFor(n), right = cross(up, n);
+      const uvs = faces[d].map((pt) => {
+        if (uvFn) return uvFn(d, pt);
+        const q = [pt[0] - 0.5, pt[1] - 0.5, pt[2] - 0.5];
+        return [0.5 + q[0] * right[0] + q[1] * right[1] + q[2] * right[2], 0.5 - (q[0] * up[0] + q[1] * up[1] + q[2] * up[2])];
+      });
+      const [sk, bl] = onEdge || !(sk0 || bl0) ? light(d) : [sk0, bl0];
+      quadRaw(cut, faces[d].map((pt) => [x + pt[0], y + pt[1], z + pt[2]]), uvs, tileFor(d, along), sk, bl, SHADE[d], 255, 255, 255, flags, false);
+    }
+  };
+  if (id === B.OBSERVER) {
+    const back = meta & 8 ? sp.observer_back_on : sp.observer_back;
+    const vert = f === 2 || f === 3;
+    obox([0, 0, 0, 1, 1, 1], (d, al) => {
+      if (al > 0) return sp.observer_front;
+      if (al < 0) return back;
+      const n = NORMALS[d];
+      return vert ? (n[0] !== 0 ? sp.observer_top : sp.observer_side) : n[1] !== 0 ? sp.observer_top : sp.observer_side;
+    }, undefined, 0, true);
+    return;
+  }
+  if (id === B.DROPPER || id === B.DISPENSER) {
+    const vert = f === 2 || f === 3;
+    const front = id === B.DROPPER ? (vert ? sp.dropper_front_vertical : sp.dropper_front) : vert ? sp.dispenser_front_vertical : sp.dispenser_front;
+    obox([0, 0, 0, 1, 1, 1], (d, al) => {
+      if (al > 0) return front;
+      if (vert || NORMALS[d][1] !== 0 || al < 0) return sp.furnace_top;
+      return sp.furnace_side;
+    }, undefined, 0, true);
+    return;
+  }
+  const sticky = id === B.STICKY_PISTON || (id === B.PISTON_HEAD && !!(meta & 8));
+  const top = sticky ? sp.piston_top_sticky : sp.piston_top;
+  if (id === B.PISTON || id === B.STICKY_PISTON) {
+    if (!(meta & 8)) {
+      obox([0, 0, 0, 1, 1, 1], (_d, al) => (al > 0 ? top : al < 0 ? sp.piston_bottom : sp.piston_side), undefined, 0, true);
+      return;
+    }
+    obox([0, 0, 0, 1, 12 / 16, 1], (_d, al) => (al > 0 ? sp.piston_inner : al < 0 ? sp.piston_bottom : sp.piston_side), undefined, 0, true);
+    return;
+  }
+  if (id === B.PISTON_HEAD) {
+    obox([0, 12 / 16, 0, 1, 1, 1], (_d, al) => (al > 0 ? top : al < 0 ? sp.piston_top : sp.piston_side));
+    const arm = (d: number, pt: number[]): number[] => {
+      const along = (pt[0] - 0.5) * fv[0] + (pt[1] - 0.5) * fv[1] + (pt[2] - 0.5) * fv[2];
+      const n = NORMALS[d];
+      const side = cross(n, fv);
+      const across = (pt[0] - 0.5) * side[0] + (pt[1] - 0.5) * side[1] + (pt[2] - 0.5) * side[2];
+      return [along + 0.75, across + 0.125];
+    };
+    obox([6 / 16, -4 / 16, 6 / 16, 10 / 16, 12 / 16, 10 / 16], () => sp.piston_side, (d) => { const n = NORMALS[d]; return n[0] * fv[0] + n[1] * fv[1] + n[2] * fv[2] !== 0; }, 0, false, arm);
+    return;
+  }
+  if (id === B.HOPPER) {
+    const out = sp.hopper_outside, inside = sp.hopper_inside;
+    const hb = (b: number[], t: (d: number) => number, skip?: (d: number) => boolean) => boxFaces(cut, x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5], t, sk0, bl0, 255, 255, 255, skip);
+    const yy = 10 / 16, w = 2 / 16;
+    hb([0, yy, 0, 1, 1, w], (d) => (d === 2 ? sp.hopper_top : d === 4 ? inside : out));
+    hb([0, yy, 1 - w, 1, 1, 1], (d) => (d === 2 ? sp.hopper_top : d === 5 ? inside : out));
+    hb([0, yy, w, w, 1, 1 - w], (d) => (d === 2 ? sp.hopper_top : d === 0 ? inside : out), (d) => d === 4 || d === 5);
+    hb([1 - w, yy, w, 1, 1, 1 - w], (d) => (d === 2 ? sp.hopper_top : d === 1 ? inside : out), (d) => d === 4 || d === 5);
+    hb([w, yy, w, 1 - w, 11 / 16, 1 - w], (d) => (d === 2 ? inside : out), (d) => d !== 2 && d !== 3);
+    hb([4 / 16, 4 / 16, 4 / 16, 12 / 16, yy, 12 / 16], () => out, (d) => d === 2);
+    const o = meta & 7;
+    const spout = o === 2 ? [6 / 16, 0, 6 / 16, 10 / 16, 4 / 16, 10 / 16]
+      : o === 0 ? [0, 4 / 16, 6 / 16, 4 / 16, 8 / 16, 10 / 16]
+      : o === 1 ? [12 / 16, 4 / 16, 6 / 16, 1, 8 / 16, 10 / 16]
+      : o === 4 ? [6 / 16, 4 / 16, 0, 10 / 16, 8 / 16, 4 / 16]
+      : [6 / 16, 4 / 16, 12 / 16, 10 / 16, 8 / 16, 1];
+    hb(spout, () => out);
+  }
+}
+
 function redstoneMesh(ctx: MesherContext, id: number, v: number, x: number, y: number, z: number, sk: number, bl: number): void {
   const tiles = ctx.atlas.blockTiles;
   const cut = builders[1];
@@ -715,6 +844,7 @@ function redstoneMesh(ctx: MesherContext, id: number, v: number, x: number, y: n
     box(placeBox(face, handle), () => tiles[id * FS + 4], 0, (d) => (d === 2 || d === 3 ? RS_TORCH_TOP_UV : RS_TORCH_SIDE_UV));
     return;
   }
+  if (id >= B.OBSERVER && id <= B.DISPENSER && id !== B.MOVING_PISTON) { rs6Mesh(ctx, id, meta, x, y, z, sk, bl); return; }
   if (id === B.REPEATER || id === B.COMPARATOR) {
     const out = meta & 3;
     const powered = id === B.REPEATER ? !!(meta & 16) : !!(meta & 8);

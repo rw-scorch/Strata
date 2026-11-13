@@ -25,6 +25,9 @@ export interface RsHost {
   plateHasEntity(x: number, y: number, z: number, wooden: boolean): boolean;
   sound(s: string, x: number, y: number, z: number): void;
   smoke(x: number, y: number, z: number): void;
+  breakBlock(x: number, y: number, z: number): void;
+  pushEntities(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, dx: number, dy: number, dz: number): void;
+  dispense(x: number, y: number, z: number, v: number, dir: number): void;
 }
 
 interface Sched { x: number; y: number; z: number; due: number; prio: number; seq: number; id: number }
@@ -33,6 +36,7 @@ const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
 
 const conductorTable = new Uint8Array(256);
 for (const b of BLOCKS) if (b && b.solid && b.opaque && b.render === 'cube' && b.id !== B.REDSTONE_BLOCK && b.id !== B.GLOWSTONE) conductorTable[b.id] = 1;
+conductorTable[B.DROPPER] = conductorTable[B.DISPENSER] = 1;
 
 export function isConductor(v: number): boolean { return conductorTable[v & 0xff] === 1; }
 
@@ -44,10 +48,27 @@ export function isPlate(id: number): boolean { return id === B.STONE_PRESSURE_PL
 export function isLamp(id: number): boolean { return id === B.REDSTONE_LAMP || id === B.REDSTONE_LAMP_LIT; }
 
 export function isSignalSource(id: number): boolean {
-  return id === B.REDSTONE_WIRE || isTorch(id) || id === B.LEVER || isButton(id) || isPlate(id) || id === B.REDSTONE_BLOCK || isDiode(id);
+  return id === B.REDSTONE_WIRE || isTorch(id) || id === B.LEVER || isButton(id) || isPlate(id) || id === B.REDSTONE_BLOCK || isDiode(id) || id === B.OBSERVER;
 }
 
-export function isRedstoneId(id: number): boolean { return isSignalSource(id) || isLamp(id); }
+export function isPiston(id: number): boolean { return id === B.PISTON || id === B.STICKY_PISTON; }
+export function isRedstoneId(id: number): boolean { return isSignalSource(id) || isLamp(id) || isPiston(id) || id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER || id === B.PISTON_HEAD; }
+export const PISTON_EXT = 8, OBS_ON = 8, HOPPER_OFF = 8, DISP_TRIG = 8;
+
+export type PushReaction = 'empty' | 'destroy' | 'block' | 'normal';
+export function pushReaction(v: number): PushReaction {
+  const id = v & 0xff;
+  if (id === 0) return 'empty';
+  const d = BLOCKS[id];
+  if (!d) return 'block';
+  if (d.fluid) return 'empty';
+  if (d.hardness < 0 || id === B.OBSIDIAN || id === B.SPAWNER || id === B.TRIAL_SPAWNER || id === B.VAULT || id === B.PISTON_HEAD || id === B.MOVING_PISTON) return 'block';
+  if (isPiston(id)) return (v >>> 8) & PISTON_EXT ? 'block' : 'normal';
+  if (id === B.CHEST || id === B.FURNACE || id === B.FURNACE_LIT || id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER) return 'block';
+  if (id === B.OBSERVER) return 'normal';
+  if (d.render === 'cross' || d.render === 'crop' || d.render === 'torch' || d.render === 'ladder' || d.render === 'door' || d.render === 'redstone' || id === B.CACTUS || id === B.SUGAR_CANE) return 'destroy';
+  return 'normal';
+}
 
 export function diodeOut(v: number): number { return FACE_TO_DIR6[blockMeta(v) & 3]; }
 export function repeaterDelay(v: number): number { return ((blockMeta(v) >> 2) & 3) + 1; }
@@ -82,6 +103,7 @@ function connectsTo(v: number, side: number): boolean {
   const id = v & 0xff;
   if (id === B.REDSTONE_WIRE) return true;
   if (id === B.REPEATER) { const o = diodeOut(v); return o === side || o === opp(side); }
+  if (id === B.OBSERVER) return side === opp((v >>> 8) & 7);
   return isSignalSource(id);
 }
 
@@ -112,6 +134,10 @@ export function wireShape(get: Getter, x: number, y: number, z: number): number 
 export function wireConnected(shape: number, side: number): boolean {
   const i = side === W ? 0 : side === E ? 1 : side === N ? 2 : side === S ? 3 : -1;
   return i >= 0 && ((shape >> (i * 2)) & 3) !== 0;
+}
+
+export function isAnalogSource(id: number): boolean {
+  return id === B.CHEST || id === B.FURNACE || id === B.FURNACE_LIT || id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER;
 }
 
 export function analogOf(items: (ItemStack | null)[]): number {
@@ -214,6 +240,18 @@ export class Redstone {
       return;
     }
     if (id === B.OAK_DOOR) { this.doorCheck(x, y, z, v); return; }
+    if (isPiston(id)) { this.pistonCheck(x, y, z, v); return; }
+    if (id === B.HOPPER) {
+      const off = this.hasNeighborSignal(x, y, z), m = blockMeta(v);
+      if (off !== !!(m & HOPPER_OFF)) this.h.setState(x, y, z, makeBlock(id, off ? m | HOPPER_OFF : m & ~HOPPER_OFF));
+      return;
+    }
+    if (id === B.DROPPER || id === B.DISPENSER) {
+      const p = this.hasNeighborSignal(x, y, z) || this.hasNeighborSignal(x, y + 1, z), m = blockMeta(v);
+      if (p && !(m & DISP_TRIG)) { this.schedule(x, y, z, 4); this.h.setState(x, y, z, makeBlock(id, m | DISP_TRIG)); }
+      else if (!p && m & DISP_TRIG) this.h.setState(x, y, z, makeBlock(id, m & ~DISP_TRIG));
+      return;
+    }
   }
 
   blockChanged(x: number, y: number, z: number, old: number, v: number): void {
@@ -241,7 +279,18 @@ export class Redstone {
     if (isTorch(nid)) this.neighborChanged(x, y, z);
     if (isLamp(nid)) this.neighborChanged(x, y, z);
     if (nid === B.OAK_DOOR) this.doorCheck(x, y, z, v);
-    if (oid === B.CHEST || oid === B.FURNACE || oid === B.FURNACE_LIT || nid === B.CHEST || nid === B.FURNACE || nid === B.FURNACE_LIT) this.containerChanged(x, y, z);
+    if (isPiston(nid) || nid === B.HOPPER || nid === B.DROPPER || nid === B.DISPENSER) this.neighborChanged(x, y, z);
+    if (oid === B.PISTON_HEAD && nid !== B.PISTON_HEAD) {
+      const f = blockMeta(old) & 7, [dx, dy, dz] = DIR6[opp(f)];
+      const bv = this.g(x + dx, y + dy, z + dz);
+      if (isPiston(blockId(bv)) && (blockMeta(bv) & 7) === f && blockMeta(bv) & PISTON_EXT) this.h.breakBlock(x + dx, y + dy, z + dz);
+    }
+    if (isPiston(oid) && blockMeta(old) & PISTON_EXT && !isPiston(nid)) {
+      const f = blockMeta(old) & 7, [dx, dy, dz] = DIR6[f];
+      const hv = this.g(x + dx, y + dy, z + dz);
+      if (blockId(hv) === B.PISTON_HEAD && (blockMeta(hv) & 7) === f) { this.h.setState(x + dx, y + dy, z + dz, 0); this.updateNeighbors(x + dx, y + dy, z + dz); }
+    }
+    if (isAnalogSource(oid) || isAnalogSource(nid)) this.containerChanged(x, y, z);
   }
 
   containerChanged(x: number, y: number, z: number): void {
@@ -286,6 +335,7 @@ export class Redstone {
       case B.REDSTONE_BLOCK: return 15;
       case B.REPEATER: return m & REP_POWERED && d === opp(diodeOut(v)) ? 15 : 0;
       case B.COMPARATOR: return d === opp(diodeOut(v)) ? this.compOut.get(key(x, y, z)) ?? 0 : 0;
+      case B.OBSERVER: return m & OBS_ON && d === (m & 7) ? 15 : 0;
       default: return 0;
     }
   }
@@ -293,7 +343,7 @@ export class Redstone {
   directSignal(x: number, y: number, z: number, d: number): number {
     const v = this.g(x, y, z), id = blockId(v), m = blockMeta(v);
     switch (id) {
-      case B.REDSTONE_WIRE: case B.REPEATER: case B.COMPARATOR: return this.blockSignal(x, y, z, d);
+      case B.REDSTONE_WIRE: case B.REPEATER: case B.COMPARATOR: case B.OBSERVER: return this.blockSignal(x, y, z, d);
       case B.REDSTONE_TORCH: return d === D ? this.blockSignal(x, y, z, d) : 0;
       case B.LEVER: case B.STONE_BUTTON: case B.OAK_BUTTON: return m & LEVER_ON && attachOut(m & 7) === d ? 15 : 0;
       case B.STONE_PRESSURE_PLATE: case B.OAK_PRESSURE_PLATE: return m & PLATE_ON && d === U ? 15 : 0;
@@ -382,7 +432,148 @@ export class Redstone {
       return;
     }
     if (id === B.COMPARATOR) { this.refreshComparator(x, y, z, v); return; }
+    if (id === B.OBSERVER) {
+      const out = opp(m & 7);
+      if (m & OBS_ON) this.h.setState(x, y, z, makeBlock(id, m & ~OBS_ON));
+      else { this.h.setState(x, y, z, makeBlock(id, m | OBS_ON)); this.schedule(x, y, z, 2); }
+      this.frontUpdates(x, y, z, out);
+      return;
+    }
+    if (id === B.DROPPER || id === B.DISPENSER) { this.h.dispense(x, y, z, v, m & 7); return; }
   }
+
+  observe(x: number, y: number, z: number): void {
+    for (let d = 0; d < 6; d++) {
+      const [dx, dy, dz] = DIR6[d];
+      const nx = x + dx, ny = y + dy, nz = z + dz;
+      const v = this.g(nx, ny, nz);
+      if (blockId(v) !== B.OBSERVER || (blockMeta(v) & 7) !== opp(d)) continue;
+      if (!(blockMeta(v) & OBS_ON) && !this.hasScheduled(nx, ny, nz)) this.schedule(nx, ny, nz, 2);
+    }
+  }
+
+  private events: { x: number; y: number; z: number; type: number }[] = [];
+  private eventKeys = new Set<string>();
+  private moving: { x: number; y: number; z: number; v: number; due: number }[] = [];
+
+  private pistonSignal(x: number, y: number, z: number, facing: number): boolean {
+    for (let d = 0; d < 6; d++) {
+      if (d === facing) continue;
+      const [dx, dy, dz] = DIR6[d];
+      if (this.signal(x + dx, y + dy, z + dz, d) > 0) return true;
+    }
+    for (let d = 0; d < 6; d++) {
+      if (d === D) continue;
+      const [dx, dy, dz] = DIR6[d];
+      if (this.signal(x + dx, y + 1 + dy, z + dz, d) > 0) return true;
+    }
+    return false;
+  }
+
+  private pistonCheck(x: number, y: number, z: number, v: number): void {
+    const m = blockMeta(v), f = m & 7, ext = !!(m & PISTON_EXT);
+    const should = this.pistonSignal(x, y, z, f);
+    const k = key(x, y, z);
+    if (this.eventKeys.has(k)) return;
+    if (should && !ext) { if (this.resolve(x, y, z, f)) { this.events.push({ x, y, z, type: 0 }); this.eventKeys.add(k); } }
+    else if (!should && ext) { this.events.push({ x, y, z, type: 1 }); this.eventKeys.add(k); }
+  }
+
+  private resolve(x: number, y: number, z: number, f: number): { push: [number, number, number][]; destroy: [number, number, number] | null } | null {
+    const [dx, dy, dz] = DIR6[f];
+    const push: [number, number, number][] = [];
+    let cx = x + dx, cy = y + dy, cz = z + dz;
+    for (;;) {
+      if (cy < 0 || cy >= 255) return null;
+      if (!this.h.loaded(cx, cz)) return null;
+      const r = pushReaction(this.g(cx, cy, cz));
+      if (r === 'empty') return { push, destroy: null };
+      if (r === 'destroy') return { push, destroy: [cx, cy, cz] };
+      if (r === 'block') return null;
+      push.push([cx, cy, cz]);
+      if (push.length > 12) return null;
+      cx += dx; cy += dy; cz += dz;
+    }
+  }
+
+  tickBlockEvents(): void {
+    let n = 0;
+    while (this.events.length && n++ < 4096) {
+      const e = this.events.shift()!;
+      this.eventKeys.delete(key(e.x, e.y, e.z));
+      const v = this.g(e.x, e.y, e.z);
+      if (!isPiston(blockId(v))) continue;
+      this.pistonEvent(e.x, e.y, e.z, v, e.type);
+    }
+  }
+
+  private pistonEvent(x: number, y: number, z: number, v: number, type: number): void {
+    const id = blockId(v), m = blockMeta(v), f = m & 7;
+    const powered = this.pistonSignal(x, y, z, f);
+    const [dx, dy, dz] = DIR6[f];
+    if (type === 0) {
+      if (!powered || m & PISTON_EXT) return;
+      const r = this.resolve(x, y, z, f);
+      if (!r) return;
+      if (r.destroy) this.h.breakBlock(r.destroy[0], r.destroy[1], r.destroy[2]);
+      const due = this.h.tick() + 2;
+      const changed: [number, number, number][] = [];
+      for (let i = r.push.length - 1; i >= 0; i--) {
+        const [sx, sy, sz] = r.push[i];
+        const bv = this.g(sx, sy, sz);
+        this.h.setState(sx + dx, sy + dy, sz + dz, B.MOVING_PISTON);
+        this.moving.push({ x: sx + dx, y: sy + dy, z: sz + dz, v: bv, due });
+        changed.push([sx + dx, sy + dy, sz + dz]);
+      }
+      this.h.setState(x + dx, y + dy, z + dz, makeBlock(B.PISTON_HEAD, f | (id === B.STICKY_PISTON ? 8 : 0)));
+      this.h.setState(x, y, z, makeBlock(id, m | PISTON_EXT));
+      changed.push([x + dx, y + dy, z + dz], [x, y, z]);
+      const n = r.push.length;
+      const lo = [Math.min(x + dx, x + dx * (n + 1)), Math.min(y + dy, y + dy * (n + 1)), Math.min(z + dz, z + dz * (n + 1))];
+      const hi = [Math.max(x + dx, x + dx * (n + 1)) + 1, Math.max(y + dy, y + dy * (n + 1)) + 1, Math.max(z + dz, z + dz * (n + 1)) + 1];
+      this.h.pushEntities(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], dx, dy, dz);
+      this.h.sound('piston.out', x, y, z);
+      for (const [cx, cy, cz] of changed) this.updateNeighbors(cx, cy, cz);
+      return;
+    }
+    if (powered) return;
+    if (!(m & PISTON_EXT)) return;
+    const hx = x + dx, hy = y + dy, hz = z + dz;
+    if (blockId(this.g(hx, hy, hz)) === B.PISTON_HEAD) this.h.setState(hx, hy, hz, 0);
+    this.h.setState(x, y, z, makeBlock(id, m & ~PISTON_EXT));
+    if (id === B.STICKY_PISTON) {
+      const sx = hx + dx, sy = hy + dy, sz = hz + dz;
+      const sv = this.g(sx, sy, sz);
+      if (pushReaction(sv) === 'normal') {
+        this.h.setState(sx, sy, sz, 0);
+        this.h.setState(hx, hy, hz, B.MOVING_PISTON);
+        this.moving.push({ x: hx, y: hy, z: hz, v: sv, due: this.h.tick() + 2 });
+        this.updateNeighbors(sx, sy, sz);
+      }
+    }
+    this.h.sound('piston.in', x, y, z);
+    this.updateNeighbors(hx, hy, hz);
+    this.updateNeighbors(x, y, z);
+  }
+
+  arrivals: (x: number, y: number, z: number, v: number) => void = () => {};
+  onHopper: (x: number, y: number, z: number) => void = () => {};
+
+  tickMoving(): void {
+    if (!this.moving.length) return;
+    const now = this.h.tick();
+    const keep: typeof this.moving = [];
+    const done: typeof this.moving = [];
+    for (const mv of this.moving) (mv.due <= now ? done : keep).push(mv);
+    this.moving = keep;
+    for (const mv of done) {
+      if (blockId(this.g(mv.x, mv.y, mv.z)) !== B.MOVING_PISTON) continue;
+      this.arrivals(mv.x, mv.y, mv.z, mv.v);
+      if (blockId(mv.v) === B.OBSERVER && !(blockMeta(mv.v) & OBS_ON)) this.schedule(mv.x, mv.y, mv.z, 2);
+    }
+  }
+
+  get movingCount(): number { return this.moving.length; }
 
   private diodeInput(x: number, y: number, z: number, v: number): number {
     const back = opp(diodeOut(v));
@@ -401,7 +592,7 @@ export class Redstone {
 
   private analogAt(x: number, y: number, z: number): number {
     const id = blockId(this.g(x, y, z));
-    if (id !== B.CHEST && id !== B.FURNACE && id !== B.FURNACE_LIT) return -1;
+    if (!isAnalogSource(id)) return -1;
     const items = this.h.container(x, y, z);
     return items ? analogOf(items) : 0;
   }
@@ -604,12 +795,14 @@ export class Redstone {
     const wires: [number, number, number][] = [];
     for (let i = 0; i < blocks.length; i++) {
       const id = blocks[i] & 0xff;
+      if (id === B.MOVING_PISTON && !this.moving.some((mv) => mv.x === cx * 16 + (i & 15) && mv.y === Math.floor(i / 256) && mv.z === cz * 16 + ((i >> 4) & 15))) { this.h.setState(cx * 16 + (i & 15), Math.floor(i / 256), cz * 16 + ((i >> 4) & 15), 0); continue; }
       if (!isRedstoneId(id) && id !== B.OAK_DOOR) continue;
       const y = Math.floor(i / 256), z = cz * 16 + ((i >> 4) & 15), x = cx * 16 + (i & 15);
       const v = blocks[i], m = v >>> 8;
       if (id === B.REDSTONE_WIRE) wires.push([x, y, z]);
-      else if ((isButton(id) && m & LEVER_ON) || (isPlate(id) && m & PLATE_ON)) this.schedule(x, y, z, 1);
-      else if (isTorch(id) || isDiode(id) || isLamp(id)) this.neighborChanged(x, y, z);
+      else if ((isButton(id) && m & LEVER_ON) || (isPlate(id) && m & PLATE_ON) || (id === B.OBSERVER && m & OBS_ON)) this.schedule(x, y, z, 1);
+      else if (isTorch(id) || isDiode(id) || isLamp(id) || isPiston(id) || id === B.DROPPER || id === B.DISPENSER || id === B.HOPPER) this.neighborChanged(x, y, z);
+      if (id === B.HOPPER) this.onHopper(x, y, z);
     }
     if (wires.length) this.solveWires(wires);
   }

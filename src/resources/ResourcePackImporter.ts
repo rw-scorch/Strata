@@ -41,7 +41,7 @@ export interface PackManifest {
   catalog?: string;
 }
 
-export const IMPORTER_VERSION = 12;
+export const IMPORTER_VERSION = 13;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -66,7 +66,7 @@ export const GUI_SPRITES = [
   'recipe_book/page_forward', 'recipe_book/page_backward', 'recipe_book/page_forward_highlighted', 'recipe_book/page_backward_highlighted', 'recipe_book/tab', 'recipe_book/tab_selected',
   'recipe_book/filter_enabled', 'recipe_book/filter_disabled', 'recipe_book/filter_enabled_highlighted', 'recipe_book/filter_disabled_highlighted', 'hud/hotbar_offhand_left', 'container/slot/shield', 'icon/search',
 ];
-export const GUI_TEXTURES = ['container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
+export const GUI_TEXTURES = ['container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/hopper', 'container/dispenser', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
 
 
 export interface PackFiles { [path: string]: Uint8Array; }
@@ -80,7 +80,7 @@ export const JAVA_BLOCK_NAMES: Record<string, { name: string; state?: string }> 
   farmland: { name: 'farmland', state: 'moisture=7' }, wheat: { name: 'wheat', state: 'age=0' },
 };
 
-const SKIP_MODEL = new Set(['chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit']);
+const SKIP_MODEL = new Set(['chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser']);
 
 const all6 = (t: string) => ({ px: t, nx: t, py: t, ny: t, pz: t, nz: t });
 const RS_FACES: Record<string, Record<string, string>> = {
@@ -91,7 +91,15 @@ const RS_FACES: Record<string, Record<string, string>> = {
   repeater: { ...all6('block/smooth_stone'), py: 'block/repeater', front: 'block/repeater_on' },
   comparator: { ...all6('block/smooth_stone'), py: 'block/comparator', front: 'block/comparator_on' },
   redstone_lamp_lit: all6('block/redstone_lamp_on'),
+  observer: { ...all6('block/observer_side'), py: 'block/observer_top', ny: 'block/observer_top', front: 'block/observer_front' },
+  piston: { ...all6('block/piston_side'), ny: 'block/piston_bottom', front: 'block/piston_top' },
+  sticky_piston: { ...all6('block/piston_side'), ny: 'block/piston_bottom', front: 'block/piston_top_sticky' },
+  piston_head: { ...all6('block/piston_side'), front: 'block/piston_top' },
+  hopper: { ...all6('block/hopper_outside'), py: 'block/hopper_top' },
+  dropper: { ...all6('block/furnace_side'), py: 'block/furnace_top', ny: 'block/furnace_top', front: 'block/dropper_front' },
+  dispenser: { ...all6('block/furnace_side'), py: 'block/furnace_top', ny: 'block/furnace_top', front: 'block/dispenser_front' },
 };
+const RS6_TEX = ['observer_back', 'observer_back_on', 'piston_inner', 'hopper_inside', 'dropper_front_vertical', 'dispenser_front_vertical'];
 
 const JAVA_ITEM_NAMES: Record<string, string> = {
   aetherite: 'diamond', raw_pork: 'porkchop', cooked_pork: 'cooked_porkchop', raw_mutton: 'mutton', raw_poultry: 'chicken',
@@ -362,6 +370,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       };
       for (const t of extra[b.key] ?? []) needTex.add(t);
     }
+    for (const t of RS6_TEX) needTex.add(`block/${t}`);
     for (let i = 0; i < 10; i++) needTex.add(`block/destroy_stage_${i}`);
     for (const k of ['grass_block_top', 'grass_block_side', 'grass_block_side_overlay', 'grass_block_snow', 'farmland_moist']) needTex.add(`block/${k}`);
     const itemModelNames = new Map<string, string>();

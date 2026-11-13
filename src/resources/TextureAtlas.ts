@@ -138,6 +138,7 @@ export class TextureAtlas {
     }
     for (let i = 0; i < 8; i++) special[`wheat${i}`] = get(`wheat_stage${i}`);
     for (let i = 0; i < 10; i++) special[`destroy${i}`] = get(`destroy_stage_${i}`);
+    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top']) special[k] = get(k);
     special.doorTop = get('oak_door_top');
     special.doorBottom = get('oak_door_bottom');
     special.water = get('water_still');
