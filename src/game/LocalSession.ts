@@ -1,3 +1,4 @@
+import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../core/worldgen/genLevel';
 import { ruleSnapshot } from '../core/sim/WorldSim';
 import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity } from '../core/sim/WorldSim';
 import { Minigame, GameState } from '../core/labs/minigames/Minigame';
@@ -79,6 +80,23 @@ export class LocalSession implements GameSession {
     this.ev.inventory(this.me.inv);
     this.emitVitals();
   }
+
+  private levels = new GenRegistry(GEN_LEVEL);
+
+  initLevels(state: WorldState | null, stored: Set<string>): void {
+    if (!state) { this.levels = new GenRegistry(GEN_LEVEL); return; }
+    if (state.genBase === undefined) {
+      const pts: [number, number][] = [];
+      for (const k of stored) { const [a, b] = k.split(',').map(Number); if (Number.isFinite(a) && Number.isFinite(b)) pts.push([a, b]); }
+      for (const k of state.beChunks ?? []) { const [a, b] = k.split(',').map(Number); if (Number.isFinite(a) && Number.isFinite(b)) pts.push([a, b]); }
+      const p = state.player;
+      for (const q of [p, p?.spawn, state.spawn, ...Object.values(p?.homes ?? {})]) if (q) pts.push([Math.floor(q.x / 16), Math.floor(q.z / 16)]);
+      if (!pts.length) pts.push([0, 0]);
+      this.levels = new GenRegistry(LEGACY_LEVEL, pts);
+    } else this.levels = new GenRegistry(state.genBase, state.genPts ?? [], state.genLv);
+  }
+
+  chunkLevel(cx: number, cz: number): number { return this.meta.arena ? GEN_LEVEL : this.levels.level(cx, cz); }
 
   onGenerated(cx: number, cz: number, ents: GenBlockEntity[]): void {
     const k = chunkKey(cx, cz);
@@ -210,6 +228,7 @@ export class LocalSession implements GameSession {
       blockEntities: [...this.sim.blockEntities.entries()], beChunks: [...this.beChunks], mobs,
       dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
       populated: [...this.sim.populated],
+      genBase: this.levels.base, genPts: this.levels.points.length ? this.levels.points : undefined, genLv: this.levels.encode(),
       rules: ruleSnapshot(this.sim.settings),
       datapacks: this.sim.dataPacks.length ? this.sim.dataPacks : undefined,
     });

@@ -17,7 +17,7 @@ function canFlowInto(v: number, fluid: number): boolean {
   if (id === B.WATER || id === B.LAVA) return true;
   const d = getBlock(id);
   if (d.solid) return false;
-  return d.render === 'cross' || d.render === 'crop' || d.render === 'torch' || id === B.LILY_PAD && fluid === B.LAVA;
+  return d.render === 'cross' || d.render === 'crop' || d.render === 'torch' || d.render === 'redstone' || id === B.LILY_PAD && fluid === B.LAVA;
 }
 
 function level(v: number): number {

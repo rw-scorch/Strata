@@ -80,7 +80,18 @@ export const JAVA_BLOCK_NAMES: Record<string, { name: string; state?: string }> 
   farmland: { name: 'farmland', state: 'moisture=7' }, wheat: { name: 'wheat', state: 'age=0' },
 };
 
-const SKIP_MODEL = new Set(['chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'lily_pad']);
+const SKIP_MODEL = new Set(['chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit']);
+
+const all6 = (t: string) => ({ px: t, nx: t, py: t, ny: t, pz: t, nz: t });
+const RS_FACES: Record<string, Record<string, string>> = {
+  redstone_wire: { px: 'block/redstone_dust_line0', nx: 'block/redstone_dust_line0', pz: 'block/redstone_dust_line1', nz: 'block/redstone_dust_line1', py: 'block/redstone_dust_dot', ny: 'block/redstone_dust_dot' },
+  redstone_torch: all6('block/redstone_torch'), unlit_redstone_torch: all6('block/redstone_torch_off'),
+  lever: { ...all6('block/lever'), ny: 'block/cobblestone' },
+  stone_button: all6('block/stone'), oak_button: all6('block/oak_planks'), stone_pressure_plate: all6('block/stone'), oak_pressure_plate: all6('block/oak_planks'),
+  repeater: { ...all6('block/smooth_stone'), py: 'block/repeater', front: 'block/repeater_on' },
+  comparator: { ...all6('block/smooth_stone'), py: 'block/comparator', front: 'block/comparator_on' },
+  redstone_lamp_lit: all6('block/redstone_lamp_on'),
+};
 
 const JAVA_ITEM_NAMES: Record<string, string> = {
   aetherite: 'diamond', raw_pork: 'porkchop', cooked_pork: 'cooked_porkchop', raw_mutton: 'mutton', raw_poultry: 'chicken',
@@ -340,6 +351,10 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
         report.mappedBlocks++;
       }
     }
+    for (const [k, fo] of Object.entries(RS_FACES)) {
+      blockFaces[k] = { ...fo } as FaceOverride;
+      for (const t of Object.values(fo)) needTex.add(t);
+    }
     for (const b of BLOCKS) if (b && b.id && SKIP_MODEL.has(b.key)) {
       const extra: Record<string, string[]> = {
         chest: [], oak_door: ['block/oak_door_top', 'block/oak_door_bottom'], torch: ['block/torch'], ladder: ['block/ladder'],
@@ -354,7 +369,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       if (!it || it.kind === 'block' || it.blockIcon) continue;
       itemModelNames.set(it.key, javaItemName(it.key));
     }
-    for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door' && !itemModelNames.has(it.key)) itemModelNames.set(it.key, '');
+    for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door' && !itemModelNames.has(it.key)) itemModelNames.set(it.key, BLOCKS[it.id]?.render === 'redstone' ? it.key : '');
     r.load([...itemModelNames.values()].filter(Boolean).map((n) => `assets/minecraft/models/item/${n}.json`));
     for (const [key, jn] of itemModelNames) {
       if (!jn) continue;

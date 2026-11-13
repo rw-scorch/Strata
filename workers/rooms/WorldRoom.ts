@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator } from '../../src/core/worldgen/WorldGenerator';
+import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
 import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
 import { Minigame } from '../../src/core/labs/minigames/Minigame';
@@ -25,7 +26,7 @@ export interface Env {
   TURN_KEY_API_TOKEN?: string;
 }
 
-interface StoredMeta extends RoomMeta { pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
+interface StoredMeta extends RoomMeta { genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
 
 interface Session {
   ws: WebSocket;
@@ -87,6 +88,7 @@ export class WorldRoom extends DurableObject<Env> {
   private meta: StoredMeta | null = null;
   private sim: WorldSim | null = null;
   private gen: WorldGenerator | null = null;
+  private levels: GenRegistry | null = null;
   private cache = new Map<string, { c: ChunkData; dirty: boolean; used: number }>();
   private eco!: Economy;
   private playStart = new Map<string, number>();
@@ -107,6 +109,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS be (k TEXT PRIMARY KEY, data TEXT)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS genbe (k TEXT PRIMARY KEY)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS genlv (k TEXT PRIMARY KEY, v INTEGER)`);
     this.eco = new Economy(this.sql, {
       sim: () => this.ensureSim(),
       send: (pid, msg) => { const ss = this.sessionFor(pid); if (ss) this.send(ss, msg as S2C); },
@@ -155,6 +158,7 @@ export class WorldRoom extends DurableObject<Env> {
     const m = this.loadMeta()!;
     if (m.arena) { this.sql.exec('DELETE FROM chunks'); this.cache.clear(); }
     this.gen = new WorldGenerator(m.seed, m.arena ?? null, { secret: this.oreSeed() });
+    this.levels = this.loadLevels(m);
     const store: WorldStore = {
       getBlock: (x, y, z) => {
         const c = this.peekChunk(x >> 4, z >> 4);
@@ -209,6 +213,34 @@ export class WorldRoom extends DurableObject<Env> {
     return this.sim;
   }
 
+  private loadLevels(m: StoredMeta): GenRegistry {
+    if (m.genBase === undefined) {
+      const pts: [number, number][] = [];
+      for (const row of this.sql.exec(`SELECT k FROM chunks`).toArray()) { const [a, b] = String(row.k).split(',').map(Number); if (Number.isFinite(a) && Number.isFinite(b)) pts.push([a, b]); }
+      for (const row of this.sql.exec(`SELECT k FROM genbe`).toArray()) { const [a, b] = String(row.k).split(',').map(Number); if (Number.isFinite(a) && Number.isFinite(b)) pts.push([a, b]); }
+      for (const row of this.sql.exec(`SELECT data FROM players`).toArray()) {
+        try { const d = JSON.parse(row.data as string) as { x?: number; z?: number; spawn?: { x: number; z: number }; homes?: Record<string, { x: number; z: number }> }; for (const q of [d, d.spawn, ...Object.values(d.homes ?? {})]) if (q && Number.isFinite(q.x) && Number.isFinite(q.z)) pts.push([Math.floor(q.x! / 16), Math.floor(q.z! / 16)]); } catch { /* skip */ }
+      }
+      const sp = this.sql.exec(`SELECT v FROM kv WHERE k = 'spawn'`).toArray()[0];
+      if (sp) { try { const s = JSON.parse(sp.v as string) as { x: number; z: number }; pts.push([Math.floor(s.x / 16), Math.floor(s.z / 16)]); } catch { /* skip */ } }
+      if (!pts.length) pts.push([0, 0]);
+      const reg = new GenRegistry(LEGACY_LEVEL, pts);
+      this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('genpts', ?)`, JSON.stringify(reg.points));
+      m.genBase = LEGACY_LEVEL;
+      this.saveMeta();
+    }
+    let pts: [number, number][] = [];
+    const row = this.sql.exec(`SELECT v FROM kv WHERE k = 'genpts'`).toArray()[0];
+    if (row) { try { pts = JSON.parse(row.v as string); } catch { pts = []; } }
+    return new GenRegistry(m.genBase ?? GEN_LEVEL, pts, undefined,
+      (k) => { const r = this.sql.exec(`SELECT v FROM genlv WHERE k = ?`, k).toArray()[0]; return r ? Number(r.v) : undefined; },
+      (k, v) => { this.sql.exec(`INSERT OR REPLACE INTO genlv (k, v) VALUES (?, ?)`, k, v); });
+  }
+
+  private chunkLevel(cx: number, cz: number): number {
+    return this.levels?.level(cx, cz) ?? GEN_LEVEL;
+  }
+
   private oreSeed(): number {
     const row = this.sql.exec(`SELECT v FROM kv WHERE k = 'oreSeed'`).toArray()[0];
     if (row) return Number(row.v) >>> 0;
@@ -240,7 +272,7 @@ export class WorldRoom extends DurableObject<Env> {
         modified = true;
       } else if (near) blocks = this.getChunk(cx, cz).blocks;
     }
-    if (!modified && this.gen?.hasStructure(cx, cz)) {
+    if (!modified && (this.gen?.hasStructure(cx, cz) || this.chunkLevel(cx, cz) < GEN_LEVEL)) {
       blocks ??= this.getChunk(cx, cz).blocks;
       modified = true;
     }
@@ -317,7 +349,7 @@ export class WorldRoom extends DurableObject<Env> {
       c = new ChunkData(cx, cz, decodeRLE(rle));
       c.modified = true;
     } else {
-      const g = this.gen!.generate(cx, cz);
+      const g = this.gen!.generate(cx, cz, this.chunkLevel(cx, cz));
       c = new ChunkData(cx, cz, g.blocks);
       if (g.entities.length && this.sim) {
         const done = this.sql.exec(`SELECT k FROM genbe WHERE k = ?`, k).toArray().length > 0;
@@ -332,6 +364,7 @@ export class WorldRoom extends DurableObject<Env> {
       }
     }
     this.cache.set(k, { c, dirty: false, used: this.ticks });
+    this.sim?.rs.queueRevalidate(cx, cz);
     if (this.cache.size > MAX_CACHE) this.evict();
     return c;
   }
@@ -433,7 +466,7 @@ export class WorldRoom extends DurableObject<Env> {
       createdAt: Date.now(), version: PROTOCOL_VERSION,
       pack: pack && typeof pack.hash === 'string' ? { name: cleanText(pack.name, 40), hash: cleanText(pack.hash, 80) } : null,
       arena, ops: [],
-      pvpV6: true,
+      pvpV6: true, genBase: GEN_LEVEL,
       settings: { ...defaultSettings(), pvp: s.pvp !== false || !!arena, guestsBuild: s.guestsBuild !== false, cheats: mode === 'creative' ? s.cheats !== false : !!s.cheats, personalPacks: s.personalPacks !== false },
       region: cleanText(body.region, 8) || 'auto',
       ownerHash: await sha256(ownerSecret), time: 1000, weather: 'clear', dayCycle: true, muted: [], bans: {},

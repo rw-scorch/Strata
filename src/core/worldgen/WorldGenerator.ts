@@ -7,6 +7,7 @@ import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
+import { GEN_LEVEL } from './genLevel';
 import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines } from './trees';
 import { StructurePlan, STRONGHOLD_REGION, TRIAL_REGION, planStronghold, planTrial, stampStructure } from './structures';
 
@@ -203,7 +204,10 @@ export class WorldGenerator {
     return [top, filler, depth];
   }
 
-  generate(cx: number, cz: number): GeneratedChunk {
+  private lv = GEN_LEVEL;
+
+  generate(cx: number, cz: number, level = GEN_LEVEL): GeneratedChunk {
+    this.lv = level;
     if (this.arena) return { blocks: generateArenaChunk(this.arena, cx, cz), entities: [] };
     const blocks = new Uint16Array(CHUNK_VOLUME);
     const entities: GenBlockEntity[] = [];
@@ -366,6 +370,7 @@ export class WorldGenerator {
     write = true;
     ores();
     if (mountain) vein(B.IRON_ORE, 4, 6, 70, 120);
+    if (this.lv >= 4) vein(B.REDSTONE_ORE, 7, 7, 2, 18);
   }
 
   private treeAt(wx: number, wz: number, col: Column): { kind: number; height: number } | null {
@@ -387,8 +392,8 @@ export class WorldGenerator {
     let kind = 0;
     if (b === 'birch_forest') kind = (r2 & 7) < 6 ? 1 : 0;
     else if (b === 'forest') kind = (r2 & 7) < 2 ? 1 : 0;
-    else if (b === 'taiga' || b === 'snowy_tundra' || b === 'snowy_mountains' || b === 'mountains') kind = b === 'taiga' && ((r2 >>> 4) & 15) === 3 ? 7 : 2;
-    else if (b === 'jungle') kind = ((r2 >>> 4) & 7) === 5 ? 6 : (r2 & 3) === 0 ? 4 : 3;
+    else if (b === 'taiga' || b === 'snowy_tundra' || b === 'snowy_mountains' || b === 'mountains') kind = this.lv >= 3 && b === 'taiga' && ((r2 >>> 4) & 15) === 3 ? 7 : 2;
+    else if (b === 'jungle') kind = this.lv >= 3 && ((r2 >>> 4) & 7) === 5 ? 6 : (r2 & 3) === 0 ? 4 : 3;
     else if (b === 'swamp') kind = 5;
     const base = [4, 5, 6, 9, 1, 4, 14, 16][kind];
     const varr = [3, 3, 4, 6, 1, 2, 10, 9][kind];
@@ -451,6 +456,7 @@ export class WorldGenerator {
             }
             if (t.kind === 3) {
               for (let y = top - 3; y < top; y++) set(lx, y, lz, log);
+              if (this.lv < 3) continue;
               let hs = hr;
               const rnd = (n: number) => { hs = Math.imul(hs ^ (hs >>> 15), 0x2c1b3c6d) ^ 0x297a2d39; return ((hs >>> 8) & 0xffff) % n; };
               const tset: TreeSet = (x, y, z, v) => leaf(x, y, z, v);
@@ -474,7 +480,7 @@ export class WorldGenerator {
         }
       }
     }
-    this.placeWaterPlants(cx, cz, cols, set, get);
+    if (this.lv >= 3) this.placeWaterPlants(cx, cz, cols, set, get);
     this.placeRuins(cx, cz, cols, set, get, entities);
   }
 

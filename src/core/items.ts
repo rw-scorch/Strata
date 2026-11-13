@@ -32,7 +32,7 @@ export const I = {
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
   ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298, BONE_MEAL: 299,
-  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370,
+  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370, REDSTONE: 371,
 } as const;
 
 const NEW_DYES = COLORS.filter((c) => c !== 'red' && c !== 'yellow');
@@ -59,10 +59,10 @@ const TAB_FOR_CATEGORY: Record<string, CreativeTab> = {
 
 for (const b of BLOCKS) {
   if (!b || b.id === 0) continue;
-  const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door';
+  const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door' || b.render === 'redstone';
   add({
     id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.id,
-    texture: b.render === 'door' ? 'oak_door_item' : b.faces.pz, blockIcon: !flat, tab: TAB_FOR_CATEGORY[b.category] ?? 'building',
+    texture: b.render === 'door' ? 'oak_door_item' : b.render === 'redstone' ? b.faces.py : b.faces.pz, blockIcon: !flat, tab: TAB_FOR_CATEGORY[b.category] ?? 'building',
   });
 }
 
@@ -100,6 +100,7 @@ mat(I.COCOA_BEANS, 'cocoa_beans', 'Cocoa Beans', 'Found in jungle canopies. Make
 for (let i = 0; i < 3; i++) add({ id: I.BOW_PULL0 + i, key: `bow_pulling_${i}`, name: 'Bow', desc: '', kind: 'material', texture: `bow_pulling_${i}`, maxStack: 1, tab: 'combat' });
 mat(I.ROTTEN_FLESH, 'rotten_flesh', 'Grave Flesh', 'Edible in a pinch, but it may sicken you.', { kind: 'food', food: { hunger: 4, saturation: 0.8 } });
 add({ id: I.DOOR, key: 'oak_door_item', name: 'Oak Door', desc: 'Place on the ground. Tap to open and close.', kind: 'placer', places: B.OAK_DOOR, texture: 'oak_door_item', tab: 'functional' });
+add({ id: I.REDSTONE, key: 'redstone', name: 'Emberdust', desc: 'Lay it on the ground to carry an ember signal. Mined from Ember Ore.', kind: 'placer', places: B.REDSTONE_WIRE, texture: 'redstone', tab: 'functional' });
 add({ id: I.BUCKET, key: 'bucket', name: 'Bucket', desc: 'Scoop up water or lava.', kind: 'bucket', texture: 'bucket', maxStack: 16, tab: 'tools' });
 add({ id: I.WATER_BUCKET, key: 'water_bucket', name: 'Water Bucket', desc: 'Pour out a water source.', kind: 'bucket', texture: 'water_bucket', maxStack: 1, tab: 'tools' });
 add({ id: I.LAVA_BUCKET, key: 'lava_bucket', name: 'Lava Bucket', desc: 'Pour out lava. Also a superb fuel.', kind: 'bucket', texture: 'lava_bucket', maxStack: 1, fuel: 1000, tab: 'tools' });

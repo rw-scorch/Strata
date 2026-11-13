@@ -252,6 +252,20 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - `/give` accepts `@s`, player names and `minecraft:` item names.
   - Dialogs (players, orders, confirmations) use the Minecraft panel, header and footer separators, close button and font, and the players list wraps its buttons instead of cutting them off.
   - Redstone is planned in [docs/REDSTONE.md](docs/REDSTONE.md), which covers Java timing, update order, quasi-connectivity, every component, farms and wireless.
+- **v16 redstone (Ember) and world versions:**
+  - Redstone phases 0 and 1 from [docs/REDSTONE.md](docs/REDSTONE.md) follow Java timing and update order:
+    - Emberdust (redstone dust) climbs blocks, fades by 1 per block and shows its power by colour;
+    - Ember Torch inverts and burns out like Java's redstone torch;
+    - lever, stone and oak buttons (20 and 30 tick pulses), stone and oak pressure plates;
+    - Ember Block and Ember Lamp;
+    - Ember Relay: repeater delay 1 to 4, pulse extension and side locking;
+    - Ember Gauge: comparator compare and subtract modes, reading chests and furnaces, also through a block;
+    - oak doors open with power.
+  - Tap a relay to change its delay and a gauge to switch modes. Ember Ore is found deep underground (y 2 to 18) in newly generated chunks.
+  - World versions, like Minecraft. Every chunk records the generation version it was first made with, and keeps it.
+    - Servers and single-player worlds from before v16 are marked as "legacy": land around everything players built, every player's position, home and spawn, and the world spawn keeps the v14 generation. Any chunk already seen is recorded as it is first seen again.
+    - Chunks nobody has generated yet use the newest generation (kelp, vines, giant trees, Ember Ore).
+    - Older-version chunks are sent from the server in full, so clients never regenerate them differently.
 - **Saving:** IndexedDB worlds with autosave every 45 s and when the app is backgrounded, manual save, create/rename/duplicate/delete, export/import backups, and versioned save migration.
 - **Audio:** synthesised block, step, creature, UI, water, rain and thunder sounds, cave ambience, and generative music. Master, music, effects and ambience volumes plus mute. Muffled underwater.
 - **Mobile and PWA:** safe areas, no zoom or pull-to-refresh, fullscreen where supported, adaptive resolution, Low/Medium/High/Custom presets, installable PWA with offline single-player and an update prompt.
@@ -293,7 +307,8 @@ What has been run:
 - `scripts/v12-smoke.mjs <server>`: data pack permissions, broadcast, server-side crafting with a data pack recipe, size caps, and recipes in the welcome message on rejoin.
 - `scripts/v13-smoke.mjs <server>`: anti-xray (exposed-only ore lists, far chunks, probing with rejected actions), PvP damage, teleport by name, tpa text, seed permission, day length rule, offhand swap, and the second-tab rollback dupe.
 - `scripts/v14-smoke.mjs <server>`: economy commands, shop, sell chest, auction house, buy orders, collection box, limits, and structure chunks being sent in full with `/locate` restricted to operators.
-- `npm test`: 53 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning, crop growth, and data pack conversion (shaped, shapeless, smelting, tags, filters, unknown items, sanitising), anti-xray consistency between client and server terrain, an inventory fuzz test, economy pricing, and structure placement, determinism, secrecy, Trial Cage waves and vault keys, cobblestone generation, lava contact, kelp, absorption hearts, 2x2 trees and `/give`. The vanilla pack import test runs when the pack zip is present locally.
+- `scripts/v16-smoke.mjs <server>`: places a lever, Emberdust and a lamp through the server and checks the lamp turns on and off.
+- `npm test`: 68 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning, crop growth, and data pack conversion (shaped, shapeless, smelting, tags, filters, unknown items, sanitising), anti-xray consistency between client and server terrain, an inventory fuzz test, economy pricing, and structure placement, determinism, secrecy, Trial Cage waves and vault keys, cobblestone generation, lava contact, kelp, absorption hearts, 2x2 trees, `/give`, generation versions, and redstone circuits (dust decay and climbing, torch inversion and burnout, repeater delay and locking, comparator containers and subtraction, a clock, plates, buttons, doors, and repeatable traces). The vanilla pack import test runs when the pack zip is present locally.
 - `scripts/mp-smoke.mjs` against `wrangler dev`: two WebSocket clients exercise room creation, owner vs guest, block break and place sync, server-validated inventory, chat, chunk persistence, impersonation rejection, kick and ban, commands, and rejoin with saved inventory.
 - Headless Chrome (SwiftShader software WebGL) against `wrangler dev`: title, world creation, single-player loading and rendering, iPad-emulated touch controls (look, break, place, joystick walking, inventory, recipe book), importing the Java 26.3 vanilla pack (60/62 blocks, 73/74 items, animated water/lava, all six creature skins, player skins and HUD sprites confirmed in screenshots), and **two independent browser sessions** in one multiplayer room (UI create, code join with preview, both players visible to each other, chat both ways).
 - `wrangler deploy --dry-run`: bundle and bindings validated.
@@ -308,7 +323,7 @@ Not yet tested:
 ## Known limitations
 
 - Fluids use simplified Minecraft-style rules: 7-block water spread, 3-block lava spread, infinite water sources.
-- Torches can be placed on floors and walls. Logs are always vertical. There are no slabs, stairs or redstone yet (see docs/REDSTONE.md for the plan).
+- Torches can be placed on floors and walls. Logs are always vertical. There are no slabs or stairs yet. Redstone has signals but no pistons, observers, hoppers or dispensers yet (see docs/REDSTONE.md).
 - In multiplayer, creatures are removed when their chunk unloads (no players nearby) and are not saved; single-player worlds save them. Light levels on the server are estimated from block data (exact for enclosed rooms and caves, slightly approximate around leaves and water).
 - Very high render distances (16+) are heavy on tablets; Distant Terrain is the cheaper way to see far. Distant Terrain shows the generated world, so player builds far away only appear once their chunks load.
 

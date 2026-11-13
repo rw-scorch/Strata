@@ -84,6 +84,17 @@ shaped('cut_copper', 'building', B.CUT_COPPER, 4, ['CC', 'CC'], { C: B.COPPER_BL
 shaped('copper_lamp', 'decor', B.COPPER_LAMP, 1, [' C ', 'CTC', ' C '], { C: B.COPPER_BLOCK, T: B.TORCH });
 shaped('chiseled_tuff', 'building', B.CHISELED_TUFF, 1, ['P', 'P'], { P: B.POLISHED_TUFF });
 shaped('shears', 'tools', I.SHEARS, 1, [' I', 'I '], { I: I.IRON_INGOT });
+shaped('redstone_torch', 'decor', B.REDSTONE_TORCH, 1, ['R', 'S'], { R: I.REDSTONE, S: I.STICK });
+shaped('lever', 'decor', B.LEVER, 1, ['S', 'C'], { S: I.STICK, C: B.COBBLESTONE });
+shapeless('stone_button', 'decor', B.STONE_BUTTON, 1, [B.STONE]);
+shapeless('oak_button', 'decor', B.OAK_BUTTON, 1, [B.OAK_PLANKS]);
+shaped('stone_pressure_plate', 'decor', B.STONE_PRESSURE_PLATE, 1, ['SS'], { S: B.STONE });
+shaped('oak_pressure_plate', 'decor', B.OAK_PRESSURE_PLATE, 1, ['PP'], { P: B.OAK_PLANKS });
+shaped('redstone_block', 'building', B.REDSTONE_BLOCK, 1, ['RRR', 'RRR', 'RRR'], { R: I.REDSTONE });
+shapeless('redstone_from_block', 'basics', I.REDSTONE, 9, [B.REDSTONE_BLOCK]);
+shaped('redstone_lamp', 'decor', B.REDSTONE_LAMP, 1, [' R ', 'RGR', ' R '], { R: I.REDSTONE, G: B.GLOWSTONE });
+shaped('repeater', 'decor', B.REPEATER, 1, ['TRT', 'SSS'], { T: B.REDSTONE_TORCH, R: I.REDSTONE, S: B.STONE });
+shaped('comparator', 'decor', B.COMPARATOR, 1, [' T ', 'TCT', 'SSS'], { T: B.REDSTONE_TORCH, C: I.COPPER_INGOT, S: B.STONE });
 shaped('cookie', 'food', I.COOKIE, 8, ['WCW'], { W: I.WHEAT, C: I.COCOA_BEANS });
 shapeless('mossy_cobblestone_vine', 'building', B.MOSSY_COBBLESTONE, 1, [B.COBBLESTONE, B.VINE]);
 shapeless('mossy_stone_bricks_vine', 'building', B.MOSSY_STONE_BRICKS, 1, [B.STONE_BRICKS, B.VINE]);
@@ -241,6 +252,7 @@ export const SMELTING: SmeltRecipe[] = [
   { input: B.COPPER_ORE, result: I.COPPER_INGOT, xp: 0.7 },
   { input: B.CACTUS, result: dyeId('green'), xp: 1 },
   { input: B.KELP, result: I.DRIED_KELP, xp: 0.1 },
+  { input: B.REDSTONE_ORE, result: I.REDSTONE, xp: 0.7 },
 ];
 
 export function findSmelt(id: number, book: RecipeBook = BASE_BOOK): SmeltRecipe | null {

@@ -11,6 +11,7 @@ import {
 import { findSmelt, Recipe, RecipeBook, BASE_BOOK, DataRecipes, makeBook } from '../crafting';
 import { mergeData } from '../datapack';
 import { trialLoot, vaultLoot } from '../worldgen/structures';
+import { Redstone, isButton, isPlate, isTorch, isDiode, attachOut, DIR6, LEVER_ON } from './redstone';
 import { TreeSet, megaJungle, megaSpruce, jungleVines } from '../worldgen/trees';
 import { attackStats, attackCharge, scaledDamage, armorReduce, armorToughness } from './combat';
 import { PROFESSIONS, OFFERS, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
@@ -316,6 +317,8 @@ export class WorldSim {
   rng: Rng;
   private nextEntityId = 1;
   private fluidQueue = new Map<string, number>();
+  readonly rs: Redstone;
+  private rsQuiet = false;
   private now = 0;
 
   constructor(o: SimOptions) {
@@ -324,9 +327,30 @@ export class WorldSim {
     this.info = new ChunkInfo(o.store, (id) => TICKABLE[id] === 1);
     this.gen = o.gen;
     this.difficulty = o.difficulty;
-    this.emit = o.emit;
     this.validateMoves = o.validateMoves;
     this.authoritative = o.authoritative;
+    this.emit = (ev) => {
+      if (ev.e === 'container' && this.authoritative) { const [x, y, z] = parsePosKey(ev.key); this.rs.containerChanged(x, y, z); }
+      o.emit(ev);
+    };
+    this.rs = new Redstone({
+      get: (x, y, z) => this.get(x, y, z),
+      raw: (cx, cz) => this.store.raw?.(cx, cz) ?? null,
+      setState: (x, y, z, v) => { const q = this.rsQuiet; this.rsQuiet = true; try { this.setBlock(x, y, z, v); } finally { this.rsQuiet = q; } },
+      loaded: (x, z) => this.store.isLoaded(x, z),
+      tick: () => this.tickCount,
+      container: (x, y, z) => {
+        const be = this.getBlockEntity(x, y, z);
+        if (!be) return null;
+        if (be.type !== 'chest') return be.items;
+        const pr = chestPartner(this.store, x, y, z);
+        const other = pr ? this.getBlockEntity(pr[0], pr[1], pr[2]) : undefined;
+        return other ? [...be.items, ...other.items] : be.items;
+      },
+      plateHasEntity: (x, y, z, wooden) => this.plateOccupied(x, y, z, wooden),
+      sound: (s, x, y, z) => this.emit({ e: 'sound', s, x: x + 0.5, y: y + 0.5, z: z + 0.5 }),
+      smoke: (x, y, z) => this.emit({ e: 'particles', k: 'smoke', x: x + 0.5, y: y + 0.7, z: z + 0.5 }),
+    });
     this.spawn = o.spawn ?? o.gen.findSpawn();
     this.rng = new Rng((o.seed ^ 0x5eed) >>> 0 || 1);
   }
@@ -363,6 +387,7 @@ export class WorldSim {
   private afterChange(x: number, y: number, z: number, old: number, v: number): void {
     const oid = blockId(old), nid = blockId(v);
     this.info.changed(x, y, z, old, v);
+    if (this.authoritative && !this.rsQuiet) this.rs.blockChanged(x, y, z, old, v);
     if (oid === B.CHEST || oid === B.FURNACE || oid === B.FURNACE_LIT) {
       if (!(nid === B.FURNACE || nid === B.FURNACE_LIT) || oid === B.CHEST) this.removeBlockEntity(x, y, z, true);
     }
@@ -604,8 +629,13 @@ export class WorldSim {
       if (m & DOOR_UPPER) return blockId(this.get(x, y - 1, z)) === B.OAK_DOOR;
       return isSolid(this.get(x, y - 1, z)) && blockId(this.get(x, y + 1, z)) === B.OAK_DOOR;
     }
-    if (id === B.TORCH) {
-      const m = blockMeta(v);
+    if (id === B.LEVER || isButton(id)) {
+      const o = attachOut(blockMeta(v) & 7);
+      const [dx, dy, dz] = DIR6[o ^ 1];
+      return isSolid(this.get(x + dx, y + dy, z + dz));
+    }
+    if (id === B.TORCH || isTorch(id)) {
+      const m = blockMeta(v) & 7;
       if (m === 0) return isSolid(this.get(x, y - 1, z));
       const [dx, dz] = FACING_DIRS[(m - 1) & 3];
       return isSolid(this.get(x + dx, y, z + dz));
@@ -649,6 +679,8 @@ export class WorldSim {
     const rest = isWaterPlant(id) ? B.WATER : 0;
     this.store.setBlock(x, y, z, rest);
     this.emit({ e: 'block', x, y, z, v: rest, old: v });
+    this.info.changed(x, y, z, v, rest);
+    if (this.authoritative) this.rs.blockChanged(x, y, z, v, rest);
     if (!(id === B.OAK_DOOR && blockMeta(v) & DOOR_UPPER)) this.spawnDrops(x, y, z, v, null, true);
     this.emit({ e: 'particles', k: 'break', x: x + 0.5, y: y + 0.5, z: z + 0.5, d: v });
     this.checkSupport(x, y + 1, z, depth + 1);
@@ -1187,6 +1219,7 @@ export class WorldSim {
       if (id === B.CHEST) { this.openScreen(p, 'chest', x, y, z); return true; }
       if (id === B.VAULT) return this.openVault(p, x, y, z);
       if (id === B.FURNACE || id === B.FURNACE_LIT) { this.openScreen(p, 'furnace', x, y, z); return true; }
+      if (id === B.LEVER || isButton(id) || isDiode(id)) { if (!this.canBuild(p)) return false; return this.authoritative ? this.rs.use(x, y, z, v) : true; }
       if (id === B.OAK_DOOR) {
         if (!this.canBuild(p)) return false;
         const m = blockMeta(v);
@@ -1320,7 +1353,13 @@ export class WorldSim {
         break;
       }
     }
-    if (bid === B.TORCH) {
+    if (bid === B.LEVER || isButton(bid)) {
+      if (ny === 1) meta = 0; else if (ny === -1) meta = 5;
+      else meta = FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz) + 1;
+      if (bid === B.LEVER && (meta === 0 || meta === 5) && (look & 1)) meta |= 16;
+    }
+    if (isDiode(bid)) meta = look & 3;
+    if (bid === B.TORCH || bid === B.REDSTONE_TORCH) {
       if (ny === 1) meta = 0;
       else if (ny === -1) return fail();
       else {
@@ -1524,12 +1563,14 @@ export class WorldSim {
     this.info.budget = 20000;
     if (this.tickCount % 10 === 1 || this.players.size !== this.tickingFor) this.refreshTicking();
     if (this.tickCount % 600 === 0) this.info.prune();
+    this.rs.tickScheduled();
     this.tickFluids();
-    this.tickFurnaces();
     this.tickRandom();
     this.tickLeafDecay();
     this.tickFalling();
     for (const e of [...this.entities.values()]) this.tickEntity(e);
+    this.tickPlates();
+    this.tickFurnaces();
     if (this.game) this.game.tick();
     else {
       this.naturalSpawn();
@@ -1628,6 +1669,7 @@ export class WorldSim {
     if (old === v) return;
     this.store.setBlock(x, y, z, v);
     this.emit({ e: 'block', x, y, z, v, old });
+    if (this.authoritative) this.rs.blockChanged(x, y, z, old, v);
     this.checkSupport(x, y + 1, z);
     const nid = isWaterPlant(blockId(v)) ? B.WATER : blockId(v), oid = isWaterPlant(blockId(old)) ? B.WATER : blockId(old);
     if (nid === B.LAVA || oid === B.LAVA || nid === B.WATER || oid === B.WATER) {
@@ -1636,6 +1678,34 @@ export class WorldSim {
         if ((n === B.WATER && (nid === B.LAVA || oid === B.LAVA)) || (n === B.LAVA && (nid === B.WATER || oid === B.WATER))) this.scheduleFluid(x + dx, y + dy, z + dz, 1);
       }
     }
+  }
+
+  private plateOccupied(x: number, y: number, z: number, wooden: boolean): boolean {
+    const x0 = x + 1 / 16, x1 = x + 15 / 16, z0 = z + 1 / 16, z1 = z + 15 / 16, y0 = y, y1 = y + 0.25;
+    for (const p of this.players.values()) {
+      if (p.dead || (p as { spectating?: unknown }).spectating) continue;
+      if (p.x + 0.3 > x0 && p.x - 0.3 < x1 && p.z + 0.3 > z0 && p.z - 0.3 < z1 && p.y < y1 && p.y + 1.8 > y0) return true;
+    }
+    for (const e of this.entities.values()) {
+      if (e.kind !== 'mob' && !wooden) continue;
+      if (e.kind === 'mob' && e.health <= 0) continue;
+      if (e.x + e.hw > x0 && e.x - e.hw < x1 && e.z + e.hw > z0 && e.z - e.hw < z1 && e.y < y1 && e.y + e.h > y0) return true;
+    }
+    return false;
+  }
+
+  private tickPlates(): void {
+    const check = (x: number, y: number, z: number, hw: number, mobOrPlayer: boolean) => {
+      const by = Math.floor(y + 0.01);
+      for (let bx = Math.floor(x - hw); bx <= Math.floor(x + hw); bx++) for (let bz = Math.floor(z - hw); bz <= Math.floor(z + hw); bz++) {
+        const v = this.get(bx, by, bz), id = blockId(v);
+        if (!isPlate(id) || blockMeta(v) & 1) continue;
+        if (!mobOrPlayer && id !== B.OAK_PRESSURE_PLATE) continue;
+        if (this.plateOccupied(bx, by, bz, id === B.OAK_PRESSURE_PLATE)) this.rs.pressPlate(bx, by, bz);
+      }
+    };
+    for (const p of this.players.values()) if (!p.dead) check(p.x, p.y, p.z, 0.3, true);
+    for (const e of this.entities.values()) if (e.kind !== 'mob' || e.health > 0) check(e.x, e.y, e.z, e.hw, e.kind === 'mob');
   }
 
   private tickFluids(): void {

@@ -1,3 +1,4 @@
+import { GEN_LEVEL } from '../core/worldgen/genLevel';
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import { loadCustomSkin } from '../resources/skins';
 import { VoiceChat, VoiceState } from '../audio/VoiceChat';
@@ -257,6 +258,8 @@ export class Game {
       onMesh: (key, cx, cz, r) => this.renderer.setChunkMesh(key, cx, cz, r),
       onUnload: (key) => this.renderer.removeChunk(key),
       saveChunk: (cx, cz, data) => { if (this.worldMeta) void WorldStorage.saveChunks(this.worldMeta.id, [{ cx, cz, data }]); },
+      onLoaded: (cx, cz) => { if (this.session instanceof LocalSession) this.session.sim.rs.queueRevalidate(cx, cz); },
+      genLevel: (cx, cz) => (this.session instanceof LocalSession ? this.session.chunkLevel(cx, cz) : undefined) ?? GEN_LEVEL,
     }, remote);
     this.renderer.chests.getBlock = (x, y, z) => this.chunks.getBlock(x, y, z);
     const hudRoot = document.getElementById('hud-root')!;
@@ -383,6 +386,7 @@ export class Game {
     this.setupCommon(rec.meta.seed, false, rec.meta.arena ?? null);
     const s = getSettings();
     const local = new LocalSession(rec.meta, rec.state, this.chunks, this.ev, s.playerName || 'Wayfarer', s.appearance);
+    local.initLevels(rec.state, this.storedKeys ?? new Set());
     this.session = local;
     this.player.flying = local.flying;
     const p = local.me;

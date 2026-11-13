@@ -404,9 +404,9 @@ export class TextureAtlas {
         let src: HTMLCanvasElement | null = null;
         if (it.kind === 'block') {
           const bd = BLOCKS[it.id];
-          if (bd?.render === 'door') src = this.itemSource(it);
+          if (bd?.render === 'door' || (bd?.render === 'redstone' && this.pack?.itemTextures.has(it.key) && this.pack.files.has(this.pack.itemTextures.get(it.key)!))) src = this.itemSource(it);
           else {
-            const tile = it.id === B.WHEAT ? this.data.special.wheat7 : this.data.blockTiles[it.id * FACE_SLOTS + 4];
+            const tile = it.id === B.WHEAT ? this.data.special.wheat7 : this.data.blockTiles[it.id * FACE_SLOTS + (bd?.render === 'redstone' ? 2 : 4)];
             src = this.tileCanvases[tile] ?? null;
           }
           const tint = this.data.tintTable[it.id * 2];

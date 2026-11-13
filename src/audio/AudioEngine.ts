@@ -268,6 +268,14 @@ export class AudioEngine {
         break;
       case 'chest': this.noiseHit(dest, t, 300, 3, 'bandpass', { a: 0.02, d: 0.35, v: 0.4 }); this.tone(dest, t, 110, 'triangle', { a: 0.01, d: 0.3, v: 0.15 }, 80); break;
       case 'door': this.noiseHit(dest, t, sub === 'open' ? 500 : 350, 4, 'bandpass', { a: 0.01, d: 0.22, v: 0.4 }); this.tone(dest, t, sub === 'open' ? 260 : 200, 'sawtooth', { a: 0.01, d: 0.18, v: 0.06 }, sub === 'open' ? 320 : 150); break;
+      case 'lever': case 'button': case 'plate': case 'click': {
+        const on = sub === 'on' || cat === 'click';
+        const f = cat === 'plate' ? 700 : cat === 'lever' ? 1500 : 1900;
+        this.noiseHit(dest, t, f * (on ? 1.15 : 0.85) * rnd(), 6, 'bandpass', { a: 0.001, d: 0.05, v: 0.35 });
+        this.tone(dest, t, (on ? 600 : 480) * rnd(), 'square', { a: 0.001, d: 0.03, v: 0.06 });
+        break;
+      }
+      case 'redstone': this.noiseHit(dest, t, 4000, 1, 'highpass', { a: 0.01, d: 0.35, v: 0.25 }, 0.4); break;
       case 'bucket': this.noiseHit(dest, t, sub === 'empty' ? 900 : 600, 1, 'lowpass', { a: 0.01, d: 0.4, v: 0.4 }); break;
       case 'tool': this.noiseHit(dest, t, 3000, 3, 'bandpass', { a: 0.002, d: 0.3, v: 0.5 }); this.tone(dest, t, 1800, 'square', { a: 0.002, d: 0.2, v: 0.08 }, 900); break;
       case 'arrow':

@@ -39,6 +39,9 @@ export interface WorldState {
   mobs: { type: MobType; x: number; y: number; z: number; health: number }[];
   dayCycle: boolean;
   populated?: number[];
+  genBase?: number;
+  genPts?: [number, number][];
+  genLv?: Record<string, string>;
   rules?: { simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number; maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean };
   cheats: boolean;
   datapacks?: DataRecipes[];

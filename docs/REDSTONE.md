@@ -1,6 +1,20 @@
 # Redstone plan
 
-This is the plan for adding Java Edition style redstone to Strata, so players can build the same contraptions and farms they know: sugar cane and wheat farms, piston doors, clocks, item sorters, and the stranger technical builds (quasi-connectivity, BUDs, item-order wireless). It is written from research into how Java Edition behaves, with the sources listed at the end. Nothing here is built yet; v15 only lays groundwork (fluid updates, kelp, 2x2 trees).
+This is the plan for adding Java Edition style redstone to Strata, so players can build the same contraptions and farms they know: sugar cane and wheat farms, piston doors, clocks, item sorters, and the stranger technical builds (quasi-connectivity, BUDs, item-order wireless). It is written from research into how Java Edition behaves, with the sources listed at the end.
+
+## Status
+
+1) **Phase 0 (engine): done in v16.** `src/core/sim/redstone.ts` has:
+   - scheduled block ticks with the Java priorities, run before fluids;
+   - depth-first neighbor updates in Java order;
+   - a 300,000 update budget per tick;
+   - entities ticked in creation order and block entities after them.
+   Components in a chunk are re-checked when the chunk loads, so buttons and torches never get stuck after a restart.
+2) **Phase 1 (signals): done in v16.** Dust, Ember Torch (redstone torch, with burnout), lever, stone and oak buttons and pressure plates, Ember Block, Ember Lamp, Ember Relay (repeater, with delay, pulse extension and locking), Ember Gauge (comparator, with compare, subtract and container reading), and powered oak doors.
+   - Dust is solved as a whole network, with updates sent once per changed wire, nearest the source first.
+   - Ember Ore appears only in newly generated chunks.
+   - Strata names: Emberdust is redstone dust; Ember Relay is the repeater; Ember Gauge is the comparator. The Gauge uses a copper ingot where Java uses nether quartz.
+3) **Not yet:** shape (PP) updates as a separate pass, quasi-connectivity (needs pistons), and everything in phases 2 to 4.
 
 ## Goals
 

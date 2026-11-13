@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -66,6 +66,8 @@ export const B = {
   CORNFLOWER: 158, LILY_OF_THE_VALLEY: 159, ALLIUM: 160, AZURE_BLUET: 161, BLUE_ORCHID: 162, ORANGE_TULIP: 163, PINK_TULIP: 164, WHITE_TULIP: 165, RED_TULIP: 166, OXEYE_DAISY: 167,
   TUFF: 168, TUFF_BRICKS: 169, CHISELED_TUFF: 170, POLISHED_TUFF: 171, COPPER_BLOCK: 172, CUT_COPPER: 173, COPPER_LAMP: 174, COPPER_ORE: 175,
   SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178, KELP: 179, KELP_PLANT: 180, SEAGRASS: 181, VINE: 182,
+  REDSTONE_WIRE: 183, REDSTONE_TORCH: 184, LEVER: 185, STONE_BUTTON: 186, OAK_BUTTON: 187, STONE_PRESSURE_PLATE: 188, OAK_PRESSURE_PLATE: 189,
+  REDSTONE_BLOCK: 190, REDSTONE_LAMP: 191, REDSTONE_LAMP_LIT: 192, UNLIT_REDSTONE_TORCH: 193, REDSTONE_ORE: 194, REPEATER: 195, COMPARATOR: 196,
 } as const;
 
 export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
@@ -231,6 +233,22 @@ def(180, 'kelp_plant', 'Kelp Stem', 'The long body of a kelp plant.', { faces: A
 def(181, 'seagrass', 'Seagrass', 'Sways in shallow seas.', { faces: ALL('seagrass'), ...PLANT, needsSupport: 'water-plant', replaceable: true, drops: [] });
 def(182, 'vine', 'Vines', 'Hangs from jungle trees. Climbable.', { faces: ALL('vine'), render: 'ladder', solid: false, opaque: false, lightFilter: 0, hardness: 0.2, tool: 'hoe', sound: 'grass', climbable: true, tint: 'foliage', needsSupport: 'solid', orientable: true, replaceable: true, drops: [], category: 'plants' });
 
+const RS: Partial<BlockDef> = { render: 'redstone', solid: false, opaque: false, lightFilter: 0, hardness: 0, sound: 'stone', needsSupport: 'solid', category: 'functional' };
+def(183, 'redstone_wire', 'Emberdust', 'Carries an ember signal up to 15 blocks, fading as it goes.', { faces: { px: 'redstone_dust_line0', nx: 'redstone_dust_line0', py: 'redstone_dust_dot', ny: 'redstone_dust_dot', pz: 'redstone_dust_line1', nz: 'redstone_dust_line1' }, ...RS, tint: null, drops: [{ item: 371 }], category: 'hidden' });
+def(184, 'redstone_torch', 'Ember Torch', 'Always on, unless the block it hangs on is powered. Inverts signals.', { faces: ALL('redstone_torch'), render: 'torch', solid: false, opaque: false, lightFilter: 0, lightEmit: 7, hardness: 0, sound: 'wood', needsSupport: 'solid', category: 'functional' });
+def(185, 'lever', 'Lever', 'Flick it on, flick it off. Powers the block it is fixed to.', { faces: { ...ALL('lever'), ny: 'cobblestone' }, ...RS, sound: 'wood', interactive: true });
+def(186, 'stone_button', 'Stone Button', 'A short pulse of power, one second long.', { faces: ALL('stone'), ...RS, interactive: true });
+def(187, 'oak_button', 'Oak Button', 'A pulse of power, one and a half seconds long.', { faces: ALL('oak_planks'), ...RS, sound: 'wood', interactive: true });
+def(188, 'stone_pressure_plate', 'Stone Pressure Plate', 'Powers while a player or creature stands on it.', { faces: ALL('stone'), ...RS, hardness: 0.5, tool: 'pickaxe' });
+def(189, 'oak_pressure_plate', 'Oak Pressure Plate', 'Powers while anything at all rests on it, even dropped items.', { faces: ALL('oak_planks'), ...RS, hardness: 0.5, sound: 'wood', tool: 'axe' });
+def(190, 'redstone_block', 'Ember Block', 'A solid block that always gives full power.', { faces: ALL('redstone_block'), hardness: 5, tool: 'pickaxe', sound: 'metal', category: 'functional' });
+def(191, 'redstone_lamp', 'Ember Lamp', 'Lights up when powered.', { faces: ALL('redstone_lamp'), hardness: 0.3, sound: 'glass', category: 'functional' });
+def(192, 'redstone_lamp_lit', 'Lit Ember Lamp', '', { faces: ALL('redstone_lamp_on'), hardness: 0.3, sound: 'glass', lightEmit: 15, drops: [{ item: 191 }], category: 'hidden' });
+def(193, 'unlit_redstone_torch', 'Ember Torch', '', { faces: ALL('redstone_torch_off'), render: 'torch', solid: false, opaque: false, lightFilter: 0, hardness: 0, sound: 'wood', needsSupport: 'solid', drops: [{ item: 184 }], category: 'hidden' });
+def(194, 'redstone_ore', 'Ember Ore', 'Deep red veins that crumble into Emberdust.', { faces: ALL('redstone_ore'), hardness: 3, tool: 'pickaxe', tier: 2, drops: [{ item: 371, min: 4, max: 5 }], xp: [1, 5], category: 'ore' });
+def(195, 'repeater', 'Ember Relay', 'Restores a signal to full strength after a delay of 1 to 4 ticks. Tap to change the delay.', { faces: { ...ALL('smooth_stone'), py: 'repeater' }, front: 'repeater_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
+def(196, 'comparator', 'Ember Gauge', 'Compares or subtracts signals, and reads how full a container is. Tap to switch modes.', { faces: { ...ALL('smooth_stone'), py: 'comparator' }, front: 'comparator_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
+
 export function isWaterPlant(id: number): boolean { return id === 179 || id === 180 || id === 181; }
 export function isWaterLike(v: number): boolean { const id = v & 0xff; return id === 12 || id === 179 || id === 180 || id === 181; }
 
@@ -320,6 +338,26 @@ export function blockBox(v: number): [number, number, number, number, number, nu
   return [0, 0, 0, 1, 1, 1];
 }
 
+export function placeOnFace(face: number, b: number[]): [number, number, number, number, number, number] {
+  const [x0, y0, z0, x1, y1, z1] = b;
+  switch (face) {
+    case 5: return [x0, 1 - y1, z0, x1, 1 - y0, z1];
+    case 1: return [x0, z0, y0, x1, z1, y1];
+    case 3: return [x0, z0, 1 - y1, x1, z1, 1 - y0];
+    case 4: return [y0, z0, x0, y1, z1, x1];
+    case 2: return [1 - y1, z0, x0, 1 - y0, z1, x1];
+    default: return [x0, y0, z0, x1, y1, z1];
+  }
+}
+
+function rsBox(id: number, meta: number): [number, number, number, number, number, number] {
+  if (id === 183) return [0, 0, 0, 1, 1 / 16, 1];
+  if (id === 188 || id === 189) return [1 / 16, 0, 1 / 16, 15 / 16, 1 / 16, 15 / 16];
+  if (id === 195 || id === 196) return [0, 0, 0, 1, 2 / 16, 1];
+  if (id === 185) return placeOnFace(meta & 7, [4 / 16, 0, 4 / 16, 12 / 16, 10 / 16, 12 / 16]);
+  return placeOnFace(meta & 7, [5 / 16, 0, 6 / 16, 11 / 16, 2 / 16, 10 / 16]);
+}
+
 export function selectionBox(v: number): [number, number, number, number, number, number] | null {
   const id = v & 0xff;
   const d = defs[id];
@@ -333,6 +371,7 @@ export function selectionBox(v: number): [number, number, number, number, number
       return edgeBox((v >>> 8) & 3, 2 / 16);
     }
     case 'cross': case 'crop': return [2 / 16, 0, 2 / 16, 14 / 16, 13 / 16, 14 / 16];
+    case 'redstone': return rsBox(id, v >>> 8);
     default: return [0, 0, 0, 1, 1, 1];
   }
 }

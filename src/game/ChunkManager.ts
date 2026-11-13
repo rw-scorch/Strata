@@ -14,6 +14,8 @@ export interface ChunkSourceHooks {
   onMesh(key: string, cx: number, cz: number, r: MeshResult): void;
   onUnload(key: string): void;
   saveChunk?(cx: number, cz: number, data: Uint16Array): void;
+  genLevel?(cx: number, cz: number): number;
+  onLoaded?(cx: number, cz: number): void;
 }
 
 interface CChunk {
@@ -182,6 +184,7 @@ export class ChunkManager implements WorldStore {
     c.remoteData = null;
     for (const [x, y, z, v] of c.pending) c.data.set(x & 15, y, z & 15, v);
     c.pending = [];
+    this.hooks.onLoaded?.(c.cx, c.cz);
     c.dirty = true;
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const n = this.get_(c.cx + dx, c.cz + dz);
@@ -270,7 +273,7 @@ export class ChunkManager implements WorldStore {
       const id = this.nextJob++;
       this.jobs.set(id, job);
       this.busy[i] = true;
-      if (job.kind === 'gen') this.workers[i].postMessage({ t: 'gen', id, cx: job.c.cx, cz: job.c.cz });
+      if (job.kind === 'gen') this.workers[i].postMessage({ t: 'gen', id, cx: job.c.cx, cz: job.c.cz, level: this.remote ? undefined : this.hooks.genLevel?.(job.c.cx, job.c.cz) });
       else {
         job.c.meshQueued = false;
         job.c.meshing = true;

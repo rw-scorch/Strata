@@ -456,6 +456,27 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   TEX.cut_copper = () => { const p = noise('cutc', hex(0xc06a48), 0.05); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0xe8a07a)); p.set(0, i, hex(0xe8a07a)); p.set(i, 7, hex(0x8a4430)); p.set(7, i, hex(0x8a4430)); p.set(i, 8, hex(0xe8a07a)); p.set(8, i, hex(0xe8a07a)); p.set(i, 15, hex(0x8a4430)); p.set(15, i, hex(0x8a4430)); } return p; };
   TEX.copper_lamp = () => { const p = cage('clamp', hex(0xb0603e), null); for (let y = 1; y < 15; y++) for (let x = 1; x < 15; x++) if (x % 5 && y % 5) p.set(x, y, mixc(hex(0xffe8a0), hex(0xffb040), (x + y) / 30)); return p; };
   TEX.copper_ore = () => oreTex('copper_ore', hex(0xd07a4a), hex(0x3e8a6a));
+  const dust = (key: string, kind: 'dot' | 'v' | 'h') => plant(key, (p, r) => {
+    const put = (x: number, y: number) => { const g = 200 + r.int(55); p.set(x, y, [g, g, g, 255]); };
+    if (kind === 'dot') { for (let y = 5; y < 11; y++) for (let x = 5; x < 11; x++) if ((x - 7.5) ** 2 + (y - 7.5) ** 2 < 8 + r.next() * 3) put(x, y); }
+    else for (let a = 0; a < 16; a++) for (let b = 6; b < 10; b++) if (b === 6 || b === 9 ? r.next() < 0.6 : true) { if (kind === 'v') put(b, a); else put(a, b); }
+  });
+  TEX.redstone_dust_dot = () => dust('rdot', 'dot');
+  TEX.redstone_dust_line0 = () => dust('rl0', 'v');
+  TEX.redstone_dust_line1 = () => dust('rl1', 'v');
+  const rtorch = (on: boolean) => { const p = new Px(); for (let y = 6; y < 16; y++) { p.set(7, y, hex(0x6b5233)); p.set(8, y, hex(0x4f3b22)); } const c = on ? [0xff6a50, 0xe02010, 0xb01008] : [0x6a2a24, 0x4a1a16, 0x3a1210]; p.set(7, 5, hex(c[0])); p.set(8, 5, hex(c[1])); p.set(7, 6, hex(c[1])); p.set(8, 6, hex(c[2])); p.set(7, 7, hex(c[2])); p.set(8, 7, hex(c[2])); return p; };
+  TEX.redstone_torch = () => rtorch(true);
+  TEX.redstone_torch_off = () => rtorch(false);
+  TEX.lever = () => { const p = new Px(); for (let y = 6; y < 16; y++) { p.set(7, y, hex(0x8a6a40)); p.set(8, y, hex(0x6b5233)); } p.set(7, 6, hex(0xa08050)); return p; };
+  TEX.redstone_block = () => framed(speckle(noise('rblk', hex(0xb01810), 0.12), 'rblk', [hex(0xe03020), hex(0x701008)], 40), hex(0xe84030), hex(0x600808));
+  TEX.redstone_lamp = () => { const p = framed(noise('rlamp', hex(0x5a3420), 0.08), hex(0x7a4a30), hex(0x2a1810)); for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) if ((x + y) % 3 === 0) p.set(x, y, hex(0x8a5a3a)); return p; };
+  TEX.redstone_lamp_on = () => { const p = framed(noise('rlampon', hex(0xd88a40), 0.08), hex(0xffe0a0), hex(0x8a4a20)); for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) if ((x + y) % 3 === 0) p.set(x, y, hex(0xfff0c0)); return p; };
+  TEX.redstone_ore = () => oreTex('redstone_ore', hex(0xd02010), hex(0x701008));
+  const diode = (key: string, on: boolean, cmp: boolean) => { const p = noise(key, hex(0xa8a8a8), 0.04); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0xc8c8c8)); p.set(0, i, hex(0xc8c8c8)); p.set(i, 15, hex(0x7a7a7a)); p.set(15, i, hex(0x7a7a7a)); } const red = on ? hex(0xff3020) : hex(0x6a1810); for (let y = 2; y < 14; y++) p.set(7, y, red), p.set(8, y, red); for (const [x, y] of cmp ? [[4, 12], [11, 12], [7, 3]] : [[7, 3], [7, 10]]) { p.set(x, y, hex(on ? 0xff6a50 : 0x5a2a20)); p.set(x + 1, y, hex(on ? 0xff6a50 : 0x5a2a20)); } p.set(6, 1, hex(0x505050)); p.set(9, 1, hex(0x505050)); p.set(7, 0, hex(0x505050)); p.set(8, 0, hex(0x505050)); return p; };
+  TEX.repeater = () => diode('rep', false, false);
+  TEX.repeater_on = () => diode('repon', true, false);
+  TEX.comparator = () => diode('cmp', false, true);
+  TEX.comparator_on = () => diode('cmpon', true, true);
   const kelpTex = (key: string, top: boolean) => plant(key, (p, r) => {
     const dark = hex(0x3c6e1e), mid = hex(0x5a8f2a), lite = hex(0x7fb040);
     for (let y = top ? 3 : 0; y < 16; y++) {
@@ -638,6 +659,7 @@ const ITEM_MAP: Record<string, () => Px> = {
     green: [0x223008, 0x5a7a20, 0x9ab860], black: [0x050505, 0x1e1e24, 0x4a4a52],
   };
   for (const [c, [a, b, d]] of Object.entries(DYE)) ITEM_MAP[`${c}_dye`] = () => drawSprite(SPRITES.dye.rows, { a, b, c: d });
+  ITEM_MAP.redstone = () => drawSprite(['................', '................', '................', '......aa........', '.....abba..a....', '....abbbba.ab...', '...abbccbba.....', '...abbbbbbba....', '....abbcbbba....', '.a...abbbba.....', 'aba...aaaa..a...', '.a.........aba..', '............a...', '................', '................', '................'], { a: 0x5a0808, b: 0xc01810, c: 0xff5a40 });
   ITEM_MAP.shears = () => drawSprite(['................', '................', '..........aa....', '.........abba...', '........abba....', '.......abba.....', '...cc.abba......', '..cddcaba.......', '..cd.dca........', '..cddcdc........', '...ccd.dc.......', '.....cddc.......', '......cc........', '................', '................', '................'], { a: 0x5a5a5a, b: 0xd8d8d8, c: 0x3a2010, d: 0xc04020 });
   ITEM_MAP.cookie = () => drawSprite(['................', '................', '................', '.....aaaaaa.....', '....abbbbbba....', '...abbcbbbbba...', '...abbbbbcbba...', '...abcbbbbbba...', '...abbbbcbbba...', '...abbbbbbcba...', '....abcbbbba....', '.....aaaaaa.....', '................', '................', '................', '................'], { a: 0x8a5420, b: 0xd8963a, c: 0x3a2010 });
   ITEM_MAP.dried_kelp = () => drawSprite(['................', '................', '..........aa....', '.........abba...', '........abba....', '.......abba.....', '......abba......', '.....abba.......', '....abba........', '...abba.........', '..abba..........', '..aaa...........', '................', '................', '................', '................'], { a: 0x1e2a14, b: 0x3e5a24 });

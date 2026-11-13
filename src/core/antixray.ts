@@ -4,7 +4,7 @@ import { CHUNK_SIZE, WORLD_HEIGHT } from './constants';
 export const ORE_REVEAL_RADIUS = 5;
 
 const HIDDEN = new Uint8Array(256);
-for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.AETHERITE_ORE, B.COPPER_ORE]) HIDDEN[id] = 1;
+for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.AETHERITE_ORE, B.COPPER_ORE, B.REDSTONE_ORE]) HIDDEN[id] = 1;
 
 export function isHiddenOre(v: number): boolean { return HIDDEN[blockId(v)] === 1; }
 

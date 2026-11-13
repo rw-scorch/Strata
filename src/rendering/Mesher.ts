@@ -1,5 +1,6 @@
 import { WORLD_HEIGHT } from '../core/constants';
 import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant } from '../core/blocks';
+import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import type { AtlasData } from '../resources/TextureAtlas';
@@ -18,7 +19,7 @@ export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_G
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13 };
 const CULLSELF = new Uint8Array(256);
 for (const b of BLOCKS) if (b) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(256);
@@ -566,12 +567,14 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       }
       return;
     }
+    case 13: { redstoneMesh(ctx, id, v, x, y, z, sk, bl); return; }
     case 8: {
       const tile = tiles[id * FS + 4];
+      const TE = LIGHT_EMIT[id] > 0 ? F_EMIT : 0;
       const p0 = 7 / 16, p1 = 9 / 16;
       const sideUV = [[p0, 1], [p1, 1], [p1, 6 / 16], [p0, 6 / 16]];
       if (meta === 0) {
-        boxFaces(cut, x + p0, y, z + p0, x + p1, y + 10 / 16, z + p1, () => tile, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]] : sideUV, F_EMIT);
+        boxFaces(cut, x + p0, y, z + p0, x + p1, y + 10 / 16, z + p1, () => tile, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]] : sideUV, TE);
       } else {
         const [dx, dz] = FACING_DIRS[(meta - 1) & 3];
         const shift = 5.5 / 16, lean = 3 / 16;
@@ -582,8 +585,8 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         const topP = base.map(([a, c]) => [a - dx * lean, c - dz * lean]);
         const B0 = base.map(([a, c]) => [a, y0, c]), T0 = topP.map(([a, c]) => [a, y1, c]);
         const sides: [number, number][] = [[1, 2], [3, 0], [2, 3], [0, 1]];
-        for (const [i, j] of sides) quadRaw(cut, [B0[i], B0[j], T0[j], T0[i]], sideUV, tile, sk, bl, 220, 255, 255, 255, F_EMIT, true);
-        quadRaw(cut, [T0[3], T0[2], T0[1], T0[0]], [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]], tile, sk, bl, 255, 255, 255, 255, F_EMIT, false);
+        for (const [i, j] of sides) quadRaw(cut, [B0[i], B0[j], T0[j], T0[i]], sideUV, tile, sk, bl, 220, 255, 255, 255, TE, true);
+        quadRaw(cut, [T0[3], T0[2], T0[1], T0[0]], [[p0, 8 / 16], [p1, 8 / 16], [p1, 6 / 16], [p0, 6 / 16]], tile, sk, bl, 255, 255, 255, 255, TE, false);
       }
       return;
     }
@@ -629,6 +632,114 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         });
       void smooth;
       return;
+    }
+  }
+}
+
+const RS_TORCH_SIDE_UV = [[7 / 16, 1], [9 / 16, 1], [9 / 16, 6 / 16], [7 / 16, 6 / 16]];
+const RS_TORCH_TOP_UV = [[7 / 16, 8 / 16], [9 / 16, 8 / 16], [9 / 16, 6 / 16], [7 / 16, 6 / 16]];
+
+function wireColor(p: number): [number, number, number] {
+  const f = p / 15;
+  const r = f * 0.6 + (f > 0 ? 0.4 : 0.3), g = Math.max(0, Math.min(1, f * f * 0.7 - 0.5)), b = Math.max(0, Math.min(1, f * f * 0.6 - 0.7));
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function placeBox(face: number, b: number[]): number[] {
+  const [x0, y0, z0, x1, y1, z1] = b;
+  switch (face) {
+    case 0: return b;
+    case 5: return [x0, 1 - y1, z0, x1, 1 - y0, z1];
+    case 1: return [x0, z0, y0, x1, z1, y1];
+    case 3: return [x0, z0, 1 - y1, x1, z1, 1 - y0];
+    case 4: return [y0, z0, x0, y1, z1, x1];
+    case 2: return [1 - y1, z0, x0, 1 - y0, z1, x1];
+    default: return b;
+  }
+}
+
+function redstoneMesh(ctx: MesherContext, id: number, v: number, x: number, y: number, z: number, sk: number, bl: number): void {
+  const tiles = ctx.atlas.blockTiles;
+  const cut = builders[1];
+  const meta = v >>> 8;
+  const rx = x + 16, rz = z + 16;
+  const box = (b: number[], tileFor: (d: number) => number, flags = 0, uv?: (d: number) => number[][] | null, rr = 255, gg = 255, bb = 255) =>
+    boxFaces(cut, x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5], tileFor, sk, bl, rr, gg, bb, undefined, uv, flags);
+  if (id === B.REDSTONE_WIRE) {
+    const get = (a: number, b: number, c: number) => (b < 0 || b >= H ? 0 : region[ridx(a - x + rx, b, c - z + rz)]);
+    const shape = wireShape(get, x, y, z);
+    const [r, g, b] = wireColor(meta & 15);
+    const dot = tiles[id * FS + 2], line0 = tiles[id * FS + 0], line1 = tiles[id * FS + 4];
+    const h = y + 1 / 64;
+    const conn = [shape & 3, (shape >> 2) & 3, (shape >> 4) & 3, (shape >> 6) & 3];
+    const straightX = conn[0] && conn[1] && !conn[2] && !conn[3], straightZ = conn[2] && conn[3] && !conn[0] && !conn[1];
+    const flat = (x0: number, z0: number, x1: number, z1: number, tile: number, uvs: number[][]) =>
+      quadRaw(cut, [[x + x0, h, z + z1], [x + x1, h, z + z1], [x + x1, h, z + z0], [x + x0, h, z + z0]], uvs, tile, sk, bl, 255, r, g, b, F_TINT, false);
+    const rx2 = (x0: number, z0: number, x1: number, z1: number) => [[z1, x0], [z1, x1], [z0, x1], [z0, x0]];
+    if (straightX) flat(0, 0, 1, 1, line1, rx2(0, 0, 1, 1));
+    else if (straightZ) flat(0, 0, 1, 1, line0, [[0, 1], [1, 1], [1, 0], [0, 0]]);
+    else {
+      flat(0, 0, 1, 1, dot, [[0, 1], [1, 1], [1, 0], [0, 0]]);
+      if (conn[0]) flat(0, 0, 0.5, 1, line1, rx2(0, 0, 0.5, 1));
+      if (conn[1]) flat(0.5, 0, 1, 1, line1, rx2(0.5, 0, 1, 1));
+      if (conn[2]) flat(0, 0, 1, 0.5, line0, [[0, 0.5], [1, 0.5], [1, 0], [0, 0]]);
+      if (conn[3]) flat(0, 0.5, 1, 1, line0, [[0, 1], [1, 1], [1, 0.5], [0, 0.5]]);
+    }
+    const sides: [number, number, number][] = [[0, -1, 0], [1, 1, 0], [2, 0, -1], [3, 0, 1]];
+    for (const [i, dx, dz] of sides) {
+      if (conn[i] !== 2) continue;
+      const e = 1 / 64;
+      const px = dx < 0 ? x + e : dx > 0 ? x + 1 - e : 0, pz = dz < 0 ? z + e : dz > 0 ? z + 1 - e : 0;
+      const pts = dx ? [[px, y, z], [px, y, z + 1], [px, y + 1, z + 1], [px, y + 1, z]] : [[x, y, pz], [x + 1, y, pz], [x + 1, y + 1, pz], [x, y + 1, pz]];
+      quadRaw(cut, pts, [[0, 1], [1, 1], [1, 0], [0, 0]], line0, sk, bl, 230, r, g, b, F_TINT, true);
+    }
+    return;
+  }
+  if (id === B.LEVER || id === B.STONE_BUTTON || id === B.OAK_BUTTON || id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) {
+    const t = (d: number) => tiles[id * FS + d];
+    if (id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) { box([1 / 16, 0, 1 / 16, 15 / 16, meta & 1 ? 0.5 / 16 : 1 / 16, 15 / 16], t); return; }
+    const face = meta & 7, on = !!(meta & 8);
+    if (id !== B.LEVER) {
+      const hgt = on ? 1 / 16 : 2 / 16;
+      const flr = face === 0 || face === 5 ? [5 / 16, 0, 6 / 16, 11 / 16, hgt, 10 / 16] : [5 / 16, 0, 6 / 16, 11 / 16, hgt, 10 / 16];
+      box(placeBox(face, face === 0 || face === 5 ? flr : [flr[0], flr[1], flr[2], flr[3], flr[4], flr[5]]), t);
+      return;
+    }
+    const alongX = !!(meta & 16);
+    const base = alongX ? [4 / 16, 0, 5 / 16, 12 / 16, 3 / 16, 11 / 16] : [5 / 16, 0, 4 / 16, 11 / 16, 3 / 16, 12 / 16];
+    const baseTile = tiles[id * FS + 3];
+    box(placeBox(face, base), () => baseTile);
+    const lean = on ? 3 / 16 : -3 / 16;
+    const hx = alongX ? lean : 0, hz = alongX ? 0 : lean;
+    const handle = [7 / 16 + hx, 3 / 16, 7 / 16 + hz, 9 / 16 + hx, 11 / 16, 9 / 16 + hz];
+    box(placeBox(face, handle), () => tiles[id * FS + 4], 0, (d) => (d === 2 || d === 3 ? RS_TORCH_TOP_UV : RS_TORCH_SIDE_UV));
+    return;
+  }
+  if (id === B.REPEATER || id === B.COMPARATOR) {
+    const out = meta & 3;
+    const powered = id === B.REPEATER ? !!(meta & 16) : !!(meta & 8);
+    const topTile = powered && tiles[id * FS + 6] >= 0 ? tiles[id * FS + 6] : tiles[id * FS + 2];
+    const rot = (lx: number, lz: number): number[] => out === 0 ? [lx, lz] : out === 2 ? [1 - lx, 1 - lz] : out === 1 ? [lz, 1 - lx] : [1 - lz, lx];
+    box([0, 0, 0, 1, 2 / 16, 1], (d) => (d === 2 ? topTile : tiles[id * FS + d]), 0, (d) => (d === 2 ? [rot(0, 1), rot(1, 1), rot(1, 0), rot(0, 0)] : null));
+    const [fx, fz] = FACING_DIRS[out];
+    const torchAt = (f: number, l: number, lit: boolean) => {
+      const cx = 0.5 + fx * f - fz * l, cz = 0.5 + fz * f + fx * l;
+      const tile = tiles[(lit ? B.REDSTONE_TORCH : B.UNLIT_REDSTONE_TORCH) * FS + 4];
+      box([cx - 1 / 16, 2 / 16, cz - 1 / 16, cx + 1 / 16, 7 / 16, cz + 1 / 16], () => tile, lit ? F_EMIT : 0, (d) => (d === 2 || d === 3 ? RS_TORCH_TOP_UV : RS_TORCH_SIDE_UV));
+    };
+    if (id === B.REPEATER) {
+      const delay = ((meta >> 2) & 3) + 1;
+      torchAt(5 / 16, 0, powered);
+      const back = 1 / 16 - (delay - 1) * 2 / 16;
+      if (meta & 32) {
+        const bt = tiles[B.BEDROCK * FS + 2];
+        const w = 1 / 16, cx = 0.5 + fx * back, cz = 0.5 + fz * back;
+        box(fx ? [cx - w, 2 / 16, 2 / 16, cx + w, 4 / 16, 14 / 16] : [2 / 16, 2 / 16, cz - w, 14 / 16, 4 / 16, cz + w], () => bt);
+      } else torchAt(back, 0, powered);
+    } else {
+      torchAt(-5 / 16, 3 / 16, powered);
+      torchAt(-5 / 16, -3 / 16, powered);
+      torchAt(5 / 16, 0, !!(meta & 4));
     }
   }
 }
