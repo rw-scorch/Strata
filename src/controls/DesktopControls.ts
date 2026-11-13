@@ -43,6 +43,8 @@ export class DesktopControls {
     on('keydown', (e) => this.key(e, true));
     on('keyup', (e) => this.key(e, false));
     on('blur', () => { this.keys.clear(); this.sync(); this.input.breaking = false; this.input.using = false; });
+    const uiTarget = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && el !== this.canvas && !el.closest?.('.touch-layer') && !!el.closest?.('button, input, textarea, select, a, .slot, .panel, .card, .minimap, .chat, .hotbar, [data-ui]'); };
+    const free = () => this.lockFailed && !this.locked && !this.input.touchMode && this.hooks.isPlaying();
     on('mousemove', (e) => {
       if (!this.locked || performance.now() - this.lastTouch < 900) return;
       const s = 0.0022 * this.sensitivity;
@@ -54,16 +56,17 @@ export class DesktopControls {
     on('pointerdown', (e) => {
       if (e.pointerType !== 'mouse') { this.lastTouch = performance.now(); return; }
       if (!this.hooks.isPlaying() || this.locked) return;
-      const t = e.target as HTMLElement | null;
-      if (t && t !== this.canvas && !t.closest?.('.touch-layer') && t.closest?.('button, input, textarea, select, a, .slot, .panel, .card, .minimap, .chat, .hotbar, [data-ui]')) return;
+      if (uiTarget(e.target)) return;
       this.input.touchMode = false;
       this.hooks.onMouseMode?.();
       this.gestureT = performance.now();
+      if (!this.lockSupported) { this.noLockNotice(); return; }
       this.lock();
     }, document);
     on('mousedown', (e) => {
-      if (!this.hooks.isPlaying() || !this.locked) return;
+      if (!this.hooks.isPlaying() || !(this.locked || free())) return;
       if (performance.now() - this.lastTouch < 900) return;
+      if (!this.locked && uiTarget(e.target)) return;
       this.input.touchMode = false;
       if (e.button === 0) { this.input.breaking = true; this.input.attackPressed = true; }
       else if (e.button === 2) { this.input.using = true; this.input.usePressed = true; }
@@ -75,7 +78,7 @@ export class DesktopControls {
     });
     on('contextmenu', (e) => { if (this.hooks.isPlaying()) e.preventDefault(); });
     on('wheel', (e) => {
-      if (!this.locked) return;
+      if (!this.locked && !free()) return;
       this.input.hotbarDelta += Math.sign(e.deltaY);
       e.preventDefault();
     });
@@ -90,7 +93,7 @@ export class DesktopControls {
     document.addEventListener('pointerlockerror', ple);
     this.disposers.push(() => document.removeEventListener('pointerlockerror', ple));
     on('pointermove', (e) => {
-      if (this.locked || e.pointerType !== 'mouse' || !this.lockFailed || !(e.buttons & 1) || !this.hooks.isPlaying() || this.input.touchMode) return;
+      if (this.locked || e.pointerType !== 'mouse' || !this.lockFailed || !(e.buttons & 3) || !this.hooks.isPlaying() || this.input.touchMode) return;
       const s = 0.0035 * this.sensitivity;
       this.input.lookDX -= e.movementX * s;
       this.input.lookDY -= e.movementY * s * (this.invertY ? -1 : 1);
@@ -99,6 +102,15 @@ export class DesktopControls {
 
   private pending = false;
   private lastFail = 0;
+  readonly lockSupported = typeof HTMLCanvasElement !== 'undefined' && typeof HTMLCanvasElement.prototype.requestPointerLock === 'function';
+  private noticeShown = false;
+
+  private noLockNotice(): void {
+    this.lockFailed = true;
+    if (this.noticeShown) return;
+    this.noticeShown = true;
+    this.hooks.onMessage?.('This browser does not let websites lock the mouse (Safari on iPad). Hold a mouse button and drag to look; left click breaks, right click places.');
+  }
 
   lock(): void {
     if (document.pointerLockElement === this.canvas || this.pending) return;

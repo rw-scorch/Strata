@@ -89,7 +89,7 @@ export class LocalSession implements GameSession {
 
   private emitVitals(): void {
     const p = this.me;
-    this.ev.vitals({ health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, mode: p.mode, fire: p.fireT > 0 });
+    this.ev.vitals({ health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, mode: p.mode, fire: p.fireT > 0, absorb: p.absorb ?? 0 });
   }
 
   private onEvent(e: SimEvent): void {

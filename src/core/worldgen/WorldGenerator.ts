@@ -7,6 +7,7 @@ import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
+import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines } from './trees';
 import { StructurePlan, STRONGHOLD_REGION, TRIAL_REGION, planStronghold, planTrial, stampStructure } from './structures';
 
 export interface Column {
@@ -386,11 +387,11 @@ export class WorldGenerator {
     let kind = 0;
     if (b === 'birch_forest') kind = (r2 & 7) < 6 ? 1 : 0;
     else if (b === 'forest') kind = (r2 & 7) < 2 ? 1 : 0;
-    else if (b === 'taiga' || b === 'snowy_tundra' || b === 'snowy_mountains' || b === 'mountains') kind = 2;
-    else if (b === 'jungle') kind = (r2 & 3) === 0 ? 4 : 3;
+    else if (b === 'taiga' || b === 'snowy_tundra' || b === 'snowy_mountains' || b === 'mountains') kind = b === 'taiga' && ((r2 >>> 4) & 15) === 3 ? 7 : 2;
+    else if (b === 'jungle') kind = ((r2 >>> 4) & 7) === 5 ? 6 : (r2 & 3) === 0 ? 4 : 3;
     else if (b === 'swamp') kind = 5;
-    const base = [4, 5, 6, 9, 1, 4][kind];
-    const varr = [3, 3, 4, 6, 1, 2][kind];
+    const base = [4, 5, 6, 9, 1, 4, 14, 16][kind];
+    const varr = [3, 3, 4, 6, 1, 2, 10, 9][kind];
     return { kind, height: base + ((r2 >>> 8) % varr) };
   }
 
@@ -409,6 +410,14 @@ export class WorldGenerator {
           const log = LOGS[t.kind], lv = LEAVES[t.kind];
           const top = y0 + t.height;
           const hr = hash2(wx, wz, this.seed ^ 0x3c);
+          if (t.kind >= 6) {
+            let hs = hr;
+            const rnd = (n: number) => { hs = Math.imul(hs ^ (hs >>> 15), 0x2c1b3c6d) ^ 0x297a2d39; return ((hs >>> 8) & 0xffff) % n; };
+            const tset: TreeSet = (x, y, z, v, isLeaf) => { if (isLeaf) leaf(x, y, z, v); else set(x, y, z, v); };
+            for (const [ox, oz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) if (lx + ox >= 0 && lx + ox < S && lz + oz >= 0 && lz + oz < S) set(lx + ox, y0 - 1, lz + oz, B.DIRT);
+            if (t.kind === 6) megaJungle(tset, lx, y0, lz, t.height, rnd); else megaSpruce(tset, lx, y0, lz, t.height, rnd);
+            continue;
+          }
           if (t.kind === 4) {
             set(lx, y0, lz, log);
             for (let dy = 0; dy <= 2; dy++) for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
@@ -440,7 +449,14 @@ export class WorldGenerator {
                 leaf(lx + dx, y, lz + dz, lv);
               }
             }
-            if (t.kind === 3) for (let y = top - 3; y < top; y++) set(lx, y, lz, log);
+            if (t.kind === 3) {
+              for (let y = top - 3; y < top; y++) set(lx, y, lz, log);
+              let hs = hr;
+              const rnd = (n: number) => { hs = Math.imul(hs ^ (hs >>> 15), 0x2c1b3c6d) ^ 0x297a2d39; return ((hs >>> 8) & 0xffff) % n; };
+              const tset: TreeSet = (x, y, z, v) => leaf(x, y, z, v);
+              jungleVines(tset, lx, y0, lz, t.height - 3, rnd);
+              hangingVines(tset, get, lx, top - 3, lz, 3, rnd);
+            }
           }
           continue;
         }
@@ -458,7 +474,32 @@ export class WorldGenerator {
         }
       }
     }
+    this.placeWaterPlants(cx, cz, cols, set, get);
     this.placeRuins(cx, cz, cols, set, get, entities);
+  }
+
+  private placeWaterPlants(cx: number, cz: number, cols: Column[], set: (x: number, y: number, z: number, v: number) => void, get: (x: number, y: number, z: number) => number): void {
+    for (let lz = 0; lz < S; lz++) for (let lx = 0; lx < S; lx++) {
+      const col = cols[(lz + M) * W + (lx + M)];
+      const fy = col.height;
+      if (fy >= SEA_LEVEL - 1) continue;
+      if ((get(lx, fy + 1, lz) & 0xff) !== B.WATER || (get(lx, fy + 1, lz) >>> 8) !== 0) continue;
+      const floor = get(lx, fy, lz) & 0xff;
+      if (floor !== B.SAND && floor !== B.GRAVEL && floor !== B.DIRT && floor !== B.CLAY && floor !== B.MUD) continue;
+      const h = hash2(cx * S + lx, cz * S + lz, this.seed ^ 0x5ea9);
+      const b = col.biome.id;
+      const depth = SEA_LEVEL - fy;
+      const ocean = b === 'ocean' || b === 'deep_ocean' || b === 'island';
+      if (ocean && depth > 4 && (h & 15) < 2) {
+        const len = Math.min(depth - 2, 2 + ((h >>> 4) % 14));
+        let y = fy + 1;
+        for (let k = 0; k < len; k++, y++) {
+          const w = get(lx, y + 1, lz);
+          if ((w & 0xff) !== B.WATER || (w >>> 8) !== 0 || k === len - 1) { set(lx, y, lz, makeBlock(B.KELP, Math.min(25, 10 + ((h >>> 9) & 7)))); break; }
+          set(lx, y, lz, B.KELP_PLANT);
+        }
+      } else if ((h & 15) < (ocean ? 6 : 3)) set(lx, fy + 1, lz, B.SEAGRASS);
+    }
   }
 
   private placeRuins(cx: number, cz: number, cols: Column[], set: (x: number, y: number, z: number, v: number) => void, get: (x: number, y: number, z: number) => number, entities: GenBlockEntity[]): void {

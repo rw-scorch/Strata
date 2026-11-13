@@ -108,6 +108,7 @@ export class Renderer {
   showHand = true;
   thirdPerson = false;
   private overlay: HTMLDivElement;
+  private waterVision = 0;
   drawCalls = 0;
   triangles = 0;
 
@@ -588,11 +589,12 @@ export class Renderer {
     u.uRain.value = env.rain;
     u.uWind.value = env.wind ?? env.rain * 0.8 + env.thunder * 0.6;
     u.uUnderwater.value = env.underwater ? 1 : 0;
+    if (!env.underwater) this.waterVision = 0;
     u.uCloudShift.value = env.time * 0.03;
     const fogFar = Math.max(24, env.renderDistance * 16);
     const fogBand = Math.max(4, Math.min(64, fogFar / 10));
     if (env.inLava) { u.uFogColor.value.setRGB(0.9, 0.35, 0.05); u.uFogNear.value = 0; u.uFogFar.value = 2.5; }
-    else if (env.underwater) { u.uFogColor.value.setRGB(0.05, 0.16, 0.35).multiplyScalar(0.3 + st.day * 0.7); u.uFogNear.value = 1; u.uFogFar.value = 22; }
+    else if (env.underwater) { this.waterVision = Math.min(1, this.waterVision + 1 / 600); const vis = 28 + 56 * this.waterVision * this.waterVision; u.uFogColor.value.setRGB(0.07, 0.22, 0.45).multiplyScalar(0.35 + st.day * 0.65); u.uFogNear.value = 2; u.uFogFar.value = Math.min(fogFar, vis); }
     else {
       u.uFogColor.value.copy(st.horizon);
       u.uFogNear.value = fogFar - fogBand;
@@ -628,7 +630,7 @@ export class Renderer {
       this.drawCalls = this.gl.info.render.calls;
       this.triangles = this.gl.info.render.triangles;
       if (hand) { this.gl.clearDepth(); this.gl.render(this.handScene, this.handCam); }
-      this.overlay.style.background = env.underwater ? 'rgba(20,60,140,0.28)' : env.inLava ? 'rgba(255,90,10,0.55)' : 'transparent';
+      this.overlay.style.background = env.underwater ? 'rgba(20,70,150,0.14)' : env.inLava ? 'rgba(255,90,10,0.55)' : 'transparent';
       this.adapt(dt);
       return;
     }

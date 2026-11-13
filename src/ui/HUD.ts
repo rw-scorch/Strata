@@ -241,7 +241,7 @@ export class HUD {
 
   updateVitals(v: Vitals, hurtShake: boolean, held?: { hunger: number; saturation: number } | null): void {
     const flash = held && this.foodStats ? Math.floor(performance.now() / 400) % 2 : 0;
-    const key = `${v.health}|${v.food}|${Math.ceil(v.air / 30)}|${v.xp}|${v.mode}|${this.foodStats ? Math.round(v.sat * 2) : 0}|${held ? `${held.hunger},${held.saturation},${flash}` : ''}`;
+    const key = `${v.absorb ?? 0}|${v.health}|${v.food}|${Math.ceil(v.air / 30)}|${v.xp}|${v.mode}|${this.foodStats ? Math.round(v.sat * 2) : 0}|${held ? `${held.hunger},${held.saturation},${flash}` : ''}`;
     this.survival = v.mode === 'survival';
     this.hearts.classList.toggle('shake', hurtShake);
     if (key === this.lastVit) return;
@@ -249,6 +249,7 @@ export class HUD {
     const u = this.atlas.hudURLs;
     clear(this.hearts); clear(this.food); clear(this.air);
     const surv = v.mode === 'survival';
+    this.armor.classList.toggle('lifted', surv && (v.absorb ?? 0) > 0);
     this.hearts.style.display = this.food.style.display = surv ? '' : 'none';
     (this.xpFill.parentElement as HTMLElement).style.visibility = surv ? 'visible' : 'hidden';
     this.xpLevel.style.visibility = surv ? 'visible' : 'hidden';
@@ -259,6 +260,14 @@ export class HUD {
         const jig = low ? Math.floor(Math.random() * 2) : 0;
         this.hearts.appendChild(icon(u.heart_empty, i * 8, jig));
         if (hv >= 1) this.hearts.appendChild(icon(hv >= 2 ? u.heart : u.heart_half, i * 8, jig));
+        const av = (v.absorb ?? 0) - i * 2;
+        if (av >= 1) {
+          const full = this.atlas.guiURL('gs:hud/heart/absorbing_full'), half = this.atlas.guiURL('gs:hud/heart/absorbing_half');
+          this.hearts.appendChild(icon(u.heart_empty, i * 8, -10));
+          const g = icon(av >= 2 ? full ?? u.heart : half ?? u.heart_half, i * 8, -10);
+          if (!full) g.classList.add('absorb-tint');
+          this.hearts.appendChild(g);
+        }
         const fv = v.food - i * 2;
         const fx = 182 - 9 - i * 8;
         this.food.appendChild(icon(u.food_empty, fx));

@@ -184,6 +184,12 @@ function paint(key: string): HTMLCanvasElement | null {
       if (hud) { g.fillStyle = '#000'; for (let x = 20; x < c.width - 1; x += 20) g.fillRect(x, 1, 1, 3); }
       return c;
     }
+    case 'gs:widget/cross_button': case 'gs:widget/cross_button_highlighted': {
+      const [c, g] = canvas(14, 14);
+      g.fillStyle = key.endsWith('highlighted') ? '#ffffff' : '#c0c0c0';
+      for (let i = 3; i < 11; i++) { g.fillRect(i, i, 2, 1); g.fillRect(13 - i - 1, i, 2, 1); }
+      return c;
+    }
     case 'gs:widget/button': case 'gs:widget/button_highlighted': case 'gs:widget/button_disabled': {
       const [c, g] = canvas(200, 20);
       const hi = key.endsWith('highlighted'), dis = key.endsWith('disabled');

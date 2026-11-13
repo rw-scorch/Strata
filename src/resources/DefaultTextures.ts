@@ -456,6 +456,32 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   TEX.cut_copper = () => { const p = noise('cutc', hex(0xc06a48), 0.05); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0xe8a07a)); p.set(0, i, hex(0xe8a07a)); p.set(i, 7, hex(0x8a4430)); p.set(7, i, hex(0x8a4430)); p.set(i, 8, hex(0xe8a07a)); p.set(8, i, hex(0xe8a07a)); p.set(i, 15, hex(0x8a4430)); p.set(15, i, hex(0x8a4430)); } return p; };
   TEX.copper_lamp = () => { const p = cage('clamp', hex(0xb0603e), null); for (let y = 1; y < 15; y++) for (let x = 1; x < 15; x++) if (x % 5 && y % 5) p.set(x, y, mixc(hex(0xffe8a0), hex(0xffb040), (x + y) / 30)); return p; };
   TEX.copper_ore = () => oreTex('copper_ore', hex(0xd07a4a), hex(0x3e8a6a));
+  const kelpTex = (key: string, top: boolean) => plant(key, (p, r) => {
+    const dark = hex(0x3c6e1e), mid = hex(0x5a8f2a), lite = hex(0x7fb040);
+    for (let y = top ? 3 : 0; y < 16; y++) {
+      const x = 7 + Math.round(Math.sin(y * 0.7) * 1.2);
+      p.set(x, y, mid); p.set(x + 1, y, dark);
+      if (y % 4 === 1) { const side = (y >> 2) & 1 ? 1 : -1; for (let k = 1; k < 5; k++) p.set(x + side * k + (side > 0 ? 1 : 0), y - (k >> 1), k < 3 ? lite : mid); }
+      if (r.next() < 0.15) p.set(x, y, lite);
+    }
+    if (top) { p.set(7, 2, lite); p.set(8, 1, mid); }
+  });
+  TEX.kelp = () => kelpTex('kelp', true);
+  TEX.kelp_plant = () => kelpTex('kelp_plant', false);
+  TEX.seagrass = () => plant('seagrass', (p, r) => {
+    for (let i = 0; i < 7; i++) {
+      const x0 = 1 + r.int(14), top = 2 + r.int(8), lean = r.next() < 0.5 ? -1 : 1;
+      for (let y = top; y < 16; y++) p.set(x0 + (y < top + 4 ? lean : 0), y, mixc(hex(0x2f7a2a), hex(0x6cb84a), (16 - y) / 16 + r.next() * 0.2));
+    }
+  });
+  TEX.vine = () => plant('vine', (p, r) => {
+    for (let x = 0; x < 16; x++) {
+      if (r.next() < 0.35) continue;
+      const len = 3 + r.int(13);
+      for (let y = 0; y < len; y++) p.set(x, y, [150 + r.int(60), 150 + r.int(60), 150 + r.int(60), 255]);
+      if (r.next() < 0.5) p.set(x + 1, len - 1, [190, 190, 190, 255]);
+    }
+  });
   TEX.spawner = () => cage('spawner', hex(0x24303a), null);
   TEX.trial_spawner_side = () => cage('trials', hex(0x5a5048), hex(0xf09030));
   TEX.trial_spawner_top = () => cage('trialt', hex(0x5a5048), null);
@@ -612,6 +638,9 @@ const ITEM_MAP: Record<string, () => Px> = {
     green: [0x223008, 0x5a7a20, 0x9ab860], black: [0x050505, 0x1e1e24, 0x4a4a52],
   };
   for (const [c, [a, b, d]] of Object.entries(DYE)) ITEM_MAP[`${c}_dye`] = () => drawSprite(SPRITES.dye.rows, { a, b, c: d });
+  ITEM_MAP.shears = () => drawSprite(['................', '................', '..........aa....', '.........abba...', '........abba....', '.......abba.....', '...cc.abba......', '..cddcaba.......', '..cd.dca........', '..cddcdc........', '...ccd.dc.......', '.....cddc.......', '......cc........', '................', '................', '................'], { a: 0x5a5a5a, b: 0xd8d8d8, c: 0x3a2010, d: 0xc04020 });
+  ITEM_MAP.cookie = () => drawSprite(['................', '................', '................', '.....aaaaaa.....', '....abbbbbba....', '...abbcbbbbba...', '...abbbbbcbba...', '...abcbbbbbba...', '...abbbbcbbba...', '...abbbbbbcba...', '....abcbbbba....', '.....aaaaaa.....', '................', '................', '................', '................'], { a: 0x8a5420, b: 0xd8963a, c: 0x3a2010 });
+  ITEM_MAP.dried_kelp = () => drawSprite(['................', '................', '..........aa....', '.........abba...', '........abba....', '.......abba.....', '......abba......', '.....abba.......', '....abba........', '...abba.........', '..abba..........', '..aaa...........', '................', '................', '................', '................'], { a: 0x1e2a14, b: 0x3e5a24 });
   ITEM_MAP.copper_ingot = () => drawSprite(SPRITES.ingot.rows, { a: 0x6a3018, b: 0xc06a48, c: 0xf0b090 });
   ITEM_MAP.trial_key = () => drawSprite(['................', '................', '..aaa...........', '.abbba..........', '.ab.ba..........', '.abbbaaaaaaaaa..', '..aaabbbbbbbbba.', '.....aaaaaba.ba.', '..........a..a..', '................', '................', '................', '................', '................', '................', '................'], { a: 0x4a3010, b: 0xe8b040 });
   ITEM_MAP.ink_sac = () => drawSprite(['................', '................', '......aaaa......', '.....abbbba.....', '....abbcbbba....', '....abbbbbba....', '....abbbbbba....', '.....abbbba.....', '......abba......', '.....a.aa.a.....', '....a..aa..a....', '.......aa.......', '................', '................', '................', '................'], { a: 0x101014, b: 0x2a2a34, c: 0x6a6a7a });

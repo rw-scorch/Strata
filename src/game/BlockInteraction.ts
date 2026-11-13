@@ -24,6 +24,7 @@ export class BlockInteraction {
   private digSoundT = 0;
   private useCd = 0;
   private breakCd = 0;
+  private creativeStreak = 0;
   private attackCd = 0;
   eating = 0;
   lastSwing = 0;
@@ -41,6 +42,7 @@ export class BlockInteraction {
     const reach = creative ? REACH_CREATIVE : REACH_SURVIVAL;
     if (this.useCd > 0) this.useCd -= dt;
     if (this.breakCd > 0) this.breakCd -= dt;
+    if (!input.breaking) this.creativeStreak = 0;
     if (this.attackCd > 0) this.attackCd -= dt;
     const cam = renderer.camera;
     let origin = new THREE.Vector3(player.x, player.eyeY, player.z);
@@ -57,7 +59,7 @@ export class BlockInteraction {
     const item = held ? getItem(held.id) : undefined;
     const fluids = item?.kind === 'bucket' && held!.id === 282 || item?.key === 'lily_pad';
     const hit = blocked || me.dead ? null : raycast(world, origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, reach, fluids);
-    const ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, Math.min(reach, creative ? 6 : 4.5), (v) => v.kind === 'mob' || (v.kind === 'player' && !!this.pvpCheck?.()));
+    const ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, Math.min(reach, creative ? 6 : 4.5), (v) => v.kind === 'mob' || (v.kind === 'player' && v.id !== 'me' && !!this.pvpCheck?.()));
     const entityFirst = ent && (!hit || ent.dist < hit.dist);
     this.entityTarget = entityFirst ? ent!.view : null;
     this.target = entityFirst ? null : hit;
@@ -74,7 +76,7 @@ export class BlockInteraction {
     if (this.entityTarget && (input.attackPressed || (input.usePressed && input.touchAim)) && this.attackCd <= 0) {
       const v = this.entityTarget;
       if (v.kind === 'mob') session.attack(v.id);
-      else session.attackPlayer(v.id);
+      else session.attackPlayer(v.id.replace(/^p:/, ''));
       this.attackCd = 0.05;
       this.lastSwing = performance.now();
       this.onSwing?.();
@@ -96,7 +98,8 @@ export class BlockInteraction {
         if (this.breakCd <= 0) {
           session.digDone(t.x, t.y, t.z);
           this.onSwing?.();
-          this.breakCd = 0.22;
+          this.breakCd = Math.max(0.07, 0.22 * Math.pow(0.85, this.creativeStreak));
+          this.creativeStreak++;
           this.digPos = null;
         }
       } else {

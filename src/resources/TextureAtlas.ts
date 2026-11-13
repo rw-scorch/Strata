@@ -57,9 +57,9 @@ function crop(src: HTMLCanvasElement, x: number, y: number, w: number, h: number
 
 function grayscaleLike(c: HTMLCanvasElement): boolean {
   const d = c.getContext('2d')!.getImageData(0, 0, Math.min(16, c.width), Math.min(16, c.height)).data;
-  let diff = 0, n = 0;
-  for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) { diff += Math.abs(d[i] - d[i + 1]) + Math.abs(d[i + 1] - d[i + 2]); n++; }
-  return n > 0 && diff / n < 8;
+  let gray = 0, n = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) { n++; if (Math.abs(d[i] - d[i + 1]) + Math.abs(d[i + 1] - d[i + 2]) < 12) gray++; }
+  return n > 0 && gray / n >= 0.75;
 }
 
 export class TextureAtlas {

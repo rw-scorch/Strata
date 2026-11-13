@@ -1005,7 +1005,7 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       case 'vitals': {
         const s = this.sessionFor(ev.p.id);
-        if (s) this.send(s, { t: 'vit', h: ev.p.health, f: ev.p.food, s: Math.round(ev.p.sat * 10) / 10, a: ev.p.air, xp: ev.p.xp, dead: ev.p.dead, mode: ev.p.mode, fire: ev.p.fireT > 0 });
+        if (s) this.send(s, { t: 'vit', h: ev.p.health, f: ev.p.food, s: Math.round(ev.p.sat * 10) / 10, a: ev.p.air, xp: ev.p.xp, dead: ev.p.dead, mode: ev.p.mode, fire: ev.p.fireT > 0, ab: ev.p.absorb || undefined });
         return;
       }
       case 'inv': {

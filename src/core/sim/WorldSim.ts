@@ -1,7 +1,7 @@
 import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
   B, BLOCKS, isPowder, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
-  FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE,
+  FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE, isWaterPlant, isWaterLike,
 } from '../blocks';
 import { getItem, I, fuelSeconds } from '../items';
 import {
@@ -11,6 +11,7 @@ import {
 import { findSmelt, Recipe, RecipeBook, BASE_BOOK, DataRecipes, makeBook } from '../crafting';
 import { mergeData } from '../datapack';
 import { trialLoot, vaultLoot } from '../worldgen/structures';
+import { TreeSet, megaJungle, megaSpruce, jungleVines } from '../worldgen/trees';
 import { attackStats, attackCharge, scaledDamage, armorReduce, armorToughness } from './combat';
 import { PROFESSIONS, OFFERS, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
 import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium } from '../physics';
@@ -25,6 +26,12 @@ export interface WorldStore extends BlockReader {
   setBlock(x: number, y: number, z: number, v: number): void;
   isLoaded(x: number, z: number): boolean;
   raw?(cx: number, cz: number): Uint16Array | null;
+}
+
+function getItemByName(key: string): ReturnType<typeof getItem> | undefined {
+  const k = key.toLowerCase();
+  for (let i = 1; i < 1024; i++) { const d = getItem(i); if (d && (d.key === k || d.name.toLowerCase() === k)) return d; }
+  return undefined;
 }
 
 export interface Appearance { skin: number; hair: number; shirt: number; pants: number; }
@@ -46,7 +53,7 @@ export interface SimPlayer {
   spawn: { x: number; y: number; z: number };
   screen: { type: ScreenType | null; x: number; y: number; z: number };
   dig: { x: number; y: number; z: number; t: number } | null;
-  hurtCd: number; fireT: number; peakY: number;
+  hurtCd: number; fireT: number; peakY: number; absorb?: number; absorbT?: number; regenT?: number;
   t: { lava: number; suffocate?: number; drown: number; cactus: number; void: number; starve: number; regen: number; fire: number };
   lastAttack: number; lastEat: number; lastMove: number; lastShot?: number; wasFire?: boolean; lastSwing?: number; lastHurt?: number;
   op: boolean;
@@ -213,7 +220,7 @@ const CREATURE_CAP = 10;
 const SPAWN_RANGE = 128;
 const MAX_NATURAL = 480;
 const TICKABLE = new Uint8Array(256);
-for (const id of [B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE]) TICKABLE[id] = 1;
+for (const id of [B.KELP, B.VINE, B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE]) TICKABLE[id] = 1;
 const PLAYER_HW = 0.3, PLAYER_H = 1.8;
 
 export function posKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
@@ -256,6 +263,7 @@ export function breakTime(blockV: number, stack: ItemStack | null, underwater: b
   const d = getBlock(blockV);
   if (d.hardness < 0) return Infinity;
   if (d.hardness === 0) return 0.05;
+  if (stack?.id === I.SHEARS && (d.render === 'leaves' || d.id === B.VINE || d.sound === 'cloth')) return d.render === 'leaves' ? 0.05 : Math.max(0.05, d.hardness * 0.3);
   const t = toolFor(stack);
   let speed = 1;
   if (t && (t.type === d.tool || (t.type === 'sword' && (d.render === 'leaves' || d.id === B.CACTUS)))) speed = t.type === 'sword' ? 1.5 : t.speed;
@@ -345,6 +353,7 @@ export class WorldSim {
   setBlock(x: number, y: number, z: number, v: number, src?: string): void {
     if (y < 0 || y >= WORLD_HEIGHT) return;
     const old = this.get(x, y, z);
+    if (v === 0 && isWaterPlant(blockId(old))) v = B.WATER;
     if (old === v) return;
     this.store.setBlock(x, y, z, v);
     this.emit({ e: 'block', x, y, z, v, old, src });
@@ -575,7 +584,7 @@ export class WorldSim {
   private scheduleFluidAround(x: number, y: number, z: number): void {
     for (const [dx, dy, dz] of [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
       const v = this.get(x + dx, y + dy, z + dz);
-      const id = blockId(v);
+      const id = isWaterPlant(blockId(v)) ? B.WATER : blockId(v);
       if (id === B.WATER || id === B.LAVA) this.scheduleFluid(x + dx, y + dy, z + dz, fluidDelay(id));
     }
   }
@@ -601,9 +610,9 @@ export class WorldSim {
       const [dx, dz] = FACING_DIRS[(m - 1) & 3];
       return isSolid(this.get(x + dx, y, z + dz));
     }
-    if (id === B.LADDER) {
+    if (id === B.LADDER || id === B.VINE) {
       const [dx, dz] = FACING_DIRS[blockMeta(v) & 3];
-      return isSolid(this.get(x + dx, y, z + dz));
+      return isSolid(this.get(x + dx, y, z + dz)) || (id === B.VINE && blockId(this.get(x, y + 1, z)) === B.VINE);
     }
     if (id === B.LILY_PAD) return blockId(this.get(x, y - 1, z)) === B.WATER;
     const below = blockId(this.get(x, y - 1, z));
@@ -617,10 +626,14 @@ export class WorldSim {
         for (const [dx, dz] of FACING_DIRS) if (isSolid(this.get(x + dx, y, z + dz))) return false;
         return true;
       }
+      case 'water-plant': {
+        if (id === B.KELP || id === B.KELP_PLANT) { if (below === B.KELP_PLANT || below === B.KELP) return true; }
+        return isSolid(this.get(x, y - 1, z)) && below !== B.ICE && below !== B.PACKED_ICE;
+      }
       case 'water-edge': {
         if (below === B.SUGAR_CANE) return true;
         if (below !== B.GRASS && below !== B.DIRT && below !== B.SAND && below !== B.MUD) return false;
-        for (const [dx, dz] of FACING_DIRS) if (blockId(this.get(x + dx, y - 1, z + dz)) === B.WATER) return true;
+        for (const [dx, dz] of FACING_DIRS) if (isWaterLike(this.get(x + dx, y - 1, z + dz))) return true;
         return false;
       }
       default: return true;
@@ -633,8 +646,9 @@ export class WorldSim {
     const id = blockId(v);
     if (id === 0 || id === B.WATER || id === B.LAVA) return;
     if (this.supported(x, y, z, v)) return;
-    this.store.setBlock(x, y, z, 0);
-    this.emit({ e: 'block', x, y, z, v: 0, old: v });
+    const rest = isWaterPlant(id) ? B.WATER : 0;
+    this.store.setBlock(x, y, z, rest);
+    this.emit({ e: 'block', x, y, z, v: rest, old: v });
     if (!(id === B.OAK_DOOR && blockMeta(v) & DOOR_UPPER)) this.spawnDrops(x, y, z, v, null, true);
     this.emit({ e: 'particles', k: 'break', x: x + 0.5, y: y + 0.5, z: z + 0.5, d: v });
     this.checkSupport(x, y + 1, z, depth + 1);
@@ -644,9 +658,10 @@ export class WorldSim {
 
   blockDrops(v: number, stack: ItemStack | null, natural: boolean): ItemStack[] {
     const d = getBlock(v);
+    const id = d.id;
+    if (!natural && stack?.id === I.SHEARS && (d.render === 'leaves' || id === B.VINE || id === B.SEAGRASS || id === B.TALL_GRASS || id === B.FERN || id === B.DEAD_BUSH)) return [{ id, count: 1 }];
     if (!d.drops) return [];
     if (!natural && !canHarvest(v, stack)) return [];
-    const id = d.id;
     if (id === B.WHEAT) {
       const stage = blockMeta(v) & 7;
       if (stage >= 7) return [{ id: I.WHEAT, count: 1 }, { id: I.SEEDS, count: 1 + this.rng.int(3) }];
@@ -879,6 +894,17 @@ export class WorldSim {
     }
     dmg = Math.round(dmg * 100) / 100;
     if (dmg <= 0) return;
+    if (p.absorb && p.absorb > 0) {
+      const take = Math.min(p.absorb, dmg);
+      p.absorb = Math.round((p.absorb - take) * 100) / 100;
+      dmg = Math.round((dmg - take) * 100) / 100;
+      if (dmg <= 0) {
+        this.emit({ e: 'hurt', p, amount: take, cause, fx: knock ? fx : p.x, fz: knock ? fz : p.z, kb: knock ? kb : 0 });
+        this.emit({ e: 'sound', s: 'player.hurt', x: p.x, y: p.y + 1, z: p.z });
+        this.emit({ e: 'vitals', p });
+        return;
+      }
+    }
     p.health = Math.max(0, Math.round((p.health - dmg) * 100) / 100);
     p.exh += 0.1;
     this.emit({ e: 'hurt', p, amount: dmg, cause, fx: knock ? fx : p.x, fz: knock ? fz : p.z, kb: knock ? kb : 0 });
@@ -1136,7 +1162,7 @@ export class WorldSim {
     if (p && p.mode === 'survival') {
       if (getBlock(v).render === 'leaves' || getBlock(v).hardness > 0) {
         const broke = damageHeld(p.inv, toolFor(stack)?.type === 'sword' ? 2 : 1);
-        if (toolFor(stack)) this.emit({ e: 'inv', p });
+        if (toolFor(stack) || stack?.id === I.SHEARS) this.emit({ e: 'inv', p });
         if (broke) this.emit({ e: 'sound', s: 'tool.break', x: p.x, y: p.y + 1, z: p.z });
       }
       p.exh += 0.005;
@@ -1340,14 +1366,14 @@ export class WorldSim {
     const stack = heldStack(p.inv);
     const food = stack ? getItem(stack.id)?.food : undefined;
     if (!food) return false;
-    if (p.food >= 20 && p.mode === 'survival' && this.difficulty !== 'peaceful') return false;
+    if (p.food >= 20 && p.mode === 'survival' && this.difficulty !== 'peaceful' && stack!.id !== I.GOLDEN_APPLE) return false;
     if (this.now - p.lastEat < 1300) return false;
     p.lastEat = this.now;
     p.food = Math.min(20, p.food + food.hunger);
     p.sat = Math.min(p.food, p.sat + food.saturation);
     const eatenId = stack!.id;
     if (eatenId === I.ROTTEN_FLESH && this.rng.chance(0.8)) p.exh += 6;
-    if (eatenId === I.GOLDEN_APPLE) p.health = Math.min(20, p.health + 4);
+    if (eatenId === I.GOLDEN_APPLE) { p.absorb = Math.max(p.absorb ?? 0, 4); p.absorbT = 2400; p.regenT = 100; }
     if (p.mode === 'survival') {
       consumeHeld(p.inv);
       if (eatenId === I.MUSHROOM_STEW) { if (!heldStack(p.inv)) p.inv.slots[p.inv.selected] = { id: I.BOWL, count: 1 }; else if (giveItem(p.inv, { id: I.BOWL, count: 1 }) > 0) this.spawnItem(p.x, p.y + 1, p.z, { id: I.BOWL, count: 1 }); }
@@ -1544,10 +1570,13 @@ export class WorldSim {
     const f = p.flags;
     let changed = false;
     if (p.mode === 'survival') {
-      if (f & MF.LAVA) { p.fireT = 300; if (--p.t.lava <= 0) { p.t.lava = 10; this.damage(p, 4, 'lava', p.x, p.z, false); } }
-      if (f & MF.WATER) p.fireT = 0;
+      const med = sampleMedium(this.store, p.x, p.y, p.z, 0.3, f & MF.CROUCH ? 1.5 : 1.8, 1.62);
+      if (med.lava) { p.fireT = 300; if (--p.t.lava <= 0) { p.t.lava = 10; this.damage(p, 4, 'lava', p.x, p.z, false); } }
+      if (med.water || (f & MF.WATER && !med.lava)) p.fireT = 0;
       if ((p.fireT > 0) !== !!p.wasFire) { p.wasFire = p.fireT > 0; changed = true; }
-      if (p.fireT > 0) { p.fireT--; if (--p.t.fire <= 0) { p.t.fire = 20; if (!(f & MF.LAVA)) this.damage(p, 1, 'fire', p.x, p.z, false); } }
+      if (p.fireT > 0) { p.fireT--; if (--p.t.fire <= 0) { p.t.fire = 20; if (!med.lava) this.damage(p, 1, 'fire', p.x, p.z, false); } }
+      if (p.absorbT && --p.absorbT <= 0) { p.absorb = 0; changed = true; }
+      if (p.regenT && p.regenT > 0) { if (p.regenT-- % 25 === 0 && p.health < 20) { p.health = Math.min(20, p.health + 1); changed = true; } }
       if (f & MF.EYE_WATER) {
         p.air--;
         if (p.air <= 0) { p.air = 0; if (--p.t.drown <= 0) { p.t.drown = 20; this.damage(p, 2, 'drown', p.x, p.z, false, true); } }
@@ -1600,9 +1629,11 @@ export class WorldSim {
     this.store.setBlock(x, y, z, v);
     this.emit({ e: 'block', x, y, z, v, old });
     this.checkSupport(x, y + 1, z);
-    if (blockId(v) === B.LAVA || blockId(old) === B.LAVA) {
+    const nid = isWaterPlant(blockId(v)) ? B.WATER : blockId(v), oid = isWaterPlant(blockId(old)) ? B.WATER : blockId(old);
+    if (nid === B.LAVA || oid === B.LAVA || nid === B.WATER || oid === B.WATER) {
       for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
-        if (blockId(this.get(x + dx, y + dy, z + dz)) === B.WATER) this.scheduleFluid(x + dx, y + dy, z + dz, 1);
+        const n0 = blockId(this.get(x + dx, y + dy, z + dz)), n = isWaterPlant(n0) ? B.WATER : n0;
+        if ((n === B.WATER && (nid === B.LAVA || oid === B.LAVA)) || (n === B.LAVA && (nid === B.WATER || oid === B.WATER))) this.scheduleFluid(x + dx, y + dy, z + dz, 1);
       }
     }
   }
@@ -1834,11 +1865,43 @@ export class WorldSim {
       case B.ICE:
         if (this.info.blockLight(x, y, z) > 11) this.setBlock(x, y, z, B.WATER);
         break;
+      case B.KELP: {
+        const age = blockMeta(v);
+        const up = this.get(x, y + 1, z);
+        if (age >= 25 || blockId(up) !== B.WATER || blockMeta(up) !== 0 || !this.rng.chance(0.14)) break;
+        this.setBlock(x, y, z, B.KELP_PLANT);
+        this.setBlock(x, y + 1, z, makeBlock(B.KELP, age + 1));
+        break;
+      }
+      case B.VINE: {
+        if (!this.rng.chance(0.25) || blockId(this.get(x, y - 1, z)) !== 0) break;
+        let n = 0;
+        for (let i = 1; i <= 8 && blockId(this.get(x, y + i, z)) === B.VINE; i++) n++;
+        if (n < 6) this.setBlock(x, y - 1, z, v);
+        break;
+      }
     }
   }
 
   growTree(x: number, y: number, z: number, sapling: number): boolean {
     const kind = sapling - B.OAK_SAPLING;
+    if (kind >= 2) {
+      for (const [ox, oz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+        const tx = x + ox, tz = z + oz;
+        if (![[0, 0], [1, 0], [0, 1], [1, 1]].every(([a, c]) => blockId(this.get(tx + a, y, tz + c)) === sapling)) continue;
+        const h = kind === 3 ? 14 + this.rng.int(10) : 16 + this.rng.int(9);
+        for (let i = 1; i < h + 2; i++) for (const [a, c] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const v = this.get(tx + a, y + i, tz + c); if (!isReplaceable(v) && getBlock(v).render !== 'leaves') return false; }
+        for (const [a, c] of [[0, 0], [1, 0], [0, 1], [1, 1]]) this.setBlock(tx + a, y, tz + c, 0);
+        const set: TreeSet = (sx, sy, sz, v, isLeaf) => {
+          const cur = this.get(sx, sy, sz);
+          if (isLeaf) { if (isReplaceable(cur) && !getBlock(cur).fluid) this.setBlock(sx, sy, sz, v); }
+          else if (isReplaceable(cur) || getBlock(cur).render === 'leaves' || blockId(cur) === sapling) this.setBlock(sx, sy, sz, v);
+        };
+        const rnd = (n: number) => this.rng.int(n);
+        if (kind === 3) megaJungle(set, tx, y, tz, h, rnd); else megaSpruce(set, tx, y, tz, h, rnd);
+        return true;
+      }
+    }
     const LOG = [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG][kind];
     const LEAF = [B.OAK_LEAVES, B.BIRCH_LEAVES, B.SPRUCE_LEAVES, B.JUNGLE_LEAVES][kind];
     const h = [5, 6, 7, 9][kind] + this.rng.int(2);
@@ -1863,6 +1926,10 @@ export class WorldSim {
       }
     }
     for (let i = 0; i < h; i++) this.setBlock(x, y + i, z, LOG);
+    if (kind === 3) {
+      const set: TreeSet = (sx, sy, sz, v) => { if (blockId(this.get(sx, sy, sz)) === 0) this.setBlock(sx, sy, sz, v); };
+      jungleVines(set, x, y, z, h - 2, (n) => this.rng.int(n));
+    }
     return true;
   }
 
@@ -2531,19 +2598,26 @@ export class WorldSim {
       }
       case 'give': {
         if (!allowed) return need();
-        const key = parts[1];
-        const it = [...Array(400).keys()].map((i) => getItem(i)).find((d) => d && (d.key === key || d.name.toLowerCase() === key?.toLowerCase()));
-        if (!it) return `Unknown item: ${key}`;
-        const n = Math.max(1, Math.min(640, Number(parts[2] ?? 1) || 1));
+        let args = parts.slice(1);
+        let target = p;
+        if (args[0] && (args[0].startsWith('@') || (args.length > 1 && this.findPlayer(args[0]) && !getItemByName(args[0])))) {
+          const t = args[0] === '@s' || args[0] === '@p' ? p : this.findPlayer(args[0]);
+          if (!t) return 'No player by that name.';
+          target = t; args = args.slice(1);
+        }
+        const key = (args[0] ?? '').replace(/^minecraft:/, '');
+        const it = getItemByName(key);
+        if (!it) return `Unknown item: ${key || '(none)'}`;
+        const n = Math.max(1, Math.min(640, Number(args[1] ?? 1) || 1));
         let left = n;
         while (left > 0) {
           const c = Math.min(left, it.maxStack);
-          const rem = giveItem(p.inv, { id: it.id, count: c });
-          if (rem > 0) this.invCtx(p).drop({ id: it.id, count: rem });
+          const rem = giveItem(target.inv, { id: it.id, count: c });
+          if (rem > 0) this.invCtx(target).drop({ id: it.id, count: rem });
           left -= c;
         }
-        this.emit({ e: 'inv', p });
-        return `Gave ${n} ${it.name}.`;
+        this.emit({ e: 'inv', p: target });
+        return `Gave ${n} ${it.name}${target === p ? '' : ` to ${target.name}`}.`;
       }
       case 'tp': {
         if (!allowed) return need();

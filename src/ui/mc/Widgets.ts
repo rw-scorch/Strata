@@ -14,6 +14,7 @@ export function applyMcTheme(atlas: TextureAtlas): void {
   set('--mcs', 'gs:widget/slider'); set('--mcs-hi', 'gs:widget/slider_highlighted');
   set('--mcs-h', 'gs:widget/slider_handle'); set('--mcs-hh', 'gs:widget/slider_handle_highlighted');
   set('--mctf', 'gs:widget/text_field'); set('--mctf-hi', 'gs:widget/text_field_highlighted');
+  set('--mc-x', 'gs:widget/cross_button'); set('--mc-x-hi', 'gs:widget/cross_button_highlighted');
   set('--mc-menu-bg', 'gt:menu_background'); set('--mc-hdr', 'gt:header_separator'); set('--mc-ftr', 'gt:footer_separator');
   menuScale();
 }

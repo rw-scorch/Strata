@@ -1,4 +1,4 @@
-import { B, makeBlock, isSolid, getBlock, blockId, blockMeta } from '../blocks';
+import { B, makeBlock, isSolid, getBlock, blockId, blockMeta, isWaterPlant } from '../blocks';
 
 export const FALLING = 8;
 
@@ -30,7 +30,8 @@ export function fluidDelay(id: number): number {
   return id === B.LAVA ? 30 : 5;
 }
 
-export function tickFluid(w: FluidWorld, x: number, y: number, z: number): void {
+export function tickFluid(world: FluidWorld, x: number, y: number, z: number): void {
+  const w: FluidWorld = { ...world, get: (gx, gy, gz) => { const g = world.get(gx, gy, gz); return isWaterPlant(g & 0xff) ? B.WATER : g; } };
   const v = w.get(x, y, z);
   const id = blockId(v);
   if (id !== B.WATER && id !== B.LAVA) return;

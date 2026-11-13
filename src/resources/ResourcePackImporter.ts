@@ -38,9 +38,21 @@ export interface PackManifest {
   sounds: Record<string, string[]>;
   special: Record<string, string>;
   importer?: number;
+  catalog?: string;
 }
 
-export const IMPORTER_VERSION = 11;
+export const IMPORTER_VERSION = 12;
+
+export const CATALOG = (() => {
+  let h = 2166136261;
+  const keys = [...BLOCKS.map((b) => b?.key ?? ''), '|', ...ITEMS.map((i) => i?.key ?? '')].join(',');
+  for (let i = 0; i < keys.length; i++) h = Math.imul(h ^ keys.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+})();
+
+export function packStale(m: { importer?: number; catalog?: string }): boolean {
+  return (m.importer ?? 0) < IMPORTER_VERSION || m.catalog !== CATALOG;
+}
 
 export const GUI_SPRITES = [
   'container/slot_highlight_back', 'container/slot_highlight_front', 'container/furnace/burn_progress', 'container/furnace/lit_progress',
@@ -561,7 +573,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
   const hash = await sha256Hex(sortedPaths.flatMap((p) => [enc.encode(p), files[p]]));
   const sizeBytes = sortedPaths.reduce((n, p) => n + files[p].length, 0);
   const manifest: PackManifest = {
-    importer: IMPORTER_VERSION,
+    importer: IMPORTER_VERSION, catalog: CATALOG,
     id: `pack-${hash.slice(0, 16)}`, name: name.slice(0, 60) || 'Imported Pack', description: description.slice(0, 200),
     format: isJava ? 'java' : 'bedrock', formatVersion, hash, importedAt: Date.now(), sizeBytes, report,
     blockFaces, itemTextures, animations, sounds, special,

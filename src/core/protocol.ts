@@ -102,7 +102,7 @@ export type S2C =
   | { t: 'pj'; p: PublicPlayer }
   | { t: 'pq'; id: string; name: string }
   | { t: 'ent'; a: number[][]; u: number[][]; r: number[] }
-  | { t: 'vit'; h: number; f: number; s: number; a: number; xp: number; dead: boolean; mode: GameMode; fire?: boolean }
+  | { t: 'vit'; h: number; f: number; s: number; a: number; xp: number; dead: boolean; mode: GameMode; fire?: boolean; ab?: number }
   | { t: 'inv'; inv: PlayerInv }
   | { t: 'ack'; s: number; ok: boolean; h: number }
   | { t: 'cont'; k: string; type: 'chest' | 'furnace'; items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number }

@@ -81,6 +81,12 @@ shapeless('purple_dye', 'decor', dyeId('purple'), 2, [I.RED_DYE, dyeId('blue')])
 shaped('copper_block', 'building', B.COPPER_BLOCK, 1, ['CCC', 'CCC', 'CCC'], { C: I.COPPER_INGOT });
 shapeless('copper_from_block', 'basics', I.COPPER_INGOT, 9, [B.COPPER_BLOCK]);
 shaped('cut_copper', 'building', B.CUT_COPPER, 4, ['CC', 'CC'], { C: B.COPPER_BLOCK });
+shaped('copper_lamp', 'decor', B.COPPER_LAMP, 1, [' C ', 'CTC', ' C '], { C: B.COPPER_BLOCK, T: B.TORCH });
+shaped('chiseled_tuff', 'building', B.CHISELED_TUFF, 1, ['P', 'P'], { P: B.POLISHED_TUFF });
+shaped('shears', 'tools', I.SHEARS, 1, [' I', 'I '], { I: I.IRON_INGOT });
+shaped('cookie', 'food', I.COOKIE, 8, ['WCW'], { W: I.WHEAT, C: I.COCOA_BEANS });
+shapeless('mossy_cobblestone_vine', 'building', B.MOSSY_COBBLESTONE, 1, [B.COBBLESTONE, B.VINE]);
+shapeless('mossy_stone_bricks_vine', 'building', B.MOSSY_STONE_BRICKS, 1, [B.STONE_BRICKS, B.VINE]);
 shaped('polished_tuff', 'building', B.POLISHED_TUFF, 4, ['TT', 'TT'], { T: B.TUFF });
 shaped('tuff_bricks', 'building', B.TUFF_BRICKS, 4, ['TT', 'TT'], { T: B.POLISHED_TUFF });
 shapeless('yellow_wool', 'decor', B.YELLOW_WOOL, 1, [B.WHITE_WOOL, I.YELLOW_DYE]);
@@ -234,6 +240,7 @@ export const SMELTING: SmeltRecipe[] = [
   { input: B.SANDSTONE, result: B.SMOOTH_SANDSTONE, xp: 0.1 },
   { input: B.COPPER_ORE, result: I.COPPER_INGOT, xp: 0.7 },
   { input: B.CACTUS, result: dyeId('green'), xp: 1 },
+  { input: B.KELP, result: I.DRIED_KELP, xp: 0.1 },
 ];
 
 export function findSmelt(id: number, book: RecipeBook = BASE_BOOK): SmeltRecipe | null {

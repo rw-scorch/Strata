@@ -1,5 +1,5 @@
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant } from '../core/blocks';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import type { AtlasData } from '../resources/TextureAtlas';
@@ -58,6 +58,11 @@ class Builder {
   quad(reverse: boolean, alt = false): void {
     if (this.ni + 6 > this.idx.length) this.growIdx();
     const b = this.nv - 4;
+    const U = this.uv;
+    let mu = U[b * 4], mv = U[b * 4 + 1];
+    for (let k = 1; k < 4; k++) { mu = Math.min(mu, U[(b + k) * 4]); mv = Math.min(mv, U[(b + k) * 4 + 1]); }
+    const su = Math.floor(mu / POS_SCALE) * POS_SCALE, sv = Math.floor(mv / POS_SCALE) * POS_SCALE;
+    if (su || sv) for (let k = 0; k < 4; k++) { U[(b + k) * 4] -= su; U[(b + k) * 4 + 1] -= sv; }
     const o = alt ? 1 : 0;
     const v0 = b + o, v1 = b + ((1 + o) & 3), v2 = b + ((2 + o) & 3), v3 = b + ((3 + o) & 3);
     const I = this.idx;
@@ -505,9 +510,10 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       const bd = water ? builders[2] : builders[0];
       const tile = water ? sp.water : sp.lava;
       if (water) { tintAt(x, z, 0); r = tintOut[0]; g = tintOut[1]; b = tintOut[2]; } else { r = g = b = 255; }
-      const above = y + 1 < H ? region[ridx(rx, y + 1, rz)] & 255 : 0;
+      const wmap = (n: number) => (water && isWaterPlant(n) ? B.WATER : n);
+      const above = wmap(y + 1 < H ? region[ridx(rx, y + 1, rz)] & 255 : 0);
       const ht = above === id ? 1 : fluidHeight(v);
-      const neigh = (dx: number, dy: number, dz: number) => (y + dy < 0 || y + dy >= H) ? (dy < 0 ? B.STONE : 0) : region[ridx(rx + dx, y + dy, rz + dz)] & 255;
+      const neigh = (dx: number, dy: number, dz: number) => wmap((y + dy < 0 || y + dy >= H) ? (dy < 0 ? B.STONE : 0) : region[ridx(rx + dx, y + dy, rz + dz)] & 255);
       for (let d = 0; d < 6; d++) {
         const nn = NORMALS[d];
         const nid = neigh(nn[0], nn[1], nn[2]);
@@ -545,7 +551,8 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         ox = ((hh & 15) / 15 - 0.5) * 0.35; oz = (((hh >> 4) & 15) / 15 - 0.5) * 0.35;
       }
       const tile = code === 7 ? sp[`wheat${meta & 7}`] : tiles[id * FS + 4];
-      const flags = (id === B.TALL_GRASS || id === B.FERN || code === 7 ? 4 : 0) | (tcode ? 1 : 0);
+      const flags = (id === B.TALL_GRASS || id === B.FERN || code === 7 || isWaterPlant(id) ? 4 : 0) | (tcode ? 1 : 0);
+      if (isWaterPlant(id)) special(ctx, 5, B.WATER, B.WATER, x, y, z, rx, rz, smooth);
       const bx = x + ox, bz = z + oz;
       if (code === 6) {
         const a = 0.15, c = 0.85, top2 = y + (id === B.SUGAR_CANE ? 1 : 0.95);

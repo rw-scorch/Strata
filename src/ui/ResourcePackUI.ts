@@ -2,7 +2,7 @@ import { h, clear, toast, modal, confirmDialog } from './dom';
 import { ResourcePackManager, InstalledPack } from '../resources/ResourcePackManager';
 import { getSettings } from '../storage/Settings';
 import { TextureAtlas } from '../resources/TextureAtlas';
-import { IMPORTER_VERSION, type PackManifest } from '../resources/ResourcePackImporter';
+import { packStale, type PackManifest } from '../resources/ResourcePackImporter';
 
 export function showResourcePacks(parent: HTMLElement, apply: (ids: string[]) => Promise<void>, onClose: () => void, lockedNote?: string, autoImport = false): void {
   const list = h('div', { class: 'list' });
@@ -34,7 +34,7 @@ export function showResourcePacks(parent: HTMLElement, apply: (ids: string[]) =>
         h('div', { class: 'meta' },
           h('div', { class: 'name' }, m.name, ' ', h('span', { class: `badge ${m.format === 'java' ? 'gold' : 'teal'}` }, m.format === 'java' ? `Java ${m.formatVersion}` : `Bedrock ${m.formatVersion}`)),
           h('div', { class: 'sub' }, `${r.mappedBlocks}/${r.totalBlocks} blocks · ${r.mappedItems}/${r.totalItems} items · ${r.animated} animated · ${(m.sizeBytes / 1048576).toFixed(1)} MB`),
-          (m.importer ?? 0) < IMPORTER_VERSION ? h('div', { class: 'sub outdated' }, 'Imported by an older version, so newer blocks, items, villagers and screens use Strata textures. ', h('button', { class: 'btn small primary', onclick: () => { replaceId = m.id; fileInput.click(); } }, 'Re-import this pack')) : null,
+          packStale(m) ? h('div', { class: 'sub outdated' }, 'Imported by an older version, so newer blocks, items, villagers and screens use Strata textures. ', h('button', { class: 'btn small primary', onclick: () => { replaceId = m.id; fileInput.click(); } }, 'Re-import this pack')) : null,
           m.description ? h('div', { class: 'sub' }, m.description) : null,
         ),
         h('div', { class: 'actions' },

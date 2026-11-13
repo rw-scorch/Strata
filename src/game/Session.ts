@@ -10,7 +10,7 @@ import type { DataRecipes } from '../core/crafting';
 
 export type ChatKind = 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error';
 
-export interface Vitals { health: number; food: number; sat: number; air: number; xp: number; dead: boolean; mode: GameMode; fire?: boolean; }
+export interface Vitals { health: number; food: number; sat: number; air: number; xp: number; dead: boolean; mode: GameMode; fire?: boolean; absorb?: number; }
 
 export interface SessionEvents {
   block(x: number, y: number, z: number, v: number, old: number): void;

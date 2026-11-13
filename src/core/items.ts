@@ -32,7 +32,7 @@ export const I = {
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
   ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298, BONE_MEAL: 299,
-  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367,
+  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370,
 } as const;
 
 const NEW_DYES = COLORS.filter((c) => c !== 'red' && c !== 'yellow');
@@ -107,6 +107,9 @@ add({ id: I.LAVA_BUCKET, key: 'lava_bucket', name: 'Lava Bucket', desc: 'Pour ou
 const food = (id: number, key: string, name: string, desc: string, hunger: number, saturation: number) =>
   add({ id, key, name, desc, kind: 'food', texture: key, food: { hunger, saturation }, tab: 'food' });
 food(I.APPLE, 'apple', 'Apple', 'Crisp fruit from oak canopies.', 4, 2.4);
+food(I.COOKIE, 'cookie', 'Cookie', 'Wheat and cocoa, baked by the batch.', 2, 0.4);
+food(I.DRIED_KELP, 'dried_kelp', 'Dried Kelp', 'Salty and quick to eat.', 1, 0.6);
+mat(I.SHEARS, 'shears', 'Shears', 'Clips leaves, vines, seagrass and grass cleanly.', { maxStack: 1, durability: 238, tab: 'tools' });
 food(I.GOLDEN_APPLE, 'golden_apple', 'Golden Apple', 'An apple sealed in gold. Deeply restoring.', 4, 9.6);
 food(I.MUSHROOM_STEW, 'mushroom_stew', 'Mushroom Stew', 'Warm and earthy.', 6, 7.2);
 mat(I.BOWL, 'bowl', 'Bowl', 'Carved from planks. Holds stew.');

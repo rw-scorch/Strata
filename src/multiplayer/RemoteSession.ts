@@ -247,7 +247,7 @@ export class RemoteSession implements GameSession {
         return;
       case 'vit':
         Object.assign(this.me, { health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode });
-        ev.vitals({ health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode, fire: !!m.fire });
+        ev.vitals({ health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode, fire: !!m.fire, absorb: m.ab ?? 0 });
         return;
       case 'inv': Object.assign(this.me.inv, sanitizeInv(m.inv)); this.expected.clear(); ev.inventory(this.me.inv); return;
       case 'ack': {

@@ -32,7 +32,7 @@ import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
-import { getBlock, blockId, LIGHT_EMIT } from '../core/blocks';
+import { getBlock, blockId, LIGHT_EMIT, isWaterLike } from '../core/blocks';
 import { heldStack } from '../core/inventory';
 import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
@@ -331,7 +331,7 @@ export class Game {
     this.interaction.onDigSound = (g, x, y, z) => audio.play(`dig.${g}`, x, y, z);
     this.interaction.onDigParticles = (x, y, z, v) => this.breakParticles(x, y, z, v, false);
     this.interaction.onEatTick = () => { this.renderer.handEat += 1 / 60; if (Math.random() < 0.08) audio.play('player.eat', this.player.x, this.player.eyeY, this.player.z); };
-    this.interaction.pvpCheck = () => !!this.room?.settings.pvp;
+    this.interaction.pvpCheck = () => this.session?.info.kind === 'remote' && ((this.session as unknown as { sim?: { settings: { pvp: boolean } } }).sim?.settings.pvp ?? !!this.room?.settings.pvp);
     this.unsub = onSettings((st) => this.applySettings(st));
     this.applySettings(s);
     this.showLoading('Shaping the strata...');
@@ -1019,7 +1019,7 @@ export class Game {
     this.thunder += ((this.weather === 'thunder' ? 1 : 0) - this.thunder) * Math.min(1, dt * 0.4);
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 3);
     const camBlock = this.chunks.getBlock(Math.floor(cam.position.x), Math.floor(cam.position.y), Math.floor(cam.position.z));
-    const underwater = blockId(camBlock) === 12;
+    const underwater = isWaterLike(camBlock);
     this.updateScreenFx(blockId(camBlock), now);
     const inLava = blockId(camBlock) === 13;
     this.renderer.entities.interpDelay = local ? 60 : 110;

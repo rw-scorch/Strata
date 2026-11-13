@@ -1,5 +1,5 @@
 import { dbAll, dbDelete, dbGet, dbPut, dbPutMany, dbKeys, prefixRange } from '../storage/db';
-import { importPack, ImportedPack, PackManifest, FaceOverride, AnimInfo, IMPORTER_VERSION } from './ResourcePackImporter';
+import { importPack, ImportedPack, PackManifest, FaceOverride, AnimInfo, packStale } from './ResourcePackImporter';
 import { isRawImage, rawToImageData } from './tga';
 import { getSettings, updateSettings } from '../storage/Settings';
 
@@ -65,14 +65,14 @@ class Manager {
 
   async stale(): Promise<PackManifest[]> {
     const all = await dbAll<PackManifest>('packs');
-    return all.filter((m) => (m.importer ?? 0) < IMPORTER_VERSION);
+    return all.filter((m) => packStale(m));
   }
 
   async upgrade(ids: string[], onStart?: (name: string) => void): Promise<{ upgraded: string[]; missing: string[] }> {
     const upgraded: string[] = [], missing: string[] = [];
     for (const id of ids) {
       const m = await dbGet<PackManifest>('packs', id);
-      if (!m || (m.importer ?? 0) >= IMPORTER_VERSION) continue;
+      if (!m || !packStale(m)) continue;
       const zip = await dbGet<Uint8Array>('packfiles', `${id}|__zip`);
       const fname = (await dbGet<string>('packfiles', `${id}|__name`)) ?? `${m.name}.zip`;
       if (!zip) { missing.push(m.name); continue; }

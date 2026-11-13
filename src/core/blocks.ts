@@ -42,7 +42,7 @@ export interface BlockDef {
   replaceable: boolean;
   climbable: boolean;
   fluid: 'water' | 'lava' | null;
-  needsSupport: 'soil' | 'sand' | 'solid' | 'farmland' | 'water-edge' | 'cactus' | null;
+  needsSupport: 'soil' | 'sand' | 'solid' | 'farmland' | 'water-edge' | 'cactus' | 'water-plant' | null;
   orientable: boolean;
   interactive: boolean;
   category: 'building' | 'nature' | 'functional' | 'ore' | 'plants' | 'hidden';
@@ -65,7 +65,7 @@ export const B = {
   SMOOTH_SANDSTONE: 74, COAL_BLOCK: 75, HAY_BLOCK: 76, PACKED_ICE: 77, TERRACOTTA: 78, BONE_BLOCK: 79, EMERALD_BLOCK: 80,
   CORNFLOWER: 158, LILY_OF_THE_VALLEY: 159, ALLIUM: 160, AZURE_BLUET: 161, BLUE_ORCHID: 162, ORANGE_TULIP: 163, PINK_TULIP: 164, WHITE_TULIP: 165, RED_TULIP: 166, OXEYE_DAISY: 167,
   TUFF: 168, TUFF_BRICKS: 169, CHISELED_TUFF: 170, POLISHED_TUFF: 171, COPPER_BLOCK: 172, CUT_COPPER: 173, COPPER_LAMP: 174, COPPER_ORE: 175,
-  SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178,
+  SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178, KELP: 179, KELP_PLANT: 180, SEAGRASS: 181, VINE: 182,
 } as const;
 
 export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
@@ -225,6 +225,14 @@ def(175, 'copper_ore', 'Copper Ore', 'Green-flecked stone with copper inside. Sm
 def(176, 'spawner', 'Monster Cage', 'A cage of black iron that calls creatures out of the dark.', { faces: ALL('spawner'), render: 'glass', opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', tier: 1, drops: [], xp: [15, 43], sound: 'metal', category: 'functional' });
 def(177, 'trial_spawner', 'Trial Cage', 'Wakes when players come near, releases a wave, and rewards whoever clears it.', { faces: COL('trial_spawner_side', 'trial_spawner_top', 'trial_spawner_bottom'), render: 'glass', opaque: false, lightFilter: 0, lightEmit: 4, hardness: 50, tool: 'pickaxe', tier: 1, drops: [], sound: 'metal', category: 'functional' });
 def(178, 'vault', 'Vault', 'Opens once for each player who brings a Trial Key.', { faces: COL('vault_side', 'vault_top', 'vault_bottom'), front: 'vault_front', orientable: true, interactive: true, render: 'glass', opaque: false, lightFilter: 0, lightEmit: 6, hardness: 50, tool: 'pickaxe', tier: 1, drops: [], sound: 'metal', category: 'functional' });
+
+def(179, 'kelp', 'Kelp', 'Grows up from the sea floor towards the light.', { faces: ALL('kelp'), ...PLANT, needsSupport: 'water-plant', sound: 'grass', drops: [{ item: 'self' }] });
+def(180, 'kelp_plant', 'Kelp Stem', 'The long body of a kelp plant.', { faces: ALL('kelp_plant'), ...PLANT, needsSupport: 'water-plant', drops: [{ item: 179 }], category: 'hidden' });
+def(181, 'seagrass', 'Seagrass', 'Sways in shallow seas.', { faces: ALL('seagrass'), ...PLANT, needsSupport: 'water-plant', replaceable: true, drops: [] });
+def(182, 'vine', 'Vines', 'Hangs from jungle trees. Climbable.', { faces: ALL('vine'), render: 'ladder', solid: false, opaque: false, lightFilter: 0, hardness: 0.2, tool: 'hoe', sound: 'grass', climbable: true, tint: 'foliage', needsSupport: 'solid', orientable: true, replaceable: true, drops: [], category: 'plants' });
+
+export function isWaterPlant(id: number): boolean { return id === 179 || id === 180 || id === 181; }
+export function isWaterLike(v: number): boolean { const id = v & 0xff; return id === 12 || id === 179 || id === 180 || id === 181; }
 
 export const BLOCKS: BlockDef[] = defs;
 

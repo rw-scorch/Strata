@@ -438,6 +438,8 @@ body.vanilla-slots .inv-screen .slot:not(.mc).hover { filter: brightness(1.25); 
 .mc-row.hearts, .mc-row.food { top: calc(var(--hs) * -17); }
 .mc-row.armor, .mc-row.air { top: calc(var(--hs) * -27); }
 .mc-row.shake { animation: shake 0.3s; }
+.mc-row.armor.lifted { top: calc(var(--hs) * -37); }
+.mc-icon.absorb-tint { filter: sepia(1) saturate(5) hue-rotate(-8deg) brightness(1.2); }
 .mc-icon { position: absolute; width: calc(var(--hs) * 9); height: calc(var(--hs) * 9); image-rendering: pixelated; }
 .mc-xp { position: absolute; left: 0; top: calc(var(--hs) * -7); width: calc(var(--hs) * 182); height: calc(var(--hs) * 5); background: var(--xp-bg) 0 0 / 100% 100% no-repeat; image-rendering: pixelated; }
 .mc-xp .xp-fill { position: absolute; left: 0; top: 0; height: 100%; width: 0; background: var(--xp-fg) 0 0 / calc(var(--hs) * 182) 100% no-repeat; image-rendering: pixelated; }
@@ -598,3 +600,22 @@ body:not(.touch-active) .hud-mc .hud-btn { display: none; }
 .eco-pick-item { position: relative; width: 32px; height: 32px; padding: 0; cursor: pointer; }
 .eco-pick-item.sel { outline: 2px solid #ffffa0; }
 body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; min-width: 130px; }
+
+/* v15: Minecraft theme for dialogs */
+.modal-backdrop { --ms: 2px; }
+@media (min-width: 1400px) { .modal-backdrop { --ms: 3px; } }
+.modal.panel { background: var(--mc-menu-bg) 0 0 / calc(var(--ms) * 32) repeat, rgba(8, 8, 8, 0.78); border: var(--ms) solid #000; box-shadow: inset 0 0 0 var(--ms) #5a5a5a, 0 calc(var(--ms) * 4) calc(var(--ms) * 12) rgba(0, 0, 0, 0.5); border-radius: 0; image-rendering: pixelated; font-family: var(--mc-font); color: #e0e0e0; }
+.modal-head { border-bottom: 0; background: var(--mc-hdr) left bottom / calc(var(--ms) * 32) calc(var(--ms) * 2) repeat-x; padding: calc(var(--ms) * 6) calc(var(--ms) * 6) calc(var(--ms) * 7) calc(var(--ms) * 8); image-rendering: pixelated; }
+.modal-head h2 { font-family: var(--mc-font); font-weight: 400; font-size: calc(var(--ms) * 9); color: #fff; text-shadow: var(--ms) var(--ms) 0 #3f3f3f; letter-spacing: 0; }
+.modal-actions { border-top: 0; background: var(--mc-ftr) left top / calc(var(--ms) * 32) calc(var(--ms) * 2) repeat-x; padding: calc(var(--ms) * 7) calc(var(--ms) * 8) calc(var(--ms) * 6); image-rendering: pixelated; }
+.modal-body { font-family: var(--mc-font); font-size: calc(var(--ms) * 8); line-height: 1.35; color: #e0e0e0; text-shadow: calc(var(--ms) * 0.5) calc(var(--ms) * 0.5) 0 #2a2a2a; }
+.modal-body label, .modal-body .label, .modal-body .field > span, .modal-body .small { font-family: var(--mc-font); letter-spacing: 0; text-transform: none; font-weight: 400; color: #c8c8c8; outline: none; }
+.modal-body label:focus, .modal-body label:focus-visible { outline: none; }
+.modal-head .icon-btn { width: calc(var(--ms) * 14); height: calc(var(--ms) * 14); border: 0; border-radius: 0; background: var(--mc-x) center / 100% 100% no-repeat; image-rendering: pixelated; color: transparent; font-size: 0; box-shadow: none; }
+.modal-head .icon-btn:hover, .modal-head .icon-btn:focus-visible { background-image: var(--mc-x-hi); outline: none; }
+.modal .badge { font-family: var(--mc-font); font-weight: 400; border-radius: 0; letter-spacing: 0; text-transform: none; }
+.player-row { flex-wrap: wrap; border-radius: 0; background: rgba(0, 0, 0, 0.45); border: var(--ms) solid #3a3a3a; font-family: var(--mc-font); gap: calc(var(--ms) * 4); padding: calc(var(--ms) * 4) calc(var(--ms) * 5); }
+.player-row .nm { font-weight: 400; min-width: 40%; }
+.player-row .btn { flex: 0 1 auto; }
+.modal .input, .modal select.input { font-size: max(16px, calc(var(--ms) * 8)) !important; }
+.toast { font-family: var(--mc-font); border-radius: 0 !important; border: var(--ms, 2px) solid #000 !important; box-shadow: inset 0 0 0 var(--ms, 2px) #5a5a5a !important; background: rgba(16, 16, 16, 0.9) !important; }
