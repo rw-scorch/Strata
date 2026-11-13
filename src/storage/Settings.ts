@@ -24,6 +24,7 @@ export interface Settings {
   idleFps: boolean;
   voiceEnabled: boolean;
   foodStats: boolean;
+  sidebar: boolean;
   lookInfo: boolean;
   dynamicLights: boolean;
   fallingLeaves: boolean;
@@ -138,7 +139,7 @@ function defaults(): Settings {
   const lowEnd = !ipad && ((navigator.hardwareConcurrency ?? 4) <= 4 || /iPhone|Android/i.test(navigator.userAgent));
   const preset: GraphicsPreset = lowEnd ? 'low' : touch ? 'medium' : 'high';
   return {
-    preset, renderDistance: 6, lodDistance: 32, lodQuality: 'medium', caveCulling: true, idleFps: true, voiceEnabled: false, foodStats: true, lookInfo: true, dynamicLights: true, fallingLeaves: true, connectedGlass: true, betterGrass: 'fancy', soundPhysics: true, mouseTweaks: true, voiceMode: 'ptt', voiceVolume: 1, micGain: 1, voiceThreshold: 0.03, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
+    preset, renderDistance: 6, lodDistance: 32, lodQuality: 'medium', caveCulling: true, idleFps: true, voiceEnabled: false, foodStats: true, sidebar: true, lookInfo: true, dynamicLights: true, fallingLeaves: true, connectedGlass: true, betterGrass: 'fancy', soundPhysics: true, mouseTweaks: true, voiceMode: 'ptt', voiceVolume: 1, micGain: 1, voiceThreshold: 0.03, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
     fov: 72, showFps: false, sensitivity: 1, touchSensitivity: 1, joystickSize: 1, buttonSize: 1, leftHanded: false, invertY: false,
     controlScheme: 'auto', labs: false, guiScale: 0, touchLayout: 'full', buttonOpacity: 0.85, fireOverlay: 'low', chatTimestamps: false, showCoords: true, showMinimap: true, menuBlur: 5, advancedTooltips: false, autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
     difficulty: 'normal', viewBobbing: true, reconnect: true, region: 'auto', activePacks: [],

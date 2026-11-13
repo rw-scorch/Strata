@@ -5,7 +5,7 @@ import type { PlayerInv, InvOp, ItemStack } from '../core/inventory';
 import type { Weather, Appearance, SimPlayer, BlockEntity, WorldSim, ScreenType } from '../core/sim/WorldSim';
 import type { GameState } from '../core/labs/minigames/Minigame';
 import type { ArenaKind } from '../core/labs/minigames/arena';
-import type { RoomMeta, PublicPlayer } from '../core/protocol';
+import type { RoomMeta, PublicPlayer, S2C } from '../core/protocol';
 import type { DataRecipes } from '../core/crafting';
 
 export type ChatKind = 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error';
@@ -21,7 +21,8 @@ export interface SessionEvents {
   vitals(v: Vitals): void;
   inventory(inv: PlayerInv): void;
   container(key: string, type: 'chest' | 'furnace', items: (ItemStack | null)[], burn?: number, burnMax?: number, cook?: number): void;
-  screen(type: ScreenType | null, x: number, y: number, z: number): void;
+  screen(type: ScreenType | null, x: number, y: number, z: number, title?: string): void;
+  eco?(m: Extract<S2C, { t: 'eco' }>): void;
   game(state: GameState): void;
   title(text: string, sub: string): void;
   trade?(info: TradeInfo): void;

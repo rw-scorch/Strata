@@ -6,6 +6,7 @@ import type { GameMode, Difficulty } from './constants';
 import type { Appearance } from './sim/WorldSim';
 import type { PlayerInv, ItemStack, InvOp } from './inventory';
 import type { DataRecipes } from './crafting';
+import type { EcoView } from './economy';
 
 export interface PackRef { name: string; hash: string; }
 
@@ -15,6 +16,7 @@ export interface RoomSettings {
   cheats: boolean;
   personalPacks: boolean;
   voice?: boolean;
+  economy?: boolean;
 }
 
 export interface RoomMeta {
@@ -81,11 +83,15 @@ export type C2S =
   | { t: 'ue'; id: number }
   | { t: 'rtc'; to: string; d: unknown }
   | { t: 'skin'; skin: SkinRef | null }
-  | { t: 'datapacks'; d: DataRecipes[] };
+  | { t: 'datapacks'; d: DataRecipes[] }
+  | { t: 'eco'; a: string; [k: string]: unknown };
 
 export type S2C =
   | { t: 'rules'; r: RuleSet }
   | { t: 'recipes'; d: DataRecipes[] }
+  | { t: 'eco'; k: 'stats'; money: number; kills: number; deaths: number; playtime: number }
+  | { t: 'eco'; k: 'prices'; sell: Record<number, number>; shop: Record<string, number>; on?: boolean }
+  | { t: 'eco'; k: 'view'; view: EcoView }
   | { t: 'rtc'; from: string; d: unknown }
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
   | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
@@ -100,7 +106,7 @@ export type S2C =
   | { t: 'inv'; inv: PlayerInv }
   | { t: 'ack'; s: number; ok: boolean; h: number }
   | { t: 'cont'; k: string; type: 'chest' | 'furnace'; items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number }
-  | { t: 'scr'; type: ScreenType | null; x: number; y: number; z: number }
+  | { t: 'scr'; type: ScreenType | null; x: number; y: number; z: number; title?: string }
   | { t: 'snd'; s: string; x: number; y: number; z: number; v?: number; p?: number }
   | { t: 'fx'; k: string; x: number; y: number; z: number; d?: number }
   | { t: 'hurt'; a: number; c: string; fx: number; fz: number; k?: number }

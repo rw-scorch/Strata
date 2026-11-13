@@ -9,6 +9,7 @@ import { isArenaKind } from '../../src/core/labs/minigames/arena';
 import { B, blockId } from '../../src/core/blocks';
 import { sanitizeInv, validateOp, invHash, validStack, cloneStack } from '../../src/core/inventory';
 import { cleanPackList } from '../../src/core/datapack';
+import { Economy } from './Economy';
 import { ORE_REVEAL_RADIUS, maskChunk, exposedOres, revealAround, publicValue } from '../../src/core/antixray';
 import {
   C2S, S2C, RoomMeta, RoomInfo, PublicPlayer, RoomSettings, PackRef, ENT_KIND, q2, isNum, isInt, cleanName, cleanText, cleanAppearance,
@@ -79,7 +80,7 @@ function cleanSkin(v: unknown): { png: string; slim: boolean } | null {
   return { png: o.png, slim: o.slim === true };
 }
 
-function defaultSettings(): RoomSettings { return { pvp: true, guestsBuild: true, cheats: false, personalPacks: true, voice: true }; }
+function defaultSettings(): RoomSettings { return { pvp: true, guestsBuild: true, cheats: false, personalPacks: true, voice: true, economy: true }; }
 
 export class WorldRoom extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -87,6 +88,8 @@ export class WorldRoom extends DurableObject<Env> {
   private sim: WorldSim | null = null;
   private gen: WorldGenerator | null = null;
   private cache = new Map<string, { c: ChunkData; dirty: boolean; used: number }>();
+  private eco!: Economy;
+  private playStart = new Map<string, number>();
   private sessions = new Map<WebSocket, Session>();
   private loop: ReturnType<typeof setInterval> | null = null;
   private loadQueue: string[] = [];
@@ -104,6 +107,13 @@ export class WorldRoom extends DurableObject<Env> {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS be (k TEXT PRIMARY KEY, data TEXT)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS genbe (k TEXT PRIMARY KEY)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
+    this.eco = new Economy(this.sql, {
+      sim: () => this.ensureSim(),
+      send: (pid, msg) => { const ss = this.sessionFor(pid); if (ss) this.send(ss, msg as S2C); },
+      chat: (pid, text, kind = 'info') => { const ss = this.sessionFor(pid); if (ss) this.systemChat(text, kind, ss); },
+      enabled: () => this.meta?.settings.economy !== false,
+      playtime: (pp) => (pp.playtime ?? 0) + (Date.now() - (this.playStart.get(pp.id) ?? Date.now())) / 1000,
+    });
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null;
       this.sessions.set(ws, this.newSession(ws, a));
@@ -170,6 +180,7 @@ export class WorldRoom extends DurableObject<Env> {
       validateMoves: true, authoritative: true, spawn,
     });
     this.sim.serverMode = true;
+    this.sim.onVirtualClose = (pp, kind, items) => this.eco.virtualClosed(pp, kind, items);
     this.sim.time = m.time ?? 1000;
     this.sim.weather = (m.weather as 'clear') ?? 'clear';
     this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true, ...(m.rules ?? {}) };
@@ -228,6 +239,10 @@ export class WorldRoom extends DurableObject<Env> {
         blocks = decodeRLE(new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)));
         modified = true;
       } else if (near) blocks = this.getChunk(cx, cz).blocks;
+    }
+    if (!modified && this.gen?.hasStructure(cx, cz)) {
+      blocks ??= this.getChunk(cx, cz).blocks;
+      modified = true;
     }
     const so = (s.oreSent ??= new Set());
     if (modified && blocks) {
@@ -309,7 +324,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (!done) {
           for (const e of g.entities) {
             const wx = cx * 16 + e.x, wz = cz * 16 + e.z;
-            this.sim.addGeneratedChest(wx, e.y, wz, e.items);
+            this.sim.addGeneratedChest(wx, e.y, wz, e.items, e.type, e.mob);
             this.dirtyBE.add(posKey(wx, e.y, wz));
           }
           this.sql.exec(`INSERT OR REPLACE INTO genbe (k) VALUES (?)`, k);
@@ -367,6 +382,7 @@ export class WorldRoom extends DurableObject<Env> {
     const data = {
       name: p.name, appearance: p.appearance, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv,
       health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, homes: p.homes, back: p.back,
+      kills: p.kills ?? 0, deaths: p.deaths ?? 0, playtime: Math.floor((p.playtime ?? 0) + (Date.now() - (this.playStart.get(p.id) ?? Date.now())) / 1000),
     };
     this.sql.exec(`UPDATE players SET data = ? WHERE id = ?`, JSON.stringify(data), p.id);
   }
@@ -484,6 +500,7 @@ export class WorldRoom extends DurableObject<Env> {
       if (isInt(b.maxPlayers, 1, MAX_PLAYERS_LIMIT)) m.maxPlayers = b.maxPlayers;
       if (typeof b.voice === 'boolean') m.settings.voice = b.voice;
       if (typeof b.pvp === 'boolean') { m.settings.pvp = b.pvp; if (this.sim) this.sim.settings.pvp = b.pvp; }
+      if (typeof b.economy === 'boolean') m.settings.economy = b.economy;
       this.saveMeta();
       this.broadcast({ t: 'room', room: this.publicMeta(), players: this.sim ? [...this.sim.players.values()].filter((p) => !p.vanished).map((p) => this.publicPlayer(p)) : [] });
       this.report(true);
@@ -496,6 +513,15 @@ export class WorldRoom extends DurableObject<Env> {
       fake.op = true;
       const r = sim.command(fake, ['gamerule', ...parts].join(' '));
       return Response.json({ ok: true, result: r });
+    }
+    if (act === 'prices') {
+      if (b.sell || b.shop) this.eco.setPrices({ sell: (b.sell ?? {}) as Record<string, number>, shop: (b.shop ?? {}) as Record<string, number> });
+      return Response.json({ ok: true, ...this.eco.priceTable(), economy: m.settings.economy !== false });
+    }
+    if (act === 'economy') {
+      m.settings.economy = b.on !== false;
+      this.saveMeta();
+      return Response.json({ ok: true, economy: m.settings.economy });
     }
     if (act === 'delete') {
       for (const s of this.sessions.values()) this.sendErr(s, 'unavailable', 'This world was deleted by a server admin.');
@@ -616,6 +642,9 @@ export class WorldRoom extends DurableObject<Env> {
       }
       const b = pt(d.back);
       if (b) p.back = b;
+      if (isInt(d.kills, 0, 1e9)) p.kills = d.kills;
+      if (isInt(d.deaths, 0, 1e9)) p.deaths = d.deaths;
+      if (isInt(d.playtime, 0, 1e10)) p.playtime = d.playtime;
     }
     return p;
   }
@@ -679,6 +708,7 @@ export class WorldRoom extends DurableObject<Env> {
     const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.getChunk(pcx + dx, pcz + dz);
     sim.addPlayer(p);
+    this.playStart.set(p.id, Date.now());
     if (!spectate) this.savePlayer(p);
     s.pid = id; s.name = name; s.op = p.op;
     s.ws.serializeAttachment({ pid: id, name, op: p.op } satisfies Attachment);
@@ -688,6 +718,7 @@ export class WorldRoom extends DurableObject<Env> {
       t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, worldSpawn: sim.spawn, rules: ruleSnapshot(sim.settings), recipes: sim.dataPacks.length ? sim.dataPacks : undefined,
       you: { id, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, op: p.op },
     });
+    if (!spectate) this.eco.joined(p);
     if (spectate) { this.systemChat('You are spectating as a server admin. Other players cannot see you.', 'info', s); this.report(true); return; }
     this.broadcast({ t: 'pj', p: this.publicPlayer(p) }, s);
     this.systemChat(`${name} joined the world.`, 'join');
@@ -770,6 +801,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (!p.vanished) this.broadcast({ t: 'pj', p: this.publicPlayer(p) });
         return;
       }
+      case 'eco': this.eco.action(p, msg as unknown as Record<string, unknown>); return;
       case 'datapacks': {
         if (!p.op) { this.systemChat('Only the world owner and operators can change data packs.', 'error', s); return; }
         const now = Date.now();
@@ -824,6 +856,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (lc === 'kick') this.kick(s, target.id, 'kicked'); else this.mute(s, target.id, lc === 'mute');
         return;
       }
+      if (this.eco.command(p, text)) return;
       const out = sim.command(p, text);
       if (out) this.systemChat(out, out.startsWith('Unknown') || out.startsWith('You do not') ? 'error' : 'info', s);
       return;
@@ -881,6 +914,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (msg.settings && typeof msg.settings === 'object') {
       const st = msg.settings;
       if (typeof st.pvp === 'boolean') m.settings.pvp = st.pvp;
+      if (typeof st.economy === 'boolean') m.settings.economy = st.economy;
       if (typeof st.guestsBuild === 'boolean') m.settings.guestsBuild = st.guestsBuild;
       if (typeof st.cheats === 'boolean') m.settings.cheats = st.cheats;
       if (typeof st.personalPacks === 'boolean') m.settings.personalPacks = st.personalPacks;
@@ -954,6 +988,7 @@ export class WorldRoom extends DurableObject<Env> {
         this.blockBatch.push([ev.x, ev.y, ev.z, ev.v]);
         revealAround(this.peekGet, ev.x, ev.y, ev.z, this.blockBatch);
         return;
+      case 'stats': this.eco.stats(ev.p); return;
       case 'reject': {
         const s = this.sessionFor(ev.p.id);
         if (s) this.send(s, { t: 'blk', u: [[ev.x, ev.y, ev.z, publicValue(this.peekGet, ev.x, ev.y, ev.z)]] });
@@ -979,7 +1014,7 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       }
       case 'container': {
-        this.dirtyBE.add(ev.key);
+        if (!ev.key.includes(',-64,')) this.dirtyBE.add(ev.key);
         for (const s of this.sessions.values()) {
           if (!s.pid) continue;
           const p = this.sim!.players.get(s.pid);
@@ -997,7 +1032,7 @@ export class WorldRoom extends DurableObject<Env> {
         const s = this.sessionFor(ev.p.id);
         if (!s) return;
         const sc = ev.p.screen;
-        this.send(s, { t: 'scr', type: sc.type, x: sc.x, y: sc.y, z: sc.z });
+        this.send(s, { t: 'scr', type: sc.type, x: sc.x, y: sc.y, z: sc.z, title: ev.p.screenTitle });
         const v = this.sim!.containerView(ev.p);
         if (v) this.send(s, v.type === 'furnace' ? { t: 'cont', k: v.key, type: 'furnace', items: v.items, burn: v.burn, burnMax: v.burnMax, cook: v.cook } : { t: 'cont', k: v.key, type: 'chest', items: v.items });
         return;
@@ -1066,6 +1101,8 @@ export class WorldRoom extends DurableObject<Env> {
       loads++;
     }
     this.processOres(12);
+    if (this.ticks % 200 === 0) this.eco.tick(now);
+    if (this.ticks % 1200 === 600) for (const pp of sim.players.values()) if (!pp.vanished) this.eco.stats(pp);
     sim.setNow(now);
     sim.tick();
     this.flushBlocks();

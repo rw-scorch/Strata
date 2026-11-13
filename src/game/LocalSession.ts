@@ -84,7 +84,7 @@ export class LocalSession implements GameSession {
     const k = chunkKey(cx, cz);
     if (this.beChunks.has(k)) return;
     this.beChunks.add(k);
-    for (const e of ents) this.sim.addGeneratedChest(cx * 16 + e.x, e.y, cz * 16 + e.z, e.items);
+    for (const e of ents) this.sim.addGeneratedChest(cx * 16 + e.x, e.y, cz * 16 + e.z, e.items, e.type, e.mob);
   }
 
   private emitVitals(): void {

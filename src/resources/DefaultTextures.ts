@@ -414,6 +414,58 @@ const TEX: Record<string, () => Px> = {
 for (let i = 0; i < 8; i++) TEX[`wheat_stage${i}`] = () => plant(`wheat${i}`, wheatStage(i));
 for (let i = 0; i < 10; i++) TEX[`destroy_stage_${i}`] = () => crack(i);
 
+function framed(base: Px, light: RGBA, dark: RGBA): Px {
+  for (let i = 0; i < 16; i++) { base.set(i, 0, light); base.set(0, i, light); base.set(i, 15, dark); base.set(15, i, dark); }
+  return base;
+}
+
+function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
+  const p = new Px();
+  const r = rngFor(key);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const edge = x === 0 || y === 0 || x === 15 || y === 15;
+    const grid = x % 5 === 0 || y % 5 === 0;
+    if (edge || grid) p.set(x, y, shade(bar, 0.85 + r.next() * 0.3));
+    else if (glow && r.next() < 0.12) p.set(x, y, glow);
+  }
+  return p;
+}
+
+{
+  const COLOR_HEX: Record<string, number> = {
+    white: 0xf0f0f0, orange: 0xf07613, magenta: 0xbd44b3, light_blue: 0x3aafd9, yellow: 0xf8c627, lime: 0x70b919, pink: 0xed8dac, gray: 0x3e4447,
+    light_gray: 0x8e8e86, cyan: 0x158991, purple: 0x792aac, blue: 0x35399d, brown: 0x724728, green: 0x546d1b, red: 0xa12722, black: 0x141519,
+  };
+  for (const [c, hx] of Object.entries(COLOR_HEX)) {
+    const col = hex(hx);
+    if (!TEX[`${c}_wool`]) TEX[`${c}_wool`] = () => wool(`${c}_wool`, col);
+    TEX[`${c}_terracotta`] = () => noise(`${c}_terra`, mixc(col, hex(0x985e43), 0.45), 0.05);
+    TEX[`${c}_concrete`] = () => noise(`${c}_conc`, col, 0.025);
+    TEX[`${c}_concrete_powder`] = () => speckle(noise(`${c}_pow`, mixc(col, hex(0xffffff), 0.12), 0.1), `${c}_pow`, [shade(col, 0.8), mixc(col, hex(0xffffff), 0.3)], 60);
+    TEX[`${c}_stained_glass`] = () => { const p = new Px().fill([col[0], col[1], col[2], 120]); const e: RGBA = [col[0], col[1], col[2], 220]; for (let i = 0; i < 16; i++) { p.set(i, 0, e); p.set(0, i, e); p.set(i, 15, e); p.set(15, i, e); } for (let i = 3; i < 7; i++) p.set(i, 9 - i, [255, 255, 255, 170]); return p; };
+  }
+  const fl: [string, number, number][] = [['cornflower', 0x4466dd, 0x2a3a90], ['lily_of_the_valley', 0xffffff, 0xd8d8c8], ['allium', 0xb060d8, 0x7a30a8], ['azure_bluet', 0xd8e8f0, 0xf0d040],
+    ['blue_orchid', 0x3aa8e8, 0x1a70b0], ['orange_tulip', 0xf07a20, 0xc05010], ['pink_tulip', 0xf0a0c0, 0xc06a8a], ['white_tulip', 0xf4f4f4, 0xb8b8b8], ['red_tulip', 0xd82a20, 0x901a12], ['oxeye_daisy', 0xf4f4f4, 0xf0c020]];
+  for (const [k, a, b] of fl) TEX[k] = () => plant(k, flower(hex(a), hex(b)));
+  TEX.tuff = () => speckle(noise('tuff', hex(0x6c6d66), 0.1), 'tuff', [hex(0x5a5b55), hex(0x84857c)], 40);
+  TEX.polished_tuff = () => framed(noise('ptuff', hex(0x707169), 0.04), hex(0x86877e), hex(0x55564f));
+  TEX.tuff_bricks = () => bricks('tuff_bricks', hex(0x6e6f68), hex(0x4f504a), 8, 8);
+  TEX.chiseled_tuff = () => { const p = framed(noise('ctuff', hex(0x6c6d66), 0.05), hex(0x86877e), hex(0x4f504a)); for (let i = 4; i < 12; i++) { p.set(i, 4, hex(0x4f504a)); p.set(i, 11, hex(0x4f504a)); p.set(4, i, hex(0x4f504a)); p.set(11, i, hex(0x4f504a)); } return p; };
+  TEX.chiseled_tuff_top = () => framed(noise('ctufft', hex(0x707169), 0.04), hex(0x86877e), hex(0x4f504a));
+  TEX.copper_block = () => framed(speckle(noise('cub', hex(0xc06a48), 0.06), 'cub', [hex(0xe08a62), hex(0x9a4e34)], 25), hex(0xeaa07a), hex(0x8a4430));
+  TEX.cut_copper = () => { const p = noise('cutc', hex(0xc06a48), 0.05); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0xe8a07a)); p.set(0, i, hex(0xe8a07a)); p.set(i, 7, hex(0x8a4430)); p.set(7, i, hex(0x8a4430)); p.set(i, 8, hex(0xe8a07a)); p.set(8, i, hex(0xe8a07a)); p.set(i, 15, hex(0x8a4430)); p.set(15, i, hex(0x8a4430)); } return p; };
+  TEX.copper_lamp = () => { const p = cage('clamp', hex(0xb0603e), null); for (let y = 1; y < 15; y++) for (let x = 1; x < 15; x++) if (x % 5 && y % 5) p.set(x, y, mixc(hex(0xffe8a0), hex(0xffb040), (x + y) / 30)); return p; };
+  TEX.copper_ore = () => oreTex('copper_ore', hex(0xd07a4a), hex(0x3e8a6a));
+  TEX.spawner = () => cage('spawner', hex(0x24303a), null);
+  TEX.trial_spawner_side = () => cage('trials', hex(0x5a5048), hex(0xf09030));
+  TEX.trial_spawner_top = () => cage('trialt', hex(0x5a5048), null);
+  TEX.trial_spawner_bottom = () => framed(noise('trialb', hex(0x4a423c), 0.06), hex(0x6a6058), hex(0x2a2420));
+  TEX.vault_side = () => cage('vaults', hex(0x5c5650), hex(0x8ad0ff));
+  TEX.vault_top = () => framed(noise('vaultt', hex(0x625c56), 0.05), hex(0x827a72), hex(0x3a3430));
+  TEX.vault_bottom = () => framed(noise('vaultb', hex(0x4a4440), 0.05), hex(0x6a6058), hex(0x2a2420));
+  TEX.vault_front = () => { const p = cage('vaultf', hex(0x5c5650), null); for (let y = 6; y < 10; y++) for (let x = 6; x < 10; x++) p.set(x, y, hex(0xffd36a)); p.set(7, 10, hex(0x3a3430)); p.set(8, 10, hex(0x3a3430)); return p; };
+}
+
 export function defaultBlockTexture(key: string): Px {
   const f = TEX[key];
   if (f) return f();
@@ -551,6 +603,20 @@ const ITEM_MAP: Record<string, () => Px> = {
   emerald: () => drawSprite(['................', '................', '.......aa.......', '......abba......', '.....abccba.....', '....abcbbcba....', '...abcbddbcba...', '...abbdeedbba...', '...abbdeedbba...', '...abcbddbcba...', '....abcbbcba....', '.....abccba.....', '......abba......', '.......aa.......', '................', '................'], { a: 0x0a4a20, b: 0x17a84a, c: 0x41f384, d: 0x0e7a34, e: 0xd8ffe8 }),
   oak_door_item: () => drawSprite(SPRITES.door_item.rows, SPRITES.door_item.pal),
 };
+
+{
+  const DYE: Record<string, [number, number, number]> = {
+    white: [0x8a8a80, 0xf0f0e8, 0xffffff], orange: [0x7a3a08, 0xf07a20, 0xffb060], magenta: [0x5a1a58, 0xc050c0, 0xf0a0f0], light_blue: [0x1a4a6a, 0x48b8e8, 0xb0e8ff],
+    lime: [0x2a5a0a, 0x80d020, 0xc8f080], pink: [0x7a3a50, 0xf098b8, 0xffd0e0], gray: [0x1a1c1e, 0x4a5054, 0x80888c], light_gray: [0x4a4a46, 0x9e9e96, 0xd8d8d0],
+    cyan: [0x0a3a40, 0x18a0a8, 0x80e0e8], purple: [0x3a1058, 0x8a38c0, 0xc890f0], blue: [0x10144a, 0x3a44b8, 0x8a98f0], brown: [0x3a2210, 0x7a4c2a, 0xb08058],
+    green: [0x223008, 0x5a7a20, 0x9ab860], black: [0x050505, 0x1e1e24, 0x4a4a52],
+  };
+  for (const [c, [a, b, d]] of Object.entries(DYE)) ITEM_MAP[`${c}_dye`] = () => drawSprite(SPRITES.dye.rows, { a, b, c: d });
+  ITEM_MAP.copper_ingot = () => drawSprite(SPRITES.ingot.rows, { a: 0x6a3018, b: 0xc06a48, c: 0xf0b090 });
+  ITEM_MAP.trial_key = () => drawSprite(['................', '................', '..aaa...........', '.abbba..........', '.ab.ba..........', '.abbbaaaaaaaaa..', '..aaabbbbbbbbba.', '.....aaaaaba.ba.', '..........a..a..', '................', '................', '................', '................', '................', '................', '................'], { a: 0x4a3010, b: 0xe8b040 });
+  ITEM_MAP.ink_sac = () => drawSprite(['................', '................', '......aaaa......', '.....abbbba.....', '....abbcbbba....', '....abbbbbba....', '....abbbbbba....', '.....abbbba.....', '......abba......', '.....a.aa.a.....', '....a..aa..a....', '.......aa.......', '................', '................', '................', '................'], { a: 0x101014, b: 0x2a2a34, c: 0x6a6a7a });
+  ITEM_MAP.cocoa_beans = () => drawSprite(['................', '................', '................', '.....aa...aa....', '....abba.abba...', '....abca.abca...', '....abba.abba...', '.....aa...aa....', '.......aa.......', '......abba......', '......abca......', '......abba......', '.......aa.......', '................', '................', '................'], { a: 0x3a2010, b: 0x7a4a24, c: 0xa87040 });
+}
 
 export function defaultItemTexture(key: string): Px | null {
   if (ITEM_MAP[key]) return ITEM_MAP[key]();

@@ -11,6 +11,7 @@ import { loadCustomSkin, skinFromAppearance, convertLegacy, detectSlim } from '.
 import { audio } from '../audio/AudioEngine';
 import { crop, sprite, label, guiScale, guiURL, nineSlice, tooltip, itemTooltipLines } from './mc/Gui';
 import { getSettings } from '../storage/Settings';
+import { sellValue, money } from '../core/economy';
 import { OFFERS, PROFESSIONS, PROF_TITLE, LEVEL_NAMES, LEVEL_XP, levelFor, unlocked, canAfford } from '../core/trades';
 
 let sharedPreview: SkinPreview | null = null;
@@ -54,6 +55,9 @@ export class InventoryUI {
   private tradeScroll = 0;
   private onTrade: ((id: string, i: number, n: number) => void) | null = null;
   isOpen = false;
+  title: string | null = null;
+  sellPrices: Map<number, number> | null = null;
+  private sellLabel: HTMLElement | null = null;
   onClose: (() => void) | null = null;
   private pointer = { x: 0, y: 0 };
   private drag: { from: HTMLElement; startX: number; startY: number; active: boolean; pid: number; lp: number | null; long: boolean } | null = null;
@@ -332,6 +336,11 @@ export class InventoryUI {
     } else this.cursorEl.style.display = 'none';
     this.refreshFurnace();
     this.refreshBook();
+    if (this.sellLabel && this.container) {
+      let total = 0;
+      for (const st of this.container.items) if (st) total += sellValue(st, this.sellPrices ?? new Map());
+      this.sellLabel.textContent = `Sell items: ${money(total)} (close to sell)`;
+    }
     if (this.screen === 'trade') this.refreshTradeAfford();
   }
 
@@ -361,6 +370,7 @@ export class InventoryUI {
     this.slotEls = [];
     this.litEl = this.burnEl = this.bookEl = this.thumb = null;
     this.previewBox = null;
+    this.sellLabel = null;
     this.gridRefill = null;
     clear(this.root);
     tooltip().hide();
@@ -418,7 +428,9 @@ export class InventoryUI {
       const rows = this.container?.items.length === 54 ? 6 : 3;
       win.appendChild(crop(A, 'gt:container/generic_54', 256, 256, 0, 0, 176, rows * 18 + 17, s));
       win.appendChild(crop(A, 'gt:container/generic_54', 256, 256, 0, 126, 176, 96, s, 0, rows * 18 + 17));
-      win.appendChild(label(rows === 6 ? 'Large Chest' : 'Chest', 8, 6, s));
+      const ttl = label(this.title ?? (rows === 6 ? 'Large Chest' : 'Chest'), 8, 6, s);
+      win.appendChild(ttl);
+      if (this.title === 'Sell items') this.sellLabel = ttl;
       win.appendChild(label('Inventory', 8, hgt - 94, s));
       for (let i = 0; i < rows * 9; i++) this.slot(win, ref('cont', i), () => this.container?.items[i] ?? null, 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18);
       invSlots(8, 103 + (rows - 4) * 18);

@@ -63,7 +63,28 @@ export const B = {
   SPRUCE_PLANKS: 63, JUNGLE_PLANKS: 64, MOSSY_STONE_BRICKS: 65, RED_WOOL: 66, YELLOW_WOOL: 67,
   LILY_PAD: 68, SMOOTH_STONE: 69, CRACKED_STONE_BRICKS: 70, CHISELED_STONE_BRICKS: 71, CUT_SANDSTONE: 72, CHISELED_SANDSTONE: 73,
   SMOOTH_SANDSTONE: 74, COAL_BLOCK: 75, HAY_BLOCK: 76, PACKED_ICE: 77, TERRACOTTA: 78, BONE_BLOCK: 79, EMERALD_BLOCK: 80,
+  CORNFLOWER: 158, LILY_OF_THE_VALLEY: 159, ALLIUM: 160, AZURE_BLUET: 161, BLUE_ORCHID: 162, ORANGE_TULIP: 163, PINK_TULIP: 164, WHITE_TULIP: 165, RED_TULIP: 166, OXEYE_DAISY: 167,
+  TUFF: 168, TUFF_BRICKS: 169, CHISELED_TUFF: 170, POLISHED_TUFF: 171, COPPER_BLOCK: 172, CUT_COPPER: 173, COPPER_LAMP: 174, COPPER_ORE: 175,
+  SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178,
 } as const;
+
+export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
+export type DyeColor = (typeof COLORS)[number];
+export const COLOR_NAMES: Record<DyeColor, string> = {
+  white: 'Ivory', orange: 'Amber', magenta: 'Orchid', light_blue: 'Sky', yellow: 'Saffron', lime: 'Lime', pink: 'Rose', gray: 'Slate',
+  light_gray: 'Ash', cyan: 'Lagoon', purple: 'Violet', blue: 'Cobalt', brown: 'Umber', green: 'Jade', red: 'Crimson', black: 'Onyx',
+};
+export const COLOR_RGB: Record<DyeColor, number> = {
+  white: 0xf0f0f0, orange: 0xf07613, magenta: 0xbd44b3, light_blue: 0x3aafd9, yellow: 0xf8c627, lime: 0x70b919, pink: 0xed8dac, gray: 0x3e4447,
+  light_gray: 0x8e8e86, cyan: 0x158991, purple: 0x792aac, blue: 0x35399d, brown: 0x724728, green: 0x546d1b, red: 0xa12722, black: 0x141519,
+};
+const OTHER_WOOL = COLORS.filter((c) => c !== 'white' && c !== 'yellow' && c !== 'red');
+export function woolId(c: DyeColor): number { return c === 'white' ? 44 : c === 'yellow' ? 67 : c === 'red' ? 66 : 81 + OTHER_WOOL.indexOf(c); }
+export function terracottaId(c: DyeColor): number { return 94 + COLORS.indexOf(c); }
+export function concreteId(c: DyeColor): number { return 110 + COLORS.indexOf(c); }
+export function powderId(c: DyeColor): number { return 126 + COLORS.indexOf(c); }
+export function stainedGlassId(c: DyeColor): number { return 142 + COLORS.indexOf(c); }
+export function isPowder(id: number): boolean { return id >= 126 && id <= 141; }
 
 export const BLOCK_COUNT = 69;
 
@@ -117,7 +138,7 @@ def(17, 'birch_leaves', 'Birch Leaves', 'Light, bright foliage.', { faces: ALL('
 def(18, 'spruce_log', 'Spruce Log', 'Dark resinous timber from the cold north.', { faces: COL('spruce_log', 'spruce_log_top'), ...LOG });
 def(19, 'spruce_leaves', 'Spruce Needles', 'Evergreen and fragrant.', { faces: ALL('spruce_leaves'), ...LEAVES, tint: 'spruce', drops: [{ item: 57, chance: 0.06 }, { item: 256, chance: 0.02 }] });
 def(20, 'jungle_log', 'Jungle Log', 'Tall timber from steaming forests.', { faces: COL('jungle_log', 'jungle_log_top'), ...LOG });
-def(21, 'jungle_leaves', 'Jungle Leaves', 'Broad, dense leaves.', { faces: ALL('jungle_leaves'), ...LEAVES, tint: 'foliage', drops: [{ item: 58, chance: 0.03 }, { item: 256, chance: 0.02 }] });
+def(21, 'jungle_leaves', 'Jungle Leaves', 'Broad, dense leaves.', { faces: ALL('jungle_leaves'), ...LEAVES, tint: 'foliage', drops: [{ item: 58, chance: 0.03 }, { item: 256, chance: 0.02 }, { item: 367, chance: 0.05 }] });
 def(22, 'coal_ore', 'Coal Ore', 'Black seams of fuel.', { faces: ALL('coal_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 260 }], xp: [0, 2], category: 'ore' });
 def(23, 'iron_ore', 'Iron Ore', 'Rust-flecked stone. Smelt for iron.', { faces: ALL('iron_ore'), hardness: 3, tool: 'pickaxe', tier: 2, category: 'ore' });
 def(24, 'gold_ore', 'Gold Ore', 'Glints of soft, bright metal.', { faces: ALL('gold_ore'), hardness: 3, tool: 'pickaxe', tier: 3, category: 'ore' });
@@ -177,6 +198,33 @@ def(77, 'packed_ice', 'Packed Ice', 'Ice pressed until it no longer melts.', { f
 def(78, 'terracotta', 'Terracotta', 'Fired clay with a warm, matte face.', { faces: ALL('terracotta'), hardness: 1.25, tool: 'pickaxe', tier: 1, category: 'building' });
 def(79, 'bone_block', 'Bone Block', 'Bone meal pressed into a block.', { faces: COL('bone_block_side', 'bone_block_top'), hardness: 2, tool: 'pickaxe', tier: 1, category: 'building' });
 def(80, 'emerald_block', 'Block of Emerald', 'A trader\'s fortune.', { faces: ALL('emerald_block'), hardness: 5, tool: 'pickaxe', tier: 2, sound: 'metal', category: 'building' });
+
+for (const c of OTHER_WOOL) def(woolId(c), `${c}_wool`, `${COLOR_NAMES[c]} Wool`, 'Dyed Woolhorn fleece.', { faces: ALL(`${c}_wool`), hardness: 0.8, sound: 'cloth' });
+for (const c of COLORS) {
+  const n = COLOR_NAMES[c];
+  def(terracottaId(c), `${c}_terracotta`, `${n} Terracotta`, 'Fired clay stained with dye.', { faces: ALL(`${c}_terracotta`), hardness: 1.25, tool: 'pickaxe', tier: 1 });
+  def(concreteId(c), `${c}_concrete`, `${n} Concrete`, 'Smooth, bright and hard. Made when powder meets water.', { faces: ALL(`${c}_concrete`), hardness: 1.8, tool: 'pickaxe', tier: 1 });
+  def(powderId(c), `${c}_concrete_powder`, `${n} Concrete Powder`, 'Falls like sand. Turns to concrete when it touches water.', { faces: ALL(`${c}_concrete_powder`), hardness: 0.5, tool: 'shovel', sound: 'sand' });
+  def(stainedGlassId(c), `${c}_stained_glass`, `${n} Stained Glass`, 'Coloured glass that tints the light behind it.', { faces: ALL(`${c}_stained_glass`), render: 'translucent', opaque: false, lightFilter: 0, hardness: 0.3, drops: null, sound: 'glass' });
+}
+const FLOWERS: [number, string, string, string][] = [
+  [158, 'cornflower', 'Cornflower', 'A deep blue meadow flower.'], [159, 'lily_of_the_valley', 'Lily of the Valley', 'Tiny white bells on a green stem.'],
+  [160, 'allium', 'Allium', 'A violet globe of petals.'], [161, 'azure_bluet', 'Azure Bluet', 'Pale and delicate.'], [162, 'blue_orchid', 'Blue Orchid', 'Grows in the shade of swamps.'],
+  [163, 'orange_tulip', 'Orange Tulip', 'Bright as a sunset.'], [164, 'pink_tulip', 'Pink Tulip', 'Soft and cheerful.'], [165, 'white_tulip', 'White Tulip', 'Clean petals on a sturdy stem.'],
+  [166, 'red_tulip', 'Red Tulip', 'A classic spring bloom.'], [167, 'oxeye_daisy', 'Oxeye Daisy', 'White petals around a golden eye.'],
+];
+for (const [id, key, name, desc] of FLOWERS) def(id, key, name, desc, { faces: ALL(key), ...PLANT });
+def(168, 'tuff', 'Tuff', 'Grey volcanic stone from the deep.', { faces: ALL('tuff'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' });
+def(169, 'tuff_bricks', 'Tuff Bricks', 'Neat courses of cut tuff.', { faces: COL('tuff_bricks', 'tuff_bricks'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+def(170, 'chiseled_tuff', 'Chiseled Tuff', 'Carved with an old geometric pattern.', { faces: COL('chiseled_tuff', 'chiseled_tuff_top'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+def(171, 'polished_tuff', 'Polished Tuff', 'Tuff ground smooth.', { faces: ALL('polished_tuff'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+def(172, 'copper_block', 'Block of Copper', 'Warm metal that gleams like a new coin.', { faces: ALL('copper_block'), hardness: 3, tool: 'pickaxe', tier: 1, sound: 'metal' });
+def(173, 'cut_copper', 'Cut Copper', 'Copper plates set in a grid.', { faces: ALL('cut_copper'), hardness: 3, tool: 'pickaxe', tier: 1, sound: 'metal' });
+def(174, 'copper_lamp', 'Copper Lamp', 'A copper cage around a steady glow.', { faces: ALL('copper_lamp'), lightEmit: 15, hardness: 3, tool: 'pickaxe', tier: 1, sound: 'metal', category: 'functional' });
+def(175, 'copper_ore', 'Copper Ore', 'Green-flecked stone with copper inside. Smelt for copper.', { faces: ALL('copper_ore'), hardness: 3, tool: 'pickaxe', tier: 2, category: 'ore' });
+def(176, 'spawner', 'Monster Cage', 'A cage of black iron that calls creatures out of the dark.', { faces: ALL('spawner'), render: 'glass', opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', tier: 1, drops: [], xp: [15, 43], sound: 'metal', category: 'functional' });
+def(177, 'trial_spawner', 'Trial Cage', 'Wakes when players come near, releases a wave, and rewards whoever clears it.', { faces: COL('trial_spawner_side', 'trial_spawner_top', 'trial_spawner_bottom'), render: 'glass', opaque: false, lightFilter: 0, lightEmit: 4, hardness: 50, tool: 'pickaxe', tier: 1, drops: [], sound: 'metal', category: 'functional' });
+def(178, 'vault', 'Vault', 'Opens once for each player who brings a Trial Key.', { faces: COL('vault_side', 'vault_top', 'vault_bottom'), front: 'vault_front', orientable: true, interactive: true, render: 'glass', opaque: false, lightFilter: 0, lightEmit: 6, hardness: 50, tool: 'pickaxe', tier: 1, drops: [], sound: 'metal', category: 'functional' });
 
 export const BLOCKS: BlockDef[] = defs;
 

@@ -2,6 +2,12 @@
 
 This is the plan for adding structures to Strata. It covers vanilla-style structures, ideas in the style of the Towns and Towers and vanilla structure update mods, and how to do this without breaking licences or old worlds.
 
+## Status (v14)
+
+1) Done: strongholds and trial chambers (`src/core/worldgen/structures.ts`). Rooms and corridors are joined by a small branching layout with overlap checks, then stamped chunk by chunk.
+2) Both use the secret world seed, so clients and seed-map tools cannot predict them; the server sends structure chunks in full.
+3) Next: slabs and stairs as blocks, then the JSON structure format and jigsaw villages below.
+
 ## Licensing rules
 
 1) Strata ships only original structure designs. Structure files (`.nbt`, jigsaw pools, template pools) from Minecraft, Towns and Towers or any other mod are not copied into the repository or the build.

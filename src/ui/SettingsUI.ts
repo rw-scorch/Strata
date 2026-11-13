@@ -171,7 +171,8 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
             mcToggle('Advanced Tooltips', s.advancedTooltips, (v) => set({ advancedTooltips: v }), 'Shows item ids and full durability in tooltips. F3 + H also toggles this.')),
           mcRow(mcToggle('Food Stats', s.foodStats, (v) => set({ foodStats: v }), 'Shows saturation on the hunger bar and previews what held food will restore (like AppleSkin).'),
             mcToggle('Look-at Info', s.lookInfo, (v) => set({ lookInfo: v }), 'A small panel at the top names the block or creature you are looking at, with its health or the right tool (like Jade).')),
-          mcRow(mcToggle('Inventory Tweaks', s.mouseTweaks, (v) => set({ mouseTweaks: v }), 'Shift-drag across slots to move many stacks, scroll over a stack to move items one by one (like Mouse Tweaks).')),
+          mcRow(mcToggle('Inventory Tweaks', s.mouseTweaks, (v) => set({ mouseTweaks: v }), 'Shift-drag across slots to move many stacks, scroll over a stack to move items one by one (like Mouse Tweaks).'),
+            mcToggle('Sidebar', s.sidebar !== false, (v) => set({ sidebar: v }), 'Shows your money, kills, deaths and playtime on servers with the economy turned on.')),
         );
         break;
       case 'skin': {

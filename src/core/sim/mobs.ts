@@ -60,7 +60,7 @@ export const MOBS: Record<MobType, MobDef> = {
   },
   duskweaver: {
     type: 'duskweaver', code: 5, name: 'Duskweaver', hostile: true, health: 16, speed: 3.2, hw: 0.65, h: 0.9, damage: 2,
-    drops: [{ item: I.STRING, min: 0, max: 2 }], xp: 5, climbs: true,
+    drops: [{ item: I.STRING, min: 0, max: 2 }, { item: I.INK_SAC, min: 1, max: 1, chance: 0.33 }], xp: 5, climbs: true,
     spawn: { weight: 100, min: 4, max: 4 },
     desc: 'A many-eyed spider that pounces from the gloom. Calm in daylight unless provoked.',
   },

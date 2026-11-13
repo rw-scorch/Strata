@@ -1,4 +1,4 @@
-import { BLOCKS, B, ToolType } from './blocks';
+import { BLOCKS, B, ToolType, COLORS, COLOR_NAMES, DyeColor } from './blocks';
 
 export type ItemKind = 'block' | 'tool' | 'food' | 'armor' | 'material' | 'bucket' | 'placer';
 export type CreativeTab = 'building' | 'nature' | 'functional' | 'tools' | 'combat' | 'food' | 'materials';
@@ -32,7 +32,11 @@ export const I = {
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
   ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298, BONE_MEAL: 299,
+  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367,
 } as const;
+
+const NEW_DYES = COLORS.filter((c) => c !== 'red' && c !== 'yellow');
+export function dyeId(c: DyeColor): number { return c === 'red' ? 288 : c === 'yellow' ? 289 : 350 + NEW_DYES.indexOf(c); }
 
 export const TOOL_MATERIALS = ['wood', 'stone', 'iron', 'gold', 'aetherite'] as const;
 export const TOOL_TYPES: ToolType[] = ['pickaxe', 'axe', 'shovel', 'sword', 'hoe'];
@@ -88,6 +92,11 @@ mat(I.YELLOW_DYE, 'yellow_dye', 'Saffron Dye', 'Pressed from dandelions.');
 mat(I.ARROW, 'arrow', 'Arrow', 'Fletched with feather and flint.', { tab: 'combat' });
 add({ id: I.BOW, key: 'bow', name: 'Bow', desc: 'Hold to draw, release to loose an arrow.', kind: 'material', texture: 'bow', maxStack: 1, durability: 384, tab: 'combat' });
 mat(I.EMERALD, 'emerald', 'Emerald', 'Villagers trade for these gleaming gems.');
+for (const c of NEW_DYES) mat(dyeId(c), `${c}_dye`, `${COLOR_NAMES[c]} Dye`, 'Colours wool, glass, terracotta and concrete.');
+mat(I.COPPER_INGOT, 'copper_ingot', 'Copper Ingot', 'Smelted from copper ore. Builds copper blocks and lamps.');
+mat(I.TRIAL_KEY, 'trial_key', 'Trial Key', 'Dropped by a cleared Trial Cage. Opens a Vault.', { tab: 'tools' });
+mat(I.INK_SAC, 'ink_sac', 'Ink Sac', 'Dark ink. Makes black dye.');
+mat(I.COCOA_BEANS, 'cocoa_beans', 'Cocoa Beans', 'Found in jungle canopies. Makes brown dye.');
 for (let i = 0; i < 3; i++) add({ id: I.BOW_PULL0 + i, key: `bow_pulling_${i}`, name: 'Bow', desc: '', kind: 'material', texture: `bow_pulling_${i}`, maxStack: 1, tab: 'combat' });
 mat(I.ROTTEN_FLESH, 'rotten_flesh', 'Grave Flesh', 'Edible in a pinch, but it may sicken you.', { kind: 'food', food: { hunger: 4, saturation: 0.8 } });
 add({ id: I.DOOR, key: 'oak_door_item', name: 'Oak Door', desc: 'Place on the ground. Tap to open and close.', kind: 'placer', places: B.OAK_DOOR, texture: 'oak_door_item', tab: 'functional' });

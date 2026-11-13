@@ -1,6 +1,6 @@
 import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
-  B, BLOCKS, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
+  B, BLOCKS, isPowder, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE,
 } from '../blocks';
 import { getItem, I, fuelSeconds } from '../items';
@@ -10,6 +10,7 @@ import {
 } from '../inventory';
 import { findSmelt, Recipe, RecipeBook, BASE_BOOK, DataRecipes, makeBook } from '../crafting';
 import { mergeData } from '../datapack';
+import { trialLoot, vaultLoot } from '../worldgen/structures';
 import { attackStats, attackCharge, scaledDamage, armorReduce, armorToughness } from './combat';
 import { PROFESSIONS, OFFERS, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
 import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium } from '../physics';
@@ -54,6 +55,8 @@ export interface SimPlayer {
   back?: { x: number; y: number; z: number };
   vanished?: boolean;
   skin?: { png: string; slim: boolean } | null;
+  kills?: number; deaths?: number; playtime?: number;
+  screenTitle?: string;
 }
 
 export type EntityKind = 'mob' | 'item' | 'arrow';
@@ -132,7 +135,10 @@ export interface Entity extends Body {
 
 export type BlockEntity =
   | { type: 'chest'; items: (ItemStack | null)[] }
-  | { type: 'furnace'; items: (ItemStack | null)[]; burn: number; burnMax: number; cook: number; xp: number };
+  | { type: 'furnace'; items: (ItemStack | null)[]; burn: number; burnMax: number; cook: number; xp: number }
+  | { type: 'spawner'; items: (ItemStack | null)[]; mob: string; delay: number }
+  | { type: 'trial'; items: (ItemStack | null)[]; mob: string; state: 'idle' | 'active' | 'cooldown'; left: number; wave: number[]; until: number }
+  | { type: 'vault'; items: (ItemStack | null)[]; opened: string[] };
 
 export type Weather = 'clear' | 'rain' | 'thunder';
 
@@ -153,6 +159,7 @@ export type SimEvent =
   | { e: 'msg'; text: string; kind: 'system' | 'death' | 'info' | 'error'; to?: string }
   | { e: 'lightning'; x: number; y: number; z: number }
   | { e: 'reject'; p: SimPlayer; x: number; y: number; z: number }
+  | { e: 'stats'; p: SimPlayer }
   | { e: 'weather'; w: Weather }
   | { e: 'time' }
   | { e: 'rules' }
@@ -357,12 +364,22 @@ export class WorldSim {
       this.checkSupport(x - dx, y, z - dz);
     }
     if (oid === B.OAK_LOG || oid === B.BIRCH_LOG || oid === B.SPRUCE_LOG || oid === B.JUNGLE_LOG) this.scheduleLeafDecay(x, y, z);
-    if (nid === B.SAND || nid === B.GRAVEL) this.fallQueue.push([x, y, z, this.tickCount + 2]);
+    if (nid === B.SAND || nid === B.GRAVEL || isPowder(nid)) this.fallQueue.push([x, y, z, this.tickCount + 2]);
     const up = blockId(this.get(x, y + 1, z));
-    if (up === B.SAND || up === B.GRAVEL) this.fallQueue.push([x, y + 1, z, this.tickCount + 2]);
+    if (up === B.SAND || up === B.GRAVEL || isPowder(up)) this.fallQueue.push([x, y + 1, z, this.tickCount + 2]);
+    if (isPowder(nid)) this.hardenPowder(x, y, z);
+    if (nid === B.WATER) for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) if (isPowder(blockId(this.get(x + dx, y + dy, z + dz)))) this.hardenPowder(x + dx, y + dy, z + dz);
   }
 
   private fallQueue: [number, number, number, number][] = [];
+
+  private hardenPowder(x: number, y: number, z: number): void {
+    const id = blockId(this.get(x, y, z));
+    if (!isPowder(id)) return;
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, -1]]) {
+      if (blockId(this.get(x + dx, y + dy, z + dz)) === B.WATER) { this.setBlock(x, y, z, id - 16); return; }
+    }
+  }
 
   private tickFalling(): void {
     if (!this.fallQueue.length) return;
@@ -370,7 +387,7 @@ export class WorldSim {
     this.fallQueue = this.fallQueue.filter((q) => !due.includes(q));
     for (const [x, y, z] of due) {
       const v = this.get(x, y, z), id = blockId(v);
-      if (id !== B.SAND && id !== B.GRAVEL) continue;
+      if (id !== B.SAND && id !== B.GRAVEL && !isPowder(id)) continue;
       if (!this.store.isLoaded(x, z)) continue;
       const below = this.get(x, y - 1, z);
       const bid = blockId(below), bd = getBlock(below);
@@ -686,17 +703,85 @@ export class WorldSim {
     if (!be) return;
     this.blockEntities.delete(k);
     this.activeFurnaces.delete(k);
-    if (drop) for (const s of be.items) if (s) this.spawnItem(x + 0.5, y + 0.5, z + 0.5, s);
+    if (drop && (be.type === 'chest' || be.type === 'furnace')) for (const s of be.items) if (s) this.spawnItem(x + 0.5, y + 0.5, z + 0.5, s);
     for (const p of this.players.values()) {
       if (p.screen.type && p.screen.x === x && p.screen.y === y && p.screen.z === z && p.screen.type !== 'workbench') this.closeScreen(p);
     }
     this.emit({ e: 'container', key: k });
   }
 
-  addGeneratedChest(x: number, y: number, z: number, items: (ItemStack | null)[]): void {
+  addGeneratedChest(x: number, y: number, z: number, items: (ItemStack | null)[], type: 'chest' | 'spawner' | 'trial' | 'vault' = 'chest', mob = 'hollowed'): void {
     const k = posKey(x, y, z);
     if (this.blockEntities.has(k)) return;
-    this.blockEntities.set(k, { type: 'chest', items: items.map(cloneStack) });
+    if (type === 'spawner') this.blockEntities.set(k, { type: 'spawner', items: [], mob, delay: 200 });
+    else if (type === 'trial') this.blockEntities.set(k, { type: 'trial', items: [], mob, state: 'idle', left: 0, wave: [], until: 0 });
+    else if (type === 'vault') this.blockEntities.set(k, { type: 'vault', items: [], opened: [] });
+    else this.blockEntities.set(k, { type: 'chest', items: items.map(cloneStack) });
+  }
+
+  private tickSpawners(): void {
+    if (this.tickCount % 10 !== 0 || !this.authoritative) return;
+    for (const [k, be] of this.blockEntities) {
+      if (be.type !== 'spawner' && be.type !== 'trial') continue;
+      const [x, y, z] = k.split(',').map(Number);
+      if (!this.store.isLoaded(x, z)) continue;
+      const id = blockId(this.get(x, y, z));
+      if ((be.type === 'spawner' && id !== B.SPAWNER) || (be.type === 'trial' && id !== B.TRIAL_SPAWNER)) { this.blockEntities.delete(k); continue; }
+      let near: SimPlayer[] = [];
+      for (const p of this.players.values()) if (!p.dead && p.mode === 'survival' && Math.abs(p.x - x) < 15 && Math.abs(p.y - y) < 10 && Math.abs(p.z - z) < 15) near.push(p);
+      if (this.difficulty === 'peaceful') near = [];
+      const type = (MOBS[be.mob as MobType] ? be.mob : 'hollowed') as MobType;
+      const place = (): Entity | null => {
+        for (let tries = 0; tries < 8; tries++) {
+          const sx = x + this.rng.int(9) - 4, sz = z + this.rng.int(9) - 4, sy = y + this.rng.int(3) - 1;
+          if (standable(this.store, sx, sy, sz, true)) { const e = this.spawnMob(type, sx + 0.5, sy, sz + 0.5); e.persistent = true; this.emit({ e: 'particles', k: 'smoke', x: sx + 0.5, y: sy + 1, z: sz + 0.5 }); return e; }
+        }
+        return null;
+      };
+      if (be.type === 'spawner') {
+        if (!near.length) continue;
+        be.delay -= 10;
+        if (be.delay > 0) continue;
+        be.delay = 200 + this.rng.int(600);
+        let count = 0;
+        for (const e of this.entities.values()) if (e.kind === 'mob' && e.type === type && Math.abs(e.x - x) < 9 && Math.abs(e.z - z) < 9) count++;
+        if (count >= 6) continue;
+        for (let i = 0, n = 1 + this.rng.int(4); i < n; i++) place();
+        continue;
+      }
+      if (be.state === 'cooldown') { if (this.now >= be.until) be.state = 'idle'; continue; }
+      if (be.state === 'idle') {
+        if (!near.length) continue;
+        be.state = 'active'; be.left = 4 + 2 * (near.length - 1); be.wave = [];
+        this.emit({ e: 'sound', s: 'mob.hurt', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+      }
+      be.wave = be.wave.filter((eid) => { const e = this.entities.get(eid); return !!e && e.health > 0; });
+      if (be.left > 0 && be.wave.length < 2 && this.tickCount % 40 === 0) { const e = place(); if (e) { be.wave.push(e.id); be.left--; } }
+      if (be.left <= 0 && !be.wave.length) {
+        be.state = 'cooldown'; be.until = this.now + 30 * 60_000;
+        const loot = trialLoot(this.rng);
+        for (const st of loot) this.spawnItem(x + 0.5, y + 1.2, z + 0.5, st, (this.rng.next() - 0.5) * 2, 3, (this.rng.next() - 0.5) * 2, 10);
+        this.emit({ e: 'sound', s: 'player.levelup', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+      }
+      if (!near.length && be.state === 'active' && be.wave.length === 0 && be.left > 0) { be.state = 'idle'; }
+    }
+  }
+
+  openVault(p: SimPlayer, x: number, y: number, z: number): boolean {
+    const k = posKey(x, y, z);
+    let be = this.blockEntities.get(k);
+    if (!be) { this.addGeneratedChest(x, y, z, [], 'vault'); be = this.blockEntities.get(k); }
+    if (!be || be.type !== 'vault') return false;
+    const held = heldStack(p.inv);
+    if (be.opened.includes(p.id)) { this.emit({ e: 'msg', text: 'You have already opened this vault.', kind: 'info', to: p.id }); return true; }
+    if (held?.id !== I.TRIAL_KEY) { this.emit({ e: 'msg', text: 'This vault needs a Trial Key. Clear a Trial Cage to get one.', kind: 'info', to: p.id }); return true; }
+    consumeHeld(p.inv);
+    be.opened.push(p.id);
+    for (const st of vaultLoot(this.rng)) this.spawnItem(x + 0.5, y + 1.1, z + 0.5, st, (this.rng.next() - 0.5) * 2, 3, (this.rng.next() - 0.5) * 2, 10);
+    this.emit({ e: 'sound', s: 'player.levelup', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+    this.emit({ e: 'inv', p });
+    this.emit({ e: 'container', key: k });
+    return true;
   }
 
   addPlayer(p: SimPlayer): void {
@@ -771,7 +856,7 @@ export class WorldSim {
       if (fall > 3.0001) this.damage(p, Math.ceil(fall - 3), 'fall', p.x, p.z, false);
       p.peakY = y;
     } else p.peakY = Math.max(p.peakY, y);
-    if (p.screen.type && !this.inReach(p, p.screen.x, p.screen.y, p.screen.z, 3)) this.closeScreen(p);
+    if (p.screen.type && p.screen.y >= 0 && !this.inReach(p, p.screen.x, p.screen.y, p.screen.z, 3)) this.closeScreen(p);
     return true;
   }
 
@@ -804,6 +889,9 @@ export class WorldSim {
 
   private kill(p: SimPlayer, cause: string, killer?: string): void {
     p.dead = true;
+    p.deaths = (p.deaths ?? 0) + 1;
+    if (cause === 'player' && killer) { const k = this.findPlayer(killer); if (k && k !== p) { k.kills = (k.kills ?? 0) + 1; this.emit({ e: 'stats', p: k }); } }
+    this.emit({ e: 'stats', p });
     p.back = { x: p.x, y: p.y, z: p.z };
     p.dig = null;
     const msgs: Record<string, string> = {
@@ -897,6 +985,7 @@ export class WorldSim {
       if (op.t === 'close') {
         const was = p.screen.type;
         p.screen.type = null;
+        if (this.authoritative) this.finishVirtual(p, p.screen.x, p.screen.y, p.screen.z);
         this.emit({ e: 'screen', p });
         if (was === 'chest') this.emit({ e: 'chestLid', x: p.screen.x, y: p.screen.y, z: p.screen.z, n: this.chestViewers(p.screen.x, p.screen.y, p.screen.z) });
       }
@@ -938,11 +1027,45 @@ export class WorldSim {
     return n;
   }
 
+  onVirtualClose: ((p: SimPlayer, kind: string, items: (ItemStack | null)[]) => void) | null = null;
+  private virtualKinds = new Map<string, string>();
+  private virtualSeq = 0;
+
+  emitInv(p: SimPlayer): void { this.emit({ e: 'inv', p }); }
+
+  openVirtual(p: SimPlayer, kind: string, size: number, title: string): void {
+    if (p.screen.type) this.closeScreen(p);
+    const x = 1_000_000 + (this.virtualSeq++ % 100000);
+    const k = posKey(x, -64, 0);
+    this.blockEntities.set(k, { type: 'chest', items: new Array(size).fill(null) });
+    this.virtualKinds.set(k, kind);
+    p.screen = { type: 'chest', x, y: -64, z: 0 };
+    p.screenTitle = title;
+    p.inv.craftSize = 2;
+    this.emit({ e: 'screen', p });
+    this.emit({ e: 'inv', p });
+  }
+
+  private finishVirtual(p: SimPlayer, x: number, y: number, z: number): void {
+    if (y !== -64) return;
+    const k = posKey(x, y, z);
+    const be = this.blockEntities.get(k);
+    const kind = this.virtualKinds.get(k) ?? 'box';
+    this.blockEntities.delete(k);
+    this.virtualKinds.delete(k);
+    p.screenTitle = undefined;
+    if (!be || be.type !== 'chest') return;
+    if (this.onVirtualClose) this.onVirtualClose(p, kind, be.items);
+    else for (const st of be.items) if (st) { const left = giveItem(p.inv, st); if (left > 0) this.spawnItem(p.x, p.y + 1, p.z, { ...st, count: left }, 0, 2, 0, 20); }
+    this.emit({ e: 'inv', p });
+  }
+
   closeScreen(p: SimPlayer): void {
     if (!p.screen.type) return;
     { const ctx = this.invCtx(p); applyInvOp(ctx, { t: 'close' }); if (ctx.split && ctx.container) ctx.split(ctx.container); }
     const was = p.screen.type;
     p.screen.type = null;
+    this.finishVirtual(p, p.screen.x, p.screen.y, p.screen.z);
     if (was === 'chest') this.emit({ e: 'chestLid', x: p.screen.x, y: p.screen.y, z: p.screen.z, n: this.chestViewers(p.screen.x, p.screen.y, p.screen.z) });
     this.emit({ e: 'screen', p });
     this.emit({ e: 'inv', p });
@@ -1036,6 +1159,7 @@ export class WorldSim {
     if (d.interactive && !(crouch && stack) && !(forcePlace && stack && getItem(stack.id)?.places !== undefined)) {
       if (id === B.WORKBENCH) { this.openScreen(p, 'workbench', x, y, z); return true; }
       if (id === B.CHEST) { this.openScreen(p, 'chest', x, y, z); return true; }
+      if (id === B.VAULT) return this.openVault(p, x, y, z);
       if (id === B.FURNACE || id === B.FURNACE_LIT) { this.openScreen(p, 'furnace', x, y, z); return true; }
       if (id === B.OAK_DOOR) {
         if (!this.canBuild(p)) return false;
@@ -1367,6 +1491,7 @@ export class WorldSim {
     }
     if (this.tickCount % 200 === 0) this.emit({ e: 'time' });
     this.tickWeather();
+    this.tickSpawners();
     for (const p of this.players.values()) this.tickPlayer(p);
     if (!this.authoritative) return;
     this.info.builds = this.store.raw ? 32 : 6;
@@ -2365,7 +2490,14 @@ export class WorldSim {
         return `Gamerule ${parts[1]} is now set to: ${rule[0]()}`;
       }
       case 'locate': {
-        if ((parts[1] ?? 'village') !== 'village') return 'Usage: /locate village';
+        const what = (parts[1] ?? 'village').replace(/^minecraft:/, '');
+        if (what === 'stronghold' || what === 'trial_chamber' || what === 'trial') {
+          if (!allowed) return need();
+          const st = this.gen.locate(what === 'stronghold' ? 'stronghold' : 'trial', p.x, p.z);
+          const name = what === 'stronghold' ? 'stronghold' : 'trial chamber';
+          return st ? `Nearest ${name} is at ${st.x} ${st.y + 1} ${st.z} (${Math.round(Math.hypot(st.x - p.x, st.z - p.z))} blocks away).` : `No ${name} found nearby.`;
+        }
+        if (what !== 'village') return 'Usage: /locate village|stronghold|trial_chamber';
         const v = this.locateVillage(p.x, p.z);
         return v ? `Nearest village is at ${v.x} ${v.y + 1} ${v.z} (${Math.round(Math.hypot(v.x - p.x, v.z - p.z))} blocks away).` : 'No village found within 2400 blocks.';
       }

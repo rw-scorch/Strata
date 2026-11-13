@@ -7,6 +7,7 @@ import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
+import { StructurePlan, STRONGHOLD_REGION, TRIAL_REGION, planStronghold, planTrial, stampStructure } from './structures';
 
 export interface Column {
   height: number;
@@ -17,7 +18,7 @@ export interface Column {
   river: number;
 }
 
-export interface GenBlockEntity { x: number; y: number; z: number; type: 'chest'; items: (ItemStack | null)[]; }
+export interface GenBlockEntity { x: number; y: number; z: number; type: 'chest' | 'spawner' | 'trial' | 'vault'; items: (ItemStack | null)[]; mob?: string; }
 export interface GeneratedChunk { blocks: Uint16Array; entities: GenBlockEntity[]; special?: boolean; }
 export interface GenOptions { secret?: number | null; }
 
@@ -61,6 +62,52 @@ export class WorldGenerator {
   }
 
   readonly oreSeed: number | null;
+  private structCache = new Map<string, StructurePlan | null>();
+
+  private structure(type: 'stronghold' | 'trial', rx: number, rz: number): StructurePlan | null {
+    if (this.arena || this.oreSeed === null) return null;
+    const k = `${type[0]}${rx},${rz}`;
+    if (!this.structCache.has(k)) {
+      if (this.structCache.size > 96) this.structCache.clear();
+      const sec = this.oreSeed;
+      this.structCache.set(k, type === 'stronghold' ? planStronghold(sec, rx, rz, (x, z) => this.column(x, z).height) : planTrial(sec, rx, rz));
+    }
+    return this.structCache.get(k)!;
+  }
+
+  structuresNear(x0: number, z0: number, x1: number, z1: number): StructurePlan[] {
+    const out: StructurePlan[] = [];
+    if (this.arena || this.oreSeed === null) return out;
+    for (const [type, R, pad] of [['stronghold', STRONGHOLD_REGION, 0], ['trial', TRIAL_REGION, 0]] as const) {
+      for (let rz = Math.floor((z0 - R / 2) / R); rz <= Math.floor((z1 + R / 2) / R); rz++) for (let rx = Math.floor((x0 - R / 2) / R); rx <= Math.floor((x1 + R / 2) / R); rx++) {
+        const p = this.structure(type, rx, rz);
+        if (!p) continue;
+        const b = p.bounds;
+        if (b.x1 + pad < x0 || b.x0 - pad > x1 || b.z1 + pad < z0 || b.z0 - pad > z1) continue;
+        out.push(p);
+      }
+    }
+    return out;
+  }
+
+  hasStructure(cx: number, cz: number): boolean {
+    return this.structuresNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1).length > 0;
+  }
+
+  locate(type: 'stronghold' | 'trial', x: number, z: number): StructurePlan | null {
+    if (this.arena || this.oreSeed === null) return null;
+    const R = type === 'stronghold' ? STRONGHOLD_REGION : TRIAL_REGION;
+    const crx = Math.floor(x / R), crz = Math.floor(z / R);
+    let best: StructurePlan | null = null, bd = Infinity;
+    for (let ring = 0; ring <= 4 && !best; ring++) for (let rz = crz - ring; rz <= crz + ring; rz++) for (let rx = crx - ring; rx <= crx + ring; rx++) {
+      if (Math.max(Math.abs(rx - crx), Math.abs(rz - crz)) !== ring) continue;
+      const p = this.structure(type, rx, rz);
+      if (!p) continue;
+      const d = Math.hypot(p.x - x, p.z - z);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
 
   constructor(seed: number, arena: ArenaKind | null = null, opts?: GenOptions) {
     this.seed = seed >>> 0;
@@ -204,10 +251,12 @@ export class WorldGenerator {
     this.carveCaves(cx, cz, blocks, colAt);
     this.placeOres(rng, blocks, colAt, cx, cz);
     this.placeFeatures(cx, cz, cols, set, get, entities);
+    const structs = this.structuresNear(bx, bz, bx + S - 1, bz + S - 1);
+    for (const p of structs) stampStructure(p, this.oreSeed!, bx, bz, S, set, entities);
     for (const v of this.villagesNear(bx + 8, bz + 8, 12)) stampVillage(v, bx, bz, S, set, get, (x, z) => this.column(x, z), entities);
     this.placeVegetation(cx, cz, rng, set, get, colAt);
     this.placeWaterfalls(rng, set, get, colAt);
-    return { blocks, entities };
+    return structs.length ? { blocks, entities, special: true } : { blocks, entities };
   }
 
   private carveCaves(cx: number, cz: number, blocks: Uint16Array, colAt: (x: number, z: number) => Column): void {
@@ -302,11 +351,13 @@ export class WorldGenerator {
       vein(B.IRON_ORE, 12, 7, 4, 70);
       vein(B.GOLD_ORE, 3, 7, 4, 34);
       vein(B.AETHERITE_ORE, rng.chance(0.75) ? 2 : 1, 5, 3, 18);
+      vein(B.COPPER_ORE, 8, 9, 20, 90);
     };
     ores();
     write = true;
     vein(B.GRAVEL, 4, 24, 8, 70);
     vein(B.DIRT, 5, 24, 8, 80);
+    vein(B.TUFF, 3, 32, 3, 22);
     write = false;
     if (mountain) vein(B.IRON_ORE, 4, 6, 70, 120);
     if (this.oreSeed === null) return;
@@ -499,7 +550,14 @@ export class WorldGenerator {
         }
         const grassP = b === 'plains' ? 0.32 : b === 'jungle' ? 0.45 : b === 'swamp' ? 0.25 : b === 'forest' || b === 'birch_forest' ? 0.18 : b === 'taiga' ? 0.12 : 0.1;
         if (r < grassP) set(x, y + 1, z, b === 'taiga' || b === 'jungle' ? (rng.chance(0.5) ? B.FERN : B.TALL_GRASS) : B.TALL_GRASS);
-        else if (r < grassP + (b === 'plains' ? 0.025 : b === 'forest' ? 0.02 : 0.006)) set(x, y + 1, z, rng.chance(0.5) ? B.DANDELION : B.POPPY);
+        else if (r < grassP + (b === 'plains' ? 0.025 : b === 'forest' ? 0.02 : b === 'swamp' ? 0.012 : 0.006)) {
+          const pick = rng.next();
+          const fl = b === 'swamp' ? B.BLUE_ORCHID
+            : b === 'plains' ? [B.DANDELION, B.POPPY, B.OXEYE_DAISY, B.AZURE_BLUET, B.CORNFLOWER, B.ORANGE_TULIP, B.PINK_TULIP, B.WHITE_TULIP, B.RED_TULIP][Math.floor(pick * 9)]
+            : b === 'forest' || b === 'birch_forest' ? [B.DANDELION, B.POPPY, B.LILY_OF_THE_VALLEY, B.ALLIUM, B.LILY_OF_THE_VALLEY][Math.floor(pick * 5)]
+            : pick < 0.5 ? B.DANDELION : B.POPPY;
+          set(x, y + 1, z, fl);
+        }
         else if ((b === 'swamp' || b === 'forest' || b === 'taiga') && r > 0.993) set(x, y + 1, z, rng.chance(0.5) ? B.RED_MUSHROOM : B.BROWN_MUSHROOM);
       } else if (ground === B.SAND && b === 'desert') {
         if (r < 0.006 && x > 0 && x < S - 1 && z > 0 && z < S - 1) {

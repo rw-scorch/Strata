@@ -13,6 +13,8 @@ import type { TextureAtlas } from '../resources/TextureAtlas';
 import { Panorama } from './mc/Panorama';
 import { mcButton, menuScale } from './mc/Widgets';
 import { drawLogo } from './mc/Logo';
+import { SHOP } from '../core/economy';
+import { ITEM_LIST, getItem } from '../core/items';
 
 const SPLASHES = ['Dig deep!', 'Build together!', 'Now with villagers!', 'Made in a browser!', 'Blocks all the way down!', 'iPad approved!', 'Try a double chest!', 'Emeralds wanted!', 'Thirty-minute days!', 'Watch your step!', 'Hand-placed pixels!', 'Fresh from the forge!', 'One more block!', 'Strata strata strata!', 'Sunsets included!', 'Villagers say hmm!'];
 
@@ -395,6 +397,49 @@ export class Menus {
     const act = async (code: string, body: Record<string, unknown>, done: string) => {
       try { const r = await api(`/api/admin/rooms/${code}`, body); toast(r.result ? String(r.result) : done, 'success'); void load(); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); }
     };
+    const prices = async (code: string, name: string) => {
+      let data: { sell: Record<string, number>; shop: Record<string, number>; economy: boolean };
+      try { data = (await api(`/api/admin/rooms/${code}`, { action: 'prices' })) as typeof data; } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); return; }
+      const q = h('input', { class: 'input', placeholder: 'Search items or shop entries' }) as HTMLInputElement;
+      const box = h('div', { class: 'stack price-list' });
+      const sellPatch: Record<string, number> = {}, shopPatch: Record<string, number> = {};
+      const draw = () => {
+        clear(box);
+        const t = q.value.trim().toLowerCase();
+        box.appendChild(h('div', { class: 'section-title' }, 'Shop prices (what /shop charges)'));
+        for (const c of SHOP) for (const e of c.items) {
+          if (t && !e.key.includes(t) && !(getItem(e.id)?.name.toLowerCase().includes(t))) continue;
+          const inp = h('input', { class: 'input', value: String(shopPatch[e.key] ?? data.shop[e.key] ?? e.price), inputmode: 'numeric', style: 'width:110px' }) as HTMLInputElement;
+          inp.addEventListener('change', () => { const n = Math.floor(Number(inp.value)); if (n > 0) shopPatch[e.key] = n; });
+          box.appendChild(h('div', { class: 'player-row' }, h('span', { class: 'nm' }, `${c.name}: ${getItem(e.id)?.name ?? e.key} x${e.count}`), inp));
+        }
+        box.appendChild(h('div', { class: 'section-title' }, 'Sell prices per item (what /sell pays, 0 = cannot sell)'));
+        let n = 0;
+        for (const it of ITEM_LIST) {
+          if (t && !it.name.toLowerCase().includes(t) && !it.key.includes(t)) continue;
+          if (++n > 120) break;
+          const inp = h('input', { class: 'input', value: String(sellPatch[it.id] ?? data.sell[it.id] ?? 0), inputmode: 'numeric', style: 'width:110px' }) as HTMLInputElement;
+          inp.addEventListener('change', () => { const v = Math.floor(Number(inp.value)); if (v >= 0) sellPatch[it.id] = v; });
+          box.appendChild(h('div', { class: 'player-row' }, h('span', { class: 'nm' }, it.name), inp));
+        }
+      };
+      q.addEventListener('input', draw);
+      draw();
+      modal(`Prices: ${name}`, h('div', { class: 'stack' }, h('div', { class: 'small muted' }, `Economy is ${data.economy ? 'on' : 'off'} in this world. Changes apply to everyone right away.`), q, box), [
+        { label: data.economy ? 'Turn economy off' : 'Turn economy on', kind: 'ghost', onClick: () => void act(code, { action: 'economy', on: !data.economy }, data.economy ? 'Economy turned off.' : 'Economy turned on.') },
+        { label: 'Close', kind: 'ghost' },
+        { label: 'Save prices', kind: 'primary', onClick: async () => {
+          const chunks: Record<string, number>[] = [];
+          const entries = Object.entries(sellPatch);
+          for (let i = 0; i < entries.length; i += 150) chunks.push(Object.fromEntries(entries.slice(i, i + 150)));
+          try {
+            await api(`/api/admin/rooms/${code}`, { action: 'prices', shop: shopPatch, sell: chunks[0] ?? {} });
+            for (const c of chunks.slice(1)) await api(`/api/admin/rooms/${code}`, { action: 'prices', sell: c });
+            toast('Prices saved.', 'success');
+          } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); }
+        } },
+      ], { wide: true });
+    };
     const row = (r: Rep): HTMLElement => {
       const players = h('div', { class: 'stack', style: 'margin-top:6px' });
       for (const p of r.players) {
@@ -413,6 +458,7 @@ export class Menus {
             h('div', { class: 'sub' }, `${r.code} · owner ${r.owner} · ${r.mode} · ${r.difficulty}${r.arena ? ` · ${r.arena}` : ''} · last seen ${fmtDate(r.updated)}`)),
           h('div', { class: 'actions' },
             h('button', { class: 'btn small teal', onclick: () => spectate(r.code) }, 'Spectate'),
+            h('button', { class: 'btn small', onclick: () => void prices(r.code, r.name) }, 'Prices'),
             h('button', { class: 'btn small danger', onclick: async () => { if (await confirmDialog('Delete world', `Permanently delete "${r.name}" (${r.code})? This cannot be undone.`, 'Delete', true)) void act(r.code, { action: 'delete' }, 'World deleted.'); } }, 'Delete'),
           )),
         players,
@@ -421,7 +467,7 @@ export class Menus {
           h('button', { class: 'btn small', onclick: () => { if (msg.value.trim()) void act(r.code, { action: 'say', text: msg.value.trim() }, 'Message sent.'); msg.value = ''; } }, 'Send')),
         h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;margin-top:6px' },
           h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'settings', voice: !r.voice }, r.voice ? 'Voice chat turned off.' : 'Voice chat turned on.') }, r.voice ? 'Voice: on' : 'Voice: off'),
-          h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'settings', maxPlayers: r.maxPlayers >= 50 ? 10 : Math.min(50, r.maxPlayers + 10) }, 'Player cap changed.') }, `Cap: ${r.maxPlayers}`),
+          h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'settings', maxPlayers: r.maxPlayers >= MAX_PLAYERS_LIMIT ? 10 : Math.min(MAX_PLAYERS_LIMIT, r.maxPlayers + 10) }, 'Player cap changed.') }, `Cap: ${r.maxPlayers}`),
           h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'rule', cmd: 'showMinimap false' }, 'Minimap hidden.') }, 'Hide minimap'),
           h('button', { class: 'btn small ghost', onclick: () => void act(r.code, { action: 'rule', cmd: 'showCoordinates false' }, 'Coordinates hidden.') }, 'Hide coords'),
           h('button', { class: 'btn small ghost', onclick: () => { void act(r.code, { action: 'rule', cmd: 'showMinimap true' }, 'Minimap allowed.'); void act(r.code, { action: 'rule', cmd: 'showCoordinates true' }, 'Coordinates allowed.'); } }, 'Allow both'),

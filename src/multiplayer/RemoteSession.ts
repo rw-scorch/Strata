@@ -266,8 +266,9 @@ export class RemoteSession implements GameSession {
       case 'scr':
         this.me.screen = { type: m.type, x: m.x, y: m.y, z: m.z };
         this.me.inv.craftSize = m.type === 'workbench' ? 3 : 2;
-        ev.screen(m.type, m.x, m.y, m.z);
+        ev.screen(m.type, m.x, m.y, m.z, m.title);
         return;
+      case 'eco': ev.eco?.(m); return;
       case 'snd': ev.sound(m.s, m.x, m.y, m.z, m.v, m.p); return;
       case 'fx': ev.fx(m.k, m.x, m.y, m.z, m.d); return;
       case 'hurt': ev.hurt(m.a, m.c, m.fx, m.fz, m.k); return;
@@ -373,6 +374,7 @@ export class RemoteSession implements GameSession {
   rtc(to: string, d: unknown): void { this.send({ t: 'rtc', to, d }); }
   sendSkin(skin: { png: string; slim: boolean } | null): void { this.send({ t: 'skin', skin }); }
   setDataPacks(d: DataRecipes[]): void { this.send({ t: 'datapacks', d }); }
+  ecoAction(a: Record<string, unknown>): void { this.send({ ...a, t: 'eco', a: String(a.a ?? '') }); }
   getBlockEntity(key: string): BlockEntity | undefined { return this.sim?.blockEntities.get(key); }
   close(): void { this.closed = true; this.ws?.close(1000, 'leaving'); this.ws = null; this.state = 'offline'; }
   stats() { return { rtt: this.rtt, inRate: this.inRate, outRate: this.outRate, state: this.state }; }

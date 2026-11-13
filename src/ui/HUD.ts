@@ -33,6 +33,7 @@ export function slotPx(): number {
 export class HUD {
   readonly root: HTMLElement;
   private hotbar: HTMLElement;
+  private sidebar: HTMLElement;
   private offEl!: HTMLElement;
   private slots: HTMLElement[] = [];
   private hearts: HTMLElement;
@@ -100,8 +101,9 @@ export class HUD {
     this.roomChip.addEventListener('click', () => this.onRoomChip?.());
     this.chatBox = h('div', { class: 'chat' });
     this.bossMsg = h('div', { class: 'boss-msg' });
+    this.sidebar = h('div', { class: 'mc-sidebar', style: 'display:none' });
     this.root = h('div', { id: 'hud' },
-      this.crosshair, this.atkBar, this.itemName, this.chatBox, this.debug, this.fps, this.bossMsg,
+      this.crosshair, this.atkBar, this.itemName, this.chatBox, this.debug, this.fps, this.bossMsg, this.sidebar,
       h('div', { class: 'hud-top' }, this.status, this.roomChip),
       h('div', { class: 'hud-mc' }, this.armor, this.air, this.hearts, this.food, h('div', { class: 'mc-xp' }, this.xpFill), this.xpLevel, this.hotbar, invBtn),
     );
@@ -198,6 +200,14 @@ export class HUD {
   }
 
   foodStats = true;
+
+  setSidebar(title: string | null, rows: [string, string][]): void {
+    if (!title) { this.sidebar.style.display = 'none'; return; }
+    this.sidebar.style.display = '';
+    clear(this.sidebar);
+    this.sidebar.appendChild(h('div', { class: 'sb-title' }, title));
+    for (const [k, v] of rows) this.sidebar.appendChild(h('div', { class: 'sb-row' }, h('span', {}, k), h('span', { class: 'sb-val' }, v)));
+  }
 
   private satCache = new Map<string, string | null>();
 

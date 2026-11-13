@@ -582,3 +582,19 @@ body:not(.touch-active) .hud-mc .hud-btn { display: none; }
 .tpa-btns { display: inline-flex; gap: 4px; margin-left: 6px; }
 .chat .line .tpa-yes { background: #2f7d32; color: #fff; }
 .chat .line .tpa-no { background: #8a2b2b; color: #fff; }
+.mc-sidebar { position: fixed; right: calc(6px + env(safe-area-inset-right)); top: 42%; transform: translateY(-50%); z-index: 6; pointer-events: none; font-family: var(--mc-font, monospace); font-size: 15px; line-height: 18px; color: #fff; background: rgba(0, 0, 0, 0.32); padding: 0 6px 4px; min-width: 150px; text-shadow: 2px 2px 0 #3f3f3f; }
+.mc-sidebar .sb-title { text-align: center; background: rgba(0, 0, 0, 0.18); margin: 0 -6px 3px; padding: 2px 6px; color: #ffaa00; }
+.mc-sidebar .sb-row { display: flex; justify-content: space-between; gap: 14px; }
+.mc-sidebar .sb-val { color: #55ff55; }
+.eco-dim { opacity: 0.45; }
+.eco-qty-line { display: flex; align-items: center; gap: 14px; font-family: var(--mc-font); }
+.eco-qty-ico { position: relative !important; width: 40px; height: 40px; flex: none; left: auto !important; top: auto !important; }
+.eco-qty-ico .ico { position: absolute; left: 4px; top: 4px; width: 32px; height: 32px; }
+.eco-qty-ico .cnt { position: absolute; right: 1px; bottom: 0; }
+.eco-pick-item .ico { position: absolute; left: 4px; top: 4px; }
+.eco-gold { color: #ffaa00; }
+.eco-qty-btns { flex-wrap: wrap; }
+.eco-pick { display: flex; flex-wrap: wrap; gap: 4px; max-height: 160px; overflow: auto; }
+.eco-pick-item { position: relative; width: 32px; height: 32px; padding: 0; cursor: pointer; }
+.eco-pick-item.sel { outline: 2px solid #ffffa0; }
+body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; min-width: 130px; }

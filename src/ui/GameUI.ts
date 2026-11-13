@@ -137,6 +137,7 @@ export interface PauseActions {
   shaper?(): void;
   packs(): void;
   datapacks?(): void;
+  economy?(cmd: string): void;
   quit(): void;
   difficulty?: { value: Difficulty; set(d: Difficulty): void };
   title: string;
@@ -156,6 +157,8 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
       a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
       row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
       a.datapacks ? mcButton('Data Packs...', () => a.datapacks!(), 204) : null,
+      a.economy ? row(mcButton('Shop', () => a.economy!('/shop'), 98), mcButton('Sell', () => a.economy!('/sell'), 98)) : null,
+      a.economy ? row(mcButton('Auction House', () => a.economy!('/ah'), 98), mcButton('Orders', () => a.economy!('/order'), 98)) : null,
       a.save ? mcButton('Save Now', () => a.save!(), 204) : null,
       mcButton(a.save ? 'Save and Quit to Title' : 'Disconnect', () => { close(); a.quit(); }, 204),
     ),
@@ -230,6 +233,7 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
     toggle('Commands for creative players', s.cheats, (v) => { s.cheats = v; }, 'Allows /time, /weather, /give and the World Shaper for players in Architect mode.'),
     toggle('Allow personal resource packs', s.personalPacks, (v) => { s.personalPacks = v; }, 'When off, everyone sees the shared pack or default textures.'),
     toggle('Proximity voice chat', s.voice !== false, (v) => { s.voice = v; }, 'Players can talk to others within 48 blocks if they turn voice on in Options.'),
+    toggle('Economy', s.economy !== false, (v) => { s.economy = v; }, 'Money, /sell, /shop, the Auction House (/ah), buy orders (/order), /pay and the sidebar. Operators set prices with /eco or the admin console.'),
     h('div', { class: 'section-title' }, 'Server rules'),
     toggle('Minimap allowed', r.map, (v) => { r.map = v; }, 'When off, nobody except admins sees the minimap or waypoint markers.'),
     toggle('Coordinates allowed', r.coords, (v) => { r.coords = v; }, 'When off, coordinates are hidden from the HUD and debug screen, to stop screen-peeking.'),

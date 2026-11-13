@@ -13,6 +13,9 @@ import { MobileControls } from '../controls/MobileControls';
 import { HUD } from '../ui/HUD';
 import { InventoryUI, InvScreen } from '../ui/InventoryUI';
 import { showDataPacks } from '../ui/DataPacksUI';
+import { EconomyUI } from '../ui/EconomyUI';
+import type { S2C } from '../core/protocol';
+import { money } from '../core/economy';
 import { setTooltipBook } from '../ui/mc/Gui';
 import { BASE_BOOK } from '../core/crafting';
 import { ChatUI, showPause, showInvite, showPlayers, showRoomSettings, showShaper, showDeath } from '../ui/GameUI';
@@ -67,6 +70,9 @@ export class Game {
   private panoDone = false;
   private overlay!: { root: HTMLElement; wall: HTMLElement; fireL: HTMLElement; fireR: HTMLElement; wallId: number };
   private inv!: InventoryUI;
+  private eco!: EconomyUI;
+  private ecoOn = false;
+  private ecoStats: { money: number; kills: number; deaths: number; playtime: number } | null = null;
   private chatUI!: ChatUI;
   private atlas: TextureAtlas;
   private state: State = 'loading';
@@ -267,6 +273,9 @@ export class Game {
     }
     this.inv = new InventoryUI(this.screens, this.atlas);
     this.inv.onClose = () => { if (this.state === 'inventory') this.setState('playing'); };
+    this.eco = new EconomyUI(this.screens, this.atlas);
+    this.eco.onClose = () => { if (this.state === 'inventory') this.setState('playing'); };
+    this.disposers.push(() => this.hud?.setSidebar(null, []));
     this.arena = new ArenaUI(hudRoot, this.screens, this.atlas);
     this.arena.onShopClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
     this.chatUI = new ChatUI(this.hud.chatBox, hudRoot);
@@ -339,7 +348,8 @@ export class Game {
     vitals: (v) => this.onVitals(v),
     inventory: () => this.onInventory(),
     container: (k, t, items, b, bm, c) => this.onContainer(k, t, items, b, bm, c),
-    screen: (t) => this.onScreen(t),
+    screen: (t, _x, _y, _z, title) => this.onScreen(t, title),
+    eco: (m) => this.onEco(m),
     game: (st) => { this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
     title: (t, s) => this.arena?.title(t, s),
     trade: (info) => this.inv?.setTrade(info),
@@ -526,6 +536,7 @@ export class Game {
   }
 
   private applySettings(s: Settings): void {
+    if (this.ecoStats) this.renderSidebar();
     if (!this.renderer) return;
     this.renderer.setFov(s.fov);
     this.renderer.adaptive = s.adaptiveResolution;
@@ -561,12 +572,14 @@ export class Game {
     this.chunks.setAtlas(a.data);
     this.hud.setAtlas(a);
     this.inv.setAtlas(a);
+    this.eco?.setAtlas(a);
     this.setHeld(true);
   }
 
   private toggleInventory(): void {
     if (this.state === 'inventory') {
       if (this.arena?.shopOpen) { this.arena.closeShop(); return; }
+      if (this.eco?.isOpen) { this.eco.close(); return; }
       this.inv.close(); return;
     }
     if (this.state !== 'playing') return;
@@ -609,6 +622,7 @@ export class Game {
       packs: () => this.app.openPacks(() => { /* stays paused */ }),
       datapacks: this.session.setDataPacks ? () => showDataPacks(this.session.sim.dataPacks, local || remote.me.op, !local, (l) => this.session.setDataPacks!(l)) : undefined,
       players: local ? undefined : () => this.openPlayers(),
+      economy: !local && this.room?.settings.economy !== false ? (cmd: string) => { this.resume(); this.session.chat(cmd); } : undefined,
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
       shaper: canShape ? () => showShaper((c) => this.session.chat(c), () => { const t = this.interaction.target; return t ? [t.x, t.y, t.z] : null; }, () => heldStack(this.session.me.inv)?.id ?? null) : undefined,
@@ -763,8 +777,42 @@ export class Game {
     this.inv?.setContainer(items as never, burn, burnMax, cook);
   }
 
-  onScreen(type: ScreenType | null): void {
+  onEco(m: Extract<S2C, { t: 'eco' }>): void {
+    if (m.k === 'prices') {
+      this.inv.sellPrices = new Map(Object.entries(m.sell).map(([k, v]) => [Number(k), Number(v)]));
+      this.eco.shopPrices = m.shop;
+      if (m.on !== undefined) this.ecoOn = m.on;
+      return;
+    }
+    if (m.k === 'stats') {
+      this.ecoOn = true;
+      this.ecoStats = { money: m.money, kills: m.kills, deaths: m.deaths, playtime: m.playtime };
+      this.eco.setBalance(m.money);
+      this.renderSidebar();
+      return;
+    }
+    if (m.k === 'view') {
+      if (this.inv.isOpen) this.inv.close();
+      this.desktop.unlock();
+      this.setState('inventory');
+      this.eco.show(m.view, this.session.me.id, (a) => {
+        if (a.a === 'chat') { this.session.chat(String(a.text)); this.eco.close(); return; }
+        (this.session as RemoteSession).ecoAction?.(a);
+      });
+    }
+  }
+
+  private renderSidebar(): void {
+    const st = this.ecoStats;
+    if (!st || !getSettings().sidebar || !this.hud) { this.hud?.setSidebar(null, []); return; }
+    const pt = st.playtime;
+    const play = pt >= 86400 ? `${Math.floor(pt / 86400)}d ${Math.floor((pt % 86400) / 3600)}h` : pt >= 3600 ? `${Math.floor(pt / 3600)}h ${Math.floor((pt % 3600) / 60)}m` : `${Math.floor(pt / 60)}m`;
+    this.hud.setSidebar(this.session.info.name.slice(0, 20), [['Money', money(st.money)], ['Kills', String(st.kills)], ['Deaths', String(st.deaths)], ['Playtime', play]]);
+  }
+
+  onScreen(type: ScreenType | null, title?: string): void {
     if (!this.inv) return;
+    this.inv.title = title ?? null;
     if (type === 'shop') {
       this.desktop.unlock();
       this.setState('inventory');

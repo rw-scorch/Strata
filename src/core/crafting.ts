@@ -1,5 +1,5 @@
-import { B } from './blocks';
-import { I, toolId, armorId } from './items';
+import { B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId } from './blocks';
+import { I, toolId, armorId, dyeId } from './items';
 import type { ItemStack } from './inventory';
 
 export type Ingredient = number | string | number[];
@@ -9,7 +9,8 @@ export const TAGS: Record<string, number[]> = {
   logs: [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG],
   coals: [I.COAL, I.CHARCOAL],
   stones: [B.COBBLESTONE, B.MOSSY_COBBLESTONE],
-  wool: [B.WHITE_WOOL, B.RED_WOOL, B.YELLOW_WOOL],
+  wool: COLORS.map(woolId),
+  sand_like: [B.SAND],
 };
 
 export interface Recipe {
@@ -54,7 +55,34 @@ shapeless('mossy_cobblestone', 'building', B.MOSSY_COBBLESTONE, 1, [B.COBBLESTON
 shapeless('mossy_stone_bricks', 'building', B.MOSSY_STONE_BRICKS, 1, [B.STONE_BRICKS, B.TALL_GRASS]);
 shapeless('red_dye', 'decor', I.RED_DYE, 1, [B.POPPY]);
 shapeless('yellow_dye', 'decor', I.YELLOW_DYE, 1, [B.DANDELION]);
-shapeless('red_wool', 'decor', B.RED_WOOL, 1, [B.WHITE_WOOL, I.RED_DYE]);
+for (const c of COLORS) {
+  const dye = dyeId(c);
+  if (c !== 'red') shapeless(`${c}_wool`, 'decor', woolId(c), 1, [COLORS.filter((x) => x !== c).map(woolId), dye]);
+  else shapeless('red_wool', 'decor', B.RED_WOOL, 1, [COLORS.filter((x) => x !== c).map(woolId), dye]);
+  shaped(`${c}_terracotta`, 'building', terracottaId(c), 8, ['TTT', 'TDT', 'TTT'], { T: B.TERRACOTTA, D: dye });
+  shapeless(`${c}_concrete_powder`, 'building', powderId(c), 8, [dye, B.SAND, B.SAND, B.SAND, B.SAND, B.GRAVEL, B.GRAVEL, B.GRAVEL, B.GRAVEL]);
+  shaped(`${c}_stained_glass`, 'decor', stainedGlassId(c), 8, ['GGG', 'GDG', 'GGG'], { G: B.GLASS, D: dye });
+}
+const flowerDye: [number, DyeColor][] = [[B.CORNFLOWER, 'blue'], [B.LILY_OF_THE_VALLEY, 'white'], [B.ALLIUM, 'magenta'], [B.AZURE_BLUET, 'light_gray'], [B.BLUE_ORCHID, 'light_blue'], [B.ORANGE_TULIP, 'orange'], [B.PINK_TULIP, 'pink'], [B.WHITE_TULIP, 'light_gray'], [B.RED_TULIP, 'red'], [B.OXEYE_DAISY, 'light_gray']];
+for (const [f, c] of flowerDye) shapeless(`${c}_dye_from_${BLOCKS[f].key}`, 'decor', dyeId(c), c === 'magenta' ? 1 : 1, [f]);
+shapeless('white_dye', 'decor', dyeId('white'), 1, [I.BONE_MEAL]);
+shapeless('black_dye', 'decor', dyeId('black'), 1, [I.INK_SAC]);
+shapeless('brown_dye', 'decor', dyeId('brown'), 1, [I.COCOA_BEANS]);
+shapeless('orange_dye', 'decor', dyeId('orange'), 2, [I.RED_DYE, I.YELLOW_DYE]);
+shapeless('magenta_dye', 'decor', dyeId('magenta'), 2, [dyeId('purple'), dyeId('pink')]);
+shapeless('light_blue_dye', 'decor', dyeId('light_blue'), 2, [dyeId('blue'), dyeId('white')]);
+shapeless('lime_dye', 'decor', dyeId('lime'), 2, [dyeId('green'), dyeId('white')]);
+shapeless('pink_dye', 'decor', dyeId('pink'), 2, [I.RED_DYE, dyeId('white')]);
+shapeless('gray_dye', 'decor', dyeId('gray'), 2, [dyeId('black'), dyeId('white')]);
+shapeless('light_gray_dye', 'decor', dyeId('light_gray'), 2, [dyeId('gray'), dyeId('white')]);
+shapeless('light_gray_dye_from_black', 'decor', dyeId('light_gray'), 3, [dyeId('black'), dyeId('white'), dyeId('white')]);
+shapeless('cyan_dye', 'decor', dyeId('cyan'), 2, [dyeId('blue'), dyeId('green')]);
+shapeless('purple_dye', 'decor', dyeId('purple'), 2, [I.RED_DYE, dyeId('blue')]);
+shaped('copper_block', 'building', B.COPPER_BLOCK, 1, ['CCC', 'CCC', 'CCC'], { C: I.COPPER_INGOT });
+shapeless('copper_from_block', 'basics', I.COPPER_INGOT, 9, [B.COPPER_BLOCK]);
+shaped('cut_copper', 'building', B.CUT_COPPER, 4, ['CC', 'CC'], { C: B.COPPER_BLOCK });
+shaped('polished_tuff', 'building', B.POLISHED_TUFF, 4, ['TT', 'TT'], { T: B.TUFF });
+shaped('tuff_bricks', 'building', B.TUFF_BRICKS, 4, ['TT', 'TT'], { T: B.POLISHED_TUFF });
 shapeless('yellow_wool', 'decor', B.YELLOW_WOOL, 1, [B.WHITE_WOOL, I.YELLOW_DYE]);
 shaped('clay_block', 'building', B.CLAY, 1, ['CC', 'CC'], { C: I.CLAY_BALL });
 shaped('golden_apple', 'food', I.GOLDEN_APPLE, 1, ['GGG', 'GAG', 'GGG'], { G: I.GOLD_INGOT, A: I.APPLE });
@@ -204,6 +232,8 @@ export const SMELTING: SmeltRecipe[] = [
   { input: B.STONE, result: B.SMOOTH_STONE, xp: 0.1 },
   { input: B.STONE_BRICKS, result: B.CRACKED_STONE_BRICKS, xp: 0.1 },
   { input: B.SANDSTONE, result: B.SMOOTH_SANDSTONE, xp: 0.1 },
+  { input: B.COPPER_ORE, result: I.COPPER_INGOT, xp: 0.7 },
+  { input: B.CACTUS, result: dyeId('green'), xp: 1 },
 ];
 
 export function findSmelt(id: number, book: RecipeBook = BASE_BOOK): SmeltRecipe | null {
