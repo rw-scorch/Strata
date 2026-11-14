@@ -14,7 +14,7 @@ export interface Vitals { health: number; food: number; sat: number; air: number
 
 export interface SessionEvents {
   block(x: number, y: number, z: number, v: number, old: number): void;
-  entity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
+  entity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
   entityRemove(id: string, death: boolean, pickupBy?: string): void;
   sound(name: string, x: number, y: number, z: number, vol?: number, pitch?: number): void;
   fx(kind: string, x: number, y: number, z: number, data?: number): void;

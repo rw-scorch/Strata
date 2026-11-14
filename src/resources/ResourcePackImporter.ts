@@ -42,7 +42,7 @@ export interface PackManifest {
   catalog?: string;
 }
 
-export const IMPORTER_VERSION = 18;
+export const IMPORTER_VERSION = 21;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -405,7 +405,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     for (const b of BLOCKS) if (b && b.id && SKIP_MODEL.has(b.key)) {
       const extra: Record<string, string[]> = {
         chest: [], oak_door: ['block/oak_door_top', 'block/oak_door_bottom'], torch: ['block/torch'], ladder: ['block/ladder'],
-        water: ['block/water_still'], lava: ['block/lava_still'], wheat: Array.from({ length: 8 }, (_, i) => `block/wheat_stage${i}`), lily_pad: ['block/lily_pad'], air: [],
+        water: ['block/water_still', 'block/water_flow'], lava: ['block/lava_still', 'block/lava_flow'], wheat: Array.from({ length: 8 }, (_, i) => `block/wheat_stage${i}`), lily_pad: ['block/lily_pad'], air: [],
       };
       for (const t of extra[b.key] ?? []) needTex.add(t);
     }
@@ -459,6 +459,13 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       ent_spider: firstOf('entity/spider/spider'),
       ent_spider_eyes: firstOf('entity/spider/spider_eyes', 'entity/spider_eyes'),
       ent_villager: firstOf('entity/villager/villager'),
+      ent_minecart: firstOf('entity/minecart/minecart', 'entity/minecart'),
+      ent_zombified_piglin: firstOf('entity/piglin/zombified_piglin'),
+      ent_ghast: firstOf('entity/ghast/ghast'),
+      ent_ghast_shooting: firstOf('entity/ghast/ghast_shooting'),
+      ent_magmacube: firstOf('entity/slime/magmacube'),
+      ent_strider: firstOf('entity/strider/strider'),
+      ent_strider_cold: firstOf('entity/strider/strider_cold'),
       ent_chest: firstOf('entity/chest/normal'),
       ent_chest_left: firstOf('entity/chest/normal_left'),
       ent_chest_right: firstOf('entity/chest/normal_right'),

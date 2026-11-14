@@ -8,7 +8,7 @@ import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
 import { GEN_LEVEL } from './genLevel';
-import { NetherGen } from './nether';
+import { NetherGen, type NetherBiome } from './nether';
 import { isNether } from '../dimension';
 import { PortalPlan, PORTAL_GRID, planRuinedPortal, stampRuinedPortal } from './ruinedPortal';
 import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines } from './trees';
@@ -115,6 +115,7 @@ export class WorldGenerator {
   }
 
   private nether: NetherGen | null = null;
+  netherBiome(x: number, z: number): NetherBiome { return (this.nether ??= new NetherGen(this.seed)).biome(x, z); }
   private portalPlans = new Map<string, PortalPlan | null>();
 
   ruinedPortal(rx: number, rz: number): PortalPlan | null {
@@ -238,7 +239,7 @@ export class WorldGenerator {
   generate(cx: number, cz: number, level = GEN_LEVEL): GeneratedChunk {
     this.lv = level;
     if (this.arena) return { blocks: generateArenaChunk(this.arena, cx, cz), entities: [] };
-    if (isNether(cx * S)) return { blocks: (this.nether ??= new NetherGen(this.seed)).generate(cx, cz), entities: [] };
+    if (isNether(cx * S)) return (this.nether ??= new NetherGen(this.seed)).generate(cx, cz);
     const blocks = new Uint16Array(CHUNK_VOLUME);
     const entities: GenBlockEntity[] = [];
     const bx = cx * S, bz = cz * S;
@@ -696,6 +697,7 @@ export class WorldGenerator {
 }
 
 export function biomeNameAt(gen: WorldGenerator, x: number, z: number): string {
+  if (isNether(x)) return gen.netherBiome(Math.floor(x), Math.floor(z)).split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
   return gen.column(Math.floor(x), Math.floor(z)).biome.name;
 }
 

@@ -1,4 +1,5 @@
 import { SEA_LEVEL } from '../constants';
+import { NETHER_LAVA } from '../dimension';
 import { Rng, hash2 } from '../rng';
 import { B, X, XV, makeBlock, SLAB_TOP } from '../blocks';
 import { I, toolId, armorId } from '../items';
@@ -29,7 +30,16 @@ const GIANT: Design[] = [
   { w: 8, h: 9, keep: (u, y) => ((u * 7 + y * 13) % 5) < 3, r: 6, lava: 33, gold: 6, stairs: 6, bars: 22, pillars: 5, slabs: true },
 ];
 
-export interface PortalPlan { x: number; y: number; z: number; rot: number; d: Design; seed: number; moss: number; cold: boolean; ocean: boolean; pocket: boolean; overgrown: boolean; }
+export interface PortalPlan { x: number; y: number; z: number; rot: number; d: Design; seed: number; moss: number; cold: boolean; ocean: boolean; pocket: boolean; overgrown: boolean; nether?: boolean; }
+
+export function planNetherPortal(seed: number, rx: number, rz: number): PortalPlan | null {
+  const h = hash2(rx, rz, seed ^ 0x4e7a11);
+  const r = new Rng(h);
+  const x = rx * PORTAL_GRID + r.int(PORTAL_AREA), z = rz * PORTAL_GRID + r.int(PORTAL_AREA);
+  const giant = r.chance(0.05);
+  const d = giant ? GIANT[r.int(GIANT.length)] : D[r.int(D.length)];
+  return { x, y: NETHER_LAVA + 1, z, rot: r.int(4), d, seed: h, moss: 0, cold: false, ocean: false, pocket: true, overgrown: false, nether: true };
+}
 
 export function planRuinedPortal(seed: number, rx: number, rz: number, column: (x: number, z: number) => Column): PortalPlan | null {
   const h = hash2(rx, rz, seed ^ 0x9027a1);
@@ -103,12 +113,12 @@ function build(p: PortalPlan): { vox: Vox[]; chest: [number, number, number] | n
       case 'N': v = !p.cold && pr.chance(0.07) ? B.MAGMA_BLOCK : X(XV.NETHERRACK); break;
       case 'L': v = p.cold ? X(XV.NETHERRACK) : p.ocean || pr.chance(0.2) ? B.MAGMA_BLOCK : B.LAVA; break;
       case 'G': if (pr.chance(0.3)) continue; v = B.GOLD_BLOCK; break;
-      case 'S': v = mossy() ? B.MOSSY_STONE_BRICKS : pr.next() < 0.5 * (1 - p.moss) * 0.3 ? B.CRACKED_STONE_BRICKS : B.STONE_BRICKS; break;
-      case 'X': v = B.CHISELED_STONE_BRICKS; break;
+      case 'S': if (p.nether) { v = pr.chance(0.3) ? X(XV.POLISHED_BLACKSTONE) : X(XV.POLISHED_BLACKSTONE_BRICKS); break; } v = mossy() ? B.MOSSY_STONE_BRICKS : pr.next() < 0.5 * (1 - p.moss) * 0.3 ? B.CRACKED_STONE_BRICKS : B.STONE_BRICKS; break;
+      case 'X': v = p.nether ? X(XV.POLISHED_BLACKSTONE) : B.CHISELED_STONE_BRICKS; break;
       case 'I': v = B.IRON_BARS; break;
       case 'C': v = makeBlock(B.CHEST, pr.int(4)); break;
-      case 's': v = makeBlock(B.SLAB, pr.next() < p.moss ? 9 : 7); break;
-      case 't': v = makeBlock(B.STAIRS, (mossy() ? 9 : 7) | (((Number(t[1]) + p.rot) & 3) << 5)); break;
+      case 's': if (p.nether) continue; v = makeBlock(B.SLAB, pr.next() < p.moss ? 9 : 7); break;
+      case 't': if (p.nether) continue; v = makeBlock(B.STAIRS, (mossy() ? 9 : 7) | (((Number(t[1]) + p.rot) & 3) << 5)); break;
     }
     vox.push({ x: p.x + dx, y: p.y + y, z: p.z + dz, v });
   }
@@ -129,7 +139,7 @@ export function stampRuinedPortal(p: PortalPlan, bx: number, bz: number, S: numb
   const sh = p.d.flat ? 2 : p.d.h;
   if (p.pocket) {
     const pr = p.d.w > 5 ? 8 : 6;
-    for (let dy = -1; dy <= sh + 2; dy++) for (let dz = -pr; dz <= pr; dz++) for (let dx = -pr; dx <= pr; dx++) {
+    for (let dy = p.nether ? 0 : -1; dy <= sh + 2; dy++) for (let dz = -pr; dz <= pr; dz++) for (let dx = -pr; dx <= pr; dx++) {
       const q = (dx * dx + dz * dz) / (pr * pr) + ((dy - sh / 2) * (dy - sh / 2)) / ((sh / 2 + 3) * (sh / 2 + 3));
       if (q > 1) continue;
       const lx = p.x + dx - bx, lz = p.z + dz - bz;
@@ -137,7 +147,7 @@ export function stampRuinedPortal(p: PortalPlan, bx: number, bz: number, S: numb
       if (cur > 0 && cur !== B.BEDROCK) set(lx, p.y + dy, lz, 0);
     }
   }
-  const SR = p.d.r + 5;
+  const SR = p.nether ? -1 : p.d.r + 5;
   for (let dz = -SR; dz <= SR; dz++) for (let dx = -SR; dx <= SR; dx++) {
     const lx = p.x + dx - bx, lz = p.z + dz - bz;
     if (lx < 0 || lx >= S || lz < 0 || lz >= S) continue;

@@ -10,6 +10,7 @@ import { WaypointBeams } from './WaypointBeams';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { MeshResult } from './Mesher';
 import { Sky, computeSky, SkyState } from './Sky';
+import { Explosions } from './Explosions';
 import { Particles } from './Particles';
 import { Weather } from './Weather';
 import { EntityRenderer, LightProbe } from './EntityRenderer';
@@ -37,6 +38,7 @@ export interface FrameEnv {
   lensRain?: number;
   wind?: number;
   nether?: boolean;
+  netherFog?: [number, number, number];
 }
 
 export class Renderer {
@@ -47,6 +49,7 @@ export class Renderer {
   readonly terrain = new THREE.Group();
   readonly sky: Sky;
   readonly particles: Particles;
+  readonly explosions: Explosions;
   readonly weather: Weather;
   readonly entities: EntityRenderer;
   readonly moving: MovingBlocks;
@@ -133,6 +136,7 @@ export class Renderer {
     this.terrainDepth = createTerrainDepthMaterial(this.uniforms);
     this.sky = new Sky(atlas);
     this.particles = new Particles(this.uniforms);
+    this.explosions = new Explosions(this.uniforms);
     this.weather = new Weather();
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
     this.chests = new ChestRenderer(this.uniforms, atlas, probe);
@@ -145,7 +149,7 @@ export class Renderer {
       const c = tint === 3 ? [128, 167, 85] : tint === 4 ? [97, 153, 97] : tint ? [104, 168, 52] : [255, 255, 255];
       return { tile, r: c[0] / 255, g: c[1] / 255, b: c[2] / 255 };
     };
-    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.weather.group, this.entities.group, this.chests.group, this.moving.group);
+    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.explosions.points, this.weather.group, this.entities.group, this.chests.group, this.moving.group);
     const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.outline = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));
     this.outline.visible = false;
@@ -163,7 +167,7 @@ export class Renderer {
     this.crack.visible = false;
     this.crack.renderOrder = 9;
     this.scene.add(this.outline, this.crack, this.beams.group);
-    for (const o of [this.outline, this.crack, this.particles.points]) o.layers.set(2);
+    for (const o of [this.outline, this.crack, this.particles.points, this.explosions.points]) o.layers.set(2);
     this.weather.group.traverse((o) => o.layers.set(2));
     this.uniforms.uCloudMap.value = atlas.cloudTexture;
     this.handScene.add(this.hand);
@@ -188,7 +192,7 @@ export class Renderer {
     setChunkFx(this.mats.cutout, g.fx, 'cutout');
     setChunkFx(this.mats.trans, g.fx, 'trans');
     this.uniforms.uLodScale.value = g.lodScale;
-    this.uniforms.uCloudShadow.value = g.fx.cloudShadows ? 1 : 0;
+    this.uniforms.uCloudShadow.value = g.fx.cloudShadows && !g.post?.volClouds ? 1 : 0;
     if (this.shadowRT && this.shadowRT.width !== g.shadowRes) { this.shadowRT.dispose(); this.shadowRT = null; }
     const key = g.post ? `${g.post.msaa}|${g.post.sceneTextures}` : '';
     if (key !== this.postKey) {
@@ -235,7 +239,7 @@ export class Renderer {
 
   private drawLod(): void {
     const c = this.camera, l = this.lodCam;
-    l.position.copy(c.position); l.quaternion.copy(c.quaternion);
+    l.position.copy(c.position).sub(this.origin); l.quaternion.copy(c.quaternion);
     l.fov = c.fov; l.aspect = c.aspect; l.near = 2; l.far = (this.lod?.distance ?? 1000) + 600;
     l.updateProjectionMatrix(); l.updateMatrixWorld();
     const lg = this.lod!.group, sg = this.sky.group, skyVis = sg.visible;
@@ -328,6 +332,7 @@ export class Renderer {
     this.handCam.aspect = w / h;
     this.handCam.updateProjectionMatrix();
     this.particles.setScale(h * dpr * this.resScale * this.maxResScale * 0.9);
+    this.explosions.setScale(h * dpr * this.resScale * this.maxResScale * 0.9);
   }
 
   setFov(f: number): void { this.camera.fov = f; this.camera.updateProjectionMatrix(); }
@@ -401,13 +406,25 @@ export class Renderer {
     }
   }
 
+  origin = new THREE.Vector3();
+  private absView = new THREE.Matrix4();
+  private rebase(): void {
+    const c = this.camera.position;
+    this.origin.set(Math.round(c.x / 4096) * 4096, 0, Math.round(c.z / 4096) * 4096);
+    if (this.camera.parent !== this.scene) this.scene.add(this.camera);
+    this.scene.position.copy(this.origin).negate();
+    this.lodScene.position.copy(this.scene.position);
+    this.scene.updateMatrixWorld(true);
+  }
+
   private cull(): void {
     const cam = this.camera;
     const p = cam.position;
     const key = `${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)},${cam.quaternion.x.toFixed(3)},${cam.quaternion.y.toFixed(3)},${cam.quaternion.z.toFixed(3)},${cam.quaternion.w.toFixed(3)},${cam.fov},${cam.aspect.toFixed(3)}`;
     if (!this.visDirty && key === this.visKey) { for (const c of this.chunks.values()) this.applyMask(c, c.mask); return; }
     this.visKey = key; this.visDirty = false;
-    this.projView.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    cam.updateMatrix();
+    this.projView.multiplyMatrices(cam.projectionMatrix, this.absView.copy(cam.matrix).invert());
     this.frustum.setFromProjectionMatrix(this.projView);
     const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16), psy = Math.floor(p.y / 16);
     const R = this.cullRadius + 2, G = R * 2 + 1, N = G * G * SECTIONS;
@@ -558,11 +575,12 @@ export class Renderer {
     const sd = this.skyState.sunDir;
     const texel = (range * 2) / size;
     const center = this.tmpV.set(Math.round(c.x / texel) * texel, Math.round(c.y / texel) * texel, Math.round(c.z / texel) * texel);
+    center.sub(this.origin);
     cam.position.copy(center).addScaledVector(sd, 180);
     cam.up.set(0, 0, 1);
     cam.lookAt(center);
     cam.updateMatrixWorld();
-    const hide = [this.sky.group, this.sky.cloudMesh, this.particles.points, this.weather.group, this.outline, this.crack, this.beams.group];
+    const hide = [this.sky.group, this.sky.cloudMesh, this.particles.points, this.explosions.points, this.weather.group, this.outline, this.crack, this.beams.group];
     const was = hide.map((o) => o.visible);
     for (const o of hide) o.visible = false;
     const entVis = this.entities.group.visible;
@@ -591,6 +609,10 @@ export class Renderer {
 
   render(dt: number, env: FrameEnv, playerLight: number): void {
     const u = this.uniforms;
+    this.rebase();
+    u.uWorldOrigin.value.set(this.origin.x, this.origin.z);
+    this.explosions.origin.copy(this.origin); this.explosions.points.position.copy(this.origin); this.explosions.update(dt);
+    if (this.lod) this.lod.material.uniforms.uOrigin.value.set(this.origin.x / 16, this.origin.z / 16);
     this.skyState = computeSky(env.time, env.rain, env.thunder);
     const st = this.skyState;
     u.uDay.value = st.day;
@@ -603,7 +625,7 @@ export class Renderer {
     u.uWind.value = env.wind ?? env.rain * 0.8 + env.thunder * 0.6;
     u.uUnderwater.value = env.underwater ? 1 : 0;
     if (!env.underwater) this.waterVision = 0;
-    u.uCloudShift.value = env.time * 0.03;
+    u.uCloudShift.value = this.sky.t * 0.6;
     const fogFar = Math.max(24, env.renderDistance * 16);
     const fogBand = Math.max(4, Math.min(64, fogFar / 10));
     if (env.inLava) { u.uFogColor.value.setRGB(0.9, 0.35, 0.05); u.uFogNear.value = 0; u.uFogFar.value = 2.5; }
@@ -613,8 +635,8 @@ export class Renderer {
       u.uFogNear.value = fogFar - fogBand;
       u.uFogFar.value = fogFar;
     }
-    if (env.nether && !env.inLava) { const far = Math.min(fogFar, 112); u.uFogColor.value.setRGB(0.19, 0.03, 0.03); u.uFogNear.value = far * 0.12; u.uFogFar.value = far; }
-    u.uAmbient.value = env.nether ? 0.2 : 0;
+    if (env.nether && !env.inLava) { const far = Math.min(fogFar, 112); const nf = env.netherFog ?? [0.2, 0.03, 0.03]; u.uFogColor.value.setRGB(nf[0], nf[1], nf[2]); u.uFogNear.value = far * 0.12; u.uFogFar.value = far; }
+    u.uAmbient.value = env.nether ? 0.34 : 0;
     const lodActive = !env.nether && !!this.lod && this.lod.distance > 0 && !env.underwater && !env.inLava && (env.cave ?? 0) < 0.6;
     this.placeSky(lodActive);
     if (lodActive) {
@@ -627,7 +649,7 @@ export class Renderer {
     u.uCamFar.value = this.camera.far;
     this.sky.update(this.camera, st, env.time, env.rain);
     this.sky.group.visible = !env.underwater && !env.inLava && !env.nether;
-    this.sky.cloudMesh.visible = this.sky.cloudMesh.visible && !env.nether;
+    this.sky.cloudMesh.visible = this.sky.cloudMesh.visible && !env.nether && !this.post?.cfg.volClouds;
     this.cullRadius = env.renderDistance + 1;
     this.beams.update(this.camera.position);
     if (this.shadows && this.gfx.shadowRes) this.fullRanges();
@@ -680,6 +702,7 @@ export class Renderer {
     post.process({
       camera: this.camera, sunDir: st.sunDir, sunColor, fogColor: u.uFogColor.value, day: st.day, night: st.night, rain: env.rain,
       underwater: env.underwater ? 1 : 0, lava: env.inLava ? 1 : 0, flash: env.flash, time: u.uTime.value, dt,
+      skyTop: u.uSkyTop.value, origin: this.origin, nether: !!env.nether,
       cave: env.cave ?? 0, lensRain: this.gfx.lensRain && !this.thirdPerson ? env.lensRain ?? 0 : 0,
     }, !needFinal && !hand);
     if (needFinal || hand) {

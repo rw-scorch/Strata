@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS, BlockDef, B, SHAPE_MATS } from '../core/blocks';
+import { BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
 import { BIOMES } from '../core/worldgen/biomes';
 import { defaultBlockTexture, defaultItemTexture, cloudTexture, hudIcon, Px } from './DefaultTextures';
@@ -104,7 +104,7 @@ export class TextureAtlas {
         if (packPath && pack?.files.has(packPath)) src = { canvas: toCanvas(pack.files.get(packPath)!), anim: pack.animations.get(packPath), fromPack: true };
         else {
           const def = defaultBlockTexture(k.includes('/') ? k.split('/').pop()! : k);
-          const anim = k === 'water_still' ? { frametime: 2 } : k === 'lava_still' ? { frametime: 3 } : undefined;
+          const anim = k === 'water_still' || k === 'water_flow' ? { frametime: 2 } : k === 'lava_still' || k === 'lava_flow' ? { frametime: 3 } : undefined;
           src = { canvas: toCanvas(def), anim, fromPack: false };
         }
         sources.set(k, src);
@@ -143,6 +143,8 @@ export class TextureAtlas {
     special.doorBottom = get('oak_door_bottom');
     special.water = get('water_still');
     special.lava = get('lava_still');
+    special.waterFlow = get('water_flow');
+    special.lavaFlow = get('lava_flow');
     special.waterSide = special.water;
 
     if (pack) {
@@ -223,7 +225,7 @@ export class TextureAtlas {
       const src = this.pack.files.get(path);
       if (!src) continue;
       const c = toCanvas(src);
-      if (c.width !== 64 || (c.height !== 64 && c.height !== 32)) continue;
+      if ((c.width !== 64 && c.width !== 128) || ![32, 64, 128].includes(c.height)) continue;
       const t = new THREE.CanvasTexture(c);
       t.magFilter = THREE.NearestFilter;
       t.minFilter = THREE.NearestMipmapLinearFilter;
@@ -429,6 +431,7 @@ export class TextureAtlas {
       if (it.places === B.SLAB) return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }];
       return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }, { b: [0, 0.5, 0, 1, 1, 0.5], ...tl }];
     }
+    if (id === B.ANVIL || id === B.ENCHANTING_TABLE) return customBoxes(id).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
     if (id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) return [{ b: px([1, 7, 1, 15, 8, 15]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.STONE_BUTTON || id === B.OAK_BUTTON) return [{ b: px([5, 6, 6, 11, 10, 10]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.PISTON || id === B.STICKY_PISTON) return [{ b: [0, 0, 0, 1, 1, 1], top: id === B.PISTON ? sp.piston_top : sp.piston_top_sticky, left: sp.piston_side, right: sp.piston_side }];
@@ -667,7 +670,7 @@ export class TextureAtlas {
     };
     this.sunTexture = mk('sun', () => defaultBlockTexture('sun'));
     this.moonTexture = mk('moon', () => defaultBlockTexture('moon'));
-    this.cloudTexture = mk('clouds', () => cloudTexture(256), true);
+    this.cloudTexture = mk('clouds', () => cloudTexture(96), true);
   }
 
   updateAnimations(renderer: THREE.WebGLRenderer, ticks: number): void {

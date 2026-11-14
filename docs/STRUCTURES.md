@@ -61,3 +61,7 @@ This is the plan for adding structures to Strata. It covers vanilla-style struct
 Built from the public wiki description, not from Mojang structure files. Layouts are original voxel plans that follow the wiki's sizes and block mix (frame shape, missing blocks, stone brick debris, gold blocks, chest). Placement rules, moss levels, block replacement odds and the loot table follow the wiki numbers. One portal per 640x640 block region, placed in the first 400x400 of it. Generation level 5, so only land generated after the update gets them.
 
 Next: Nether biomes, fossils and Nether-side ruined portals (v24), Nether Fortress (v25), Bastion Remnant (v26).
+
+## v24 addition: Nether features
+
+Huge fungi, Nether fossils (bone block spine and ribs), basalt pillars and columns, delta pools and Nether ruined portals are all generated from rules in code, written from the wiki's descriptions. No Mojang structure files are used. Fortress (v25) and Bastion Remnant (v26) come next.

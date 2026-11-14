@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
 import { PROFESSIONS } from '../core/trades';
 import { I, getItem } from '../core/items';
-import { BLOCKS, B } from '../core/blocks';
+import { BLOCKS, B, customBoxes } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { WorldUniforms } from './ChunkMaterial';
-import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, PLAYER_ARM_CUBES_SLIM, playerSpec, VanillaSpec, RigPart, type VCube } from './VanillaModels';
+import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, PLAYER_ARM_CUBES_SLIM, playerSpec, VanillaSpec, RigPart, MAGMA_OLD, type VCube } from './VanillaModels';
 
 const armorGeoCache = new Map<string, THREE.BufferGeometry>();
 function armorGeo(key: string, cubes: VCube[]): THREE.BufferGeometry {
@@ -82,6 +82,37 @@ const MOB_PARTS: Partial<Record<MobType, PartSpec[]>> = {
     { n: 'eyeR', s: [0.02, 0.05, 0.05], p: [0, 0, 0], o: [0.13, 0.18, -0.06], c: 0x111111, parent: 'head' },
     { n: 'leg0', s: [0.06, 0.28, 0.06], p: [-0.08, 0.28, 0.02], o: [0, -0.14, 0], c: 0xe0b030 },
     { n: 'leg1', s: [0.06, 0.28, 0.06], p: [0.08, 0.28, 0.02], o: [0, -0.14, 0], c: 0xe0b030 },
+  ],
+  cinderhusk: [
+    { n: 'body', s: [0.5, 0.7, 0.28], p: [0, 1.04, 0], c: 0x6a5a4a },
+    { n: 'head', s: [0.58, 0.48, 0.48], p: [0, 1.4, 0], o: [0, 0.24, 0], c: 0xd89a8a },
+    { n: 'snout', s: [0.24, 0.22, 0.06], p: [0, 0, 0], o: [0, 0.12, -0.27], c: 0xe8a8a0, parent: 'head' },
+    { n: 'eyeL', s: [0.08, 0.08, 0.02], p: [0, 0, 0], o: [-0.14, 0.3, -0.25], c: 0xe0d060, e: true, parent: 'head' },
+    { n: 'eyeR', s: [0.08, 0.08, 0.02], p: [0, 0, 0], o: [0.14, 0.3, -0.25], c: 0xe0d060, e: true, parent: 'head' },
+    { n: 'armL', s: [0.22, 0.7, 0.22], p: [-0.37, 1.36, 0], o: [0, -0.3, 0], c: 0x7aa070 },
+    { n: 'armR', s: [0.22, 0.7, 0.22], p: [0.37, 1.36, 0], o: [0, -0.3, 0], c: 0xd89a8a },
+    { n: 'legL', s: [0.23, 0.7, 0.23], p: [-0.12, 0.7, 0], o: [0, -0.35, 0], c: 0x5a4a3a },
+    { n: 'legR', s: [0.23, 0.7, 0.23], p: [0.12, 0.7, 0], o: [0, -0.35, 0], c: 0x5a4a3a },
+  ],
+  wailer: [
+    { n: 'body', s: [4, 4, 4], p: [0, 2, 0], c: 0xeeeeee },
+    { n: 'eyeL', s: [0.5, 0.25, 0.05], p: [0, 0, 0], o: [-0.9, 0.4, -2.02], c: 0x222222, parent: 'body' },
+    { n: 'eyeR', s: [0.5, 0.25, 0.05], p: [0, 0, 0], o: [0.9, 0.4, -2.02], c: 0x222222, parent: 'body' },
+    { n: 'mouth', s: [0.5, 0.25, 0.05], p: [0, 0, 0], o: [0, -0.6, -2.02], c: 0x444444, parent: 'body' },
+    ...[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({ n: `t${i}`, s: [0.5, 2.5, 0.5] as [number, number, number], p: [((i % 3) - 1) * 1.25, 0.1, (Math.floor(i / 3) - 1) * 1.25] as [number, number, number], o: [0, -1.25, 0] as [number, number, number], c: 0xdddddd })),
+  ],
+  emberslime: [
+    { n: 'body', s: [0.52, 0.52, 0.52], p: [0, 0.26, 0], c: 0x4a1a0a },
+    { n: 'core', s: [0.26, 0.26, 0.26], p: [0, 0.26, 0], c: 0xf0a020, e: true },
+    { n: 'eyeL', s: [0.1, 0.06, 0.02], p: [-0.12, 0.34, -0.27], c: 0xf8d040, e: true },
+    { n: 'eyeR', s: [0.1, 0.06, 0.02], p: [0.12, 0.34, -0.27], c: 0xf8d040, e: true },
+  ],
+  lavastrider: [
+    { n: 'body', s: [1, 0.88, 1], p: [0, 1.25, 0], c: 0x9a2a2a },
+    { n: 'eyeL', s: [0.14, 0.08, 0.02], p: [-0.2, 1.45, -0.51], c: 0x111111 },
+    { n: 'eyeR', s: [0.14, 0.08, 0.02], p: [0.2, 1.45, -0.51], c: 0x111111 },
+    { n: 'leg0', s: [0.25, 1, 0.25], p: [-0.25, 1, 0], o: [0, -0.5, 0], c: 0x5a1a2a },
+    { n: 'leg1', s: [0.25, 1, 0.25], p: [0.25, 1, 0], o: [0, -0.5, 0], c: 0x5a1a2a },
   ],
   hollowed: [
     { n: 'body', s: [0.5, 0.7, 0.28], p: [0, 1.04, 0], c: 0x3a3a4a },
@@ -170,8 +201,9 @@ function boxGeo(s: [number, number, number], c: number): THREE.BufferGeometry {
 interface Snap { t: number; x: number; y: number; z: number; yaw: number; pitch: number; }
 
 export interface EntityView {
+  squish?: number;
   id: string;
-  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'player';
+  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'player';
   type: number;
   obj: THREE.Group;
   parts: Map<string, THREE.Object3D>;
@@ -245,8 +277,9 @@ export class EntityRenderer {
   }
 
   private vanilla(key: MobType | 'player', skin = 0, texKey?: string, custom?: { png: string; slim: boolean }): Built | null {
-    const spec = key === 'player' && custom ? playerSpec(custom.slim) : VANILLA[key];
+    let spec = key === 'player' && custom ? playerSpec(custom.slim) : VANILLA[key];
     if (!spec) return null;
+    if (key === 'emberslime' && (this.atlas.entityCanvases.get('magmacube')?.height ?? 64) === 32) spec = MAGMA_OLD;
     const count = this.atlas.playerSkinCount;
     const mainKey = key === 'player' ? (count ? `player${skin % count}` : '') : spec.main;
     const tex = custom ? this.customSkinTexture(custom.png) : (texKey ? this.atlas.entityTextures.get(texKey) : undefined) ?? this.atlas.entityTextures.get(mainKey);
@@ -332,28 +365,34 @@ export class EntityRenderer {
     const it = getItem(itemId);
     const b = it?.kind === 'block' && it.blockIcon ? BLOCKS[itemId] : null;
     if (b) {
-      const g = new THREE.BoxGeometry(0.26, 0.26, 0.26);
-      const uv = g.getAttribute('uv') as THREE.BufferAttribute;
       const d = this.atlas.data;
-      const col = new Float32Array(g.getAttribute('position').count * 3).fill(1);
-      for (let f = 0; f < 6; f++) {
-        const slot = [0, 1, 2, 3, 4, 5][f];
-        let tile = d.blockTiles[itemId * FACE_SLOTS + slot];
-        if (b.front && f === 4) tile = d.blockTiles[itemId * FACE_SLOTS + 6];
-        const tx = tile % d.cols, ty = Math.floor(tile / d.cols);
-        for (let k = 0; k < 4; k++) {
-          const i = f * 4 + k;
-          const u0 = uv.getX(i), v0 = uv.getY(i);
-          uv.setXY(i, (tx + u0) / d.cols, (ty + 1 - v0) / d.rows);
-          const tintCode = d.tintTable[itemId * 2];
-          const tintTop = d.tintTable[itemId * 2 + 1] === 1;
-          if (tintCode && (!tintTop || f === 2)) { col[i * 3] = 0.57; col[i * 3 + 1] = 0.74; col[i * 3 + 2] = 0.35; }
-        }
-      }
-      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      const custom = itemId === B.ANVIL || itemId === B.ENCHANTING_TABLE ? customBoxes(itemId) : [];
+      const boxes = custom.length ? custom : [[0, 0, 0, 1, 1, 1]];
       const m = this.material(this.atlas.texture);
       m.side = THREE.FrontSide;
-      obj.add(new THREE.Mesh(g, m));
+      for (const [x0, y0, z0, x1, y1, z1] of boxes) {
+        const g = new THREE.BoxGeometry((x1 - x0) * 0.26, (y1 - y0) * 0.26, (z1 - z0) * 0.26);
+        g.translate(((x0 + x1) / 2 - 0.5) * 0.26, ((y0 + y1) / 2 - 0.5) * 0.26, ((z0 + z1) / 2 - 0.5) * 0.26);
+        const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+        const col = new Float32Array(g.getAttribute('position').count * 3).fill(1);
+        for (let f = 0; f < 6; f++) {
+          let tile = d.blockTiles[itemId * FACE_SLOTS + f];
+          if (b.front && f === 4) tile = d.blockTiles[itemId * FACE_SLOTS + 6];
+          const tx = tile % d.cols, ty = Math.floor(tile / d.cols);
+          const [ua, ub] = f < 2 ? [z0, z1] : [x0, x1];
+          const [va, vb] = f === 2 || f === 3 ? [z0, z1] : [y0, y1];
+          for (let k = 0; k < 4; k++) {
+            const i = f * 4 + k;
+            const u0 = ua + (ub - ua) * uv.getX(i), v0 = va + (vb - va) * uv.getY(i);
+            uv.setXY(i, (tx + u0) / d.cols, (ty + 1 - v0) / d.rows);
+            const tintCode = d.tintTable[itemId * 2];
+            const tintTop = d.tintTable[itemId * 2 + 1] === 1;
+            if (tintCode && (!tintTop || f === 2)) { col[i * 3] = 0.57; col[i * 3 + 1] = 0.74; col[i * 3 + 2] = 0.35; }
+          }
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        obj.add(new THREE.Mesh(g, m));
+      }
       return { obj, mats: [m] };
     }
     const g = new THREE.PlaneGeometry(0.42, 0.42);
@@ -604,11 +643,33 @@ export class EntityRenderer {
           for (const m of im.mats) { m.uniforms.uLight.value = 0.55; mats.push(m); }
           g.add(im.obj);
         };
-        part(0.9, 0.1, 1.25, 0, 0.15, 0);
-        part(0.08, 0.5, 1.25, -0.45, 0.45, 0);
-        part(0.08, 0.5, 1.25, 0.45, 0.45, 0);
-        part(0.9, 0.5, 0.08, 0, 0.45, -0.6);
-        part(0.9, 0.5, 0.08, 0, 0.45, 0.6);
+        const cartTex = this.atlas.entityTextures.get('minecart');
+        if (cartTex) {
+          const mat = this.material(cartTex);
+          mat.side = THREE.DoubleSide;
+          mats.push(mat);
+          const body = new THREE.Group();
+          body.scale.set(1 / 16, -1 / 16, 1 / 16);
+          body.position.y = 0.375;
+          body.rotation.y = Math.PI / 2;
+          const panel = (uv: [number, number], o: [number, number, number], sz: [number, number, number], px: number, pz: number, rx: number, ry: number) => {
+            const mesh = new THREE.Mesh(cubesGeometry([{ o, s: sz, uv }], 64, 32), mat);
+            mesh.position.set(px, 4, pz); mesh.rotation.set(rx, ry, 0);
+            body.add(mesh);
+          };
+          panel([0, 10], [-10, -8, -1], [20, 16, 2], 0, 0, Math.PI / 2, 0);
+          panel([0, 0], [-8, -9, -1], [16, 8, 2], -9, 0, 0, Math.PI * 1.5);
+          panel([0, 0], [-8, -9, -1], [16, 8, 2], 9, 0, 0, Math.PI / 2);
+          panel([0, 0], [-8, -9, -1], [16, 8, 2], 0, -7, 0, Math.PI);
+          panel([0, 0], [-8, -9, -1], [16, 8, 2], 0, 7, 0, 0);
+          g.add(body);
+        } else {
+          part(0.9, 0.1, 1.25, 0, 0.15, 0);
+          part(0.08, 0.5, 1.25, -0.45, 0.45, 0);
+          part(0.08, 0.5, 1.25, 0.45, 0.45, 0);
+          part(0.9, 0.5, 0.08, 0, 0.45, -0.6);
+          part(0.9, 0.5, 0.08, 0, 0.45, 0.6);
+        }
         if (type === 1) {
           const t = this.itemModel(B.TNT);
           t.obj.scale.setScalar(0.75 / 0.26);
@@ -618,6 +679,18 @@ export class EntityRenderer {
         }
         built = { obj: g, parts: new Map(), mats };
         hw = 0.49; h = 0.7;
+      } else if (kind === 'fireball') {
+        const g = new THREE.Group();
+        const m = this.material(null, true);
+        const core = new THREE.Mesh(boxGeo([0.5, 0.5, 0.5], 0xf8b030), m);
+        core.position.y = 0.25;
+        const shell = new THREE.Mesh(boxGeo([0.7, 0.7, 0.7], 0x8a2a08), this.material(null, true));
+        shell.position.y = 0.25;
+        (shell.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.5;
+        (shell.material as THREE.ShaderMaterial).transparent = true;
+        g.add(core, shell);
+        built = { obj: g, parts: new Map(), mats: [m, shell.material as THREE.ShaderMaterial] };
+        hw = 0.5; h = 1;
       } else if (kind === 'tnt') {
         const im = this.itemModel(B.TNT);
         im.obj.scale.setScalar(0.98 / 0.26);
@@ -721,12 +794,28 @@ export class EntityRenderer {
       } else {
         v.obj.rotation.y = v.yaw;
         v.obj.scale.setScalar(v.kind === 'mob' && (v.flags & 128) ? 0.55 : 1);
+        if (v.kind === 'mob') {
+          const mt = MOB_BY_CODE[v.type]?.type;
+          if (mt === 'emberslime') {
+            const n = [1, 2, 4][(v.flags >> 13) & 3] ?? 1;
+            v.obj.scale.setScalar(n);
+            v.hw = 0.26 * n; v.h = 0.52 * n;
+            const target = (v.flags & 4096) ? 0.8 : 0;
+            v.squish = (v.squish ?? 0) + (target - (v.squish ?? 0)) * Math.min(1, dt * 10);
+            if (!v.rig) v.obj.scale.y = n * (1 + (v.squish ?? 0) * 0.3);
+          } else if (mt === 'wailer' || mt === 'lavastrider') {
+            const alt = mt === 'wailer' ? ((v.flags & 4) ? 'ghast_shooting' : 'ghast') : ((v.flags & 32) ? 'strider_cold' : 'strider');
+            const tex = this.atlas.entityTextures.get(alt);
+            if (tex && v.rig && v.mats[0]?.uniforms.uMap && v.mats[0].uniforms.uMap.value !== tex) v.mats[0].uniforms.uMap.value = tex;
+            if (mt === 'wailer') v.obj.position.y += Math.sin(v.age * 0.05) * 0.15;
+          }
+        }
         v.age += dt * 20;
         if (v.swing > 0) v.swing = Math.max(0, v.swing - dt * 4);
         const aggressive = (v.flags & 16) !== 0;
         const mtype = v.kind === 'mob' ? MOB_BY_CODE[v.type]?.type ?? '' : 'player';
         if (v.spec && v.rig) {
-          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0, crawl: (v.flags & 16384) !== 0 && (v.flags & 16) === 0, riding: v.kind === 'player' && !!(v.flags & 8192), ...this.holdState(v) });
+          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0, crawl: (v.flags & 16384) !== 0 && (v.flags & 16) === 0, squish: v.squish, cold: (v.flags & 32) !== 0 && mtype === 'lavastrider', riding: v.kind === 'player' && !!(v.flags & 8192), ...this.holdState(v) });
         } else {
           this.animateSimple(v, amp, aggressive, mtype);
         }

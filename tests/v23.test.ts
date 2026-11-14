@@ -20,6 +20,7 @@ function world(real = false) {
   if (!real) for (let x = -24; x <= 40; x++) for (let z = -24; z <= 24; z++) for (let y = 5; y <= 9; y++) store.setBlock(x, y, z, B.STONE);
   const events: { e: string; [k: string]: unknown }[] = [];
   const sim = new WorldSim({ seed: 5, store, gen, difficulty: 'normal', emit: (e) => events.push(e as never), validateMoves: false, authoritative: true, spawn: { x: 0, y: 10, z: 0 } });
+  sim.settings.mobSpawning = false;
   const run = (n: number) => { for (let i = 0; i < n; i++) sim.tick(); };
   const player = (x: number, y: number, z: number, mode: 'survival' | 'creative' = 'survival') => {
     const p = newPlayer(`p${Math.random()}`, 'P', mode, { x, y, z }); p.op = true; sim.addPlayer(p);

@@ -6,7 +6,9 @@ export const ORE_REVEAL_RADIUS = 5;
 const HIDDEN = new Uint8Array(256);
 for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.AETHERITE_ORE, B.COPPER_ORE, B.REDSTONE_ORE, B.LAPIS_ORE]) HIDDEN[id] = 1;
 
-export function isHiddenOre(v: number): boolean { return HIDDEN[blockId(v)] === 1; }
+const RACK = 218;
+function cover(v: number): number { const id = v & 0xff; if (HIDDEN[id]) return B.STONE; if (id === 218 && ((v >>> 8) === 1 || (v >>> 8) === 2)) return RACK; return 0; }
+export function isHiddenOre(v: number): boolean { return cover(v) !== 0; }
 
 export type BlockGetter = (x: number, y: number, z: number) => number | null;
 
@@ -37,9 +39,10 @@ export function maskChunk(blocks: Uint16Array, cx: number, cz: number, world: Bl
   const get = chunkGetter(blocks, cx, cz, world);
   const bx = cx * CHUNK_SIZE, bz = cz * CHUNK_SIZE;
   for (let i = 0; i < blocks.length; i++) {
-    if (!HIDDEN[blocks[i] & 0xff]) continue;
+    const c = cover(blocks[i]);
+    if (!c) continue;
     const x = i & 15, z = (i >> 4) & 15, y = i >> 8;
-    if (!exposed(get, bx + x, y, bz + z)) out[i] = B.STONE;
+    if (!exposed(get, bx + x, y, bz + z)) out[i] = c;
   }
   return out;
 }
@@ -49,7 +52,7 @@ export function exposedOres(blocks: Uint16Array, cx: number, cz: number, world: 
   const get = chunkGetter(blocks, cx, cz, world);
   const bx = cx * CHUNK_SIZE, bz = cz * CHUNK_SIZE;
   for (let i = 0; i < blocks.length; i++) {
-    if (!HIDDEN[blocks[i] & 0xff]) continue;
+    if (!cover(blocks[i])) continue;
     const x = i & 15, z = (i >> 4) & 15, y = i >> 8;
     if (exposed(get, bx + x, y, bz + z)) out.push(i, blocks[i]);
   }
@@ -61,11 +64,12 @@ export function revealAround(get: BlockGetter, x: number, y: number, z: number, 
   if (v === null || OPAQUE[blockId(v)]) return;
   for (const [dx, dy, dz] of DIRS) {
     const n = get(x + dx, y + dy, z + dz);
-    if (n !== null && HIDDEN[blockId(n)]) out.push([x + dx, y + dy, z + dz, n]);
+    if (n !== null && cover(n)) out.push([x + dx, y + dy, z + dz, n]);
   }
 }
 
 export function publicValue(get: BlockGetter, x: number, y: number, z: number): number {
   const v = get(x, y, z) ?? 0;
-  return HIDDEN[blockId(v)] && !exposed(get, x, y, z) ? B.STONE : v;
+  const c = cover(v);
+  return c && !exposed(get, x, y, z) ? c : v;
 }

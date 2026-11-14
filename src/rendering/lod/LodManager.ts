@@ -43,7 +43,7 @@ export class LodManager {
       uniforms: {
         uDay: uniforms.uDay, uFogColor: uniforms.uFogColor, uSkyColor: uniforms.uSkyColor,
         uFogNear: { value: 1000 }, uFogFar: { value: 2000 },
-        uMask: { value: this.mask }, uMaskOrigin: { value: new THREE.Vector2() }, uMaskSize: { value: 1 },
+        uMask: { value: this.mask }, uMaskOrigin: { value: new THREE.Vector2() }, uOrigin: { value: new THREE.Vector2() }, uMaskSize: { value: 1 },
       },
       vertexShader: /* glsl */ `
         attribute vec4 aColor;
@@ -57,10 +57,10 @@ export class LodManager {
         }`,
       fragmentShader: /* glsl */ `
         uniform float uDay; uniform vec3 uFogColor; uniform vec3 uSkyColor; uniform float uFogNear; uniform float uFogFar;
-        uniform sampler2D uMask; uniform vec2 uMaskOrigin; uniform float uMaskSize;
+        uniform sampler2D uMask; uniform vec2 uMaskOrigin; uniform vec2 uOrigin; uniform float uMaskSize;
         varying vec4 vColor; varying vec3 vWorld; varying float vDist;
         void main() {
-          vec2 c = floor(vWorld.xz / 16.0) - uMaskOrigin;
+          vec2 c = floor(vWorld.xz / 16.0 + 0.0001) + uOrigin - uMaskOrigin;
           if (c.x >= 0.0 && c.y >= 0.0 && c.x < uMaskSize && c.y < uMaskSize && texture2D(uMask, (c + 0.5) / uMaskSize).r > 0.5) discard;
           float light = mix(0.1, 1.0, uDay) * vColor.a;
           vec3 bp = vColor.a > 0.9 ? vec3(floor(vWorld.x), 0.0, floor(vWorld.z)) : vColor.a > 0.7 ? vec3(7.0, floor(vWorld.y), floor(vWorld.z)) : vec3(floor(vWorld.x), floor(vWorld.y), 13.0);

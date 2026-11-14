@@ -25,6 +25,7 @@ export interface WorldUniforms {
   uCloudMap: { value: THREE.Texture | null };
   uCloudShift: { value: number };
   uCloudShadow: { value: number };
+  uWorldOrigin: { value: THREE.Vector2 };
   uUnderwater: { value: number };
   uSceneColor: { value: THREE.Texture | null };
   uSceneDepth: { value: THREE.Texture | null };
@@ -44,7 +45,7 @@ export function createWorldUniforms(): WorldUniforms {
     uFogNear: { value: 60 }, uFogFar: { value: 96 }, uTime: { value: 0 }, uBrightness: { value: 0.5 }, uAmbient: { value: 0 },
     uShadowMap: { value: null }, uShadowMatrix: { value: new THREE.Matrix4() }, uShadowOn: { value: 0 }, uShadowTexel: { value: 1 / 2048 },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uFlash: { value: 0 }, uRain: { value: 0 }, uWind: { value: 0 },
-    uCloudMap: { value: null }, uCloudShift: { value: 0 }, uCloudShadow: { value: 0 }, uUnderwater: { value: 0 },
+    uCloudMap: { value: null }, uCloudShift: { value: 0 }, uCloudShadow: { value: 0 }, uWorldOrigin: { value: new THREE.Vector2() }, uUnderwater: { value: 0 },
     uSceneColor: { value: null }, uSceneDepth: { value: null }, uResolution: { value: new THREE.Vector2(1, 1) },
     uCamNear: { value: 0.08 }, uCamFar: { value: 1000 }, uProj: { value: new THREE.Matrix4() }, uLodScale: { value: 1 }, uEmitBoost: { value: 1 }, uDynLights: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   };
@@ -137,6 +138,7 @@ uniform float uRain;
 uniform sampler2D uCloudMap;
 uniform float uCloudShift;
 uniform float uCloudShadow;
+uniform vec2 uWorldOrigin;
 uniform float uUnderwater;
 uniform sampler2D uSceneColor;
 uniform sampler2D uSceneDepth;
@@ -225,6 +227,13 @@ vec3 waterNormal(vec2 p, float t) {
   }
   return normalize(vec3(-g.x, 1.0, -g.y));
 }
+vec2 flowGrad(vec2 p, float t) {
+  vec2 g = vec2(0.0);
+  g += vec2(cos(p.x * 3.1 + p.y * 0.7) * 0.04, cos((p.y - t * 2.2) * 2.6 + p.x * 0.9) * 0.08);
+  g += vec2(cos(p.x * 7.3 - p.y * 1.3 + t) * 0.03, cos((p.y - t * 2.9) * 6.1 + p.x * 1.7) * 0.05);
+  g += vec2(cos(p.x * 13.0 + p.y * 2.0) * 0.02, cos((p.y - t * 3.6) * 11.0 - p.x * 2.3) * 0.035);
+  return g;
+}
 #if REFLECT > 0
 vec4 ssr(vec3 wp, vec3 N) {
   vec3 vp = (viewMatrix * vec4(wp, 1.0)).xyz;
@@ -265,7 +274,7 @@ void main() {
   float flags = floor(vTint.a * 255.0 + 0.5);
   vec2 f = fract(vUV.xy);
   vec2 gx = dFdx(vUV.xy) * uLodScale / uAtlasGrid, gy = dFdy(vUV.xy) * uLodScale / uAtlasGrid;
-  if (vUV.w < -0.5) {
+  if (vUV.w < -0.5 && vUV.w > -99.5) {
     float m = floor(-vUV.w + 0.5);
     float lo = 1.5 / 16.0, hi = 14.5 / 16.0;
     if (mod(m, 2.0) > 0.5) f.x = max(f.x, lo);
@@ -290,10 +299,10 @@ void main() {
 #endif
 #ifdef CLOUD_SHADOWS
   if (uCloudShadow > 0.0 && uSunDir.y > 0.05) {
-    vec3 cp = vWorld + uSunDir * ((132.0 - vWorld.y) / max(uSunDir.y, 0.2));
-    vec2 cuv = vec2((cp.x + uCloudShift) / 256.0, -cp.z / 256.0);
-    float tx = 1.0 / 256.0, cl = 0.0;
-    for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) cl += texture2D(uCloudMap, cuv + vec2(float(i) - 1.0, float(j) - 1.0) * tx * 1.5).a;
+    vec3 cp = vWorld + uSunDir * ((178.0 - vWorld.y) / max(uSunDir.y, 0.2));
+    vec2 cuv = vec2((cp.x + uWorldOrigin.x + uCloudShift) / 1152.0, 1.0 - (cp.z + uWorldOrigin.y) / 1152.0);
+    float tx = 1.0 / 96.0, cl = 0.0;
+    for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) cl += texture2D(uCloudMap, cuv + vec2(float(i) - 1.0, float(j) - 1.0) * tx * 0.35).a;
     cl /= 9.0;
     float fade = 1.0 - smoothstep(80.0, 140.0, vFogDepth);
     sun *= 1.0 - smoothstep(0.25, 0.75, cl) * 0.28 * uCloudShadow * fade * smoothstep(0.05, 0.25, uSunDir.y);
@@ -324,7 +333,7 @@ void main() {
     col += albedo * uSkyColor * t * 0.7 * uDay * sun * open;
   }
 #endif
-  if (bitf(flags, 8.0) > 0.5) col = max(col, albedo) * uEmitBoost;
+  if (bitf(flags, 8.0) > 0.5) col = max(col, albedo) * mix(1.0, uEmitBoost, 0.35);
 #ifdef GLOW
   if (bitf(flags, 32.0) > 0.5) {
     float mx = max(albedo.r, max(albedo.g, albedo.b)), mn = min(albedo.r, min(albedo.g, albedo.b));
@@ -349,12 +358,33 @@ void main() {
   if (bitf(flags, 64.0) > 0.5) {
     vec3 V = normalize(cameraPosition - vWorld);
     bool top = n.y > 0.5;
+    bool still = bitf(flags, 2.0) > 0.5;
     vec3 N = top ? waterNormal(vWorld.xz, uTime) : n;
+    float streak = 0.0;
+    if (!still) {
+      vec2 dux = dFdx(vUV.xy), duy = dFdy(vUV.xy);
+      vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld);
+      float det = dux.x * duy.y - duy.x * dux.y;
+      vec3 dpdv = abs(det) > 1e-9 ? (dpy * dux.x - dpx * dux.y) / det : vec3(0.0, -1.0, 0.0);
+      vec3 fdir = normalize(dpdv + vec3(1e-5)) * (top ? -1.0 : 1.0);
+      if (!top) fdir = vec3(0.0, -1.0, 0.0);
+      vec3 sdir = normalize(cross(n, fdir) + vec3(1e-5));
+      float along = dot(vWorld, fdir), across = dot(vWorld, sdir);
+      float spd = top ? 1.0 : 2.6;
+      vec2 g = flowGrad(vec2(across, along) * vec2(1.0, top ? 1.0 : 0.6), uTime * spd);
+      N = normalize(n + sdir * g.x * (top ? 0.35 : 0.3) + fdir * g.y * (top ? 0.45 : 0.3));
+      if (!top) streak = smoothstep(0.6, 0.85, vnoise(vec2(across * 12.0, along * 0.7 - uTime * 4.5))) * 0.45;
+      else streak = smoothstep(0.72, 0.95, vnoise(vec2(across * 8.0, along * 1.2 - uTime * 2.4))) * 0.22;
+    }
     float fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
     vec3 R = reflect(-V, N);
     float skyVis = smoothstep(0.5, 1.0, skyL);
     vec3 skyRefl = mix(uFogColor, uSkyTop, smoothstep(-0.05, 0.6, R.y)) * mix(0.12, 1.0, skyVis);
     float spec = pow(max(dot(R, uSunDir), 0.0), 320.0) * 5.0 * uDay * (1.0 - uRain) * skyVis * sun;
+    float wdep = vUV.w < -99.5 ? -vUV.w - 100.0 + 0.9 : 3.0;
+    vec3 wtint = vTint.rgb;
+    vec3 shallowC = mix(vec3(0.32, 0.86, 0.82), wtint * 1.25, 0.35);
+    vec3 deepC = mix(vec3(0.03, 0.17, 0.34), wtint * 0.35, 0.3);
 #if WATER_Q > 0
     vec2 suv = gl_FragCoord.xy / uResolution;
     float wz = linZ(gl_FragCoord.z);
@@ -363,21 +393,26 @@ void main() {
     if (linZ(texture2D(uSceneDepth, ruv).r) < wz) ruv = suv;
     vec3 refr = texture2D(uSceneColor, ruv).rgb;
     float dz = max(linZ(texture2D(uSceneDepth, ruv).r) - wz, 0.0);
-    if (!top) dz = 0.6;
-    vec3 absorb = exp(-dz * vec3(0.34, 0.1, 0.07));
-    vec3 deep = vTint.rgb * 0.32 * light;
+    if (!top) dz = 2.2;
+    vec3 absorb = exp(-dz * vec3(0.3, 0.07, 0.055));
+    refr = mix(refr, refr * shallowC * 1.6 + shallowC * 0.08 * light, clamp(dz * 0.5, 0.0, 0.8));
+    vec3 deep = deepC * light;
     vec3 body = mix(deep, refr, absorb);
-    body = mix(body, col, 0.28);
+    body = mix(body, col, 0.18);
     vec3 refl = skyRefl;
 #if REFLECT > 0
     if (top) { vec4 ss = ssr(vWorld, N); refl = mix(refl, ss.rgb, ss.a); }
 #endif
     float foam = top ? (1.0 - smoothstep(0.0, 0.3, dz)) * smoothstep(0.35, 0.8, vnoise(vWorld.xz * 5.0 + uTime * 0.6)) : 0.0;
-    col = mix(body, refl, top ? fres : 0.0) + spec + foam * light * 0.6;
+    col = mix(body, refl, top ? fres : fres * 0.35) + spec + (foam + streak) * light * 0.6;
     alpha = 1.0;
 #else
-    col = mix(col, skyRefl, fres * 0.65) + spec;
-    alpha = clamp(alpha + fres * 0.25, 0.0, 1.0);
+    float shallow = exp(-wdep * 0.2);
+    vec3 body = mix(deepC, shallowC, top ? shallow : 0.45) * light;
+    body = mix(body, col, 0.35);
+    float glint = top ? smoothstep(0.62, 0.9, vnoise(vWorld.xz * 1.7 + vec2(uTime * 0.35, -uTime * 0.27))) * 0.12 * shallow * uDay * skyVis : 0.0;
+    col = mix(body, skyRefl, fres * 0.65) + spec + (streak * 0.6 + glint) * light;
+    alpha = clamp(mix(0.9, 0.42, top ? shallow : 0.3) + fres * 0.25, 0.0, 1.0);
 #endif
   }
 #endif

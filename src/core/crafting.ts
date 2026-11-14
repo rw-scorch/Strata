@@ -5,7 +5,7 @@ import type { ItemStack } from './inventory';
 export type Ingredient = number | string | number[];
 
 export const TAGS: Record<string, number[]> = {
-  planks: [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS],
+  planks: [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS, XB + XV.CRIMSON_PLANKS, XB + XV.WARPED_PLANKS],
   logs: [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG],
   coals: [I.COAL, I.CHARCOAL],
   stones: [B.COBBLESTONE, B.MOSSY_COBBLESTONE],
@@ -105,12 +105,18 @@ shaped('detector_rail', 'decor', B.DETECTOR_RAIL, 6, ['I I', 'IPI', 'IRI'], { I:
 shaped('activator_rail', 'decor', B.ACTIVATOR_RAIL, 6, ['ISI', 'ITI', 'ISI'], { I: I.IRON_INGOT, S: I.STICK, T: B.REDSTONE_TORCH });
 shaped('minecart', 'tools', I.MINECART, 1, ['I I', 'III'], { I: I.IRON_INGOT });
 shapeless('tnt_minecart', 'combat', I.TNT_MINECART, 1, [I.MINECART, B.TNT]);
-shaped('crossbow', 'combat', I.CROSSBOW, 1, ['SIS', 'TIT', ' S '], { S: I.STICK, I: I.IRON_INGOT, T: I.STRING });
+shaped('crossbow', 'combat', I.CROSSBOW, 1, ['SIS', 'THT', ' S '], { S: I.STICK, I: I.IRON_INGOT, T: I.STRING, H: I.TRIPWIRE_HOOK });
+shaped('tripwire_hook', 'tools', I.TRIPWIRE_HOOK, 2, ['I', 'S', 'P'], { I: I.IRON_INGOT, S: I.STICK, P: 'planks' });
 shaped('mace', 'combat', I.MACE, 1, ['B', 'S'], { B: B.IRON_BLOCK, S: I.STICK });
 shaped('enchanting_table', 'decor', B.ENCHANTING_TABLE, 1, [' B ', 'DOD', 'OOO'], { B: I.BOOK, D: I.AETHERITE, O: B.OBSIDIAN });
 shaped('anvil', 'decor', B.ANVIL, 1, ['BBB', ' I ', 'III'], { B: B.IRON_BLOCK, I: I.IRON_INGOT });
 shaped('lapis_block', 'decor', B.LAPIS_BLOCK, 1, ['LLL', 'LLL', 'LLL'], { L: I.LAPIS });
 shapeless('lapis_from_block', 'decor', I.LAPIS, 9, [B.LAPIS_BLOCK]);
+shapeless('crimson_planks', 'building', XB + XV.CRIMSON_PLANKS, 4, [XB + XV.CRIMSON_STEM]);
+shapeless('warped_planks', 'building', XB + XV.WARPED_PLANKS, 4, [XB + XV.WARPED_STEM]);
+shaped('bone_block', 'building', XB + XV.BONE_BLOCK, 1, ['BBB', 'BBB', 'BBB'], { B: I.BONE_MEAL });
+shapeless('bone_meal_from_block', 'basics', I.BONE_MEAL, 9, [XB + XV.BONE_BLOCK]);
+shaped('magma_from_cream', 'building', B.MAGMA_BLOCK, 1, ['MM', 'MM'], { M: I.MAGMA_CREAM });
 shaped('iron_from_nuggets', 'basics', I.IRON_INGOT, 1, ['NNN', 'NNN', 'NNN'], { N: I.IRON_NUGGET });
 shaped('gold_from_nuggets', 'basics', I.GOLD_INGOT, 1, ['NNN', 'NNN', 'NNN'], { N: I.GOLD_NUGGET });
 shapeless('iron_nuggets', 'basics', I.IRON_NUGGET, 9, [I.IRON_INGOT]);
@@ -278,6 +284,7 @@ export const SMELTING: SmeltRecipe[] = [
   { input: B.GOLD_ORE, result: I.GOLD_INGOT, xp: 1 },
   { input: B.LAPIS_ORE, result: I.LAPIS, xp: 0.2 },
   { input: XB + XV.NETHER_QUARTZ_ORE, result: I.QUARTZ, xp: 0.2 },
+  { input: XB + XV.BASALT, result: XB + XV.SMOOTH_BASALT, xp: 0.1 },
   { input: XB + XV.NETHER_GOLD_ORE, result: I.GOLD_INGOT, xp: 1 },
   { input: B.SAND, result: B.GLASS, xp: 0.1 },
   { input: B.COBBLESTONE, result: B.STONE, xp: 0.1 },

@@ -15,7 +15,7 @@ export class Weather {
   private snowPos = new Float32Array(FLAKES * 3);
   private drops: { x: number; y: number; z: number; v: number }[] = [];
   private flakes: { x: number; y: number; z: number; v: number; ph: number }[] = [];
-  private bolt: THREE.Line | null = null;
+  private bolt: THREE.Mesh | null = null;
   private boltT = 0;
   intensity = 0;
   splash: ((x: number, y: number, z: number) => void) | null = null;
@@ -36,23 +36,40 @@ export class Weather {
 
   lightning(x: number, y: number, z: number): void {
     if (this.bolt) { this.group.remove(this.bolt); this.bolt.geometry.dispose(); }
-    const pts: THREE.Vector3[] = [];
-    let cx = x, cz = z;
-    for (let h = 160; h >= y; h -= 6) {
-      pts.push(new THREE.Vector3(cx, h, cz));
-      cx += (Math.random() - 0.5) * 3; cz += (Math.random() - 0.5) * 3;
-    }
-    pts.push(new THREE.Vector3(x, y, z));
-    this.bolt = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xeef4ff }));
+    const pos: number[] = [], col: number[] = [];
+    const seg = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, w: number, a: number) => {
+      for (const [ox, oz] of [[w, 0], [0, w]]) {
+        pos.push(ax - ox, ay, az - oz, ax + ox, ay, az + oz, bx + ox, by, bz + oz, ax - ox, ay, az - oz, bx + ox, by, bz + oz, bx - ox, by, bz - oz);
+        for (let i = 0; i < 6; i++) col.push(0.75 * a, 0.8 * a, a);
+      }
+    };
+    const strand = (sx: number, sy: number, sz: number, ey: number, w: number, spread: number, depth: number) => {
+      let cx = sx, cy = sy, cz = sz;
+      while (cy > ey) {
+        const ny = Math.max(ey, cy - (5 + Math.random() * 6));
+        const k = ny <= ey && depth === 0 ? 0 : 1;
+        const nx = k ? cx + (Math.random() - 0.5) * spread : x, nz = k ? cz + (Math.random() - 0.5) * spread : z;
+        seg(cx, cy, cz, nx, ny, nz, w, 1);
+        seg(cx, cy, cz, nx, ny, nz, w * 3.2, 0.28);
+        if (depth < 2 && Math.random() < 0.3) strand(nx, ny, nz, ny - 14 - Math.random() * 22, w * 0.55, spread * 1.6, depth + 1);
+        cx = nx; cy = ny; cz = nz;
+      }
+    };
+    strand(x + (Math.random() - 0.5) * 14, Math.max(y + 60, 150), z + (Math.random() - 0.5) * 14, y, 0.22, 7, 0);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    this.bolt = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }));
     this.bolt.frustumCulled = false;
     this.group.add(this.bolt);
-    this.boltT = 0.35;
+    this.boltT = 0.55;
   }
 
   update(dt: number, cam: THREE.Vector3, top: ColumnTop, kind: PrecipKind, budget: number): void {
     if (this.bolt) {
       this.boltT -= dt;
-      this.bolt.visible = Math.sin(this.boltT * 60) > -0.2;
+      this.bolt.visible = this.boltT > 0.3 || Math.sin(this.boltT * 70) > -0.1;
+      (this.bolt.material as THREE.MeshBasicMaterial).opacity = Math.min(1, this.boltT / 0.25);
       if (this.boltT <= 0) { this.group.remove(this.bolt); this.bolt.geometry.dispose(); this.bolt = null; }
     }
     const active = this.intensity > 0.02;

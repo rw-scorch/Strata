@@ -516,6 +516,40 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       const above = wmap(y + 1 < H ? region[ridx(rx, y + 1, rz)] & 255 : 0);
       const ht = above === id ? 1 : fluidHeight(v);
       const neigh = (dx: number, dy: number, dz: number) => wmap((y + dy < 0 || y + dy >= H) ? (dy < 0 ? B.STONE : 0) : region[ridx(rx + dx, y + dy, rz + dz)] & 255);
+      const cellH = (dx: number, dz: number): number => {
+        const n = region[ridx(rx + dx, y, rz + dz)];
+        const nid = wmap(n & 255);
+        if (nid !== id) return OPAQUE[nid] ? -2 : -1;
+        if (y + 1 < H && wmap(region[ridx(rx + dx, y + 1, rz + dz)] & 255) === id) return 1;
+        return nid === (n & 255) ? fluidHeight(n) : 0.888;
+      };
+      const corner = (cx: number, cz: number): number => {
+        if (ht >= 1) return 1;
+        let sum = 0, cnt = 0;
+        for (let dz = cz - 1; dz <= cz; dz++) for (let dx = cx - 1; dx <= cx; dx++) {
+          const hh = dx === 0 && dz === 0 ? ht : cellH(dx, dz);
+          if (hh >= 1) return 1;
+          if (hh >= 0) { const w = hh >= 0.87 ? 10 : 1; sum += hh * w; cnt += w; }
+          else if (hh === -1) cnt += 1;
+        }
+        return cnt ? sum / cnt : ht;
+      };
+      const h00 = corner(0, 0), h10 = corner(1, 0), h01 = corner(0, 1), h11 = corner(1, 1);
+      let fx = 0, fz = 0;
+      {
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const hh = cellH(dx, dz);
+          if (hh >= 0) { const df = Math.min(ht, 0.89) - Math.min(hh, 0.89); fx += dx * df; fz += dz * df; }
+          else if (hh === -1 && neigh(dx, -1, dz) === id) { fx += dx * 0.6; fz += dz * 0.6; }
+        }
+      }
+      const fl = Math.hypot(fx, fz);
+      const flowing = fl > 0.02;
+      const flowTile = water ? sp.waterFlow ?? tile : sp.lavaFlow ?? tile;
+      let wdep = 0;
+      if (water) { for (let k = 1; k <= 12 && y - k >= 0; k++) { if (wmap(region[ridx(rx, y - k, rz)] & 255) !== id) break; wdep = k; } }
+      const ovw = water ? -(100 + Math.min(15, wdep)) : 0;
+      const hOf = (px: number, pz: number) => (px > x ? (pz > z ? h11 : h10) : (pz > z ? h01 : h00));
       for (let d = 0; d < 6; d++) {
         const nn = NORMALS[d];
         const nid = neigh(nn[0], nn[1], nn[2]);
@@ -524,7 +558,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         if (d === 2 && OPAQUE[nid] && ht >= 1) continue;
         if (water && nid === B.ICE) continue;
         const nsk = cellSky(rx + nn[0], y + nn[1], rz + nn[2]) * 17, nbl = Math.max(cellBlk(rx + nn[0], y + nn[1], rz + nn[2]), water ? 0 : 15) * 17;
-        const y1 = y + ht;
+        const y1 = -1;
         const P: number[][][] = [
           [[x + 1, y, z + 1], [x + 1, y, z], [x + 1, y1, z], [x + 1, y1, z + 1]],
           [[x, y, z], [x, y, z + 1], [x, y1, z + 1], [x, y1, z]],
@@ -534,13 +568,23 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
           [[x + 1, y, z], [x, y, z], [x, y1, z], [x + 1, y1, z]],
         ];
         const [uAx, uS, vAx, vS] = UVMAP[d];
-        const pts = P[d];
-        const uvs = pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
-        const flags = (water && d === 2 && ht < 1 ? F_WAVE : 0) | (water ? F_TINT | F_WATER : F_EMIT);
-        for (let k = 0; k < 4; k++) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, nsk, nbl, 255, SHADE[d], r, g, b, flags);
+        const pts = P[d].map((p) => (p[1] === -1 ? [p[0], y + hOf(p[0], p[2]), p[2]] : p));
+        let uvs = pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
+        let ft = tile;
+        if (d === 2 && flowing) {
+          ft = flowTile;
+          const ux = fx / fl, uz = fz / fl;
+          uvs = pts.map((p) => { const ax = p[0] - x - 0.5, az = p[2] - z - 0.5; return [0.5 + (ax * uz - az * ux), 0.5 - (ax * ux + az * uz)]; });
+        } else if (d !== 2 && d !== 3) {
+          ft = flowTile;
+          uvs = pts.map((p) => [d < 2 ? p[2] - z : p[0] - x, y + 1 - p[1]]);
+        }
+        const wave = water && ht < 1 && !flowing ? F_WAVE : 0;
+        const flags = (d === 2 ? wave : 0) | (water ? F_TINT | F_WATER : F_EMIT);
+        for (let k = 0; k < 4; k++) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], ft, ovw, nsk, nbl, 255, SHADE[d], r, g, b, flags);
         bd.quad(false);
         if (water && d === 2) {
-          for (let k = 3; k >= 0; k--) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], tile, 0, nsk, nbl, 255, 128, r, g, b, F_TINT | F_WATER | (ht < 1 ? F_WAVE : 0));
+          for (let k = 3; k >= 0; k--) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], ft, ovw, nsk, nbl, 255, 128, r, g, b, F_TINT | F_WATER | wave);
           bd.quad(false);
         }
       }
@@ -579,9 +623,16 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
     case 18: {
       const tile = tiles[id * FS + 4];
       const uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
-      const a = 0.05, c = 0.95;
-      quadRaw(cut, [[x + a, y, z + a], [x + c, y, z + c], [x + c, y + 1, z + c], [x + a, y + 1, z + a]], uvq, tile, sk, 255, 255, 255, 255, 255, F_EMIT, true);
-      quadRaw(cut, [[x + a, y, z + c], [x + c, y, z + a], [x + c, y + 1, z + a], [x + a, y + 1, z + c]], uvq, tile, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+      const e = 0.02, H = 1.35, t = 0.28;
+      const q = (p: number[][]) => quadRaw(cut, p, uvq, tile, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+      q([[x, y, z + e], [x + 1, y, z + e], [x + 1, y + H, z + e], [x, y + H, z + e]]);
+      q([[x, y, z + 1 - e], [x + 1, y, z + 1 - e], [x + 1, y + H, z + 1 - e], [x, y + H, z + 1 - e]]);
+      q([[x + e, y, z], [x + e, y, z + 1], [x + e, y + H, z + 1], [x + e, y + H, z]]);
+      q([[x + 1 - e, y, z], [x + 1 - e, y, z + 1], [x + 1 - e, y + H, z + 1], [x + 1 - e, y + H, z]]);
+      q([[x, y, z + t], [x + 1, y, z + t], [x + 1, y + H, z + 1 - t], [x, y + H, z + 1 - t]]);
+      q([[x, y, z + 1 - t], [x + 1, y, z + 1 - t], [x + 1, y + H, z + t], [x, y + H, z + t]]);
+      q([[x + t, y, z], [x + t, y, z + 1], [x + 1 - t, y + H, z + 1], [x + 1 - t, y + H, z]]);
+      q([[x + 1 - t, y, z], [x + 1 - t, y, z + 1], [x + t, y + H, z + 1], [x + t, y + H, z]]);
       return;
     }
     case 19: {

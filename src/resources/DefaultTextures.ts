@@ -314,6 +314,8 @@ const TEX: Record<string, () => Px> = {
   },
   water_still: () => waterFrames(32, 200, 30, 'water', 255),
   lava_still: () => waterFrames(20, 170, 70, 'lava', 255),
+  water_flow: () => waterFrames(32, 200, 30, 'water', 255),
+  lava_flow: () => waterFrames(20, 170, 70, 'lava', 255),
   oak_log: () => logSide('oak_log', hex(0x6b5233), hex(0x4f3b22)),
   oak_log_top: () => logTop('oak_top', hex(0x6b5233), hex(0xb08d57)),
   birch_log: () => logSide('birch_log', hex(0xd9d6cc), hex(0xbcb8ab), true),
@@ -536,6 +538,37 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   TEX.magma = () => { const p = noise('mgm', hex(0x8a2a0c), 0.2); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (((x * 7 + y * 3) % 11) < 3) p.set(x, y, hex((x + y) % 2 ? 0xf0a020 : 0xe06010)); return p; };
   TEX.nether_portal = () => { const p = new Px(); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const w = Math.sin(x * 0.9 + y * 0.5) + Math.cos(y * 1.1 - x * 0.3); const c = hex(w > 0.6 ? 0xb060ff : w > -0.4 ? 0x7a2ae0 : 0x4a10a0); c[3] = 200; p.set(x, y, c); } return p; };
   TEX.fire_0 = () => { const p = new Px(); for (let x = 0; x < 16; x++) { const h = 6 + ((x * 37 + 11) % 9); for (let y = 15; y > 15 - h; y--) p.set(x, y, hex(15 - y < 3 ? 0xfff0a0 : 15 - y < 7 ? 0xf8a020 : 0xe04a10)); } return p; };
+  const stalk = (key: string, stem: RGBA, tip: RGBA, n: number, maxH: number): Px => { const p = new Px(); const r = rngFor(key); for (let i = 0; i < n; i++) { const x = 1 + r.int(14); const hgt = 4 + r.int(maxH); let cx = x; for (let k = 0; k < hgt; k++) { const y = 15 - k; if (r.next() < 0.25) cx = Math.max(0, Math.min(15, cx + (r.next() < 0.5 ? -1 : 1))); p.set(cx, y, k >= hgt - 2 ? tip : stem); } } return p; };
+  const fungus = (key: string, cap: RGBA, spot: RGBA, stemC: RGBA): Px => { const p = new Px(); for (let y = 8; y < 16; y++) { p.set(7, y, stemC); p.set(8, y, shade(stemC, 0.85)); } for (let y = 3; y < 8; y++) for (let x = 3; x < 13; x++) { const dx = x - 7.5, dy = (y - 6) * 1.6; if (dx * dx + dy * dy < 26) p.set(x, y, ((x * 5 + y * 3) % 7 === 0) ? spot : shade(cap, 1 - (7 - y) * 0.04)); } return p; };
+  const wart = (key: string, base: number, hi: number, lo: number): Px => speckle(speckle(noise(key, hex(base), 0.12), key, [hex(hi)], 22, 2), key + 'l', [hex(lo)], 18, 2);
+  const nyliumTop = (key: string, base: number, hi: number, lo: number): Px => speckle(noise(key, hex(base), 0.14), key, [hex(hi), hex(lo)], 40, 2);
+  const nyliumSide = (key: string, top: Px): Px => { const p = TEX.netherrack(); const r = rngFor(key); for (let x = 0; x < 16; x++) { const d = 3 + r.int(3); for (let y = 0; y < d; y++) p.set(x, y, top.get(x, y)); } return p; };
+  const stemSide = (key: string, base: number, dark: number, glow: number): Px => { const p = noise(key, hex(base), 0.12); const r = rngFor(key); for (let x = 0; x < 16; x++) if (x % 4 === 1) for (let y = 0; y < 16; y++) p.set(x, y, hex(dark)); for (let i = 0; i < 10; i++) p.set(r.int(16), r.int(16), hex(glow)); return p; };
+  const stemTop = (key: string, base: number, ring: number, core: number): Px => { const p = noise(key, hex(core), 0.1); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const d = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5)); if (d > 6.5) p.set(x, y, hex(base)); else if (Math.round(d) % 3 === 0) p.set(x, y, hex(ring)); } return p; };
+  TEX.shroomlight = () => { const p = noise('shl', hex(0xf0a03a), 0.1); speckle(p, 'shl', [hex(0xffd27a), hex(0xfff0b0)], 26, 2); speckle(p, 'shl2', [hex(0xc06a20)], 16, 1); return p; };
+  TEX.crimson_roots = () => stalk('crr', hex(0x8e1e1e), hex(0xd8443a), 7, 6);
+  TEX.warped_roots = () => stalk('wrr', hex(0x147a72), hex(0x2ec4b0), 7, 6);
+  TEX.nether_sprouts = () => stalk('nsp', hex(0x167a6a), hex(0x3ad4be), 9, 3);
+  TEX.crimson_fungus = () => fungus('crf', hex(0xb81e1e), hex(0xf08a4a), hex(0xd8c8a0));
+  TEX.warped_fungus = () => fungus('wrf', hex(0x16907e), hex(0xf08a2a), hex(0xd8c8a0));
+  TEX.weeping_vines = () => { const p = new Px(); const r = rngFor('wpv'); for (let i = 0; i < 4; i++) { let x = 3 + i * 3 + r.int(2); for (let y = 0; y < 16; y++) { if (r.next() < 0.2) x = Math.max(1, Math.min(14, x + (r.next() < 0.5 ? -1 : 1))); p.set(x, y, hex(y % 5 === 4 ? 0xe0503a : 0x9a1e1e)); if (y % 4 === 2) p.set(x + 1, y, hex(0xc02a24)); } } return p; };
+  TEX.twisting_vines = () => { const p = new Px(); const r = rngFor('twv'); for (let i = 0; i < 4; i++) { let x = 3 + i * 3 + r.int(2); for (let y = 0; y < 16; y++) { if (r.next() < 0.3) x = Math.max(1, Math.min(14, x + (r.next() < 0.5 ? -1 : 1))); p.set(x, y, hex(y % 5 === 0 ? 0x5ae8d0 : 0x148a7a)); if (y % 4 === 1) p.set(x - 1, y, hex(0x20a892)); } } return p; };
+  TEX.soul_fire_0 = () => { const p = new Px(); for (let x = 0; x < 16; x++) { const h = 6 + ((x * 37 + 11) % 9); for (let y = 15; y > 15 - h; y--) p.set(x, y, hex(15 - y < 3 ? 0xd0ffff : 15 - y < 7 ? 0x40e0f0 : 0x1890b0)); } return p; };
+  TEX.crimson_nylium = () => nyliumTop('crn', 0x8a1616, 0xb8302a, 0x5a0c10);
+  TEX.warped_nylium = () => nyliumTop('wrn', 0x167060, 0x2aa08a, 0x0c4a40);
+  TEX.crimson_nylium_side = () => nyliumSide('crns', TEX.crimson_nylium());
+  TEX.warped_nylium_side = () => nyliumSide('wrns', TEX.warped_nylium());
+  TEX.crimson_stem = () => stemSide('crs', 0x5c1c2c, 0x401220, 0xe0503a);
+  TEX.warped_stem = () => stemSide('wrs', 0x2a3e48, 0x1c2a32, 0x30e0c0);
+  TEX.crimson_stem_top = () => stemTop('crst', 0x5c1c2c, 0x6a2a3a, 0x8a3a48);
+  TEX.warped_stem_top = () => stemTop('wrst', 0x2a3e48, 0x2e6a6a, 0x3a8a84);
+  TEX.nether_wart_block = () => wart('nwb', 0x7a0a0a, 0xa8201a, 0x520606);
+  TEX.warped_wart_block = () => wart('wwb', 0x167c74, 0x2aa898, 0x0c5450);
+  TEX.bone_block_side = () => { const p = noise('bbs', hex(0xe6e0c8), 0.05); for (let y = 0; y < 16; y++) { p.set(0, y, hex(0xc8c0a4)); p.set(15, y, hex(0xc8c0a4)); if (y % 5 === 2) for (let x = 1; x < 15; x++) p.set(x, y, hex(0xd2caae)); } return p; };
+  TEX.bone_block_top = () => { const p = noise('bbt', hex(0xd8d0b4), 0.05); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const d = Math.max(Math.abs(x - 7.5), Math.abs(y - 7.5)); if (d > 6.5) p.set(x, y, hex(0xe6e0c8)); else if (d < 2.5) p.set(x, y, hex(0xb8ae90)); } return p; };
+  TEX.crimson_planks = () => planks('crp', hex(0x6a3448));
+  TEX.warped_planks = () => planks('wrp', hex(0x2c7a74));
+  TEX.smooth_basalt = () => noise('sbs', hex(0x48484e), 0.08);
   TEX.iron_bars = () => { const p = new Px(); for (let x = 1; x < 16; x += 4) for (let y = 0; y < 16; y++) { p.set(x, y, hex(0x8a8f96)); p.set(x + 1, y, hex(0x5c6066)); } for (let x = 0; x < 16; x++) { p.set(x, 0, hex(0x6c7076)); p.set(x, 15, hex(0x6c7076)); } return p; };
   TEX.tnt_side = () => { const p = noise('tnts', hex(0xc8301e), 0.06); for (let y = 6; y < 10; y++) for (let x = 0; x < 16; x++) p.set(x, y, hex(0xe8e0d0)); for (const [x, ch] of [[3, 1], [7, 1], [11, 1]]) for (let y = 7; y < 9; y++) p.set(x, y, hex(0x1a1a1a)), p.set(x + ch, y, hex(0x1a1a1a)); for (let x = 0; x < 16; x += 4) for (let y = 0; y < 16; y++) if (y < 6 || y > 9) p.set(x, y, hex(0x8a1a10)); return p; };
   TEX.tnt_top = () => { const p = noise('tntt', hex(0xb02a1a), 0.06); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (x % 5 === 0 || y % 5 === 0) p.set(x, y, hex(0x6a1a10)); p.set(7, 7, hex(0x3a3a3a)); p.set(8, 7, hex(0x3a3a3a)); p.set(7, 8, hex(0x3a3a3a)); p.set(8, 8, hex(0x3a3a3a)); return p; };
@@ -746,6 +779,9 @@ const ITEM_MAP: Record<string, () => Px> = {
   const nug = (a: number, b: number, c: number) => () => drawSprite(['................', '................', '................', '................', '................', '......aaa.......', '.....abbca......', '....abbbcca.....', '....abbbbba.....', '.....abbba......', '......aaa.......', '................', '................', '................', '................', '................'], { a, b, c });
   ITEM_MAP.gold_nugget = nug(0x8a6a10, 0xf0cc2a, 0xfff2a0);
   ITEM_MAP.iron_nugget = nug(0x55585e, 0xc6c6c6, 0xf2f2f2);
+  ITEM_MAP.ghast_tear = () => drawSprite(['................', '................', '.......a........', '......aba.......', '......aba.......', '.....abbba......', '.....abcba......', '....abbcbba.....', '....abbbbba.....', '....abbbbba.....', '.....abbba......', '......aaa.......', '................', '................', '................', '................'], { a: 0x6aa0b0, b: 0xc8eef4, c: 0xffffff });
+  ITEM_MAP.magma_cream = () => drawSprite(['................', '................', '................', '.....aaaaa......', '....abbbbba.....', '...abccbbcba....', '...abcdbbdcba...', '...abbbbbbbba...', '...abdcbbcdba...', '....abccccba....', '.....aaaaaa.....', '................', '................', '................', '................', '................'], { a: 0x5a2a08, b: 0xd86a10, c: 0xf8b030, d: 0xfff070 });
+  ITEM_MAP.tripwire_hook = () => drawSprite(['................', '......aaaa......', '.....abbbba.....', '.....ab..ba.....', '.....abbbba.....', '......aaaa......', '.......cc.......', '.......cc.......', '.......cc.......', '.......cc.......', '.....dddddd.....', '.....deeeed.....', '.....deeeed.....', '.....dddddd.....', '................', '................'], { a: 0x4a4a4a, b: 0xcfcfcf, c: 0x6b4a2a, d: 0x5a4020, e: 0xa8834e });
   ITEM_MAP.quartz = () => drawSprite(['................', '................', '.........aa.....', '........abca....', '.......abbca....', '......abbba.....', '.....abbcba.....', '....abbbba......', '....abcba.......', '...abbba........', '...abba.........', '....aa..........', '................', '................', '................', '................'], { a: 0xa89a90, b: 0xece6df, c: 0xffffff });
   ITEM_MAP.enchanted_book = () => drawSprite(['................', '................', '..aaaaaaaaaa....', '..abbbbbbbbca...', '..abddbbbbbca...', '..abbbbddbbca...', '..abbbbbbbbca...', '..abbddbbbbca...', '..abbbbbbddca...', '..abbbbbbbbca...', '..abddbbbbbca...', '..abbbbbbbbca...', '..aaaaaaaaaaa...', '...ccccccccca...', '................', '................'], { a: 0x3a1a4a, b: 0x8a3ab8, c: 0xe8dcc0, d: 0xd8a8ff });
   ITEM_MAP.lapis_lazuli = () => drawSprite(['................', '................', '.......aa.......', '......abba......', '.....abbcba.....', '....abbbbbba....', '...abbcbbbbba...', '...abbbbbcbba...', '....abbbbbba....', '.....abbbba.....', '......abba......', '.......aa.......', '................', '................', '................', '................'], { a: 0x10286a, b: 0x2c5ad0, c: 0x9ab8ff });
@@ -781,7 +817,7 @@ export function defaultItemTexture(key: string): Px | null {
 export function cloudTexture(size = 256): Px {
   const p = new Px(size, size);
   const r = new Rng(4242);
-  const cell = 8;
+  const cell = size >= 256 ? 8 : 2;
   const n = size / cell;
   const grid: number[] = [];
   for (let i = 0; i < n * n; i++) grid.push(r.next());

@@ -324,6 +324,42 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - Crawling: you now go prone in gaps under 1.5 blocks, move at sneak speed, and other players see a crawl animation. Swimming uses a dedicated flag so it shows reliably.
   - Plain names: Diamond, TNT, Flint and Steel, Gunpowder, Slime Block, Observer, Zombie, Skeleton and friends use ordinary English names. Old `/give` keys still work.
   - Piston Head and other technical blocks no longer appear in the creative inventory.
+- **v24.1 fixes:**
+  - Ghast now uses your pack's texture (it is 128 by 64, which the importer used to reject).
+  - Magma Cube uses the new 64 by 64 texture layout from recent packs, with eyes and glowing core, and still works with older 64 by 32 packs.
+  - Water without shaders now looks closer to shader water: turquoise in shallows, deeper blue further out, soft light glints, and moving streaks on flowing water and waterfalls.
+- **v24 Nether biomes and mobs:**
+  - Five Nether biomes, picked the way Java does it (two noise maps and five target points): Nether Wastes, Crimson Forest, Warped Forest, Soul Sand Valley and Basalt Deltas. Each has its own fog colour, which fades in as you cross over.
+  - Crimson and Warped Forests: nylium floors, huge fungi with stems, wart-block caps and Shroomlights, roots, fungi, Nether Sprouts, Weeping Vines hanging from ceilings and Twisting Vines growing up.
+  - Soul Sand Valley: soul sand and soul soil, Soul Fire, basalt pillars and Nether fossils made of Bone Blocks.
+  - Basalt Deltas: basalt and blackstone, small lava pools ringed with magma, and basalt columns.
+  - Ruined portals in the Nether, sitting on the lava sea with a netherrack base and blackstone instead of stone bricks.
+  - New mobs, with vanilla models when your resource pack is on and simple built-in shapes otherwise:
+    - Zombified Hogman: neutral. Hit one and every one nearby comes for you.
+    - Ghast: floats around, wails and shoots fireballs that explode and start fires. Hit a fireball to send it back; a returned fireball kills the Ghast.
+    - Magma Cube: hops at you and splits into smaller cubes (big, medium, small).
+    - Strider: walks on lava, turns purple and shivers on land. Riding is not in yet.
+    - Skeletons also spawn in Soul Sand Valleys.
+  - Nether mobs spawn by biome using Java's weights and ignore light level. New drops: Ghast Tear, Magma Cream, gold nuggets.
+  - New blocks: Crimson and Warped Nylium, Stems, Planks and Wart Blocks, Shroomlight, Bone Block, Smooth Basalt, all the Nether plants and Soul Fire. Recipes for planks, Bone Block, Magma Block from cream, and smelting basalt into Smooth Basalt.
+  - Anti-xray now hides Nether Quartz and Nether Gold ore as netherrack until they are exposed.
+  - `/summon` accepts plain names such as `ghast`, `magma_cube`, `strider` and `zombified_piglin`.
+  - Nether chunks you already explored in v23 keep their old look; new chunks get biomes.
+- **v23.3 visual pass:**
+  - Realistic volumetric clouds when shaders are on (any post effect), lit by the sun with soft edges, thicker in rain, warm at sunset. New "Cloud Style" setting picks Realistic or Blocky.
+  - Without shaders, clouds are now 3D blocks with shaded sides, like vanilla fancy clouds, and cloud shadows line up with them.
+  - Flowing water and lava have sloped surfaces and use the flow texture pointing downstream. With shaders, flowing water gets ripples and white streaks that run with the current, and waterfalls look like falling water instead of glass. Lava keeps its texture under bloom.
+  - New loading screen in the Minecraft style with a chunk progress grid. You enter the world once the 3x3 chunks around you are ready, and the rest keeps loading.
+  - Minimap restyled with a square pixel frame and the game font.
+  - Crossbow uses the Java recipe with a Tripwire Hook (iron ingot, stick, planks makes 2).
+- **v23.2 fixes:**
+  - Rendering is now measured from a point near the camera, so far-away places such as the Nether no longer shake, show gaps between blocks or smear with motion blur.
+  - Nether minimap shows the level you are standing on, with ores drawn as plain netherrack. The Nether is also brighter.
+  - Lightning is a thick branching bolt instead of a one-pixel line. Explosions use large pixel-cloud puffs, with a cap on puffs and sounds so chains of TNT stay smooth.
+  - Fire is a full block of flame, the Anvil has its real shape in the inventory and in hand, and Minecarts use the pack's minecart texture.
+  - Flint and Steel also lights through tall grass and on the side of blocks.
+  - On browsers without mouse lock (iPad), moving the mouse looks around and pushing it against a screen edge keeps turning.
+  - Chunks that fail to arrive after a teleport are asked for again, which could leave you frozen before.
 - **Saving:** IndexedDB worlds with autosave every 45 s and when the app is backgrounded, manual save, create/rename/duplicate/delete, export/import backups, and versioned save migration.
 - **Audio:** synthesised block, step, creature, UI, water, rain and thunder sounds, cave ambience, and generative music. Master, music, effects and ambience volumes plus mute. Muffled underwater.
 - **Mobile and PWA:** safe areas, no zoom or pull-to-refresh, fullscreen where supported, adaptive resolution, Low/Medium/High/Custom presets, installable PWA with offline single-player and an update prompt.
@@ -372,7 +408,7 @@ What has been run:
 - `scripts/v20-smoke.mjs <server>`: checks a same-tick swap from mace to sword hits for 6 with the sword taking the wear, and a normal swap gives a weak hit.
 - `scripts/v19-smoke.mjs <server>`: places rails and checks they join and curve, places a minecart, rides it and gets off.
 - `scripts/v17-smoke.mjs <server>`: places a piston facing the way the player looks, powers it and checks the push, then checks a Watcher pulse lights a lamp.
-- `npm test`: 170 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning, crop growth, and data pack conversion (shaped, shapeless, smelting, tags, filters, unknown items, sanitising), anti-xray consistency between client and server terrain, an inventory fuzz test, economy pricing, and structure placement, determinism, secrecy, Trial Cage waves and vault keys, cobblestone generation, lava contact, kelp, absorption hearts, 2x2 trees, `/give`, generation versions, and redstone circuits (dust decay and climbing, torch inversion and burnout, repeater delay and locking, comparator containers and subtraction, a clock, plates, buttons, doors, and repeatable traces), pistons (push, pull, 12-block limit, obsidian, quasi-connectivity), watchers, a sugar cane farm, hoppers (chest to chest, locking, collecting items), dispensers (water, bone meal) and droppers), blast resistance, keg merging and chain-reaction speed, rail shapes and power, minecarts on straights and curves, riding, Sensor and Trigger Rails, Keg Cart fall blasts, crossbow loading, mace damage and spear reach, Java weapon tables, mace smash order and knockback, attribute swapping, spear jab range and charge damage, arrow damage, pack item names, Java's random generator, enchanting table costs and selection, anvil maths, and enchantment effects). The vanilla pack import test runs when the pack zip is present locally.
+- `npm test`: 177 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning, crop growth, and data pack conversion (shaped, shapeless, smelting, tags, filters, unknown items, sanitising), anti-xray consistency between client and server terrain, an inventory fuzz test, economy pricing, and structure placement, determinism, secrecy, Trial Cage waves and vault keys, cobblestone generation, lava contact, kelp, absorption hearts, 2x2 trees, `/give`, generation versions, and redstone circuits (dust decay and climbing, torch inversion and burnout, repeater delay and locking, comparator containers and subtraction, a clock, plates, buttons, doors, and repeatable traces), pistons (push, pull, 12-block limit, obsidian, quasi-connectivity), watchers, a sugar cane farm, hoppers (chest to chest, locking, collecting items), dispensers (water, bone meal) and droppers), blast resistance, keg merging and chain-reaction speed, rail shapes and power, minecarts on straights and curves, riding, Sensor and Trigger Rails, Keg Cart fall blasts, crossbow loading, mace damage and spear reach, Java weapon tables, mace smash order and knockback, attribute swapping, spear jab range and charge damage, arrow damage, pack item names, Java's random generator, enchanting table costs and selection, anvil maths, and enchantment effects). The vanilla pack import test runs when the pack zip is present locally.
 - `scripts/mp-smoke.mjs` against `wrangler dev`: two WebSocket clients exercise room creation, owner vs guest, block break and place sync, server-validated inventory, chat, chunk persistence, impersonation rejection, kick and ban, commands, and rejoin with saved inventory.
 - Headless Chrome (SwiftShader software WebGL) against `wrangler dev`: title, world creation, single-player loading and rendering, iPad-emulated touch controls (look, break, place, joystick walking, inventory, recipe book), importing the Java 26.3 vanilla pack (60/62 blocks, 73/74 items, animated water/lava, all six creature skins, player skins and HUD sprites confirmed in screenshots), and **two independent browser sessions** in one multiplayer room (UI create, code join with preview, both players visible to each other, chat both ways).
 - `wrangler deploy --dry-run`: bundle and bindings validated.

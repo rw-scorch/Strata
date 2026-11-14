@@ -17,6 +17,7 @@ export interface PostConfig {
   saturation: number;
   contrast: number;
   sceneTextures: boolean;
+  volClouds: boolean;
 }
 
 export interface PostFrame {
@@ -34,6 +35,9 @@ export interface PostFrame {
   dt: number;
   cave: number;
   lensRain: number;
+  skyTop: THREE.Color;
+  origin: THREE.Vector3;
+  nether: boolean;
 }
 
 const VERT = 'varying vec2 vUv; void main(){ vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }';
@@ -42,6 +46,59 @@ const LIN = /* glsl */ `
 uniform float uNear; uniform float uFar;
 float linZ(float d) { float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
 `;
+
+export function cloudNoise(): THREE.Data3DTexture {
+  const N = 64, d = new Uint8Array(N * N * N), raw = new Float32Array(N * N * N);
+  let seed = 1337;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const oct = (cells: number) => {
+    const g = new Float32Array(cells * cells * cells);
+    for (let i = 0; i < g.length; i++) g[i] = rnd();
+    const pts: number[][] = [];
+    for (let i = 0; i < cells * cells * cells; i++) pts.push([rnd(), rnd(), rnd()]);
+    return { cells, g, pts };
+  };
+  const value = (o: ReturnType<typeof oct>, x: number, y: number, z: number) => {
+    const c = o.cells, fx = x * c, fy = y * c, fz = z * c;
+    const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
+    const tx = fx - ix, ty = fy - iy, tz = fz - iz;
+    const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty), sz = tz * tz * (3 - 2 * tz);
+    const at = (a: number, b: number, e: number) => o.g[((a % c) + c) % c + (((b % c) + c) % c) * c + (((e % c) + c) % c) * c * c];
+    const l = (a: number, b: number, t: number) => a + (b - a) * t;
+    return l(l(l(at(ix, iy, iz), at(ix + 1, iy, iz), sx), l(at(ix, iy + 1, iz), at(ix + 1, iy + 1, iz), sx), sy),
+      l(l(at(ix, iy, iz + 1), at(ix + 1, iy, iz + 1), sx), l(at(ix, iy + 1, iz + 1), at(ix + 1, iy + 1, iz + 1), sx), sy), sz);
+  };
+  const worley = (o: ReturnType<typeof oct>, x: number, y: number, z: number) => {
+    const c = o.cells, fx = x * c, fy = y * c, fz = z * c;
+    const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
+    let best = 9;
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let e = -1; e <= 1; e++) {
+      const cx = ix + a, cy = iy + b, cz = iz + e;
+      const p = o.pts[((cx % c) + c) % c + (((cy % c) + c) % c) * c + (((cz % c) + c) % c) * c * c];
+      const dx = cx + p[0] - fx, dy = cy + p[1] - fy, dz = cz + p[2] - fz;
+      best = Math.min(best, dx * dx + dy * dy + dz * dz);
+    }
+    return 1 - Math.min(1, Math.sqrt(best));
+  };
+  const v4 = oct(4), v8 = oct(8), v16 = oct(16), w4 = oct(4), w8 = oct(8), w16 = oct(16);
+  for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const u = x / N, v = y / N, w = z / N;
+    const perlin = value(v4, u, v, w) * 0.55 + value(v8, u, v, w) * 0.3 + value(v16, u, v, w) * 0.15;
+    const wor = worley(w4, u, v, w) * 0.625 + worley(w8, u, v, w) * 0.25 + worley(w16, u, v, w) * 0.125;
+    const pw = Math.min(1, Math.max(0, (perlin - (1 - wor) * 0.6) / (1 - (1 - wor) * 0.6 + 1e-3)));
+    raw[x + y * N + z * N * N] = pw * 0.7 + wor * 0.3;
+  }
+  let lo = 1, hi = 0;
+  for (const v of raw) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  for (let i = 0; i < raw.length; i++) d[i] = Math.round(((raw[i] - lo) / Math.max(1e-3, hi - lo)) * 255);
+  const t = new THREE.Data3DTexture(d, N, N, N);
+  t.format = THREE.RedFormat; t.type = THREE.UnsignedByteType;
+  t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+  t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
+  t.unpackAlignment = 1;
+  t.needsUpdate = true;
+  return t;
+}
 
 function pass(frag: string, uniforms: Record<string, THREE.IUniform>, defines: Record<string, string | number> = {}): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: frag, uniforms, defines, depthTest: false, depthWrite: false });
@@ -56,6 +113,9 @@ export class PostFX {
   private up: THREE.WebGLRenderTarget[] = [];
   private raysRT: THREE.WebGLRenderTarget;
   private aoRT: THREE.WebGLRenderTarget;
+  private cloudRT: THREE.WebGLRenderTarget;
+  private mCloud: THREE.ShaderMaterial;
+  private noise3: THREE.Data3DTexture | null = null;
   private expRT: THREE.WebGLRenderTarget[];
   ldrRT: THREE.WebGLRenderTarget;
   private quadScene = new THREE.Scene();
@@ -90,6 +150,7 @@ export class PostFX {
     for (let i = 0; i < 5; i++) { this.down.push(rt(1, 1)); this.up.push(rt(1, 1)); }
     this.raysRT = rt(1, 1);
     this.aoRT = rt(1, 1, { type: THREE.UnsignedByteType });
+    this.cloudRT = rt(1, 1, { type: THREE.HalfFloatType });
     this.expRT = [rt(1, 1, { type: THREE.HalfFloatType }), rt(1, 1, { type: THREE.HalfFloatType })];
     if (!this.hdr) this.expRT = [rt(1, 1, { type: THREE.UnsignedByteType }), rt(1, 1, { type: THREE.UnsignedByteType })];
     this.ldrRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.UnsignedByteType, depthBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
@@ -134,8 +195,76 @@ export class PostFX {
         float avg = exp(l / 16.0); float target = clamp(0.36 / avg, 0.85, 1.7);
         float prev = texture2D(uPrev, vec2(0.5)).r * 2.0; if (prev <= 0.01) prev = 1.0;
         gl_FragColor = vec4(vec3(mix(prev, target, uRate) / 2.0), 1.0); }`, { uSrc: { value: null }, uPrev: { value: null }, uRate: { value: 0.05 } });
+    this.mCloud = pass(`precision highp sampler3D; ${LIN}
+      uniform sampler3D uNoise; uniform sampler2D uDepth; uniform mat4 uInvVP; uniform vec3 uCam; uniform vec2 uOrigin;
+      uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uSky; uniform vec3 uFogColor; uniform float uTime; uniform float uRain; uniform float uDay; uniform float uFrame;
+      varying vec2 vUv;
+      const float CB = 200.0, CT = 330.0;
+      float ign(vec2 p){ return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+      vec3 worldAt(vec2 uv, float d){ vec4 p = uInvVP * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); return p.xyz / p.w; }
+      float cover(vec2 q){ return texture(uNoise, vec3(q * 0.00021, 0.31)).r; }
+      float dens(vec3 p, bool detail){
+        float h = (p.y - CB) / (CT - CB);
+        if (h < 0.0 || h > 1.0) return 0.0;
+        vec3 q = vec3(p.x + uOrigin.x + uTime * 5.0, p.y, p.z + uOrigin.y + uTime * 1.5);
+        float cov = mix(0.6, 0.86, uRain) + (cover(q.xz) - 0.5) * 0.7;
+        float base = texture(uNoise, q * vec3(1.0 / 1000.0, 1.0 / 700.0, 1.0 / 1000.0)).r;
+        float grad = smoothstep(0.0, 0.14, h) * smoothstep(1.0, mix(0.55, 0.35, cov), h);
+        float d = clamp((base * grad - (1.0 - cov)) / max(cov, 0.05), 0.0, 1.0);
+        if (detail && d > 0.0) { float e = texture(uNoise, q * (1.0 / 260.0) + vec3(uTime * 0.01)).r; d = clamp(d - (1.0 - e) * 0.32 * (1.0 - h * 0.5), 0.0, 1.0); }
+        return d * (1.0 + uRain);
+      }
+      float hg(float c, float g){ float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
+      void main(){
+        float sd = texture2D(uDepth, vUv).r;
+        vec3 ro = uCam;
+        vec3 far = worldAt(vUv, sd < 0.99999 ? sd : 1.0);
+        vec3 rd = normalize(far - ro);
+        float tMax = sd < 0.99999 ? length(far - ro) : 1e9;
+        if (abs(rd.y) < 1e-4) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        float ta = (CB - ro.y) / rd.y, tb = (CT - ro.y) / rd.y;
+        float t0 = max(min(ta, tb), 0.0), t1 = min(max(ta, tb), min(tMax, 9000.0));
+        if (t1 <= t0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        const int STEPS = 30;
+        float len = min(t1 - t0, 2600.0);
+        float stp = len / float(STEPS);
+        float t = t0 + stp * ign(gl_FragCoord.xy + uFrame * 5.588);
+        bool night = uSunDir.y < -0.12;
+        vec3 L = night ? -uSunDir : normalize(vec3(uSunDir.x, max(uSunDir.y, 0.02), uSunDir.z));
+        float dusk = smoothstep(-0.12, 0.0, uSunDir.y);
+        vec3 lightCol = night ? vec3(0.12, 0.15, 0.24) : mix(vec3(0.12, 0.15, 0.24), uSunColor * vec3(1.15, 0.8, 0.75) * 2.2, dusk) * mix(1.0, 1.5, smoothstep(0.0, 0.25, uSunDir.y));
+        lightCol *= 1.0 - uRain * 0.75;
+        float cosT = dot(rd, L);
+        float phase = mix(hg(cosT, 0.65), hg(cosT, -0.25), 0.35) * 6.0 + 0.35;
+        vec3 amb = mix(uSky, vec3(dot(uSky, vec3(0.333))), uRain * 0.6) * 1.1;
+        float T = 1.0; vec3 acc = vec3(0.0);
+        float sigma = 0.06;
+        for (int i = 0; i < STEPS; i++) {
+          if (t > t1 || T < 0.02) break;
+          vec3 p = ro + rd * t;
+          float d = dens(p, true);
+          if (d > 0.001) {
+            float od = 0.0; float ls = 14.0; vec3 lp = p;
+            for (int j = 0; j < 4; j++) { lp += L * ls; od += dens(lp, false) * ls; ls *= 1.9; }
+            float h = clamp((p.y - CB) / (CT - CB), 0.0, 1.0);
+            float beer = exp(-od * sigma * 0.85) + exp(-od * sigma * 0.2) * 0.25;
+            float powder = 1.0 - exp(-d * sigma * 40.0);
+            vec3 S = lightCol * beer * mix(0.55, 1.0, powder) * phase + amb * mix(0.35, 1.0, h);
+            float dT = exp(-d * sigma * stp);
+            acc += T * S * (1.0 - dT);
+            T *= dT;
+          }
+          t += stp;
+        }
+        float fade = exp(-max(t0 - 600.0, 0.0) / 3500.0);
+        acc = mix(uFogColor * (1.0 - T), acc, fade);
+        T = mix(1.0, T, fade * 0.98 + 0.02);
+        gl_FragColor = vec4(acc, T);
+      }`, { uNoise: { value: null }, uDepth: { value: null }, uInvVP: { value: new THREE.Matrix4() }, uCam: { value: new THREE.Vector3() }, uOrigin: { value: new THREE.Vector2() },
+      uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() }, uSky: { value: new THREE.Color() }, uFogColor: { value: new THREE.Color() },
+      uTime: { value: 0 }, uRain: { value: 0 }, uDay: { value: 1 }, uFrame: { value: 0 }, uNear: { value: 0.08 }, uFar: { value: 1000 } });
     this.mComp = pass(`${LIN}
-      uniform sampler2D uScene; uniform sampler2D uDepth; uniform sampler2D uHalf; uniform sampler2D uBloom; uniform sampler2D uRays; uniform sampler2D uAO; uniform sampler2D uExp;
+      uniform sampler2D uScene; uniform sampler2D uDepth; uniform sampler2D uHalf; uniform sampler2D uBloom; uniform sampler2D uRays; uniform sampler2D uAO; uniform sampler2D uExp; uniform sampler2D uClouds; uniform float uCloudsOn;
       uniform float uBloomAmt; uniform float uRaysOn; uniform float uAOOn; uniform float uExpOn; uniform float uDof; uniform float uMotion;
       uniform mat4 uInvVP; uniform mat4 uPrevVP; uniform vec3 uCam; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uFogColor; uniform float uDay; uniform float uNight; uniform float uRain;
       uniform float uUnder; uniform float uLava; uniform float uFlash; uniform float uTime; uniform float uCave; uniform float uLensRain;
@@ -175,6 +304,7 @@ export class PostFX {
           float a = texture2D(uAO, uv).r * 0.4 + (texture2D(uAO, uv + vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv - vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv + vec2(0.0, uTexel.y * 2.0)).r + texture2D(uAO, uv - vec2(0.0, uTexel.y * 2.0)).r) * 0.15;
           col *= mix(a, 1.0, smoothstep(40.0, 90.0, vz));
         }
+        if (uCloudsOn > 0.5) { vec4 cl = texture2D(uClouds, uv); col = col * cl.a + cl.rgb; }
         if (uRaysOn > 0.5) col += texture2D(uRays, uv).rgb;
         col += texture2D(uBloom, uv).rgb * uBloomAmt;
         float sunOcc = 0.0;
@@ -197,7 +327,7 @@ export class PostFX {
         if (uGrain > 0.0) col += (hash(uv * 913.0 + fract(uTime) * 71.0) - 0.5) * 0.035 * uGrain;
         gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }`, {
-      uScene: { value: null }, uDepth: { value: null }, uHalf: { value: null }, uBloom: { value: null }, uRays: { value: null }, uAO: { value: null }, uExp: { value: null },
+      uScene: { value: null }, uDepth: { value: null }, uHalf: { value: null }, uBloom: { value: null }, uRays: { value: null }, uAO: { value: null }, uExp: { value: null }, uClouds: { value: null }, uCloudsOn: { value: 0 },
       uBloomAmt: { value: 0 }, uRaysOn: { value: 0 }, uAOOn: { value: 0 }, uExpOn: { value: 0 }, uDof: { value: 0 }, uMotion: { value: 0 },
       uInvVP: { value: new THREE.Matrix4() }, uPrevVP: { value: new THREE.Matrix4() }, uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() }, uFogColor: { value: new THREE.Color() },
       uDay: { value: 1 }, uNight: { value: 0 }, uRain: { value: 0 }, uUnder: { value: 0 }, uLava: { value: 0 }, uFlash: { value: 0 }, uTime: { value: 0 }, uCave: { value: 0 }, uLensRain: { value: 0 },
@@ -247,6 +377,7 @@ export class PostFX {
     }
     this.raysRT.setSize(Math.max(1, w >> 2), Math.max(1, h >> 2));
     this.aoRT.setSize(hw, hh);
+    this.cloudRT.setSize(Math.max(1, Math.round(w / 2.5)), Math.max(1, Math.round(h / 2.5)));
   }
 
   get width(): number { return this.size.x; }
@@ -293,7 +424,7 @@ export class PostFX {
     }
     comp.uBloomAmt.value = c.bloom * 0.6;
 
-    const sunWorld = cam.position.clone().addScaledVector(f.sunDir, 400);
+    const sunWorld = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld).addScaledVector(f.sunDir, 400);
     const sp = sunWorld.project(cam);
     const sunUV = new THREE.Vector2(sp.x * 0.5 + 0.5, sp.y * 0.5 + 0.5);
     const facing = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion).dot(f.sunDir);
@@ -331,6 +462,17 @@ export class PostFX {
     cam.updateMatrixWorld();
     const vp = this.tmp.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.invVP.copy(vp).invert();
+    if (c.volClouds && !f.nether && !f.underwater && f.cave < 0.9) {
+      this.noise3 ??= cloudNoise();
+      const u = this.mCloud.uniforms;
+      u.uNoise.value = this.noise3; u.uDepth.value = depth; u.uInvVP.value.copy(this.invVP);
+      u.uCam.value.setFromMatrixPosition(cam.matrixWorld); u.uOrigin.value.set(f.origin.x, f.origin.z);
+      u.uSunDir.value.copy(f.sunDir); u.uSunColor.value.copy(f.sunColor); u.uSky.value.copy(f.skyTop); u.uFogColor.value.copy(f.fogColor);
+      u.uTime.value = f.time; u.uRain.value = f.rain; u.uDay.value = f.day; u.uFrame.value = (u.uFrame.value + 1) % 64;
+      this.draw(this.mCloud, this.cloudRT);
+      comp.uClouds.value = this.cloudRT.texture;
+      comp.uCloudsOn.value = 1;
+    } else comp.uCloudsOn.value = 0;
     comp.uScene.value = this.sceneRT.texture;
     comp.uDepth.value = depth;
     comp.uHalf.value = this.halfRT.texture;
@@ -339,7 +481,7 @@ export class PostFX {
     comp.uInvVP.value.copy(this.invVP);
     comp.uPrevVP.value.copy(this.prevVP);
     this.prevVP.copy(vp);
-    comp.uCam.value.copy(cam.position);
+    comp.uCam.value.setFromMatrixPosition(cam.matrixWorld);
     comp.uSunDir.value.copy(f.sunDir);
     comp.uSunColor.value.copy(f.sunColor);
     comp.uFogColor.value.copy(f.fogColor);
@@ -363,7 +505,8 @@ export class PostFX {
   }
 
   dispose(): void {
-    for (const rt of [this.sceneRT, this.halfRT, this.raysRT, this.aoRT, this.ldrRT, ...this.down, ...this.up, ...this.expRT]) rt.dispose();
+    this.noise3?.dispose(); this.mCloud.dispose();
+    for (const rt of [this.sceneRT, this.halfRT, this.raysRT, this.aoRT, this.cloudRT, this.ldrRT, ...this.down, ...this.up, ...this.expRT]) rt.dispose();
     for (const m of [this.mDown, this.mBloomDown, this.mBloomUp, this.mRays, this.mAO, this.mExp, this.mComp, this.mFinal]) m.dispose();
     this.quad.geometry.dispose();
   }

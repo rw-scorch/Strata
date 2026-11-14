@@ -50,7 +50,7 @@ export class Sky {
   private starMat!: THREE.ShaderMaterial;
   cloudsEnabled = true;
   aurora = 0;
-  private t = 0;
+  t = 0;
 
   constructor(atlas: TextureAtlas) {
     this.domeMat = new THREE.ShaderMaterial({
@@ -133,17 +133,16 @@ export class Sky {
     this.stars.renderOrder = -19;
     this.stars.frustumCulled = false;
     this.cloudMat = new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: atlas.cloudTexture }, uOffset: { value: new THREE.Vector2() }, uColor: { value: new THREE.Color(1, 1, 1) }, uFogColor: { value: new THREE.Color() }, uOpacity: { value: 0.8 } },
-      vertexShader: 'varying vec2 vUv; varying float vD; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position,1.0); vD = length(mv.xz); gl_Position = projectionMatrix * mv; }',
-      fragmentShader: `uniform sampler2D uMap; uniform vec2 uOffset; uniform vec3 uColor; uniform vec3 uFogColor; uniform float uOpacity; varying vec2 vUv; varying float vD;
-        void main(){ vec4 t = texture2D(uMap, vUv * 4.0 + uOffset); if (t.a < 0.4) discard;
-        float f = smoothstep(120.0, 380.0, vD); gl_FragColor = vec4(mix(uColor, uFogColor, f), uOpacity * (1.0 - f)); }`,
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      uniforms: { uColor: { value: new THREE.Color(1, 1, 1) }, uFogColor: { value: new THREE.Color() }, uOpacity: { value: 0.82 }, uFade: { value: 300 } },
+      vertexShader: 'attribute float aShade; varying float vShade; varying float vD; void main(){ vShade = aShade; vec4 mv = modelViewMatrix * vec4(position,1.0); vD = length(mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: `uniform vec3 uColor; uniform vec3 uFogColor; uniform float uOpacity; uniform float uFade; varying float vShade; varying float vD;
+        void main(){ float f = smoothstep(uFade * 0.45, uFade, vD); if (f > 0.98) discard; gl_FragColor = vec4(mix(uColor * vShade, uFogColor, f * 0.6), uOpacity * (1.0 - f)); }`,
+      transparent: true, depthWrite: true, side: THREE.DoubleSide,
     });
-    this.clouds = new THREE.Mesh(new THREE.PlaneGeometry(1024, 1024), this.cloudMat);
-    this.clouds.rotation.x = -Math.PI / 2;
+    this.clouds = new THREE.Mesh(new THREE.BufferGeometry(), this.cloudMat);
     this.clouds.renderOrder = 5;
     this.clouds.frustumCulled = false;
+    this.readCloudMap(atlas);
     this.group.add(this.dome, this.stars, this.sun, this.moon);
   }
 
@@ -152,7 +151,47 @@ export class Sky {
   setTextures(atlas: TextureAtlas): void {
     (this.sun.material as THREE.MeshBasicMaterial).map = atlas.sunTexture;
     (this.moon.material as THREE.MeshBasicMaterial).map = atlas.moonTexture;
-    this.cloudMat.uniforms.uMap.value = atlas.cloudTexture;
+    this.readCloudMap(atlas);
+  }
+
+  private cloudMap: Uint8Array = new Uint8Array(1);
+  private cloudW = 1;
+  private cloudH = 1;
+  private cloudKey = '';
+  private readCloudMap(atlas: TextureAtlas): void {
+    const img = atlas.cloudTexture?.image as (CanvasImageSource & { width: number; height: number }) | undefined;
+    if (!img || !img.width) return;
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d', { willReadFrequently: true })!;
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    this.cloudW = c.width; this.cloudH = c.height;
+    this.cloudMap = new Uint8Array(c.width * c.height);
+    for (let i = 0; i < this.cloudMap.length; i++) this.cloudMap[i] = d[i * 4 + 3] > 100 ? 1 : 0;
+    this.cloudKey = '';
+  }
+
+  private buildClouds(bx: number, bz: number): void {
+    const R = 28, C = 12, T = 4, W = this.cloudW, H = this.cloudH, map = this.cloudMap;
+    const at = (x: number, z: number) => map[(((x % W) + W) % W) + (((z % H) + H) % H) * W] === 1;
+    const pos: number[] = [], sh: number[] = [];
+    const quad = (p: number[], s: number) => { pos.push(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[0], p[1], p[2], p[6], p[7], p[8], p[9], p[10], p[11]); for (let i = 0; i < 6; i++) sh.push(s); };
+    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+      if (dx * dx + dz * dz > R * R || !at(bx + dx, bz + dz)) continue;
+      const x0 = dx * C, x1 = x0 + C, z0 = dz * C, z1 = z0 + C;
+      quad([x0, T, z0, x0, T, z1, x1, T, z1, x1, T, z0], 1);
+      quad([x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z1], 0.72);
+      if (!at(bx + dx - 1, bz + dz)) quad([x0, 0, z0, x0, 0, z1, x0, T, z1, x0, T, z0], 0.9);
+      if (!at(bx + dx + 1, bz + dz)) quad([x1, 0, z0, x1, T, z0, x1, T, z1, x1, 0, z1], 0.9);
+      if (!at(bx + dx, bz + dz - 1)) quad([x0, 0, z0, x0, T, z0, x1, T, z0, x1, 0, z0], 0.82);
+      if (!at(bx + dx, bz + dz + 1)) quad([x0, 0, z1, x1, 0, z1, x1, T, z1, x0, T, z1], 0.82);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('aShade', new THREE.Float32BufferAttribute(sh, 1));
+    this.clouds.geometry.dispose();
+    this.clouds.geometry = geo;
   }
 
   update(camera: THREE.Camera, state: SkyState, time: number, rain: number): void {
@@ -177,9 +216,11 @@ export class Sky {
     const du = this.domeMat.uniforms;
     du.uNight.value = state.night; du.uTime.value = this.t; du.uAurora.value = this.aurora; du.uStarRot.value = this.stars.rotation.z; du.uRain.value = rain;
     this.clouds.visible = this.cloudsEnabled;
-    this.clouds.position.set(cp.x, 132, cp.z);
-    this.cloudMat.uniforms.uOffset.value.x = ((cp.x + time * 0.03) / 256) % 1;
-    this.cloudMat.uniforms.uOffset.value.y = (-cp.z / 256) % 1;
+    const scroll = this.t * 0.6;
+    const bx = Math.floor((cp.x + scroll) / 12), bz = Math.floor(cp.z / 12);
+    const ck = `${bx},${bz}`;
+    if (this.cloudsEnabled && ck !== this.cloudKey) { this.cloudKey = ck; this.buildClouds(bx, bz); }
+    this.clouds.position.set(bx * 12 - scroll, 176, bz * 12);
     const cc = new THREE.Color(1, 1, 1).multiplyScalar(0.25 + state.day * 0.75);
     if (rain) cc.lerp(new THREE.Color(0.45, 0.47, 0.5), rain * 0.7);
     this.cloudMat.uniforms.uColor.value.copy(cc);

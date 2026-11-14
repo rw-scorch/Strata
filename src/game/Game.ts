@@ -1,4 +1,5 @@
 import { isNether, localX } from '../core/dimension';
+import { NETHER_FOG } from '../core/worldgen/nether';
 import { GEN_LEVEL } from '../core/worldgen/genLevel';
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import { loadCustomSkin } from '../resources/skins';
@@ -121,7 +122,8 @@ export class Game {
       items.sort((a, b) => a[0] - b[0]);
       for (const it of items) { if (out.length >= 4 || it[0] > 40) break; out.push([it[1], it[2], it[3], it[4]]); }
     }
-    for (let i = 0; i < 4; i++) { const o = out[i]; if (o) arr[i].set(o[0], o[1], o[2], o[3] - 1); else arr[i].set(0, 0, 0, 0); }
+    const O = this.renderer.origin;
+    for (let i = 0; i < 4; i++) { const o = out[i]; if (o) arr[i].set(o[0] - O.x, o[1], o[2] - O.z, o[3] - 1); else arr[i].set(0, 0, 0, 0); }
     this.dynLights = out;
     return out.length ? Math.max(0, (out[0][3] - 1) / 15) : 0;
   }
@@ -529,18 +531,30 @@ export class Game {
   }
 
   private showLoading(text: string): void {
-    this.loadingEl = h('div', { class: 'screen loading-screen' }, h('h2', {}, text), h('div', { class: 'loading-bar' }, h('i')), h('div', { class: 'small muted' }, 'Generating terrain and lighting'));
+    const grid = document.createElement('canvas');
+    grid.width = grid.height = 11 * 4;
+    grid.className = 'load-grid';
+    this.loadingEl = h('div', { class: 'screen loading-screen mc-load' }, h('div', { class: 'load-title' }, text), h('div', { class: 'load-step' }, 'Loading terrain...'), grid, h('div', { class: 'load-pct' }, '0%'));
     this.screens.appendChild(this.loadingEl);
   }
 
   private updateLoading(): boolean {
     if (!this.loadingEl) return true;
     const pcx = Math.floor(this.player.x / 16), pcz = Math.floor(this.player.z / 16);
-    let done = 0, total = 0;
-    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) { total++; if (this.chunks.chunkMeshed(pcx + dx, pcz + dz)) done++; }
-    const bar = this.loadingEl.querySelector('.loading-bar i') as HTMLElement;
-    bar.style.width = `${Math.round((done / total) * 100)}%`;
-    const ready = done >= total || (performance.now() - this.loadStart > 20000 && this.chunks.chunkMeshed(pcx, pcz));
+    let done = 0, total = 0, gen = 0;
+    const cv = this.loadingEl.querySelector('.load-grid') as HTMLCanvasElement;
+    const g = cv.getContext('2d')!;
+    g.clearRect(0, 0, cv.width, cv.height);
+    for (let dz = -5; dz <= 5; dz++) for (let dx = -5; dx <= 5; dx++) {
+      const m = this.chunks.chunkMeshed(pcx + dx, pcz + dz), r = this.chunks.chunkReady(pcx + dx, pcz + dz);
+      g.fillStyle = m ? '#7fcc19' : r ? '#3a7d1e' : '#333333';
+      g.fillRect((dx + 5) * 4, (dz + 5) * 4, 4, 4);
+      if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) { total++; if (m) done++; if (r) gen++; }
+    }
+    const pct = Math.round(((gen + done) / (total * 2)) * 100);
+    (this.loadingEl.querySelector('.load-pct') as HTMLElement).textContent = `${pct}%`;
+    (this.loadingEl.querySelector('.load-step') as HTMLElement).textContent = gen < total ? 'Loading terrain...' : done < total ? 'Building chunks...' : 'Joining world...';
+    const ready = done >= total || (performance.now() - this.loadStart > 15000 && this.chunks.chunkMeshed(pcx, pcz));
     if (ready) {
       this.loadingEl.remove();
       this.loadingEl = null;
@@ -739,13 +753,14 @@ export class Game {
   // ---- SessionEvents ----
   private onBlock(): void { /* chunk data is updated by the store */ }
 
-  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
+  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
     this.renderer?.entities.upsert(id, kind, type, x, y, z, yaw, 0, flags, extra, performance.now());
   }
 
   onEntityRemove(id: string, death: boolean): void { this.renderer?.entities.remove(id, death); }
 
   onSound(name: string, x: number, y: number, z: number, vol?: number, pitch?: number): void {
+    if (name === 'explode') { const now = performance.now(); if (now - this.boomSndAt > 250) { this.boomSndAt = now; this.boomSndN = 0; } if (++this.boomSndN > 3) return; }
     audio.play(name, x, y, z, vol, pitch);
     if (name === 'player.burp') this.renderer.handEat = 0;
   }
@@ -919,13 +934,23 @@ export class Game {
   onBoom(x: number, y: number, z: number, r: number): void {
     if (!this.renderer) return;
     const p = this.renderer.particles;
-    for (let i = 0; i < 6; i++) p.puff(x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r * 0.6, z + (Math.random() - 0.5) * r, 0.85, 0.85, 0.85, 16, 2.5, -0.5, 0.35, 1.6);
-    p.puff(x, y, z, 1, 0.75, 0.35, 24, 6, 2, 0.2, 0.5);
+    const now = performance.now();
+    if (now - this.boomAt > 400) { this.boomAt = now; this.boomN = 0; }
+    this.boomN++;
+    this.renderer.explosions.spawn(x, y, z, r);
+    if (this.boomN <= 3) p.puff(x, y, z, 0.35, 0.35, 0.35, 10, 2.2, -0.4, 0.22, 1.3);
     const d = Math.hypot(this.player.x - x, this.player.y - y, this.player.z - z);
     if (d < r * 6) this.shake = Math.max(this.shake, (1 - d / (r * 6)) * 0.6);
   }
 
   private shake = 0;
+  private nfAt = 0;
+  private nfTarget: [number, number, number] = [0.2, 0.03, 0.03];
+  private nfCol: [number, number, number] = [0.2, 0.03, 0.03];
+  private boomAt = 0;
+  private boomN = 0;
+  private boomSndAt = 0;
+  private boomSndN = 0;
   private riding: string | null = null;
 
   onLightning(x: number, y: number, z: number): void {
@@ -1125,8 +1150,13 @@ export class Game {
     const wetSky = precip.rain && !precip.cold && !sheltered && !underwater ? this.rain : 0;
     this.renderer.sky.aurora += ((precip.cold ? 1 : 0) - this.renderer.sky.aurora) * Math.min(1, dt * 0.3);
     const nether = isNether(this.player.x);
+    if (nether && this.gen) {
+      if (performance.now() - this.nfAt > 250) { this.nfAt = performance.now(); this.nfTarget = NETHER_FOG[this.gen.netherBiome(Math.floor(this.player.x), Math.floor(this.player.z))]; }
+      const k = Math.min(1, dt * 1.5);
+      for (let i = 0; i < 3; i++) this.nfCol[i] += (this.nfTarget[i] - this.nfCol[i]) * k;
+    }
     this.updatePortalFx(dt);
-    const env: FrameEnv = { nether, time: this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
+    const env: FrameEnv = { nether, netherFog: this.nfCol, time: this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
     const dl = this.updateDynLights();
     const pl = Math.max(this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day), dl);
     if (this.interaction.eating > 0) this.renderer.handEat = this.interaction.eating; else if (this.renderer.handEat > 0 && this.interaction.eating === 0) this.renderer.handEat = 0;

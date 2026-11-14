@@ -1,4 +1,4 @@
-import { localX } from '../core/dimension';
+import { localX, isNether } from '../core/dimension';
 import * as THREE from 'three';
 import { h, clear } from './dom';
 import { B, blockId, getBlock } from '../core/blocks';
@@ -30,9 +30,15 @@ const PALETTE: Record<number, number> = {
   [B.BEDROCK]: 0x404040, [B.GLASS]: 0xc8e0f0, [B.BRICKS]: 0x9a4a3a, [B.STONE_BRICKS]: 0x7a7a7a, [B.GLOWSTONE]: 0xf0d080,
 };
 
+const EXT_PALETTE = [0x6f2a2a, 0x6f2a2a, 0x6f2a2a, 0x2a252c, 0x4f3d30, 0x4a3a2e, 0x2c161a, 0x4a4a52, 0x322c36, 0x2e2932, 0xe8e2d8];
+
 function colorFor(v: number): number | null {
   const id = blockId(v);
   if (!id) return null;
+  if (id === 218) return EXT_PALETTE[v >>> 8] ?? 0x6f2a2a;
+  if (id === 222) return 0x8a3a10;
+  if (id === 219) return 0x8a3ad8;
+  if (id === 220) return 0xe08020;
   const c = PALETTE[id];
   if (c !== undefined) return c;
   const b = getBlock(v);
@@ -119,10 +125,25 @@ export class Minimap {
   }
 
   private column(x: number, z: number, now: number): { c: string | null; h: number } {
-    const k = `${x},${z}`;
+    const ly = this.layerY;
+    const k = ly >= 0 ? `${x},${z},${ly}` : `${x},${z}`;
     const hit = this.cols.get(k);
     if (hit && now - hit.t < 8000) return hit;
     if (!this.host.isLoaded(x, z)) return { c: null, h: 0 };
+    if (ly >= 0) {
+      let res: { c: string | null; h: number; t: number };
+      const top = this.host.getBlock(x, ly + 1, z);
+      const tc = colorFor(top);
+      if (blockId(top) && tc !== null && blockId(top) !== B.LAVA) res = { c: hex(tc, 0.45), h: ly + 1, t: now };
+      else {
+        let y = ly + 1, c: number | null = null;
+        for (; y > Math.max(0, ly - 40); y--) { const cc = colorFor(this.host.getBlock(x, y, z)); if (cc !== null) { c = cc; break; } }
+        res = { c: c === null ? '#0c0606' : hex(c, Math.max(0.5, 1 - (ly - y) * 0.03)), h: y, t: now };
+      }
+      this.cols.set(k, res);
+      if (this.cols.size > 40000) this.cols.clear();
+      return res;
+    }
     let y = WORLD_HEIGHT - 1, c: number | null = null, water = 0;
     for (; y > 0; y--) {
       const v = this.host.getBlock(x, y, z);
@@ -140,9 +161,11 @@ export class Minimap {
     return res;
   }
 
+  private layerY = -1;
   update(): void {
     const now = performance.now();
     const p = this.host.pos();
+    this.layerY = isNether(p.x) ? Math.floor(p.y) : -1;
     const fx = Math.floor(localX(p.x)), fy = Math.floor(p.y), fz = Math.floor(p.z);
     const dirs = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE'];
     const deg = (((p.yaw * 180) / Math.PI) % 360 + 360) % 360;
@@ -156,7 +179,7 @@ export class Minimap {
   private draw(g: CanvasRenderingContext2D, size: number, R: number, p: { x: number; z: number; yaw: number }, now: number): void {
     const cx = Math.floor(p.x), cz = Math.floor(p.z);
     const px = size / (R * 2);
-    g.fillStyle = '#1b2230';
+    g.fillStyle = '#000000';
     g.fillRect(0, 0, size, size);
     for (let dz = -R; dz < R; dz++) {
       for (let dx = -R; dx < R; dx++) {
@@ -209,7 +232,7 @@ export class Minimap {
       seen.add(w.id);
       let el = this.markerEls.get(w.id);
       if (!el) { el = h('div', { class: 'wp-marker' }); this.markers.appendChild(el); this.markerEls.set(w.id, el); }
-      v.set(w.x + 0.5, w.y + 1.2, w.z + 0.5).project(cam);
+      v.set(w.x + 0.5 + (cam.parent?.position.x ?? 0), w.y + 1.2, w.z + 0.5 + (cam.parent?.position.z ?? 0)).project(cam);
       if (v.z > 1) { el.style.display = 'none'; continue; }
       const sx = ((v.x + 1) / 2) * W, sy = ((1 - v.y) / 2) * H;
       const near = Math.hypot(sx - W / 2, sy - H / 2) < 60;

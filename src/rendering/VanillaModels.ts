@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import type { MobType } from '../core/sim/mobs';
 
-export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | 'villager' | `player${number}`;
-export type Rig = 'humanoid' | 'quadruped' | 'chicken' | 'spider' | 'villager';
+export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | 'villager' | 'zombified_piglin' | 'ghast' | 'magmacube' | 'strider' | `player${number}`;
+export type Rig = 'humanoid' | 'quadruped' | 'chicken' | 'spider' | 'villager' | 'ghast' | 'magma' | 'strider';
 type V3 = [number, number, number];
 
 export interface VCube { o: V3; s: V3; uv: [number, number]; inf?: number; mirror?: boolean; layer?: 'overlay' | 'emissive'; }
 export interface VPart { n: string; pivot: V3; rot?: V3; cubes: VCube[]; parent?: string; }
-export interface VanillaSpec { key: string; main: EntityTexKey; overlay?: EntityTexKey; texH: number; height: number; modelH: number; rig: Rig; parts: VPart[]; }
+export interface VanillaSpec { key: string; main: EntityTexKey; overlay?: EntityTexKey; texW?: number; texH: number; height: number; modelH: number; rig: Rig; parts: VPart[]; }
 
 const HALF_PI = Math.PI / 2;
 
@@ -20,6 +20,14 @@ function slimPlayer(): VPart[] {
   la.cubes = [{ o: [-1, -2, -2], s: [3, 12, 4], uv: [32, 48] }, { o: [-1, -2, -2], s: [3, 12, 4], uv: [48, 48], inf: 0.25 }];
   return parts;
 }
+
+export const MAGMA_OLD: VanillaSpec = {
+  key: 'emberslime_old', main: 'magmacube', texH: 32, height: 0.52, modelH: 8, rig: 'magma',
+  parts: [
+    ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ n: `cube${i}`, pivot: [0, 0, 0] as V3, cubes: [{ o: [-4, 16 + i, -4] as V3, s: [8, 1, 8] as V3, uv: (i === 2 ? [24, 10] : i === 3 ? [24, 19] : [0, i]) as [number, number] }] })),
+    { n: 'inside', pivot: [0, 0, 0], cubes: [{ o: [-2, 18, -2], s: [4, 4, 4], uv: [0, 16] }] },
+  ],
+};
 
 export function playerSpec(slim: boolean): VanillaSpec {
   return { key: slim ? 'player_slim' : 'player', main: 'player0', texH: 64, height: 1.8, modelH: 32, rig: 'humanoid', parts: slim ? slimPlayer() : humanoid('player') };
@@ -50,6 +58,20 @@ function humanoid(kind: 'player' | 'zombie' | 'skeleton'): VPart[] {
     add('right_leg', { o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 32] });
     add('left_leg', { o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 48] });
   }
+  return parts;
+}
+
+function piglinParts(): VPart[] {
+  const parts = humanoid('player');
+  const head = parts.find((p) => p.n === 'head')!;
+  head.cubes = [
+    { o: [-5, -8, -4], s: [10, 8, 8], uv: [0, 0] },
+    { o: [-2, -4, -5], s: [4, 4, 1], uv: [31, 1] },
+    { o: [2, -2, -5], s: [1, 2, 1], uv: [2, 4] },
+    { o: [-3, -2, -5], s: [1, 2, 1], uv: [2, 0] },
+  ];
+  parts.push({ n: 'left_ear', parent: 'head', pivot: [4.5, -6, 0], rot: [0, 0, -0.5235988], cubes: [{ o: [0, 0, -2], s: [1, 5, 4], uv: [51, 6] }] });
+  parts.push({ n: 'right_ear', parent: 'head', pivot: [-4.5, -6, 0], rot: [0, 0, 0.5235988], cubes: [{ o: [-1, 0, -2], s: [1, 5, 4], uv: [39, 6] }] });
   return parts;
 }
 
@@ -119,6 +141,35 @@ export const VANILLA: Partial<Record<MobType | 'player', VanillaSpec>> = {
     ],
   },
   player: { key: 'player', main: 'player0', texH: 64, height: 1.8, modelH: 32, rig: 'humanoid', parts: humanoid('player') },
+  cinderhusk: { key: 'cinderhusk', main: 'zombified_piglin', texH: 64, height: 1.95, modelH: 32, rig: 'humanoid', parts: piglinParts() },
+  wailer: {
+    key: 'wailer', main: 'ghast', texH: 32, height: 4, modelH: 16, rig: 'ghast',
+    parts: [
+      { n: 'body', pivot: [0, 16, 0], cubes: [{ o: [-8, -8, -8], s: [16, 16, 16], uv: [0, 0] }] },
+      ...[9, 13, 11, 10, 14, 8, 12, 9, 11].map((len, i) => ({ n: `tentacle${i}`, pivot: [((i % 3) - (Math.floor(i / 3) % 2) * 0.5 + 0.25 - 1) * 5, 23, (Math.floor(i / 3) - 1) * 5] as V3, cubes: [{ o: [-1, 0, -1] as V3, s: [2, len, 2] as V3, uv: [0, 0] as [number, number] }] })),
+    ],
+  },
+  emberslime: {
+    key: 'emberslime', main: 'magmacube', texH: 64, height: 0.52, modelH: 8, rig: 'magma',
+    parts: [
+      ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ n: `cube${i}`, pivot: [0, 0, 0] as V3, cubes: [{ o: [-4, 16 + i, -4] as V3, s: [8, 1, 8] as V3, uv: (i < 4 ? [0, i * 9] : [32, (i - 4) * 9]) as [number, number] }] })),
+      { n: 'inside', pivot: [0, 0, 0], cubes: [{ o: [-2, 18, -2], s: [4, 4, 4], uv: [24, 40] }] },
+    ],
+  },
+  lavastrider: {
+    key: 'lavastrider', main: 'strider', texH: 128, height: 1.7, modelH: 29, rig: 'strider',
+    parts: [
+      { n: 'right_leg', pivot: [-4, 8, 0], cubes: [{ o: [-2, 0, -2], s: [4, 16, 4], uv: [0, 32] }] },
+      { n: 'left_leg', pivot: [4, 8, 0], cubes: [{ o: [-2, 0, -2], s: [4, 16, 4], uv: [0, 55] }] },
+      { n: 'body', pivot: [0, 1, 0], cubes: [{ o: [-8, -6, -8], s: [16, 14, 16], uv: [0, 0] }] },
+      { n: 'right_bottom_bristle', parent: 'body', pivot: [-8, 4, -8], rot: [0, 0, -1.2217305], cubes: [{ o: [-12, 0, 0], s: [12, 0, 16], uv: [16, 65] }] },
+      { n: 'right_middle_bristle', parent: 'body', pivot: [-8, -1, -8], rot: [0, 0, -1.134464], cubes: [{ o: [-12, 0, 0], s: [12, 0, 16], uv: [16, 49] }] },
+      { n: 'right_top_bristle', parent: 'body', pivot: [-8, -5, -8], rot: [0, 0, -0.87266463], cubes: [{ o: [-12, 0, 0], s: [12, 0, 16], uv: [16, 33] }] },
+      { n: 'left_top_bristle', parent: 'body', pivot: [8, -6, -8], rot: [0, 0, 0.87266463], cubes: [{ o: [0, 0, 0], s: [12, 0, 16], uv: [16, 33], mirror: true }] },
+      { n: 'left_middle_bristle', parent: 'body', pivot: [8, -2, -8], rot: [0, 0, 1.134464], cubes: [{ o: [0, 0, 0], s: [12, 0, 16], uv: [16, 49], mirror: true }] },
+      { n: 'left_bottom_bristle', parent: 'body', pivot: [8, 3, -8], rot: [0, 0, 1.2217305], cubes: [{ o: [0, 0, 0], s: [12, 0, 16], uv: [16, 65], mirror: true }] },
+    ],
+  },
 };
 
 function cubeData(c: VCube, texW: number, texH: number): { pos: number[]; uv: number[]; nrm: number[]; idx: number[] } {
@@ -182,7 +233,7 @@ function partGeometry(spec: VanillaSpec, p: VPart, layer: VCube['layer'] | 'main
   const key = `${spec.key}|${p.n}|${layer}`;
   if (geoCache.has(key)) return geoCache.get(key)!;
   const cubes = p.cubes.filter((c) => (c.layer ?? 'main') === layer);
-  const g = cubes.length ? cubesGeometry(cubes, 64, spec.texH) : null;
+  const g = cubes.length ? cubesGeometry(cubes, spec.texW ?? 64, spec.texH) : null;
   if (g) geoCache.set(key, g);
   return g;
 }
@@ -215,7 +266,7 @@ export function buildVanilla(spec: VanillaSpec, mainMat: THREE.ShaderMaterial, o
   return { obj, parts, rig };
 }
 
-export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; swim?: number; crawl?: boolean; riding?: boolean; holdR?: boolean; holdL?: boolean; xbow?: boolean; lance?: boolean; }
+export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; swim?: number; crawl?: boolean; riding?: boolean; squish?: number; cold?: boolean; holdR?: boolean; holdL?: boolean; xbow?: boolean; lance?: boolean; }
 
 function reset(rig: Map<string, RigPart>): void {
   for (const r of rig.values()) { r.obj.position.copy(r.pos); r.obj.rotation.copy(r.rot); }
@@ -272,6 +323,22 @@ export function animateVanilla(spec: VanillaSpec, rig: Map<string, RigPart>, s: 
       if (head) head.position.y = 4.2;
       body.position.y = 3.2; ra.position.y = 5.2; la.position.y = 5.2;
     }
+  } else if (spec.rig === 'ghast') {
+    for (let i = 0; i < 9; i++) { const t = g(`tentacle${i}`); if (t) t.rotation.x = 0.2 * sn(s.age * 0.3 + i) + 0.4; }
+  } else if (spec.rig === 'magma') {
+    const sq = s.squish ?? 0;
+    for (let i = 0; i < 8; i++) { const p = g(`cube${i}`); if (p) p.position.y = -(7 - i) * Math.max(0, sq) * 0.9; }
+    const ins = g('inside'); if (ins) ins.position.y = -Math.max(0, sq) * 3;
+  } else if (spec.rig === 'strider') {
+    const L = s.ls * 0.6662, a = Math.min(s.amt, 0.25) * 4;
+    const rl = g('right_leg')!, ll = g('left_leg')!, body = g('body')!;
+    rl.rotation.x = sn(L * 1.5) * 2 * a * 0.5; ll.rotation.x = sn(L * 1.5 + PI) * 2 * a * 0.5;
+    rl.rotation.z = 0.17453292 * c(L * 1.5) * a; ll.rotation.z = 0.17453292 * c(L * 1.5 + PI) * a;
+    body.position.y -= 2 * c(L * 1.5) * 2 * a * 0.5;
+    const sh = s.cold ? sn(s.age * 1.7) * 0.05 : 0;
+    body.rotation.z = sh;
+    const wave = (n: string, o: number) => { const p = g(n); if (p) p.rotation.x = 0.1 * sn(s.age * 0.4 + o) + (s.cold ? 0.3 : 0); };
+    ['right_bottom_bristle', 'right_middle_bristle', 'right_top_bristle', 'left_top_bristle', 'left_middle_bristle', 'left_bottom_bristle'].forEach((n, i) => wave(n, i));
   } else if (spec.rig === 'villager') {
     g('right_leg')!.rotation.x = c(s.ls * 0.6662) * 1.4 * s.amt * 0.5;
     g('left_leg')!.rotation.x = c(s.ls * 0.6662 + PI) * 1.4 * s.amt * 0.5;

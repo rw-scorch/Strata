@@ -92,12 +92,31 @@ export class DesktopControls {
     const ple = () => { this.pending = false; this.lastFail = performance.now(); if (!this.lockFailed && performance.now() - this.gestureT < 1500) { this.lockFailed = true; this.hooks.onMessage?.('This browser did not allow mouse lock. Click and drag to look around.'); } };
     document.addEventListener('pointerlockerror', ple);
     this.disposers.push(() => document.removeEventListener('pointerlockerror', ple));
+    let lx = -1, ly = -1, ex = 0.5, ey = 0.5, lastMove = 0;
     on('pointermove', (e) => {
-      if (this.locked || e.pointerType !== 'mouse' || !this.lockFailed || !(e.buttons & 3) || !this.hooks.isPlaying() || this.input.touchMode) return;
+      if (e.pointerType !== 'mouse') return;
+      const dx = lx < 0 ? 0 : e.clientX - lx, dy = ly < 0 ? 0 : e.clientY - ly;
+      lx = e.clientX; ly = e.clientY;
+      ex = e.clientX / Math.max(1, window.innerWidth); ey = e.clientY / Math.max(1, window.innerHeight);
+      if (this.locked || !this.lockFailed || !this.hooks.isPlaying() || this.input.touchMode) return;
+      lastMove = performance.now();
       const s = 0.0035 * this.sensitivity;
-      this.input.lookDX -= e.movementX * s;
-      this.input.lookDY -= e.movementY * s * (this.invertY ? -1 : 1);
+      this.input.lookDX -= dx * s;
+      this.input.lookDY -= dy * s * (this.invertY ? -1 : 1);
     }, document);
+    let raf = 0, lastT = performance.now();
+    const edge = () => {
+      raf = requestAnimationFrame(edge);
+      const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000);
+      lastT = now;
+      if (!free() || now - lastMove > 4000) return;
+      const m = 0.05, sp = 2.4 * this.sensitivity;
+      const push = (v: number) => v < m ? (m - v) / m : v > 1 - m ? -(v - (1 - m)) / m : 0;
+      this.input.lookDX += push(ex) * sp * dt;
+      this.input.lookDY += push(ey) * sp * 0.6 * dt * (this.invertY ? -1 : 1);
+    };
+    raf = requestAnimationFrame(edge);
+    this.disposers.push(() => cancelAnimationFrame(raf));
   }
 
   private pending = false;
@@ -109,7 +128,7 @@ export class DesktopControls {
     this.lockFailed = true;
     if (this.noticeShown) return;
     this.noticeShown = true;
-    this.hooks.onMessage?.('This browser does not let websites lock the mouse (Safari on iPad). Hold a mouse button and drag to look; left click breaks, right click places.');
+    this.hooks.onMessage?.('This browser does not let websites lock the mouse (Safari on iPad). Move the mouse to look, and push it against a screen edge to keep turning; left click breaks, right click places.');
   }
 
   lock(): void {

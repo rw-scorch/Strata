@@ -15,9 +15,10 @@ const MATERIAL: Record<string, { f: number; q: number; type: BiquadFilterType; d
   lava: { f: 300, q: 0.7, type: 'lowpass', dur: 0.4 },
 };
 
-const MOB_VOICE: Record<string, { base: number; kind: 'bleat' | 'grunt' | 'cluck' | 'groan' | 'rattle' | 'hiss' | 'hum' }> = {
+const MOB_VOICE: Record<string, { base: number; kind: 'bleat' | 'grunt' | 'cluck' | 'groan' | 'rattle' | 'hiss' | 'hum' | 'wail' | 'squelch' | 'chirp' }> = {
   woolhorn: { base: 420, kind: 'bleat' }, mudsnout: { base: 140, kind: 'grunt' }, fernhen: { base: 1300, kind: 'cluck' },
   hollowed: { base: 95, kind: 'groan' }, rattlebone: { base: 0, kind: 'rattle' }, duskweaver: { base: 0, kind: 'hiss' }, villager: { base: 210, kind: 'hum' },
+  cinderhusk: { base: 120, kind: 'grunt' }, wailer: { base: 520, kind: 'wail' }, emberslime: { base: 90, kind: 'squelch' }, lavastrider: { base: 260, kind: 'chirp' },
 };
 
 export class AudioEngine {
@@ -315,6 +316,9 @@ export class AudioEngine {
           case 'rattle': for (let i = 0; i < 6; i++) this.noiseHit(dest, t + i * 0.035, 2500 * rnd(), 6, 'bandpass', { a: 0.001, d: 0.03, v: 0.25 }); break;
           case 'hiss': this.noiseHit(dest, t, 4500 * p, 1, 'highpass', { a: 0.05, d: len, v: 0.2 }); break;
           case 'hum': this.hum(dest, t, voice.base * p * rnd(), len, kind === 'hurt' ? -1 : 0); break;
+          case 'wail': { const k2 = kind === 'shoot' ? 0.6 : kind === 'warn' ? 0.9 : 1.6; this.tone(dest, t, voice.base * p * rnd(), 'sine', { a: 0.15, d: k2, v: kind === 'shoot' ? 0.25 : 0.18 }, voice.base * 0.55 * p, 12); this.tone(dest, t + 0.05, voice.base * 1.5 * p, 'triangle', { a: 0.2, d: k2 * 0.8, v: 0.08 }, voice.base * 0.9, 6); if (kind === 'shoot') this.noiseHit(dest, t, 700, 1, 'lowpass', { a: 0.01, d: 0.35, v: 0.3 }); break; }
+          case 'squelch': this.noiseHit(dest, t, 400 * rnd(), 2, 'lowpass', { a: 0.005, d: 0.18, v: 0.3 }); this.tone(dest, t, voice.base * p * rnd(), 'sine', { a: 0.005, d: 0.15, v: 0.18 }, voice.base * 0.5, 0); break;
+          case 'chirp': for (let i = 0; i < 3; i++) this.tone(dest, t + i * 0.07, voice.base * p * rnd(), 'triangle', { a: 0.005, d: 0.06, v: 0.1 }, voice.base * 1.3); break;
         }
         break;
       }

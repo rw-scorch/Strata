@@ -48,6 +48,7 @@ export function entTypeCode(e: Entity): number {
   if (e.kind === 'mob') return MOBS[e.type as MobType].code;
   if (e.kind === 'item') return e.item!.id;
   if (e.kind === 'cart') return e.type === 'tntcart' ? 1 : 0;
+  if (e.kind === 'fireball') return 0;
   return 0;
 }
 
@@ -102,7 +103,7 @@ export interface SimPlayer {
   screenTitle?: string;
 }
 
-export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart';
+export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball';
 export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade' | 'enchant' | 'anvil';
 
 export interface GameHooks {
@@ -131,7 +132,10 @@ export interface GameHooks {
 export interface Entity extends Body {
   id: number;
   kind: EntityKind;
-  type: MobType | 'item' | 'arrow' | 'tnt' | 'cart' | 'tntcart';
+  type: MobType | 'item' | 'arrow' | 'tnt' | 'cart' | 'tntcart' | 'fireball';
+  size?: number;
+  charge?: number;
+  goal?: [number, number, number];
   rider?: string;
   fall?: number;
   wob?: number;
@@ -731,6 +735,9 @@ export class WorldSim {
     }
     if (id === B.LILY_PAD) return blockId(this.get(x, y - 1, z)) === B.WATER;
     const below = blockId(this.get(x, y - 1, z));
+    if (d.needsSupport === 'nylium') { const bv = this.get(x, y - 1, z); return bv === X(XV.CRIMSON_NYLIUM) || bv === X(XV.WARPED_NYLIUM) || bv === X(XV.SOUL_SOIL) || below === B.GRASS || below === B.DIRT || below === B.FARMLAND || below === B.MUD; }
+    if (d.needsSupport === 'hang') { const a = this.get(x, y + 1, z); return blockId(a) === id || isSolid(a); }
+    if (id === B.TWISTING_VINES && below === id) return true;
     switch (d.needsSupport) {
       case 'soil': return below === B.GRASS || below === B.DIRT || below === B.FARMLAND || below === B.SNOWY_GRASS || below === B.MUD || (id >= B.OAK_SAPLING && id <= B.JUNGLE_SAPLING ? false : below === B.SAND && id === B.DEAD_BUSH);
       case 'sand': return below === B.SAND || below === B.DIRT || below === B.GRASS;
@@ -1676,10 +1683,10 @@ export class WorldSim {
       if (!this.canBuild(p)) return false;
       const fx = x + nx, fy = y + ny, fz = z + nz;
       const fv = this.get(fx, fy, fz);
-      if (blockId(fv) !== 0 || !this.store.isLoaded(fx, fz)) return false;
+      if ((blockId(fv) !== 0 && !getBlock(fv).replaceable) || blockId(fv) === B.WATER || blockId(fv) === B.LAVA || blockId(fv) === B.FIRE || !this.store.isLoaded(fx, fz)) return false;
       if (this.game && !this.game.canPlace(p, fx, fy, fz)) return false;
       if (this.authoritative && !this.lightPortal(fx, fy, fz)) {
-        if (!isSolid(this.get(fx, fy - 1, fz))) return false;
+        if (!isSolid(this.get(fx, fy - 1, fz)) && !isSolid(v)) return false;
         this.setBlock(fx, fy, fz, B.FIRE, p.id);
       }
       this.emit({ e: 'sound', s: 'fire.ignite', x: fx + 0.5, y: fy + 0.5, z: fz + 0.5, src: p.id });
@@ -2093,6 +2100,14 @@ export class WorldSim {
       this.hitCart(p, e, this.strike(p).dmg);
       return true;
     }
+    if (e?.kind === 'fireball') {
+      if (Math.hypot(e.x - p.x, e.y - p.y - 1.6, e.z - p.z) > 6) return false;
+      const cp = Math.cos(p.pitch), sp = Math.hypot(e.vx, e.vy, e.vz) * 1.1 + 2;
+      e.vx = -Math.sin(p.yaw) * cp * sp; e.vy = Math.sin(p.pitch) * sp; e.vz = -Math.cos(p.yaw) * cp * sp;
+      e.shooterP = p.id; e.shooter = undefined;
+      this.emit({ e: 'sound', s: 'arrow.hit', x: e.x, y: e.y, z: e.z });
+      return true;
+    }
     if (!e || e.kind !== 'mob') return false;
     if (this.game?.onAttackMob(p, e)) return true;
     const dx = e.x - p.x, dy = e.y + e.h / 2 - (p.y + 1.62), dz = e.z - p.z;
@@ -2178,7 +2193,13 @@ export class WorldSim {
     e.health -= dmg;
     if (fresh) { e.vx = e.vx / 2 + kx * knock * 20; e.vz = e.vz / 2 + kz * knock * 20; if (e.onGround) e.vy = Math.max(e.vy, 8); }
     const def = MOBS[e.type as MobType];
-    if (by) { e.attacker = by; e.provoked = 400; if (!def.hostile) e.panic = 80; else e.target = by; }
+    if (by) {
+      e.attacker = by; e.provoked = 400;
+      if (def.neutral) {
+        e.target = by; e.provoked = 400 + this.rng.int(400);
+        for (const o of this.entities.values()) if (o.type === e.type && o !== e && Math.abs(o.x - e.x) < 20 && Math.abs(o.z - e.z) < 20 && Math.abs(o.y - e.y) < 10) { o.target = by; o.provoked = 400 + this.rng.int(400); }
+      } else if (!def.hostile) e.panic = 80; else e.target = by;
+    }
     this.emit({ e: 'sound', s: `mob.${e.type}.hurt`, x: e.x, y: e.y + 0.5, z: e.z });
     this.emit({ e: 'particles', k: 'hurt', x: e.x, y: e.y + e.h * 0.6, z: e.z });
     if (e.health <= 0) {
@@ -2198,11 +2219,19 @@ export class WorldSim {
         }
       }
       if (killer && killer.mode === 'survival') this.giveXp(killer, def.xp);
+      if (e.type === 'emberslime' && (e.size ?? 1) > 1) {
+        const n = 2 + this.rng.int(3), half = (e.size ?? 2) / 2;
+        for (let i = 0; i < n; i++) { const c = this.spawnMob('emberslime', e.x + (this.rng.next() - 0.5) * half * 0.5, e.y + 0.5, e.z + (this.rng.next() - 0.5) * half * 0.5, half); c.target = e.target; c.persistent = e.persistent; }
+      }
       this.game?.onMobDeath(e, by);
     }
   }
 
-  spawnMob(type: MobType, x: number, y: number, z: number): Entity {
+  private sizeCube(e: Entity, n: number): void {
+    e.size = n; e.hw = 0.26 * n; e.h = 0.52 * n; e.health = e.maxHealth = n * n;
+  }
+
+  spawnMob(type: MobType, x: number, y: number, z: number, size?: number): Entity {
     const def = MOBS[type];
     const e: Entity = {
       id: this.allocId(), kind: 'mob', type, x, y, z, vx: 0, vy: 0, vz: 0, hw: def.hw, h: def.h,
@@ -2210,6 +2239,7 @@ export class WorldSim {
       health: def.health, maxHealth: def.health, hurt: 0, age: 0, fire: 0, flags: 0,
       target: null, path: null, pathT: 0, wanderT: this.rng.int(100), panic: 0, attackCd: 0, provoked: 0,
     };
+    if (type === 'emberslime') this.sizeCube(e, size ?? [1, 2, 4][this.rng.int(3)]);
     this.entities.set(e.id, e);
     this.emit({ e: 'spawn', ent: e });
     return e;
@@ -3319,7 +3349,7 @@ export class WorldSim {
       for (let i = 0; i < ps.length; i++) {
         const dx = ccx - ps[i].x, dz = ccz - ps[i].z;
         if (dx * dx + dz * dz > SPAWN_RANGE * SPAWN_RANGE) continue;
-        if (def.hostile) mon[i]++; else cre[i]++;
+        if (def.hostile || def.neutral) mon[i]++; else cre[i]++;
       }
     }
     return { mon, cre, total };
@@ -3373,7 +3403,7 @@ export class WorldSim {
   }
 
   private spawnForChunk(hostile: boolean, cx: number, cz: number): number {
-    if (isNether(cx * 16)) return 0;
+    if (isNether(cx * 16)) return this.spawnNether(hostile, cx, cz);
     const sx = cx * 16 + this.rng.int(16), sz = cz * 16 + this.rng.int(16);
     const top = this.info.top(sx, sz);
     if (top < 0 && !this.info.heightMap(cx, cz)) return 0;
@@ -3417,7 +3447,7 @@ export class WorldSim {
   private checkDespawn(e: Entity): boolean {
     const def = MOBS[e.type as MobType];
     if (def.hostile && this.difficulty === 'peaceful') return true;
-    if (!def.hostile || e.persistent || def.npc || def.trader) return false;
+    if ((!def.hostile && !def.neutral && !def.nether) || e.persistent || def.npc || def.trader) return false;
     let d = Infinity;
     for (const p of this.players.values()) d = Math.min(d, (p.x - e.x) ** 2 + (p.y - e.y) ** 2 + (p.z - e.z) ** 2);
     if (d === Infinity) return false;
@@ -3458,6 +3488,7 @@ export class WorldSim {
     if (e.kind === 'arrow') return this.tickArrow(e);
     if (e.kind === 'tnt') return this.tickTnt(e);
     if (e.kind === 'cart') return this.tickCart(e);
+    if (e.kind === 'fireball') return this.tickFireball(e);
     this.tickMob(e);
   }
 
@@ -3581,7 +3612,8 @@ export class WorldSim {
     const def = MOBS[e.type as MobType];
     const med = sampleMedium(this.store, e.x, e.y, e.z, e.hw, e.h, e.h * 0.8);
     e.inWater = med.water;
-    if (med.lava) { e.fire = 160; if (e.age % 10 === 0) this.hurtMob(e, 4, null, 0, 0); }
+    if (def.fireImmune) { e.fire = 0; if (e.type === 'wailer') return this.tickGhast(e, def); if (e.type === 'emberslime') return this.tickCube(e, def, med); if (e.type === 'lavastrider') return this.tickStrider(e, def, med); }
+    if (med.lava && !def.fireImmune) { e.fire = 160; if (e.age % 10 === 0) this.hurtMob(e, 4, null, 0, 0); }
     if (def.burnsInDay && this.dayFactor() > 0.6 && this.weather === 'clear' && !med.water && e.age % 20 === 0 && this.skyExposed(e.x, e.y + e.h, e.z)) e.fire = 100;
     if (med.water) e.fire = 0;
     if (e.fire > 0) { e.fire--; if (e.fire % 20 === 0) this.hurtMob(e, 1, null, 0, 0); if (!this.entities.has(e.id)) return; }
@@ -3591,12 +3623,14 @@ export class WorldSim {
     if (e.provoked! > 0) e.provoked!--;
     let goalX: number | null = null, goalZ: number | null = null, speed = def.speed;
     let flags = 0;
-    if (def.hostile) {
+    const angry = def.hostile || (def.neutral && e.provoked! > 0 && !!e.target);
+    if (def.neutral && !angry) e.target = null;
+    if (angry) {
       if (e.type === 'duskweaver' && e.age % 20 === 1) e.dim = !this.brightAtLeast(Math.floor(e.x), Math.floor(e.y + 0.5), Math.floor(e.z), 12);
       const aggressive = e.type !== 'duskweaver' || e.provoked! > 0 || e.dim !== false;
       let target = e.target ? this.players.get(e.target) : undefined;
       if (target && (target.dead || target.mode !== 'survival' || Math.hypot(target.x - e.x, target.z - e.z) > 32)) { target = undefined; e.target = null; }
-      if (!target && aggressive && e.age % 10 === 0) {
+      if (!target && aggressive && def.hostile && e.age % 10 === 0) {
         const near = this.nearestPlayer(e, 16, true);
         if (near && this.lineOfSight(e, near)) { e.target = near.id; target = near; }
       }
@@ -3698,7 +3732,7 @@ export class WorldSim {
         if (d > 2) { goalX = t.x; goalZ = t.z; } else { e.path = null; e.yaw = Math.atan2(-(t.x - e.x), -(t.z - e.z)); }
       }
     }
-    if (goalX === null && !def.hostile || goalX === null && !e.target) {
+    if (goalX === null && !angry || goalX === null && !e.target) {
       if (--e.wanderT! <= 0) {
         e.wanderT = 80 + this.rng.int(200);
         if (this.rng.chance(0.6)) {
@@ -3727,7 +3761,7 @@ export class WorldSim {
         e.yaw = Math.atan2(-dx, -dz);
         if (n.y > Math.floor(e.y) && e.onGround) e.vy = 8.2;
       }
-    } else if (goalX !== null && goalZ !== null && def.hostile) {
+    } else if (goalX !== null && goalZ !== null && angry) {
       const dx = goalX - e.x, dz = goalZ - e.z;
       const d = Math.hypot(dx, dz) || 1;
       if (d > 0.8) { wantX = (dx / d) * speed; wantZ = (dz / d) * speed; }
@@ -3749,6 +3783,178 @@ export class WorldSim {
     if (e.baby) flags |= 128;
     if (e.fire > 0) flags |= 2;
     if (e.prof !== undefined) flags |= (e.prof + 1) << 9;
+    e.flags = flags;
+  }
+
+  private spawnNether(hostile: boolean, cx: number, cz: number): number {
+    const sx = cx * 16 + this.rng.int(16), sz = cz * 16 + this.rng.int(16);
+    if (!this.store.isLoaded(sx, sz) || !this.isTicking(sx, sz)) return 0;
+    const biome = this.gen.netherBiome(sx, sz);
+    const list = Object.values(MOBS).filter((d) => d.nether?.[biome] && (hostile ? d.hostile || d.neutral : !d.hostile && !d.neutral) && (!hostile || this.difficulty !== 'peaceful'));
+    let total = 0;
+    for (const d of list) total += d.nether![biome]!.weight;
+    if (!total) return 0;
+    let r = this.rng.int(total), def: MobDef | null = null;
+    for (const d of list) { r -= d.nether![biome]!.weight; if (r < 0) { def = d; break; } }
+    if (!def) return 0;
+    const sp = def.nether![biome]!;
+    let y = NETHER_LAVA + 1 + this.rng.int(90);
+    if (def.lavaWalker) {
+      y = NETHER_LAVA;
+      if (blockId(this.get(sx, y, sz)) !== B.LAVA || this.get(sx, y + 1, sz) !== 0 || this.get(sx, y + 2, sz) !== 0) return 0;
+      y += 1;
+    } else {
+      let k = 0;
+      while (k < 24 && (this.get(sx, y, sz) !== 0 || this.get(sx, y - 1, sz) === 0)) { y--; k++; }
+      if (this.get(sx, y, sz) !== 0 || !isSolid(this.get(sx, y - 1, sz))) return 0;
+      if (def.flying) { y += 2; for (let dy = 0; dy < 5; dy++) for (let dx = -2; dx <= 2; dx += 2) for (let dz = -2; dz <= 2; dz += 2) if (this.get(sx + dx, y + dy, sz + dz) !== 0) return 0; }
+    }
+    for (const p of this.players.values()) if ((p.x - sx) ** 2 + (p.y - y) ** 2 + (p.z - sz) ** 2 < 576) return 0;
+    const n = def.flying ? 1 : sp.min + this.rng.int(sp.max - sp.min + 1);
+    let spawned = 0;
+    for (let i = 0; i < n; i++) {
+      const x = sx + (i ? this.rng.int(5) - 2 : 0), z = sz + (i ? this.rng.int(5) - 2 : 0);
+      if (!def.flying && !def.lavaWalker && (!this.spawnRoom(def, x, y, z))) continue;
+      const e = this.spawnMob(def.type, x + 0.5, y, z + 0.5);
+      if (def.flying) e.goal = [e.x, e.y, e.z];
+      spawned++;
+    }
+    return spawned;
+  }
+
+  private tickGhast(e: Entity, def: MobDef): void {
+    if (e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    if (e.attackCd! > 0) e.attackCd!--;
+    let target = e.target ? this.players.get(e.target) : undefined;
+    if (target && (target.dead || target.mode !== 'survival' || Math.hypot(target.x - e.x, target.y - e.y, target.z - e.z) > 64)) { target = undefined; e.target = null; }
+    if (!target && e.age % 20 === 0 && this.difficulty !== 'peaceful') {
+      const near = this.nearestPlayer(e, 64, true);
+      if (near && this.lineOfSight(e, near)) { e.target = near.id; target = near; }
+    }
+    if (!e.goal || Math.hypot(e.goal[0] - e.x, e.goal[1] - e.y, e.goal[2] - e.z) < 2 || this.rng.int(200) === 0) {
+      const gx = e.x + (this.rng.next() - 0.5) * 32, gy = Math.max(NETHER_LAVA + 4, Math.min(NETHER_HEIGHT - 10, e.y + (this.rng.next() - 0.5) * 16)), gz = e.z + (this.rng.next() - 0.5) * 32;
+      e.goal = [gx, gy, gz];
+    }
+    const [gx, gy, gz] = e.goal;
+    const dx = gx - e.x, dy = gy - e.y, dz = gz - e.z, d = Math.hypot(dx, dy, dz) || 1;
+    e.vx += ((dx / d) * def.speed - e.vx) * 0.05; e.vy += ((dy / d) * def.speed - e.vy) * 0.05; e.vz += ((dz / d) * def.speed - e.vz) * 0.05;
+    let flags = 0;
+    if (target) {
+      e.yaw = Math.atan2(-(target.x - e.x), -(target.z - e.z));
+      if (e.age % 5 === 0 || e.los === undefined) e.los = this.lineOfSight(e, target);
+      if (e.los) {
+        e.charge = (e.charge ?? 0) + 1;
+        if (e.charge === 10) this.emit({ e: 'sound', s: 'mob.wailer.warn', x: e.x, y: e.y + 2, z: e.z });
+        if (e.charge >= 20) {
+          e.charge = -40;
+          const ox = e.x - Math.sin(e.yaw) * 2.2, oy = e.y + 2, oz = e.z - Math.cos(e.yaw) * 2.2;
+          const tx = target.x - ox, ty = target.y + 1 - oy, tz = target.z - oz, tl = Math.hypot(tx, ty, tz) || 1;
+          const sp = 16;
+          const f: Entity = { id: this.allocId(), kind: 'fireball', type: 'fireball', x: ox, y: oy, z: oz, vx: (tx / tl) * sp, vy: (ty / tl) * sp, vz: (tz / tl) * sp, hw: 0.5, h: 1, onGround: false, hitH: false, hitCeil: false, yaw: e.yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0, shooter: e.id };
+          this.entities.set(f.id, f);
+          this.emit({ e: 'spawn', ent: f });
+          this.emit({ e: 'sound', s: 'mob.wailer.shoot', x: ox, y: oy, z: oz });
+        }
+      } else if ((e.charge ?? 0) > 0) e.charge = (e.charge ?? 0) - 1;
+      if ((e.charge ?? 0) > 10) flags |= 4;
+      flags |= 16;
+    } else { e.charge = Math.min(0, e.charge ?? 0) + (e.charge && e.charge < 0 ? 1 : 0); if (Math.hypot(e.vx, e.vz) > 0.2) e.yaw = Math.atan2(-e.vx, -e.vz); }
+    if ((e.charge ?? 0) < 0) e.charge!++;
+    moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
+    if (e.hitH || e.hitCeil || e.onGround) { e.goal = undefined; if (e.onGround) e.vy = 1.5; }
+    if (e.hurt > 0) flags |= 1;
+    e.flags = flags;
+    if (e.age % 300 === 0 && this.rng.chance(0.5)) this.emit({ e: 'sound', s: 'mob.wailer.ambient', x: e.x, y: e.y + 2, z: e.z });
+  }
+
+  private tickFireball(e: Entity): void {
+    if (e.age > 200) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    const sp = Math.hypot(e.vx, e.vy, e.vz) || 1;
+    const step = sp * DT;
+    const dx = e.vx / sp, dy = e.vy / sp, dz = e.vz / sp;
+    let hit = false;
+    const wall = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
+    if (wall && isSolid(wall.value)) hit = true;
+    if (!hit) for (const p of this.players.values()) {
+      if (p.dead) continue;
+      if (Math.abs(p.x - e.x) < 0.9 && Math.abs(p.z - e.z) < 0.9 && e.y > p.y - 0.5 && e.y < p.y + 2.2) { hit = true; this.damage(p, 6 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal, 'fireball', e.x, e.z); break; }
+    }
+    if (!hit) for (const m of this.entities.values()) {
+      if (m.kind !== 'mob' || m.id === e.shooter || m.health <= 0) continue;
+      if (Math.abs(m.x - e.x) < m.hw + 0.5 && Math.abs(m.z - e.z) < m.hw + 0.5 && e.y > m.y - 0.5 && e.y < m.y + m.h + 0.5) { hit = true; this.hurtMob(m, m.type === 'wailer' && e.shooterP ? 1000 : 6, e.shooterP ?? null, dx, dz); break; }
+    }
+    if (hit) {
+      this.entities.delete(e.id);
+      this.emit({ e: 'remove', id: e.id, why: 'hit' });
+      this.explode(e.x, e.y, e.z, 1, { fire: true });
+      return;
+    }
+    e.x += e.vx * DT; e.y += e.vy * DT; e.z += e.vz * DT;
+    if (e.age % 4 === 0) this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y, z: e.z });
+  }
+
+  private tickCube(e: Entity, def: MobDef, med: { lava: boolean; water: boolean }): void {
+    if (e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    if (e.attackCd! > 0) e.attackCd!--;
+    const n = e.size ?? 1;
+    let target = e.target ? this.players.get(e.target) : undefined;
+    if (target && (target.dead || target.mode !== 'survival' || Math.hypot(target.x - e.x, target.z - e.z) > 24)) { target = undefined; e.target = null; }
+    if (!target && e.age % 10 === 0 && this.difficulty !== 'peaceful') { const near = this.nearestPlayer(e, 16, true); if (near) { e.target = near.id; target = near; } }
+    let flags = 0;
+    if (target) { e.yaw = Math.atan2(-(target.x - e.x), -(target.z - e.z)); flags |= 16; }
+    if (e.onGround) {
+      e.vx *= 0.5; e.vz *= 0.5;
+      e.wanderT = (e.wanderT ?? 0) - 1;
+      if (e.wanderT! <= 0) {
+        e.wanderT = target ? 10 + this.rng.int(10) : 20 + this.rng.int(40);
+        if (!target) e.yaw += (this.rng.next() - 0.5) * 1.5;
+        const sp = def.speed * (target ? 1.4 : 0.8) * (0.8 + n * 0.1);
+        e.vx = -Math.sin(e.yaw) * sp; e.vz = -Math.cos(e.yaw) * sp;
+        e.vy = 7 + n * 0.8 + (target ? 2 : 0);
+        this.emit({ e: 'sound', s: 'mob.emberslime.jump', x: e.x, y: e.y, z: e.z });
+      }
+    }
+    if (med.lava) e.vy = Math.min(e.vy + 30 * DT, 4); else e.vy = Math.max(e.vy - 28 * DT, -40);
+    moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
+    if (target && e.attackCd! <= 0 && Math.abs(target.x - e.x) < e.hw + 0.4 && Math.abs(target.z - e.z) < e.hw + 0.4 && target.y < e.y + e.h && target.y + 1.8 > e.y) {
+      e.attackCd = 20;
+      flags |= 4;
+      this.hitBy = { mob: e, breach: 0 };
+      this.damage(target, Math.max(1, Math.round([0, 3, 4, 0, 6][n] * DIFF_DMG[this.difficulty] * 2) / 2), e.type, e.x, e.z);
+      this.hitBy = null;
+    }
+    if (!e.onGround) flags |= 4096;
+    if (e.hurt > 0) flags |= 1;
+    flags |= (n === 4 ? 2 : n === 2 ? 1 : 0) << 13;
+    e.flags = flags;
+  }
+
+  private tickStrider(e: Entity, def: MobDef, med: { lava: boolean; water: boolean }): void {
+    if (e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    let flags = 0;
+    const below = blockId(this.get(Math.floor(e.x), Math.floor(e.y - 0.05), Math.floor(e.z)));
+    const onLava = med.lava || below === B.LAVA;
+    if (--e.wanderT! <= 0) { e.wanderT = 60 + this.rng.int(120); e.yaw += (this.rng.next() - 0.5) * 2.4; e.panic = this.rng.chance(0.75) ? 1 : 0; }
+    const sp = e.panic ? def.speed : 0;
+    let wx = -Math.sin(e.yaw) * sp, wz = -Math.cos(e.yaw) * sp;
+    if (onLava) {
+      const ax = Math.floor(e.x + wx * 0.6), az = Math.floor(e.z + wz * 0.6), ay = Math.floor(e.y - 0.5);
+      const ahead = blockId(this.get(ax, ay, az));
+      if (ahead !== B.LAVA && !isSolid(this.get(ax, ay, az)) && !isSolid(this.get(ax, ay + 1, az))) { e.yaw += Math.PI * 0.7; wx = 0; wz = 0; }
+    }
+    e.vx += (wx - e.vx) * 0.3; e.vz += (wz - e.vz) * 0.3;
+    if (med.lava) {
+      const surf = Math.floor(e.y) + 1;
+      e.vy = blockId(this.get(Math.floor(e.x), surf, Math.floor(e.z))) === B.LAVA ? 3 : Math.max(0, (surf - e.y) * 6);
+      if (e.y > surf - 0.02 && e.vy <= 0) { e.vy = 0; e.y = Math.max(e.y, surf); }
+    } else if (below === B.LAVA) e.vy = 0;
+    else e.vy = Math.max(e.vy - 28 * DT, -40);
+    if (e.hitH && e.onGround) e.vy = 8.2;
+    moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
+    if (below === B.LAVA && e.y - Math.floor(e.y) < 0.05) { e.onGround = true; }
+    if (Math.hypot(e.vx, e.vz) > 0.1) e.yaw = Math.atan2(-e.vx, -e.vz);
+    if (!onLava) flags |= 32;
+    if (e.hurt > 0) flags |= 1;
     e.flags = flags;
   }
 
@@ -4101,8 +4307,10 @@ export class WorldSim {
       }
       case 'summon': {
         if (!allowed) return need();
-        const t = (parts[1] ?? '').toLowerCase() as MobType;
-        if (!MOBS[t] || MOBS[t].npc) return `Unknown creature. Try: ${Object.keys(MOBS).filter((k) => !MOBS[k as MobType].npc).join(', ')}`;
+        const raw = (parts[1] ?? '').toLowerCase().replace(/^minecraft:/, '');
+        const ALIAS: Record<string, MobType> = { sheep: 'woolhorn', pig: 'mudsnout', chicken: 'fernhen', zombie: 'hollowed', skeleton: 'rattlebone', spider: 'duskweaver', zombified_piglin: 'cinderhusk', zombified_hogman: 'cinderhusk', ghast: 'wailer', magma_cube: 'emberslime', strider: 'lavastrider' };
+        const t = (ALIAS[raw] ?? raw) as MobType;
+        if (!MOBS[t] || MOBS[t].npc) return `Unknown creature. Try: ${[...Object.keys(ALIAS), 'villager'].join(', ')}`;
         if (!this.authoritative) return '';
         const n = Math.max(1, Math.min(10, Number(parts[2] ?? 1) || 1));
         for (let i = 0; i < n; i++) {

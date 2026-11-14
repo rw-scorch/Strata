@@ -64,6 +64,8 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
           mcRow(mcSlider('Render Resolution', 0.5, 1, 0.05, s.resolutionScale, pct, (v) => set({ resolutionScale: v })),
             mcToggle('Dynamic Resolution', s.adaptiveResolution, (v) => set({ adaptiveResolution: v }), 'Lowers resolution, then heavy effects, to hold a steady frame rate.')),
           mcRow(mcToggle('Clouds', s.clouds, (v) => set({ clouds: v })),
+            mcCycle('Cloud Style', [['realistic', 'Realistic'], ['blocky', 'Blocky']], s.cloudStyle ?? 'realistic', (v) => set({ cloudStyle: v }), { tip: 'Realistic clouds need shaders on (any post effect). Without shaders, clouds are blocky.' })),
+          mcRow(
             mcCycle('Particles', [['high', 'All'], ['low', 'Decreased'], ['off', 'Minimal']], s.particles, (v) => set({ particles: v }))),
           mcRow(mcToggle('Smooth Lighting', s.smoothLighting, (v) => set({ smoothLighting: v })),
             mcToggle('Show FPS', s.showFps, (v) => set({ showFps: v }))),
@@ -76,7 +78,7 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
           mcRow(mcToggle('Dynamic Lights', s.dynamicLights, (v) => set({ dynamicLights: v }), 'Torches and glowing items light up the area around you while you hold them.'),
             mcToggle('Falling Leaves', s.fallingLeaves, (v) => set({ fallingLeaves: v }))),
           mcRow(mcToggle('Connected Glass', s.connectedGlass, (v) => set({ connectedGlass: v }), 'Removes the frame lines between neighbouring glass blocks (like Continuity).'),
-            mcCycle('Better Grass', [['off', 'OFF'], ['fast', 'Fast'], ['fancy', 'Fancy']], s.betterGrass, (v) => set({ betterGrass: v }), { tip: 'Fast covers every grass side in grass. Fancy only where the grass continues down a slope.' })),
+            mcCycle('Better Grass', [['off', 'OFF'], ['fast', 'Fast'], ['fancy', 'Fancy']], s.betterGrass, (v) => set({ betterGrass: v }), { tip: 'Fast covers every grass side in grass. Fancy only does it where the grass continues down a slope, so sides will look mixed. Dirt under grass always stays brown.' })),
           mcRow(mcToggle('Sound Physics', s.soundPhysics, (v) => set({ soundPhysics: v }), 'Echoes in caves and muffles sounds behind walls.')),
           mcHeading('Performance'),
           mcRow(mcToggle('Cave Culling', s.caveCulling, (v) => set({ caveCulling: v }), 'Skips drawing caves and rooms you cannot see, like Minecraft and Sodium.'),

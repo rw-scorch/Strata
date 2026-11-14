@@ -1,7 +1,7 @@
 import { I } from '../items';
 import { B } from '../blocks';
 
-export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager';
+export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider';
 
 export interface MobDrop { item: number; min: number; max: number; chance?: number; }
 
@@ -24,6 +24,11 @@ export interface MobDef {
   npc?: boolean;
   trader?: boolean;
   spawn?: { weight: number; min: number; max: number };
+  neutral?: boolean;
+  fireImmune?: boolean;
+  flying?: boolean;
+  lavaWalker?: boolean;
+  nether?: Partial<Record<string, { weight: number; min: number; max: number }>>;
   desc: string;
 }
 
@@ -56,6 +61,7 @@ export const MOBS: Record<MobType, MobDef> = {
     type: 'rattlebone', code: 4, name: 'Skeleton', hostile: true, health: 20, speed: 2.5, hw: 0.3, h: 1.95, damage: 2,
     drops: [{ item: I.BONE, min: 0, max: 2 }, { item: I.ARROW, min: 0, max: 2 }], xp: 5, burnsInDay: true, ranged: true,
     spawn: { weight: 100, min: 4, max: 4 },
+    nether: { soul_sand_valley: { weight: 20, min: 5, max: 5 } },
     desc: 'A clattering skeleton archer that keeps its distance.',
   },
   duskweaver: {
@@ -75,6 +81,30 @@ export const MOBS: Record<MobType, MobDef> = {
   villager: {
     type: 'villager', code: 8, name: 'Villager', hostile: false, health: 20, speed: 1.6, hw: 0.3, h: 1.95, damage: 0, drops: [], xp: 0, trader: true,
     desc: 'A village local. Use on them to trade emeralds for goods.',
+  },
+  cinderhusk: {
+    type: 'cinderhusk', code: 9, name: 'Zombified Hogman', hostile: false, neutral: true, fireImmune: true, health: 20, speed: 2.3, hw: 0.3, h: 1.95, damage: 5,
+    drops: [{ item: I.ROTTEN_FLESH, min: 0, max: 1 }, { item: I.GOLD_NUGGET, min: 0, max: 1 }, { item: I.GOLD_INGOT, min: 1, max: 1, chance: 0.025 }], xp: 5,
+    nether: { nether_wastes: { weight: 100, min: 4, max: 4 }, crimson_forest: { weight: 1, min: 2, max: 4 } },
+    desc: 'A rotting hog-faced wanderer of the Nether. Leaves you alone until you strike one, then the whole pack comes for you.',
+  },
+  wailer: {
+    type: 'wailer', code: 10, name: 'Ghast', hostile: true, fireImmune: true, flying: true, health: 10, speed: 1.2, hw: 2, h: 4, damage: 6,
+    drops: [{ item: I.GUNPOWDER, min: 0, max: 2 }, { item: I.GHAST_TEAR, min: 0, max: 1 }], xp: 5,
+    nether: { nether_wastes: { weight: 50, min: 4, max: 4 }, soul_sand_valley: { weight: 50, min: 4, max: 4 }, basalt_deltas: { weight: 40, min: 1, max: 1 } },
+    desc: 'A huge floating jellyfish of the Nether that wails and spits fireballs. Hit a fireball back to return it.',
+  },
+  emberslime: {
+    type: 'emberslime', code: 11, name: 'Magma Cube', hostile: true, fireImmune: true, health: 16, speed: 2.6, hw: 1.02, h: 2.04, damage: 6,
+    drops: [{ item: I.MAGMA_CREAM, min: 0, max: 1, chance: 0.25 }], xp: 4,
+    nether: { nether_wastes: { weight: 2, min: 4, max: 4 }, basalt_deltas: { weight: 100, min: 2, max: 5 } },
+    desc: 'A bouncing cube of molten slime. Splits into smaller cubes when beaten.',
+  },
+  lavastrider: {
+    type: 'lavastrider', code: 12, name: 'Strider', hostile: false, fireImmune: true, lavaWalker: true, health: 20, speed: 1.6, hw: 0.45, h: 1.7, damage: 0,
+    drops: [{ item: I.STRING, min: 2, max: 5 }], xp: 2,
+    nether: { nether_wastes: { weight: 60, min: 1, max: 2 }, crimson_forest: { weight: 60, min: 1, max: 2 }, warped_forest: { weight: 60, min: 1, max: 2 }, soul_sand_valley: { weight: 60, min: 1, max: 2 }, basalt_deltas: { weight: 60, min: 1, max: 2 } },
+    desc: 'A long-legged walker that strolls across lava seas. Shivers and turns purple when out of the heat.',
   },
 };
 

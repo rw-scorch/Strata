@@ -42,9 +42,11 @@ export function deriveGfx(s: Settings, pressure = 0): GfxConfig {
     saturation: s.saturation,
     contrast: s.contrast,
     sceneTextures: water > 0,
+    volClouds: s.clouds && s.cloudStyle !== 'blocky' && pressure < 3,
   };
   const anyPost = p.msaa > 0 || p.bloom > 0 || p.godRays || p.ssao || p.dof || p.motionBlur > 0 || p.autoExposure || p.fxaa
     || p.vignette || p.grain || p.chromatic || p.lensFlare || p.filmic || p.saturation !== 1 || p.contrast !== 1 || p.sceneTextures;
+  if (!anyPost) p.volClouds = false;
   if (!anyPost) { fx.water = 0; }
   return {
     post: anyPost ? p : null,

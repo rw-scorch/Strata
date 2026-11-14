@@ -35,6 +35,7 @@ interface CChunk {
   saveDirty: boolean;
   meshed: boolean;
   fresh: boolean;
+  reqAt?: number;
 }
 
 type Job = { kind: 'gen' | 'mesh'; c: CChunk; pri: number };
@@ -54,6 +55,7 @@ export class ChunkManager implements WorldStore {
   remote: boolean;
   renderDistance = 6;
   smooth = true;
+  private retryAt = 0;
   meshOpts: { glass: boolean; grass: 'off' | 'fast' | 'fancy' } = { glass: true, grass: 'fancy' };
   centerX = 0;
   centerZ = 0;
@@ -223,6 +225,17 @@ export class ChunkManager implements WorldStore {
               else { c.fresh = true; this.requestGen(c, r); }
             }).catch(() => { c.fresh = true; this.requestGen(c, r); });
           } else this.requestGen(c, r);
+        }
+      }
+    }
+    if (this.remote && this.hooks.requestRemote) {
+      const tnow = performance.now();
+      if (tnow - this.retryAt > 2500) {
+        this.retryAt = tnow;
+        for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+          const c = this.chunks.get(nk(pcx + dx, pcz + dz));
+          if (c && c.remote === 'waiting' && !c.data && tnow - (c.reqAt ?? tnow) > 2400) { c.reqAt = tnow; wantRemote.push([c.cx, c.cz]); }
+          else if (c && c.reqAt === undefined) c.reqAt = tnow;
         }
       }
     }

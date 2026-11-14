@@ -157,7 +157,7 @@ class App {
 
   async playRemote(code: string): Promise<void> {
     this.menus.hide();
-    const connecting = h('div', { class: 'screen loading-screen' }, h('h2', {}, `Joining ${code}`), h('div', { class: 'small muted' }, 'Connecting to the world server...'));
+    const connecting = h('div', { class: 'screen loading-screen mc-load' }, h('div', { class: 'load-title' }, `Joining ${code}`), h('div', { class: 'load-step' }, 'Connecting to the server...'));
     this.screens.appendChild(connecting);
     void this.enterFullscreen();
     document.body.classList.add('in-game');

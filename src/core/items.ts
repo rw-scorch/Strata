@@ -33,7 +33,7 @@ export const I = {
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
   ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298, BONE_MEAL: 299,
-  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370, REDSTONE: 371, GUNPOWDER: 372, FLINT_AND_STEEL: 373, MINECART: 374, TNT_MINECART: 375, CROSSBOW: 376, CROSSBOW_PULL0: 377, CROSSBOW_PULL1: 378, CROSSBOW_PULL2: 379, CROSSBOW_LOADED: 380, MACE: 381, SPEAR: 382, ENCHANTED_BOOK: 388, LAPIS: 389, GOLD_NUGGET: 390, QUARTZ: 391, IRON_NUGGET: 392,
+  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370, REDSTONE: 371, GUNPOWDER: 372, FLINT_AND_STEEL: 373, MINECART: 374, TNT_MINECART: 375, CROSSBOW: 376, CROSSBOW_PULL0: 377, CROSSBOW_PULL1: 378, CROSSBOW_PULL2: 379, CROSSBOW_LOADED: 380, MACE: 381, SPEAR: 382, ENCHANTED_BOOK: 388, LAPIS: 389, GOLD_NUGGET: 390, QUARTZ: 391, IRON_NUGGET: 392, TRIPWIRE_HOOK: 393, GHAST_TEAR: 394, MAGMA_CREAM: 395,
 } as const;
 
 const NEW_DYES = COLORS.filter((c) => c !== 'red' && c !== 'yellow');
@@ -113,6 +113,9 @@ mat(I.ENCHANTED_BOOK, 'enchanted_book', 'Enchanted Book', 'Combine with gear at 
 mat(I.GOLD_NUGGET, 'gold_nugget', 'Gold Nugget', 'A ninth of a gold ingot.');
 mat(I.QUARTZ, 'quartz', 'Nether Quartz', 'A pale crystal from the Nether.');
 mat(I.IRON_NUGGET, 'iron_nugget', 'Iron Nugget', 'A ninth of an iron ingot.');
+mat(I.TRIPWIRE_HOOK, 'tripwire_hook', 'Tripwire Hook', 'Used to make crossbows.');
+mat(I.GHAST_TEAR, 'ghast_tear', 'Ghast Tear', 'A tear wept by a Ghast. Hard to come by.');
+mat(I.MAGMA_CREAM, 'magma_cream', 'Magma Cream', 'A sticky, glowing goo from Magma Cubes.');
 mat(I.LAPIS, 'lapis_lazuli', 'Lapis Lazuli', 'Blue mineral. Enchanting Tables use it as fuel.');
 mat(I.RED_DYE, 'red_dye', 'Crimson Dye', 'Pressed from poppies.');
 mat(I.YELLOW_DYE, 'yellow_dye', 'Saffron Dye', 'Pressed from dandelions.');

@@ -43,7 +43,7 @@ export interface BlockDef {
   replaceable: boolean;
   climbable: boolean;
   fluid: 'water' | 'lava' | null;
-  needsSupport: 'soil' | 'sand' | 'solid' | 'farmland' | 'water-edge' | 'cactus' | 'water-plant' | null;
+  needsSupport: 'soil' | 'nylium' | 'hang' | 'sand' | 'solid' | 'farmland' | 'water-edge' | 'cactus' | 'water-plant' | null;
   orientable: boolean;
   interactive: boolean;
   category: 'building' | 'nature' | 'functional' | 'ore' | 'plants' | 'hidden';
@@ -69,7 +69,7 @@ export const B = {
   SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178, KELP: 179, KELP_PLANT: 180, SEAGRASS: 181, VINE: 182,
   REDSTONE_WIRE: 183, REDSTONE_TORCH: 184, LEVER: 185, STONE_BUTTON: 186, OAK_BUTTON: 187, STONE_PRESSURE_PLATE: 188, OAK_PRESSURE_PLATE: 189,
   REDSTONE_BLOCK: 190, REDSTONE_LAMP: 191, REDSTONE_LAMP_LIT: 192, UNLIT_REDSTONE_TORCH: 193, REDSTONE_ORE: 194, REPEATER: 195, COMPARATOR: 196,
-  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204, SLIME_BLOCK: 205, HONEY_BLOCK: 206, TNT: 207, SLAB: 208, STAIRS: 209, RAIL: 210, POWERED_RAIL: 211, DETECTOR_RAIL: 212, ACTIVATOR_RAIL: 213, ENCHANTING_TABLE: 214, LAPIS_ORE: 215, LAPIS_BLOCK: 216, ANVIL: 217, EXT: 218, NETHER_PORTAL: 219, FIRE: 220, CRYING_OBSIDIAN: 221, MAGMA_BLOCK: 222, IRON_BARS: 223,
+  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204, SLIME_BLOCK: 205, HONEY_BLOCK: 206, TNT: 207, SLAB: 208, STAIRS: 209, RAIL: 210, POWERED_RAIL: 211, DETECTOR_RAIL: 212, ACTIVATOR_RAIL: 213, ENCHANTING_TABLE: 214, LAPIS_ORE: 215, LAPIS_BLOCK: 216, ANVIL: 217, EXT: 218, NETHER_PORTAL: 219, FIRE: 220, CRYING_OBSIDIAN: 221, MAGMA_BLOCK: 222, IRON_BARS: 223, SHROOMLIGHT: 224, CRIMSON_ROOTS: 225, WARPED_ROOTS: 226, NETHER_SPROUTS: 227, CRIMSON_FUNGUS: 228, WARPED_FUNGUS: 229, WEEPING_VINES: 230, TWISTING_VINES: 231, SOUL_FIRE: 232,
 } as const;
 
 export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
@@ -102,7 +102,8 @@ const defs: BlockDef[] = [];
 export const XB = 600;
 export const XV = {
   NETHERRACK: 0, NETHER_QUARTZ_ORE: 1, NETHER_GOLD_ORE: 2, BLACKSTONE: 3, SOUL_SAND: 4, SOUL_SOIL: 5, NETHER_BRICKS: 6, BASALT: 7,
-  POLISHED_BLACKSTONE: 8, POLISHED_BLACKSTONE_BRICKS: 9, QUARTZ_BLOCK: 10,
+  POLISHED_BLACKSTONE: 8, POLISHED_BLACKSTONE_BRICKS: 9, QUARTZ_BLOCK: 10, CRIMSON_NYLIUM: 11, WARPED_NYLIUM: 12, CRIMSON_STEM: 13, WARPED_STEM: 14,
+  NETHER_WART_BLOCK: 15, WARPED_WART_BLOCK: 16, BONE_BLOCK: 17, CRIMSON_PLANKS: 18, WARPED_PLANKS: 19, SMOOTH_BASALT: 20,
 } as const;
 export function X(variant: number): number { return 218 | (variant << 8); }
 export function tix(v: number): number { const id = v & 0xff; return id === 218 ? XB + (v >>> 8) : id; }
@@ -289,6 +290,16 @@ def(220, 'fire', 'Fire', 'Burns what stands in it. Lasts forever on netherrack.'
 def(221, 'crying_obsidian', 'Crying Obsidian', 'Obsidian that weeps purple light. It cannot frame a portal.', { faces: ALL('crying_obsidian'), hardness: 50, tool: 'pickaxe', tier: 4, lightEmit: 10 });
 def(222, 'magma_block', 'Magma Block', 'Hot to stand on. Crouch to cross it safely.', { faces: ALL('magma'), hardness: 0.5, tool: 'pickaxe', tier: 1, lightEmit: 3 });
 def(223, 'iron_bars', 'Iron Bars', 'A thin grille that links to its neighbours.', { faces: ALL('iron_bars'), render: 'bars', opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', tier: 1, sound: 'metal', cullSelf: false });
+def(224, 'shroomlight', 'Shroomlight', 'A glowing lump that grows in the caps of huge Nether fungi.', { faces: ALL('shroomlight'), hardness: 1, tool: 'hoe', sound: 'cloth', lightEmit: 15, category: 'nature' });
+const NPLANT: Partial<BlockDef> = { ...PLANT, needsSupport: 'nylium', replaceable: true, drops: [{ item: 'self' }] };
+def(225, 'crimson_roots', 'Crimson Roots', 'Red roots that sprout from crimson nylium.', { faces: ALL('crimson_roots'), ...NPLANT });
+def(226, 'warped_roots', 'Warped Roots', 'Teal roots that sprout from warped nylium.', { faces: ALL('warped_roots'), ...NPLANT });
+def(227, 'nether_sprouts', 'Nether Sprouts', 'Tiny teal shoots. Only shears keep them.', { faces: ALL('nether_sprouts'), ...NPLANT, drops: [] });
+def(228, 'crimson_fungus', 'Crimson Fungus', 'A small red mushroom of the Nether.', { faces: ALL('crimson_fungus'), ...NPLANT, replaceable: false });
+def(229, 'warped_fungus', 'Warped Fungus', 'A small teal mushroom of the Nether.', { faces: ALL('warped_fungus'), ...NPLANT, replaceable: false });
+def(230, 'weeping_vines', 'Weeping Vines', 'Red vines that hang from crimson ceilings. Climbable.', { faces: ALL('weeping_vines'), ...PLANT, needsSupport: 'hang', climbable: true, drops: [{ item: 'self', chance: 0.33 }] });
+def(231, 'twisting_vines', 'Twisting Vines', 'Teal vines that climb up from warped ground. Climbable.', { faces: ALL('twisting_vines'), ...PLANT, needsSupport: 'solid', climbable: true, drops: [{ item: 'self', chance: 0.33 }] });
+def(232, 'soul_fire', 'Soul Fire', 'Blue flame that burns on soul sand and soul soil.', { faces: ALL('soul_fire_0'), render: 'fire', solid: false, opaque: false, lightFilter: 0, lightEmit: 10, hardness: 0, drops: [], replaceable: true, sound: 'grass', category: 'hidden' });
 ext(0, 'netherrack', 'Netherrack', 'Soft red rock of the Nether. Fire on it never goes out.', { faces: ALL('netherrack'), hardness: 0.4, tool: 'pickaxe', tier: 1, category: 'nature' });
 ext(1, 'nether_quartz_ore', 'Nether Quartz Ore', 'Pale crystal set in netherrack.', { faces: ALL('nether_quartz_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 391 }], xp: [2, 5], category: 'ore' });
 ext(2, 'nether_gold_ore', 'Nether Gold Ore', 'Flecks of gold in netherrack. Breaks into nuggets.', { faces: ALL('nether_gold_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 390, min: 2, max: 6 }], xp: [0, 1], category: 'ore' });
@@ -300,6 +311,16 @@ ext(7, 'basalt', 'Basalt', 'Grey volcanic rock.', { faces: { ...ALL('basalt_side
 ext(8, 'polished_blackstone', 'Polished Blackstone', 'Blackstone smoothed flat.', { faces: ALL('polished_blackstone'), hardness: 2, tool: 'pickaxe', tier: 1 });
 ext(9, 'polished_blackstone_bricks', 'Polished Blackstone Bricks', 'Neat dark bricks.', { faces: ALL('polished_blackstone_bricks'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
 ext(10, 'quartz_block', 'Block of Quartz', 'Clean white stone made from Nether Quartz.', { faces: { ...ALL('quartz_block_side'), py: 'quartz_block_top', ny: 'quartz_block_bottom' }, hardness: 0.8, tool: 'pickaxe', tier: 1 });
+ext(11, 'crimson_nylium', 'Crimson Nylium', 'Netherrack covered in red fungal growth.', { faces: { ...ALL('crimson_nylium_side'), py: 'crimson_nylium', ny: 'netherrack' }, hardness: 0.4, tool: 'pickaxe', tier: 1, drops: [{ item: XB + 0 }], category: 'nature' });
+ext(12, 'warped_nylium', 'Warped Nylium', 'Netherrack covered in teal fungal growth.', { faces: { ...ALL('warped_nylium_side'), py: 'warped_nylium', ny: 'netherrack' }, hardness: 0.4, tool: 'pickaxe', tier: 1, drops: [{ item: XB + 0 }], category: 'nature' });
+ext(13, 'crimson_stem', 'Crimson Stem', 'The trunk of a huge crimson fungus. Does not burn.', { faces: { ...ALL('crimson_stem'), py: 'crimson_stem_top', ny: 'crimson_stem_top' }, hardness: 2, tool: 'axe', sound: 'wood', category: 'nature' });
+ext(14, 'warped_stem', 'Warped Stem', 'The trunk of a huge warped fungus. Does not burn.', { faces: { ...ALL('warped_stem'), py: 'warped_stem_top', ny: 'warped_stem_top' }, hardness: 2, tool: 'axe', sound: 'wood', category: 'nature' });
+ext(15, 'nether_wart_block', 'Nether Wart Block', 'The fleshy cap of a crimson fungus.', { faces: ALL('nether_wart_block'), hardness: 1, tool: 'hoe', sound: 'cloth', category: 'nature' });
+ext(16, 'warped_wart_block', 'Warped Wart Block', 'The fleshy cap of a warped fungus.', { faces: ALL('warped_wart_block'), hardness: 1, tool: 'hoe', sound: 'cloth', category: 'nature' });
+ext(17, 'bone_block', 'Bone Block', 'Packed bone. Old fossils are made of it.', { faces: { ...ALL('bone_block_side'), py: 'bone_block_top', ny: 'bone_block_top' }, hardness: 2, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(18, 'crimson_planks', 'Crimson Planks', 'Planks cut from crimson stems. Fireproof.', { faces: ALL('crimson_planks'), hardness: 2, tool: 'axe', sound: 'wood' });
+ext(19, 'warped_planks', 'Warped Planks', 'Planks cut from warped stems. Fireproof.', { faces: ALL('warped_planks'), hardness: 2, tool: 'axe', sound: 'wood' });
+ext(20, 'smooth_basalt', 'Smooth Basalt', 'Basalt smoothed by heat.', { faces: ALL('smooth_basalt'), hardness: 1.25, tool: 'pickaxe', tier: 1 });
 def(214, 'enchanting_table', 'Enchanting Table', 'Spend levels and lapis to enchant gear. Bookshelves two blocks away make it stronger.', { faces: { ...ALL('enchanting_table_side'), py: 'enchanting_table_top', ny: 'enchanting_table_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 7, hardness: 5, tool: 'pickaxe', tier: 1, interactive: true, sound: 'stone', category: 'functional' });
 def(215, 'lapis_ore', 'Lapis Ore', 'Deep blue stone. Drops lapis for enchanting.', { faces: ALL('lapis_ore'), hardness: 3, tool: 'pickaxe', tier: 2, drops: [{ item: 389, min: 4, max: 9 }], xp: [2, 5], category: 'ore' });
 def(216, 'lapis_block', 'Block of Lapis', 'Nine lapis packed together.', { faces: ALL('lapis_block'), hardness: 3, tool: 'pickaxe', tier: 2, category: 'building' });
