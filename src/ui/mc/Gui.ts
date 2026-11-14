@@ -1,3 +1,4 @@
+import { enchantLabel, ENCH } from '../../core/enchants';
 import { h } from '../dom';
 import type { TextureAtlas } from '../../resources/TextureAtlas';
 import { guiFallback } from './GuiPaint';
@@ -64,8 +65,10 @@ export function shadowOf(col: string): string {
 export function itemTooltipLines(st: ItemStack, advanced = false): { text: string; color: string }[] {
   const it = getItem(st.id) as ItemDef | undefined;
   if (!it) return [];
-  const out: { text: string; color: string }[] = [{ text: it.name, color: '#ffffff' }];
-  if (it.desc) out.push({ text: it.desc, color: '#aaaaaa' });
+  const enchanted = !!st.en && Object.keys(st.en).length > 0;
+  const out: { text: string; color: string }[] = [{ text: st.nm ? `"${st.nm}"` : it.name, color: st.nm ? '#55ffff' : enchanted ? '#55ffff' : '#ffffff' }];
+  if (st.en) for (const [k, l] of Object.entries(st.en)) out.push({ text: enchantLabel(k, l), color: ENCH.get(k)?.curse ? '#ff5555' : '#aaaaaa' });
+  if (it.desc && !enchanted) out.push({ text: it.desc, color: '#aaaaaa' });
   if (it.food) out.push({ text: `Hunger +${it.food.hunger / 2}  Saturation +${Math.round(it.food.saturation * 10) / 10}`, color: '#ffaa00' });
   if (it.tool) {
     out.push({ text: '', color: '#aaaaaa' }, { text: 'When in Main Hand:', color: '#aaaaaa' });

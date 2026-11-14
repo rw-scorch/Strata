@@ -1,7 +1,8 @@
+import { ENCH } from './enchants';
 import { getItem, maxStack, fuelSeconds } from './items';
 import { findRecipe, findSmelt, ingredientMatches, Recipe, RecipeBook, BASE_BOOK, Ingredient } from './crafting';
 
-export interface ItemStack { id: number; count: number; dmg?: number; }
+export interface ItemStack { id: number; count: number; dmg?: number; ld?: number; en?: Record<string, number>; rc?: number; nm?: string; }
 
 export const INV_SIZE = 36;
 export const CHEST_SIZE = 27;
@@ -17,7 +18,7 @@ export interface PlayerInv {
   off: (ItemStack | null)[];
 }
 
-export type ContainerKind = 'chest' | 'furnace';
+export type ContainerKind = 'chest' | 'furnace' | 'enchant' | 'anvil';
 export type SlotGroup = 'inv' | 'armor' | 'craft' | 'out' | 'cont' | 'off';
 export interface SlotRef { c: SlotGroup; i: number; }
 
@@ -62,6 +63,10 @@ export function cloneStack(s: ItemStack | null): ItemStack | null {
   if (!s) return null;
   const c: ItemStack = { id: s.id, count: s.count };
   if (s.dmg) c.dmg = s.dmg;
+  if (s.ld) c.ld = s.ld;
+  if (s.en && Object.keys(s.en).length) c.en = { ...s.en };
+  if (s.rc) c.rc = s.rc;
+  if (s.nm) c.nm = s.nm;
   return c;
 }
 
@@ -78,14 +83,28 @@ export function cloneInv(inv: PlayerInv): PlayerInv {
 }
 
 export function sameKind(a: ItemStack | null, b: ItemStack | null): boolean {
-  return !!a && !!b && a.id === b.id && (a.dmg ?? 0) === (b.dmg ?? 0);
+  return !!a && !!b && a.id === b.id && (a.dmg ?? 0) === (b.dmg ?? 0) && (a.ld ?? 0) === (b.ld ?? 0) && enKey(a) === enKey(b) && (a.rc ?? 0) === (b.rc ?? 0) && (a.nm ?? '') === (b.nm ?? '');
+}
+
+function enKey(s: ItemStack): string {
+  if (!s.en) return '';
+  return Object.keys(s.en).sort().map((k) => `${k}:${s.en![k]}`).join(',');
 }
 
 export function validStack(s: unknown): s is ItemStack {
   if (!s || typeof s !== 'object') return false;
   const o = s as ItemStack;
   return Number.isInteger(o.id) && !!getItem(o.id) && Number.isInteger(o.count) && o.count > 0 && o.count <= maxStack(o.id)
-    && (o.dmg === undefined || (Number.isInteger(o.dmg) && o.dmg >= 0));
+    && (o.dmg === undefined || (Number.isInteger(o.dmg) && o.dmg >= 0)) && (o.ld === undefined || o.ld === 0 || o.ld === 1)
+    && (o.en === undefined || validEn(o.en)) && (o.rc === undefined || (Number.isInteger(o.rc) && o.rc >= 0 && o.rc < 1 << 20))
+    && (o.nm === undefined || (typeof o.nm === 'string' && o.nm.length > 0 && o.nm.length <= 50 && !/[\u0000-\u001f<>]/.test(o.nm)));
+}
+
+function validEn(en: unknown): boolean {
+  if (!en || typeof en !== 'object' || Array.isArray(en)) return false;
+  const keys = Object.keys(en as object);
+  if (keys.length > 40) return false;
+  return keys.every((k) => ENCH.has(k) && Number.isInteger((en as Record<string, number>)[k]) && (en as Record<string, number>)[k] >= 1 && (en as Record<string, number>)[k] <= 255);
 }
 
 export function sanitizeInv(raw: unknown): PlayerInv {
@@ -126,6 +145,7 @@ function slotCount(ctx: InvContext, g: SlotGroup): number {
 export function canPlaceIn(ctx: InvContext, s: SlotRef, stack: ItemStack): boolean {
   if (s.c === 'out') return false;
   if (s.c === 'armor') return getItem(stack.id)?.armor?.slot === s.i;
+  if (s.c === 'cont' && ctx.containerKind === 'enchant' && s.i === 1) return stack.id === 389;
   if (s.c === 'cont' && ctx.containerKind === 'furnace') {
     if (s.i === 2) return false;
     if (s.i === 1) return fuelSeconds(stack.id) > 0;
@@ -133,8 +153,9 @@ export function canPlaceIn(ctx: InvContext, s: SlotRef, stack: ItemStack): boole
   return true;
 }
 
-function slotLimit(s: SlotRef, id: number): number {
+function slotLimit(s: SlotRef, id: number, ctx?: InvContext): number {
   if (s.c === 'armor') return 1;
+  if (s.c === 'cont' && s.i === 0 && ctx?.containerKind === 'enchant') return 1;
   return maxStack(id);
 }
 
@@ -263,7 +284,7 @@ function click(ctx: InvContext, s: SlotRef, button: 0 | 1): boolean {
     }
     return false;
   }
-  const limit = slotLimit(s, cur!.id);
+  const limit = slotLimit(s, cur!.id, ctx);
   if (cur && !slot) {
     if (button === 0) {
       const n = Math.min(limit, cur.count);
@@ -405,6 +426,7 @@ function fillRecipe(ctx: InvContext, recipeId: string, all: boolean): boolean {
 
 export function applyInvOp(ctx: InvContext, op: InvOp): boolean {
   const inv = ctx.inv;
+  if (!ctx.creative && (op.t === 'click' || op.t === 'quick' || op.t === 'quickOne' || op.t === 'drop' || op.t === 'swap') && op.s.c === 'armor' && inv.armor[op.s.i]?.en?.binding_curse) return false;
   switch (op.t) {
     case 'click': return click(ctx, op.s, op.b);
     case 'quick': return quickMove(ctx, op.s);
@@ -465,7 +487,7 @@ export function applyInvOp(ctx: InvContext, op: InvOp): boolean {
       const a = arr[op.s.i];
       const b = inv.slots[op.h];
       if (b && !canPlaceIn(ctx, op.s, b)) return false;
-      if (b && b.count > slotLimit(op.s, b.id)) return false;
+      if (b && b.count > slotLimit(op.s, b.id, ctx)) return false;
       arr[op.s.i] = b;
       inv.slots[op.h] = a;
       return true;
@@ -506,10 +528,21 @@ export function validateOp(raw: unknown): InvOp | null {
   return null;
 }
 
+export function equipmentOf(inv: PlayerInv): number[] {
+  const list = [inv.slots[inv.selected] ?? null, inv.off?.[0] ?? null, ...inv.armor.slice(0, 4)];
+  let glint = 0;
+  const ids = list.map((s, i) => {
+    if (!s) return 0;
+    if (s.en && Object.keys(s.en).length) glint |= 1 << i;
+    return s.id === 376 && s.ld ? 380 : s.id;
+  });
+  return [...ids, glint];
+}
+
 export function invHash(inv: PlayerInv): number {
   let h = 2166136261 >>> 0;
   const mixStack = (s: ItemStack | null) => {
-    const v = s ? (s.id * 131 + s.count * 7 + (s.dmg ?? 0) * 3 + 1) : 0;
+    const v = s ? (s.id * 131 + s.count * 7 + (s.dmg ?? 0) * 3 + 1 + (s.en ? enKey(s).length * 17 : 0) + (s.rc ?? 0) * 5) : 0;
     h ^= v;
     h = Math.imul(h, 16777619) >>> 0;
   };
@@ -532,12 +565,26 @@ export function heldStack(inv: PlayerInv): ItemStack | null {
   return inv.slots[inv.selected] ?? null;
 }
 
+const rint = (n: number) => Math.floor(Math.random() * n);
+
+export function unbroken(s: ItemStack, amount: number, armor: boolean, rnd: (n: number) => number = rint): number {
+  const u = s.en?.unbreaking ?? 0;
+  if (u <= 0) return amount;
+  let n = 0;
+  for (let i = 0; i < amount; i++) {
+    if (armor ? rnd(1000) >= 1000 * (0.4 * u / (u + 1)) : rnd(u + 1) === 0) n++;
+  }
+  return n;
+}
+
 export function damageHeld(inv: PlayerInv, amount = 1): boolean {
   const s = inv.slots[inv.selected];
   if (!s) return false;
   const d = getItem(s.id);
   const max = d?.tool?.durability ?? d?.durability;
   if (!max) return false;
+  amount = unbroken(s, amount, false);
+  if (amount <= 0) return false;
   s.dmg = (s.dmg ?? 0) + amount;
   if (s.dmg >= max) { inv.slots[inv.selected] = null; return true; }
   return false;
@@ -548,7 +595,9 @@ export function damageArmor(inv: PlayerInv, amount: number): void {
     const a = inv.armor[i];
     if (!a) continue;
     const max = getItem(a.id)?.armor?.durability ?? 0;
-    a.dmg = (a.dmg ?? 0) + Math.max(1, Math.floor(amount / 4));
+    const n = unbroken(a, Math.max(1, Math.floor(amount / 4)), true);
+    if (n <= 0) continue;
+    a.dmg = (a.dmg ?? 0) + n;
     if (a.dmg >= max) inv.armor[i] = null;
   }
 }

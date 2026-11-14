@@ -1,5 +1,5 @@
-import { B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, SLAB_ITEM, STAIRS_ITEM } from './blocks';
-import { I, toolId, armorId, dyeId } from './items';
+import { XB, XV, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, SLAB_ITEM, STAIRS_ITEM } from './blocks';
+import { I, toolId, armorId, dyeId, SPEAR_MATS } from './items';
 import type { ItemStack } from './inventory';
 
 export type Ingredient = number | string | number[];
@@ -99,6 +99,28 @@ SHAPE_MATS.forEach((m, i) => {
   shaped(`${m.key}_slab`, 'building', SLAB_ITEM + i, 6, ['XXX'], { X: m.id });
   shaped(`${m.key}_stairs`, 'building', STAIRS_ITEM + i, 4, ['X  ', 'XX ', 'XXX'], { X: m.id });
 });
+shaped('rail', 'decor', B.RAIL, 16, ['I I', 'ISI', 'I I'], { I: I.IRON_INGOT, S: I.STICK });
+shaped('powered_rail', 'decor', B.POWERED_RAIL, 6, ['G G', 'GSG', 'GRG'], { G: I.GOLD_INGOT, S: I.STICK, R: I.REDSTONE });
+shaped('detector_rail', 'decor', B.DETECTOR_RAIL, 6, ['I I', 'IPI', 'IRI'], { I: I.IRON_INGOT, P: B.STONE_PRESSURE_PLATE, R: I.REDSTONE });
+shaped('activator_rail', 'decor', B.ACTIVATOR_RAIL, 6, ['ISI', 'ITI', 'ISI'], { I: I.IRON_INGOT, S: I.STICK, T: B.REDSTONE_TORCH });
+shaped('minecart', 'tools', I.MINECART, 1, ['I I', 'III'], { I: I.IRON_INGOT });
+shapeless('tnt_minecart', 'combat', I.TNT_MINECART, 1, [I.MINECART, B.TNT]);
+shaped('crossbow', 'combat', I.CROSSBOW, 1, ['SIS', 'TIT', ' S '], { S: I.STICK, I: I.IRON_INGOT, T: I.STRING });
+shaped('mace', 'combat', I.MACE, 1, ['B', 'S'], { B: B.IRON_BLOCK, S: I.STICK });
+shaped('enchanting_table', 'decor', B.ENCHANTING_TABLE, 1, [' B ', 'DOD', 'OOO'], { B: I.BOOK, D: I.AETHERITE, O: B.OBSIDIAN });
+shaped('anvil', 'decor', B.ANVIL, 1, ['BBB', ' I ', 'III'], { B: B.IRON_BLOCK, I: I.IRON_INGOT });
+shaped('lapis_block', 'decor', B.LAPIS_BLOCK, 1, ['LLL', 'LLL', 'LLL'], { L: I.LAPIS });
+shapeless('lapis_from_block', 'decor', I.LAPIS, 9, [B.LAPIS_BLOCK]);
+shaped('iron_from_nuggets', 'basics', I.IRON_INGOT, 1, ['NNN', 'NNN', 'NNN'], { N: I.IRON_NUGGET });
+shaped('gold_from_nuggets', 'basics', I.GOLD_INGOT, 1, ['NNN', 'NNN', 'NNN'], { N: I.GOLD_NUGGET });
+shapeless('iron_nuggets', 'basics', I.IRON_NUGGET, 9, [I.IRON_INGOT]);
+shapeless('gold_nuggets', 'basics', I.GOLD_NUGGET, 9, [I.GOLD_INGOT]);
+shaped('iron_bars', 'decor', B.IRON_BARS, 16, ['III', 'III'], { I: I.IRON_INGOT });
+shaped('quartz_block', 'building', XB + XV.QUARTZ_BLOCK, 1, ['QQ', 'QQ'], { Q: I.QUARTZ });
+shaped('nether_bricks', 'building', XB + XV.NETHER_BRICKS, 1, ['NN', 'NN'], { N: XB + XV.NETHERRACK });
+shaped('polished_blackstone', 'building', XB + XV.POLISHED_BLACKSTONE, 4, ['BB', 'BB'], { B: XB + XV.BLACKSTONE });
+shaped('polished_blackstone_bricks', 'building', XB + XV.POLISHED_BLACKSTONE_BRICKS, 4, ['BB', 'BB'], { B: XB + XV.POLISHED_BLACKSTONE });
+SPEAR_MATS.forEach((m, i) => shaped(`${m.key}_spear`, 'combat', I.SPEAR + i, 1, ['  M', ' S ', 'S  '], { M: ([ 'planks', B.COBBLESTONE, I.IRON_INGOT, I.GOLD_INGOT, I.AETHERITE, I.COPPER_INGOT ] as Ingredient[])[i], S: I.STICK }));
 shapeless('blastpowder', 'decor', I.GUNPOWDER, 2, [I.COAL, I.FLINT, I.REDSTONE]);
 shapeless('blastpowder_charcoal', 'decor', I.GUNPOWDER, 2, [I.CHARCOAL, I.FLINT, I.REDSTONE]);
 shaped('tnt', 'decor', B.TNT, 1, ['GSG', 'SGS', 'GSG'], { G: I.GUNPOWDER, S: B.SAND });
@@ -254,6 +276,9 @@ export interface SmeltRecipe { input: Ingredient; result: number; xp: number; }
 export const SMELTING: SmeltRecipe[] = [
   { input: B.IRON_ORE, result: I.IRON_INGOT, xp: 0.7 },
   { input: B.GOLD_ORE, result: I.GOLD_INGOT, xp: 1 },
+  { input: B.LAPIS_ORE, result: I.LAPIS, xp: 0.2 },
+  { input: XB + XV.NETHER_QUARTZ_ORE, result: I.QUARTZ, xp: 0.2 },
+  { input: XB + XV.NETHER_GOLD_ORE, result: I.GOLD_INGOT, xp: 1 },
   { input: B.SAND, result: B.GLASS, xp: 0.1 },
   { input: B.COBBLESTONE, result: B.STONE, xp: 0.1 },
   { input: I.CLAY_BALL, result: I.BRICK, xp: 0.3 },

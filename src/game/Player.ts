@@ -41,6 +41,7 @@ export class LocalPlayer {
   stepSound: ((material: string) => void) | null = null;
   swimSound: (() => void) | null = null;
   usingItem = false;
+  depthStrider = 0;
 
   get x(): number { return this.prev.x + (this.body.x - this.prev.x) * this.alpha; }
   get y(): number { return this.prev.y + (this.body.y - this.prev.y) * this.alpha; }
@@ -64,6 +65,7 @@ export class LocalPlayer {
     const b = this.body, m = this.medium;
     if (b.onGround) f |= MF.GROUND;
     if (this.crouching) f |= MF.CROUCH;
+    if (this.swimming) f |= MF.PRONE;
     if (this.sprinting) f |= MF.SPRINT;
     if (this.flying) f |= MF.FLY;
     if (m.water) f |= MF.WATER;
@@ -120,6 +122,7 @@ export class LocalPlayer {
     const wantSwim = this.sprinting && m.water && !this.flying && (m.eyeWater || this.swimming);
     if (wantSwim) this.swimming = true;
     else if (this.swimming) { b.h = 1.8; if (this.canStand(world)) this.swimming = false; }
+    else if (!this.flying && b.onGround && boxCollides(world, b.x - HW, b.y, b.z - HW, b.x + HW, b.y + 1.5, b.z + HW) && !boxCollides(world, b.x - HW, b.y, b.z - HW, b.x + HW, b.y + 0.6, b.z + HW)) this.swimming = true;
     b.h = this.swimming ? 0.6 : this.crouching ? 1.5 : 1.8;
 
     let strafe = Math.max(-1, Math.min(1, input.moveX));
@@ -127,7 +130,7 @@ export class LocalPlayer {
     const canSprint = forward >= 0.8 && !this.crouching && !this.usingItem && (mode === 'creative' || this.food > 6);
     if (input.sprint && canSprint) this.sprinting = true;
     if (!canSprint || (b.hitH && b.onGround)) this.sprinting = false;
-    if (this.crouching && !this.flying) { strafe *= 0.3; forward *= 0.3; }
+    if ((this.crouching || (this.swimming && !m.water)) && !this.flying) { strafe *= 0.3; forward *= 0.3; }
     if (this.usingItem && !this.flying) { strafe *= 0.2; forward *= 0.2; }
     strafe *= 0.98; forward *= 0.98;
 
@@ -180,13 +183,17 @@ export class LocalPlayer {
       if (b.onGround && input.crouch) this.flying = false;
     } else if (m.water && !m.lava) {
       const swimming = this.sprinting && m.eyeWater;
-      const f = this.sprinting ? 0.9 : 0.8;
+      let f = this.sprinting ? 0.9 : 0.8;
+      let acc = swimming ? 0.04 : 0.02;
+      let ds = Math.min(3, this.depthStrider) / 3;
+      if (!b.onGround) ds *= 0.5;
+      if (ds > 0) { f += (0.546 - f) * ds; acc += (0.1 * (this.sprinting ? 1.3 : 1) - acc) * ds; }
       if (swimming) {
         const ly = Math.sin(this.pitch);
         const k = ly < -0.2 ? 0.085 : 0.06;
         if (ly <= 0 || input.jump) b.vy += (ly - b.vy) * k;
       }
-      moveRelative(swimming ? 0.04 : 0.02);
+      moveRelative(acc);
       const oy = b.y;
       this.move(world, b.vx, b.vy, b.vz);
       if (b.hitH && m.ladder) b.vy = 0.2;

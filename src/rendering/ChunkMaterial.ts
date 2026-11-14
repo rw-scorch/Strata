@@ -13,6 +13,7 @@ export interface WorldUniforms {
   uFogFar: { value: number };
   uTime: { value: number };
   uBrightness: { value: number };
+  uAmbient: { value: number };
   uShadowMap: { value: THREE.Texture | null };
   uShadowMatrix: { value: THREE.Matrix4 };
   uShadowOn: { value: number };
@@ -40,7 +41,7 @@ export function createWorldUniforms(): WorldUniforms {
   return {
     uAtlas: { value: null }, uAtlasGrid: { value: new THREE.Vector2(32, 8) }, uTexel: { value: 0.5 / 16 },
     uDay: { value: 1 }, uSkyColor: { value: new THREE.Color(1, 1, 1) }, uSkyTop: { value: new THREE.Color(0.4, 0.6, 1) }, uFogColor: { value: new THREE.Color(0.7, 0.8, 1) },
-    uFogNear: { value: 60 }, uFogFar: { value: 96 }, uTime: { value: 0 }, uBrightness: { value: 0.5 },
+    uFogNear: { value: 60 }, uFogFar: { value: 96 }, uTime: { value: 0 }, uBrightness: { value: 0.5 }, uAmbient: { value: 0 },
     uShadowMap: { value: null }, uShadowMatrix: { value: new THREE.Matrix4() }, uShadowOn: { value: 0 }, uShadowTexel: { value: 1 / 2048 },
     uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uFlash: { value: 0 }, uRain: { value: 0 }, uWind: { value: 0 },
     uCloudMap: { value: null }, uCloudShift: { value: 0 }, uCloudShadow: { value: 0 }, uUnderwater: { value: 0 },
@@ -125,6 +126,7 @@ uniform float uFogFar;
 uniform float uAlphaTest;
 uniform float uOpacity;
 uniform float uBrightness;
+uniform float uAmbient;
 uniform sampler2D uShadowMap;
 uniform float uShadowOn;
 uniform float uShadowTexel;
@@ -304,7 +306,7 @@ void main() {
   for (int i = 0; i < 4; i++) { vec4 L = uDynLights[i]; if (L.w > 0.0) dyn = max(dyn, (L.w - distance(vWorld, L.xyz)) / 15.0); }
   float blk = curve(max(vLight.y, dyn)) * flick;
   vec3 light = max(vec3(sky) * uSkyColor, vec3(blk) * vec3(1.0, 0.86, 0.66));
-  light = max(light, vec3(0.1 + uBrightness * 0.12) * vec3(0.92, 0.95, 1.0));
+  light = max(light, vec3(0.1 + uBrightness * 0.12) * vec3(0.92, 0.95, 1.0) + uAmbient * vec3(1.0, 0.78, 0.7));
   light *= (0.42 + 0.58 * vLight.z) * vLight.w;
   light += vec3(uFlash * skyL);
   vec3 albedo = c.rgb;

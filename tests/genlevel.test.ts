@@ -11,13 +11,13 @@ describe('generation levels', () => {
     let newer = 0, diffOther = 0;
     for (const [cx, cz] of [[-3, -3], [-3, -2], [2, -3], [26, -26], [27, -26]]) {
       const a = g.generate(cx, cz, LEGACY_LEVEL).blocks, b = g.generate(cx, cz, GEN_LEVEL).blocks;
-      expect(count(a, [B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE])).toBe(0);
-      newer += count(b, [B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE]);
+      expect(count(a, [B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE, B.LAPIS_ORE])).toBe(0);
+      newer += count(b, [B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE, B.LAPIS_ORE]);
       for (let i = 0; i < a.length; i++) {
         const x = a[i] & 0xff, y = b[i] & 0xff;
         if (x === y) continue;
         if (BLOCKS[x]?.render === 'cross' || BLOCKS[y]?.render === 'cross') continue;
-        if ([B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE, B.WATER, B.JUNGLE_LEAVES, B.JUNGLE_LOG, B.SPRUCE_LEAVES, B.SPRUCE_LOG, B.DIRT, B.GRASS, B.TALL_GRASS, B.FERN, 0].includes(x) || [B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE, B.JUNGLE_LEAVES, B.JUNGLE_LOG, B.SPRUCE_LEAVES, B.SPRUCE_LOG, B.DIRT].includes(y)) continue;
+        if ([B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE, B.LAPIS_ORE, B.WATER, B.JUNGLE_LEAVES, B.JUNGLE_LOG, B.SPRUCE_LEAVES, B.SPRUCE_LOG, B.DIRT, B.GRASS, B.TALL_GRASS, B.FERN, 0].includes(x) || [B.KELP, B.KELP_PLANT, B.SEAGRASS, B.VINE, B.REDSTONE_ORE, B.LAPIS_ORE, B.JUNGLE_LEAVES, B.JUNGLE_LOG, B.SPRUCE_LEAVES, B.SPRUCE_LOG, B.DIRT].includes(y)) continue;
         diffOther++;
       }
     }

@@ -619,3 +619,10 @@ body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; mi
 .player-row .btn { flex: 0 1 auto; }
 .modal .input, .modal select.input { font-size: max(16px, calc(var(--ms) * 8)) !important; }
 .toast { font-family: var(--mc-font); border-radius: 0 !important; border: var(--ms, 2px) solid #000 !important; box-shadow: inset 0 0 0 var(--ms, 2px) #5a5a5a !important; background: rgba(16, 16, 16, 0.9) !important; }
+
+.ico.glint { background: linear-gradient(115deg, rgba(150,80,255,0) 30%, rgba(190,120,255,0.75) 45%, rgba(150,80,255,0) 60%) no-repeat, rgba(128,64,255,0.22); background-size: 300% 100%, 100% 100%; animation: glint-sweep 2.6s linear infinite; mix-blend-mode: screen; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; }
+@keyframes glint-sweep { from { background-position: 150% 0, 0 0; } to { background-position: -150% 0, 0 0; } }
+.ench-opt { position: absolute; cursor: pointer; }
+.ench-opt .glyphs { position: absolute; font-family: 'Courier New', monospace; font-style: italic; letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; opacity: 0.55; }
+.ench-opt .cost { position: absolute; font-weight: bold; text-shadow: 1px 1px 0 #253e10; }
+.anvil-name { position: absolute; background: transparent; border: none; outline: none; color: #fff; font-family: inherit; padding: 0; text-shadow: 1px 1px 0 #3f3f3f; }

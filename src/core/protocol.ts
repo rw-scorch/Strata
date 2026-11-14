@@ -81,6 +81,8 @@ export type C2S =
   | { t: 'resync' }
   | { t: 'buy'; k: string }
   | { t: 'ue'; id: number }
+  | { t: 'ench'; i: number }
+  | { t: 'anvil'; n: string | null }
   | { t: 'rtc'; to: string; d: unknown }
   | { t: 'skin'; skin: SkinRef | null }
   | { t: 'datapacks'; d: DataRecipes[] }
@@ -98,7 +100,7 @@ export type S2C =
   | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[] }
   | { t: 'ores'; cx: number; cz: number; o: number[] }
   | { t: 'blk'; u: number[][] }
-  | { t: 'pl'; u: (string | number)[][] }
+  | { t: 'pl'; u: (string | number | number[])[][] }
   | { t: 'pj'; p: PublicPlayer }
   | { t: 'pq'; id: string; name: string }
   | { t: 'ent'; a: number[][]; u: number[][]; r: number[] }
@@ -112,6 +114,9 @@ export type S2C =
   | { t: 'hurt'; a: number; c: string; fx: number; fz: number; k?: number }
   | { t: 'phurt'; id: string }
   | { t: 'pmove'; l: number[] }
+  | { t: 'ride'; id: number }
+  | { t: 'knock'; x: number; y: number; z: number; s?: number }
+  | { t: 'eo'; o: { cost: number; clue: string | null; clueLvl: number }[] }
   | { t: 'boom'; x: number; y: number; z: number; r: number }
   | { t: 'death'; msg: string }
   | { t: 'respawn'; x: number; y: number; z: number }
@@ -129,7 +134,7 @@ export type S2C =
   | { t: 'trade'; id: number; prof: number; xp: number; uses: number[] }
   | { t: 'lid'; x: number; y: number; z: number; n: number };
 
-export const ENT_KIND = { mob: 0, item: 1, arrow: 2, tnt: 3 } as const;
+export const ENT_KIND = { mob: 0, item: 1, arrow: 2, tnt: 3, cart: 4 } as const;
 
 export function q2(n: number): number { return Math.round(n * 100) / 100; }
 

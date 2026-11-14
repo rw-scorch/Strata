@@ -7,7 +7,14 @@ import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { WorldUniforms } from './ChunkMaterial';
-import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, PLAYER_ARM_CUBES_SLIM, playerSpec, VanillaSpec, RigPart } from './VanillaModels';
+import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, PLAYER_ARM_CUBES_SLIM, playerSpec, VanillaSpec, RigPart, type VCube } from './VanillaModels';
+
+const armorGeoCache = new Map<string, THREE.BufferGeometry>();
+function armorGeo(key: string, cubes: VCube[]): THREE.BufferGeometry {
+  let g = armorGeoCache.get(key);
+  if (!g) { g = cubesGeometry(cubes, 64, 32); armorGeoCache.set(key, g); }
+  return g;
+}
 
 export const SKIN = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac, 0x5c3a21, 0xd4a373, 0xa0522d];
 export const HAIR = [0x2b1d0e, 0x5a3825, 0xb5651d, 0xe6c35c, 0x111111, 0xa83232, 0xdddddd, 0x3a5fcd];
@@ -164,7 +171,7 @@ interface Snap { t: number; x: number; y: number; z: number; yaw: number; pitch:
 
 export interface EntityView {
   id: string;
-  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'player';
+  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'player';
   type: number;
   obj: THREE.Group;
   parts: Map<string, THREE.Object3D>;
@@ -262,20 +269,21 @@ export class EntityRenderer {
     const m = new THREE.ShaderMaterial({
       uniforms: {
         uFogColor: this.u.uFogColor, uFogNear: this.u.uFogNear, uFogFar: this.u.uFogFar, uLight: { value: 1 }, uHurt: { value: 0 }, uWhite: { value: 0 },
-        uMap: { value: map }, uUseMap: { value: map ? 1 : 0 }, uEmissive: { value: emissive ? 1 : 0 }, uOpacity: { value: 1 },
+        uMap: { value: map }, uUseMap: { value: map ? 1 : 0 }, uEmissive: { value: emissive ? 1 : 0 }, uOpacity: { value: 1 }, uGlint: { value: 0 }, uTime: this.u.uTime,
       },
       vertexShader: `attribute vec3 color; varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade;
         void main(){ vColor = color; vUv = uv; vec3 n = normalize(mat3(modelMatrix) * normal);
         vShade = 0.6 + 0.4 * max(n.y, 0.0) + 0.15 * abs(n.z) - 0.12 * max(-n.y, 0.0);
         vec4 mv = modelViewMatrix * vec4(position, 1.0); vFog = length(mv.xyz); gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar; uniform float uLight; uniform float uHurt; uniform float uWhite;
-        uniform sampler2D uMap; uniform float uUseMap; uniform float uEmissive; uniform float uOpacity;
+        uniform sampler2D uMap; uniform float uUseMap; uniform float uEmissive; uniform float uOpacity; uniform float uGlint; uniform float uTime;
         varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade;
         void main(){ vec4 base = vec4(vColor, 1.0);
           if (uUseMap > 0.5) { vec4 t = texture2D(uMap, vUv); if (t.a < 0.5) discard; base.rgb *= t.rgb; }
           float l = mix(uLight * vShade, 1.6, uEmissive);
           vec3 c = mix(base.rgb * l, vec3(1.0, 0.12, 0.08), uHurt * 0.55);
           c = mix(c, vec3(1.0), uWhite);
+          if (uGlint > 0.5) { float w = fract((vUv.x + vUv.y) * 6.0 - uTime * 0.6); c += vec3(0.42, 0.2, 0.75) * (0.25 + 0.55 * smoothstep(0.0, 0.25, w) * (1.0 - smoothstep(0.25, 0.6, w))); }
           gl_FragColor = vec4(mix(c, uFogColor, smoothstep(uFogNear, uFogFar, vFog)), uOpacity); }`,
       side: map ? THREE.DoubleSide : THREE.FrontSide,
       transparent: false,
@@ -358,6 +366,159 @@ export class EntityRenderer {
     return { obj, mats: [m] };
   }
 
+  private equip = new Map<string, number[]>();
+
+  setEquipment(id: string, e: number[] | null): void {
+    const prev = this.equip.get(id);
+    if ((prev ? prev.join(',') : '') === (e ? e.join(',') : '')) return;
+    if (e) this.equip.set(id, e); else this.equip.delete(id);
+    const v = this.views.get(id);
+    if (v && v.kind === 'player') this.applyEquip(v);
+  }
+
+  private holdState(v: EntityView): { holdR?: boolean; holdL?: boolean; xbow?: boolean; lance?: boolean } {
+    if (v.kind !== 'player') return {};
+    const e = this.equip.get(v.id);
+    if (!e) return {};
+    return { holdR: !!e[0], holdL: !!e[1], xbow: e[0] === I.CROSSBOW_LOADED || (!e[0] && e[1] === I.CROSSBOW_LOADED), lance: !!(v.flags & 32768) && e[0] >= I.SPEAR && e[0] < I.SPEAR + 6 };
+  }
+
+  private applyEquip(v: EntityView): void {
+    const ex = v as EntityView & { eqObjs?: THREE.Object3D[]; eqMats?: THREE.ShaderMaterial[] };
+    for (const o of ex.eqObjs ?? []) o.parent?.remove(o);
+    if (ex.eqMats?.length) { const drop = new Set(ex.eqMats); v.mats = v.mats.filter((m) => !drop.has(m)); for (const m of ex.eqMats) m.dispose(); }
+    ex.eqObjs = []; ex.eqMats = [];
+    const e = this.equip.get(v.id);
+    if (!e) return;
+    const glint = e[6] ?? 0;
+    const add = (parent: THREE.Object3D | undefined, obj: THREE.Object3D, mats: THREE.ShaderMaterial[], g: boolean) => {
+      if (!parent) { for (const m of mats) m.dispose(); return; }
+      parent.add(obj);
+      ex.eqObjs!.push(obj);
+      for (const m of mats) { if (g) m.uniforms.uGlint.value = 1; ex.eqMats!.push(m); v.mats.push(m); }
+    };
+    const vanilla = !!v.rig;
+    const held = (id: number, slot: number, left: boolean) => {
+      if (!id) return;
+      const it = getItem(id);
+      if (!it) return;
+      const block = it.kind === 'block' && it.blockIcon;
+      const m = block ? this.itemModel(id) : this.heldModel(id);
+      const holder = new THREE.Group();
+      if (vanilla) {
+        const sg = left ? -1 : 1;
+        const deg = Math.PI / 180;
+        const k = it.key;
+        const d = block ? { t: [0, 2.5, 0], r: [75, 45, 0], s: 0.375 }
+          : k === 'mace' ? { t: [0, 4, 1], r: [0, -90, 55], s: 1 }
+          : k.startsWith('crossbow') ? { t: [2, 0.1, -3], r: [-90, 0, left ? -30 : -60], s: 0.9, raw: true }
+          : k.startsWith('bow') ? { t: [-1, -2, 2.5], r: [-80, left ? 280 : 260, -40], s: 0.9, raw: true }
+          : k.endsWith('_spear') ? { t: [0, 2, 0.5], r: [0, -90, 55], s: 1.15 }
+          : /sword|axe|pickaxe|shovel|hoe|stick|shears|firestriker/.test(k) ? { t: [0, 4, 0.5], r: [0, -90, 55], s: 0.85 }
+          : { t: [0, 3, 1], r: [0, 0, 0], s: 0.55 };
+        const raw = !!(d as { raw?: boolean }).raw;
+        const g1 = new THREE.Group(); g1.rotation.x = -Math.PI / 2;
+        const g2 = new THREE.Group(); g2.rotation.y = Math.PI;
+        const g3 = new THREE.Group(); g3.position.set(sg, 2, -10);
+        const g4 = new THREE.Group(); g4.position.set(d.t[0] * sg, d.t[1], d.t[2]);
+        g4.rotation.order = 'XYZ'; g4.rotation.set(d.r[0] * deg, d.r[1] * deg * (block ? sg : 1), d.r[2] * deg);
+        void raw;
+        g4.scale.setScalar(d.s);
+        m.obj.scale.setScalar(16 / (block ? 0.26 : 0.42));
+        g4.add(m.obj); g3.add(g4); g2.add(g3); g1.add(g2); holder.add(g1);
+        add(v.parts.get(left ? 'left_arm' : 'right_arm'), holder, m.mats, !!(glint & (1 << slot)));
+      } else {
+        holder.position.set(0, -0.6, -0.12);
+        if (block) m.obj.scale.setScalar(0.9); else { m.obj.rotation.set(-0.6, left ? -Math.PI / 4 : Math.PI / 4, 0); m.obj.position.z = -0.12; }
+        holder.add(m.obj);
+        add(v.parts.get(left ? 'armL' : 'armR'), holder, m.mats, !!(glint & (1 << slot)));
+      }
+    };
+    held(e[0], 0, false);
+    held(e[1], 1, true);
+    for (let s = 0; s < 4; s++) {
+      const id = e[2 + s];
+      if (id < 330 || id >= 346) continue;
+      const mat = ['leather', 'iron', 'gold', 'aetherite'][Math.floor((id - 330) / 4)];
+      const g = !!(glint & (1 << (2 + s)));
+      const layer: 1 | 2 = s === 2 ? 2 : 1;
+      if (vanilla) {
+        const tex = this.atlas.armorTexture(mat, layer);
+        const inf = layer === 2 ? 0.5 : 1;
+        const pieces: [string, VCube[]][] = s === 0 ? [['head', [{ o: [-4, -8, -4], s: [8, 8, 8], uv: [0, 0], inf }, { o: [-4, -8, -4], s: [8, 8, 8], uv: [32, 0], inf: inf + 0.5 }]]]
+          : s === 1 ? [['body', [{ o: [-4, 0, -2], s: [8, 12, 4], uv: [16, 16], inf }]], ['right_arm', [{ o: [-3, -2, -2], s: [4, 12, 4], uv: [40, 16], inf }]], ['left_arm', [{ o: [-1, -2, -2], s: [4, 12, 4], uv: [40, 16], inf, mirror: true }]]]
+          : s === 2 ? [['body', [{ o: [-4, 0, -2], s: [8, 12, 4], uv: [16, 16], inf }]], ['right_leg', [{ o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 16], inf }]], ['left_leg', [{ o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 16], inf, mirror: true }]]]
+          : [['right_leg', [{ o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 16], inf }]], ['left_leg', [{ o: [-2, 0, -2], s: [4, 12, 4], uv: [0, 16], inf, mirror: true }]]];
+        for (const [part, cubes] of pieces) {
+          const m = this.material(tex);
+          add(v.parts.get(part), new THREE.Mesh(armorGeo(`${s}|${part}`, cubes), m), [m], g);
+        }
+      } else {
+        const col = [0x9a5e2e, 0xc6c6c6, 0xe8c228, 0x3fd8cc][Math.floor((id - 330) / 4)];
+        const box = (part: string, size: [number, number, number], off: [number, number, number]) => {
+          const m = this.material();
+          const mesh = new THREE.Mesh(boxGeo(size, col), m);
+          mesh.position.set(...off);
+          add(v.parts.get(part), mesh, [m], g);
+        };
+        if (s === 0) box('head', [0.52, 0.5, 0.52], [0, 0.25, 0]);
+        else if (s === 1) { box('body', [0.52, 0.72, 0.3], [0, 0, 0]); box('armL', [0.26, 0.4, 0.26], [0, -0.12, 0]); box('armR', [0.26, 0.4, 0.26], [0, -0.12, 0]); }
+        else if (s === 2) { box('legL', [0.27, 0.5, 0.27], [0, -0.25, 0]); box('legR', [0.27, 0.5, 0.27], [0, -0.25, 0]); }
+        else { box('legL', [0.28, 0.2, 0.3], [0, -0.6, -0.01]); box('legR', [0.28, 0.2, 0.3], [0, -0.6, -0.01]); }
+      }
+    }
+  }
+
+  private heldGeo = new Map<number, THREE.BufferGeometry>();
+  private heldAtlas: TextureAtlas | null = null;
+
+  heldModel(itemId: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[] } {
+    if (this.heldAtlas !== this.atlas) { for (const g of this.heldGeo.values()) g.dispose(); this.heldGeo.clear(); this.heldAtlas = this.atlas; }
+    let g = this.heldGeo.get(itemId);
+    if (!g) { g = this.extrude(itemId); this.heldGeo.set(itemId, g); }
+    const m = this.material(this.atlas.iconTexture);
+    m.side = THREE.DoubleSide;
+    const obj = new THREE.Group();
+    obj.add(new THREE.Mesh(g, m));
+    return { obj, mats: [m] };
+  }
+
+  private extrude(itemId: number): THREE.BufferGeometry {
+    const [u0, v0, u1, v1] = this.atlas.iconUV(itemId);
+    const cv = this.atlas.iconCanvas;
+    const N = 16, size = 0.42, px = size / N, th = px;
+    const sx = Math.round(u0 * cv.width), sy = Math.round(v0 * cv.height), step = Math.round((u1 - u0) * cv.width) / N;
+    let alpha: Uint8ClampedArray | null = null;
+    try { alpha = cv.getContext('2d', { willReadFrequently: true })!.getImageData(sx, sy, N * step, N * step).data; } catch { alpha = null; }
+    const solid = (x: number, y: number) => x >= 0 && y >= 0 && x < N && y < N && !!alpha && alpha[((Math.floor(y * step + step / 2)) * N * step + Math.floor(x * step + step / 2)) * 4 + 3] > 127;
+    const pos: number[] = [], uv: number[] = [], nrm: number[] = [], idx: number[] = [];
+    const quad = (pts: number[][], uvs: number[][], n: number[]) => {
+      const o = pos.length / 3;
+      for (let i = 0; i < 4; i++) { pos.push(...pts[i]); uv.push(...uvs[i]); nrm.push(...n); }
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    };
+    const X = (x: number) => -size / 2 + x * px, Y = (y: number) => size / 2 - y * px;
+    const U = (x: number) => u0 + ((u1 - u0) * x) / N, V = (y: number) => v0 + ((v1 - v0) * y) / N;
+    quad([[X(0), Y(N), th / 2], [X(N), Y(N), th / 2], [X(N), Y(0), th / 2], [X(0), Y(0), th / 2]], [[U(0), V(N)], [U(N), V(N)], [U(N), V(0)], [U(0), V(0)]], [0, 0, 1]);
+    quad([[X(N), Y(N), -th / 2], [X(0), Y(N), -th / 2], [X(0), Y(0), -th / 2], [X(N), Y(0), -th / 2]], [[U(N), V(N)], [U(0), V(N)], [U(0), V(0)], [U(N), V(0)]], [0, 0, -1]);
+    if (alpha) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      if (!solid(x, y)) continue;
+      const c = [U(x + 0.5), V(y + 0.5)], cu = [c, c, c, c];
+      const z0 = -th / 2, z1 = th / 2;
+      if (!solid(x - 1, y)) quad([[X(x), Y(y + 1), z0], [X(x), Y(y + 1), z1], [X(x), Y(y), z1], [X(x), Y(y), z0]], cu, [-1, 0, 0]);
+      if (!solid(x + 1, y)) quad([[X(x + 1), Y(y + 1), z1], [X(x + 1), Y(y + 1), z0], [X(x + 1), Y(y), z0], [X(x + 1), Y(y), z1]], cu, [1, 0, 0]);
+      if (!solid(x, y - 1)) quad([[X(x), Y(y), z1], [X(x + 1), Y(y), z1], [X(x + 1), Y(y), z0], [X(x), Y(y), z0]], cu, [0, 1, 0]);
+      if (!solid(x, y + 1)) quad([[X(x), Y(y + 1), z0], [X(x + 1), Y(y + 1), z0], [X(x + 1), Y(y + 1), z1], [X(x), Y(y + 1), z1]], cu, [0, -1, 0]);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.length).fill(1), 3));
+    g.setIndex(idx);
+    return g;
+  }
+
   private tags = new Map<string, { name: string; color: string }>();
 
   setTags(map: Map<string, { name: string; color: string }>): void {
@@ -433,6 +594,30 @@ export class EntityRenderer {
         const m = this.itemModel(type);
         built = { obj: m.obj, parts: new Map(), mats: m.mats };
         hw = 0.15; h = 0.3;
+      } else if (kind === 'cart') {
+        const g = new THREE.Group();
+        const mats: THREE.ShaderMaterial[] = [];
+        const part = (sx: number, sy: number, sz: number, px: number, py: number, pz: number) => {
+          const im = this.itemModel(B.IRON_BLOCK);
+          im.obj.scale.set(sx / 0.26, sy / 0.26, sz / 0.26);
+          im.obj.position.set(px, py, pz);
+          for (const m of im.mats) { m.uniforms.uLight.value = 0.55; mats.push(m); }
+          g.add(im.obj);
+        };
+        part(0.9, 0.1, 1.25, 0, 0.15, 0);
+        part(0.08, 0.5, 1.25, -0.45, 0.45, 0);
+        part(0.08, 0.5, 1.25, 0.45, 0.45, 0);
+        part(0.9, 0.5, 0.08, 0, 0.45, -0.6);
+        part(0.9, 0.5, 0.08, 0, 0.45, 0.6);
+        if (type === 1) {
+          const t = this.itemModel(B.TNT);
+          t.obj.scale.setScalar(0.75 / 0.26);
+          t.obj.position.y = 0.55;
+          g.add(t.obj);
+          mats.push(...t.mats);
+        }
+        built = { obj: g, parts: new Map(), mats };
+        hw = 0.49; h = 0.7;
       } else if (kind === 'tnt') {
         const im = this.itemModel(B.TNT);
         im.obj.scale.setScalar(0.98 / 0.26);
@@ -468,6 +653,7 @@ export class EntityRenderer {
       v.obj.position.set(x, y, z);
       this.group.add(v.obj);
       this.views.set(id, v);
+      if (kind === 'player') this.applyEquip(v);
     }
     if ((flags & 1) && !(v.flags & 1) && kind === 'mob') v.hurtT = 0.4;
     if (kind === 'player' && (flags & 1024) && !(v.flags & 1024)) v.swing = 1;
@@ -540,12 +726,12 @@ export class EntityRenderer {
         const aggressive = (v.flags & 16) !== 0;
         const mtype = v.kind === 'mob' ? MOB_BY_CODE[v.type]?.type ?? '' : 'player';
         if (v.spec && v.rig) {
-          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0 });
+          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0, crawl: (v.flags & 16384) !== 0 && (v.flags & 16) === 0, riding: v.kind === 'player' && !!(v.flags & 8192), ...this.holdState(v) });
         } else {
           this.animateSimple(v, amp, aggressive, mtype);
         }
         if (v.kind === 'player') {
-          const swimming = (v.flags & 16) !== 0 && (v.flags & 4) !== 0;
+          const swimming = (v.flags & 16384) !== 0 || ((v.flags & 16) !== 0 && (v.flags & 4) !== 0);
           v.swimT = Math.max(0, Math.min(1, (v.swimT ?? 0) + (swimming ? dt : -dt) * 5));
           v.obj.rotation.order = 'YXZ';
           v.obj.rotation.x = -(v.swimT ?? 0) * Math.PI / 2;
@@ -572,7 +758,7 @@ export class EntityRenderer {
       if (v.lightT <= 0) { v.lightT = 0.25 + Math.random() * 0.1; v.light = this.probe(v.x, v.y + Math.min(1.2, v.h * 0.6), v.z); }
       const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
       for (const m of v.mats) { m.uniforms.uLight.value = Math.max(0.2, v.light); if (!v.dying) m.uniforms.uHurt.value = hurt; }
-      if (v.kind === 'tnt') for (const m of v.mats) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
+      if (v.kind === 'tnt' || v.kind === 'cart') for (const m of v.mats) if (m.uniforms.uWhite) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
   }

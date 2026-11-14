@@ -1,6 +1,7 @@
 import { h, clear, toast, modal, confirmDialog } from './dom';
 import { ResourcePackManager, InstalledPack } from '../resources/ResourcePackManager';
-import { getSettings } from '../storage/Settings';
+import { getSettings, updateSettings } from '../storage/Settings';
+import { usePackNames, hasPackNames } from '../core/items';
 import { TextureAtlas } from '../resources/TextureAtlas';
 import { packStale, type PackManifest } from '../resources/ResourcePackImporter';
 
@@ -50,6 +51,10 @@ export function showResourcePacks(parent: HTMLElement, apply: (ids: string[]) =>
     if (!active.length) list.appendChild(h('div', { class: 'small muted' }, 'No packs active. Strata\'s original textures are in use.'));
     active.forEach((p, i) => list.appendChild(row(p, true, i)));
     list.appendChild(h('div', { class: 'list-item', style: 'opacity:0.8' }, h('div', { class: 'pack-icon', style: 'background:linear-gradient(#e8a838 0 33%,#8a5a36 33% 66%,#4e4a50 66%)' }), h('div', { class: 'meta' }, h('div', { class: 'name' }, 'Strata Originals'), h('div', { class: 'sub' }, 'Built-in textures. Always available as the fallback for anything a pack does not provide.'))));
+    if (hasPackNames()) {
+      const cb = h('input', { type: 'checkbox', checked: getSettings().packNames !== false, onchange: () => { updateSettings({ packNames: cb.checked }); usePackNames(cb.checked); } }) as HTMLInputElement;
+      list.appendChild(h('label', { class: 'list-item small', style: 'gap:10px;cursor:pointer' }, cb, h('div', { class: 'meta' }, h('div', { class: 'name' }, 'Use the pack\'s item names'), h('div', { class: 'sub' }, 'Shows item and block names from the active pack\'s language file. They stay on this device.'))));
+    }
     if (inactive.length) {
       list.appendChild(h('div', { class: 'section-title' }, 'Installed'));
       for (const p of inactive) list.appendChild(row(p, false, -1));

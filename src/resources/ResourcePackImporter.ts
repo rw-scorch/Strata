@@ -37,11 +37,12 @@ export interface PackManifest {
   animations: Record<string, AnimInfo>;
   sounds: Record<string, string[]>;
   special: Record<string, string>;
+  itemNames?: Record<string, string>;
   importer?: number;
   catalog?: string;
 }
 
-export const IMPORTER_VERSION = 14;
+export const IMPORTER_VERSION = 18;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -56,6 +57,9 @@ export function packStale(m: { importer?: number; catalog?: string }): boolean {
 
 export const GUI_SPRITES = [
   'container/slot_highlight_back', 'container/slot_highlight_front', 'container/furnace/burn_progress', 'container/furnace/lit_progress',
+  'container/enchanting_table/enchantment_slot', 'container/enchanting_table/enchantment_slot_disabled', 'container/enchanting_table/enchantment_slot_highlighted',
+  ...[1, 2, 3].flatMap((i) => [`container/enchanting_table/level_${i}`, `container/enchanting_table/level_${i}_disabled`]),
+  'container/anvil/text_field', 'container/anvil/text_field_disabled', 'container/anvil/error',
   'container/villager/experience_bar_background', 'container/villager/experience_bar_current', 'container/villager/out_of_stock', 'container/villager/trade_arrow', 'container/villager/trade_arrow_out_of_stock', 'container/villager/scroller', 'container/villager/scroller_disabled',
   'container/creative_inventory/scroller', 'container/creative_inventory/scroller_disabled',
   ...[1, 2, 3, 4, 5, 6, 7].flatMap((i) => [`container/creative_inventory/tab_top_selected_${i}`, `container/creative_inventory/tab_top_unselected_${i}`, `container/creative_inventory/tab_bottom_selected_${i}`, `container/creative_inventory/tab_bottom_unselected_${i}`]),
@@ -66,7 +70,7 @@ export const GUI_SPRITES = [
   'recipe_book/page_forward', 'recipe_book/page_backward', 'recipe_book/page_forward_highlighted', 'recipe_book/page_backward_highlighted', 'recipe_book/tab', 'recipe_book/tab_selected',
   'recipe_book/filter_enabled', 'recipe_book/filter_disabled', 'recipe_book/filter_enabled_highlighted', 'recipe_book/filter_disabled_highlighted', 'hud/hotbar_offhand_left', 'container/slot/shield', 'icon/search',
 ];
-export const GUI_TEXTURES = ['container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/hopper', 'container/dispenser', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
+export const GUI_TEXTURES = ['container/enchanting_table', 'container/anvil', 'container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/hopper', 'container/dispenser', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
 
 
 export interface PackFiles { [path: string]: Uint8Array; }
@@ -86,6 +90,9 @@ const all6 = (t: string) => ({ px: t, nx: t, py: t, ny: t, pz: t, nz: t });
 const RS_FACES: Record<string, Record<string, string>> = {
   redstone_wire: { px: 'block/redstone_dust_line0', nx: 'block/redstone_dust_line0', pz: 'block/redstone_dust_line1', nz: 'block/redstone_dust_line1', py: 'block/redstone_dust_dot', ny: 'block/redstone_dust_dot' },
   redstone_torch: all6('block/redstone_torch'), unlit_redstone_torch: all6('block/redstone_torch_off'),
+  enchanting_table: { ...all6('block/enchanting_table_side'), py: 'block/enchanting_table_top', ny: 'block/enchanting_table_bottom' },
+  anvil: { ...all6('block/anvil'), py: 'block/anvil_top' },
+  nether_portal: all6('block/nether_portal'), fire: all6('block/fire_0'), iron_bars: all6('block/iron_bars'),
   lever: { ...all6('block/lever'), ny: 'block/cobblestone' },
   stone_button: all6('block/stone'), oak_button: all6('block/oak_planks'), stone_pressure_plate: all6('block/stone'), oak_pressure_plate: all6('block/oak_planks'),
   repeater: { ...all6('block/smooth_stone'), py: 'block/repeater', front: 'block/repeater_on' },
@@ -103,8 +110,31 @@ const RS6_TEX = ['observer_back', 'observer_back_on', 'piston_inner', 'hopper_in
 
 const JAVA_ITEM_NAMES: Record<string, string> = {
   aetherite: 'diamond', raw_pork: 'porkchop', cooked_pork: 'cooked_porkchop', raw_mutton: 'mutton', raw_poultry: 'chicken',
-  cooked_poultry: 'cooked_chicken', oak_door_item: 'oak_door', blastpowder: 'gunpowder', firestriker: 'flint_and_steel',
+  cooked_poultry: 'cooked_chicken', oak_door_item: 'oak_door', blastpowder: 'gunpowder', firestriker: 'flint_and_steel', crossbow: 'crossbow_standby',
 };
+
+export function langKeys(key: string, block: boolean): string[] {
+  const it = javaItemName(key).replace(/_standby$/, '');
+  const bl = JAVA_BLOCK_NAMES[key]?.name ?? key;
+  return block ? [`block.minecraft.${bl}`, `item.minecraft.${it}`, `block.minecraft.${key}`] : [`item.minecraft.${it}`, `block.minecraft.${it}`, `item.minecraft.${key}`];
+}
+
+export function readLangNames(raw: Uint8Array | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw) return out;
+  const lang = parseJson(raw) as Record<string, unknown> | null;
+  if (!lang || typeof lang !== 'object') return out;
+  for (const it of ITEMS) {
+    if (!it) continue;
+    for (const k of langKeys(it.key, it.kind === 'block')) {
+      const v = lang[k];
+      if (typeof v !== 'string') continue;
+      const clean = stripFormatting(v).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 40);
+      if (clean) { out[it.key] = clean; break; }
+    }
+  }
+  return out;
+}
 
 export function javaItemName(key: string): string {
   if (JAVA_ITEM_NAMES[key]) return JAVA_ITEM_NAMES[key];
@@ -158,6 +188,12 @@ for (const g of ['stone', 'wood', 'grass', 'gravel', 'sand', 'snow', 'glass', 'm
 }
 SOUND_EVENTS['ambient.rain'] = { java: ['weather.rain'], bedrock: ['ambient.weather.rain'] };
 SOUND_EVENTS['ambient.thunder'] = { java: ['entity.lightning_bolt.thunder'], bedrock: ['ambient.weather.thunder'] };
+SOUND_EVENTS['mace.smash'] = { java: ['item.mace.smash_ground'], bedrock: ['mace.smash_ground'] };
+SOUND_EVENTS['mace.smash_heavy'] = { java: ['item.mace.smash_ground_heavy'], bedrock: ['mace.heavy_smash_ground'] };
+SOUND_EVENTS['spear.jab'] = { java: ['item.spear.attack'], bedrock: ['item.spear.attack_miss'] };
+SOUND_EVENTS['spear.hit'] = { java: ['item.spear.hit'], bedrock: ['item.spear.hit'] };
+SOUND_EVENTS['crossbow.shoot'] = { java: ['item.crossbow.shoot'], bedrock: ['crossbow.shoot'] };
+SOUND_EVENTS['crossbow.load'] = { java: ['item.crossbow.loading_end'], bedrock: ['crossbow.loading.middle'] };
 SOUND_EVENTS['item.pickup'] = { java: ['entity.item.pickup'], bedrock: ['random.pop'] };
 SOUND_EVENTS['player.levelup'] = { java: ['entity.player.levelup'], bedrock: ['random.levelup'] };
 SOUND_EVENTS['player.hurt'] = { java: ['entity.player.hurt'], bedrock: ['game.player.hurt'] };
@@ -288,6 +324,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
   const animations: Record<string, AnimInfo> = {};
   const sounds: Record<string, string[]> = {};
   const special: Record<string, string> = {};
+  let itemNames: Record<string, string> = {};
   let name = fileName.replace(/\.(zip|mcpack)$/i, '');
   let description = '';
   let formatVersion = '';
@@ -303,6 +340,8 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     description = stripFormatting(typeof desc === 'string' ? desc : Array.isArray(desc) ? desc.map((d) => (typeof d === 'string' ? d : (d as { text?: string }).text ?? '')).join('') : (desc as { text?: string })?.text ?? '');
     formatVersion = String(mc?.pack?.pack_format ?? mc?.pack?.min_format ?? '?');
     icon = base['pack.png'] ?? null;
+    const lp = 'assets/minecraft/lang/en_us.json';
+    if (z.has(lp)) itemNames = readLangNames(z.read([lp])[lp]);
     const r = new JavaResolver(z);
     const blockNames = new Map<number, { name: string; state?: string }>();
     for (const b of BLOCKS) {
@@ -431,6 +470,12 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     };
     ['steve', 'alex', 'ari', 'efe', 'kai', 'makena', 'noor', 'sunny', 'zuri'].forEach((n, i) => { ent[`ent_player${i}`] = firstOf(`entity/player/wide/${n}`, i === 0 ? 'entity/steve' : `entity/player/wide/${n}`); });
     for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason']) ent[`ent_vprof_${pr}`] = firstOf(`entity/villager/profession/${pr}`);
+    for (const [m, j] of [['leather', 'leather'], ['iron', 'iron'], ['gold', 'gold'], ['aetherite', 'diamond']]) {
+      ent[`ent_armor_${m}_1`] = firstOf(`entity/equipment/humanoid/${j}`, `models/armor/${j}_layer_1`);
+      ent[`ent_armor_${m}_2`] = firstOf(`entity/equipment/humanoid_leggings/${j}`, `models/armor/${j}_layer_2`);
+    }
+    ent.ent_armor_leather_1o = firstOf('entity/equipment/humanoid/leather_overlay', 'models/armor/leather_layer_1_overlay');
+    ent.ent_armor_leather_2o = firstOf('entity/equipment/humanoid_leggings/leather_overlay', 'models/armor/leather_layer_2_overlay');
     for (const [k, v] of Object.entries(ent)) if (v) special[k] = v;
     const altMoon = z.list('assets/minecraft/textures/environment/').find((n) => /moon/.test(n) && n.endsWith('.png'));
     if (!z.has(`assets/minecraft/textures/${special.moon}.png`) && altMoon) special.moon = altMoon.replace('assets/minecraft/textures/', '').replace(/\.png$/, '');
@@ -476,7 +521,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       report.sounds = Object.keys(sounds).length;
     }
     report.unsupported.push('Custom block models with non-cube shapes are drawn with Strata\'s built-in shapes using the pack\'s textures.');
-    report.unsupported.push('Mob textures are applied to vanilla-proportioned models: sheep, pig, chicken, zombie, skeleton and spider skins dress Strata\'s Woolhorn, Mudsnout, Fernhen, Hollowed, Rattlebone and Duskweaver. The default player skins dress players.');
+    report.unsupported.push('Mob textures are applied to vanilla-proportioned models: sheep, pig, chicken, zombie, skeleton and spider skins dress Strata\'s Sheep, Pig, Chicken, Zombie, Skeleton and Spider. The default player skins dress players.');
     report.unsupported.push('Shaders, fonts, languages and post-processing effects are ignored.');
   } else {
     const base = z.read(['manifest.json', 'pack_icon.png', 'blocks.json', 'textures/terrain_texture.json', 'textures/item_texture.json', 'textures/flipbook_textures.json', 'sounds/sound_definitions.json']);
@@ -601,7 +646,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     importer: IMPORTER_VERSION, catalog: CATALOG,
     id: `pack-${hash.slice(0, 16)}`, name: name.slice(0, 60) || 'Imported Pack', description: description.slice(0, 200),
     format: isJava ? 'java' : 'bedrock', formatVersion, hash, importedAt: Date.now(), sizeBytes, report,
-    blockFaces, itemTextures, animations, sounds, special,
+    blockFaces, itemTextures, animations, sounds, special, itemNames,
   };
   return { manifest, files, icon };
 }

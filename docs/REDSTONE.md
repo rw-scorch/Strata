@@ -94,6 +94,10 @@ Strata today has ad hoc support checks (`checkSupport`, `scheduleFluidAround`). 
 | Piston and sticky piston | Pushes up to 12 blocks. Some blocks are immovable (obsidian, bedrock, spawners, vaults, extended pistons); containers break when pushed in current Java (barrels, chests, furnaces, hoppers, dispensers). Attached blocks drop. A stroke takes 2 game ticks. A pulse under 3 game ticks makes a sticky piston drop its block. Slime and honey blocks drag neighbors (honey doesn't stick to slime). |
 | Dispenser and dropper | Act 4 game ticks after a rising edge, ignoring input in between. They pick a random filled slot when firing, not when triggered. Droppers feed containers. Dispensers place and pick up water and lava, use bone meal, shoot arrows and equip armor. Quasi-connectivity applies. |
 | Hopper | Moves 1 item, then waits 8 game ticks. Collects item entities in the full block above unless a solid block covers it. Pushes before it pulls in the same tick. Any redstone power locks it, and it waits 2 game ticks after unlocking. Comparators read it (1 item gives 1, and one unstackable item gives 3). |
+| Rail | Connects to neighbouring rails into straights, curves and slopes, like Java. Plain rails can curve; the others are straight only. |
+| Ember Rail (powered) | Powered rails pass power up to 8 rails along the line. When on, a cart speeds up by 0.06 blocks per tick up to 0.4; when off, it brakes and stops. A cart against a solid block on a powered rail is pushed away from it. |
+| Sensor Rail (detector) | Gives 15 while a cart is on it, checked every 20 ticks, and powers the block below strongly. Comparators can read it. |
+| Trigger Rail (activator) | When powered, lights a Keg Cart (80-tick fuse) and throws riders out. Passes power like an Ember Rail. |
 | Redstone lamp | Turns on at once and off after a short delay. |
 | Daylight detector | Updates once a second from sky light and time; it can be inverted for night. |
 | Target block | Output 1 to 15 by how close to the center it is hit. Arrows hold it for 20 ticks, other projectiles 8. |

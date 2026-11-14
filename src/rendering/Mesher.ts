@@ -1,5 +1,5 @@
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -19,11 +19,11 @@ export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_G
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19 };
 const CULLSELF = new Uint8Array(256);
-for (const b of BLOCKS) if (b) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
+for (const b of BLOCKS) if (b && b.id < 256) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(256);
-for (const b of BLOCKS) if (b && b.orientable && b.render === 'cube') ORIENT[b.id] = 1;
+for (const b of BLOCKS) if (b && b.id < 256 && b.orientable && b.render === 'cube') ORIENT[b.id] = 1;
 const OFFSET_PLANT = new Uint8Array(256);
 for (const id of [B.TALL_GRASS, B.FERN, B.DANDELION, B.POPPY, B.DEAD_BUSH]) OFFSET_PLANT[id] = 1;
 const EXTRA = new Uint8Array(256);
@@ -310,15 +310,16 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
         const ny = y + n[1];
         const nv = ny >= 0 && ny < H ? region[ridx(rx + n[0], ny, rz + n[2])] : 0;
         if (!faceVisible(id, code, nv, ny)) continue;
-        let tile = tiles[id * FS + d];
+        const ti = id === 218 ? 600 + (bv >>> 8) : id;
+        let tile = tiles[ti * FS + d];
         if (ORIENT[id]) {
           const f = (bv >>> 8) & 3;
           const fd = f === 0 ? 5 : f === 1 ? 0 : f === 2 ? 4 : 1;
           if (fd === d && tiles[id * FS + 6] >= 0) tile = tiles[id * FS + 6];
         }
-        let ovTile = d !== 2 && d !== 3 ? tiles[id * FS + 7] : -1;
-        const tcode = tintT[id * 2];
-        let tintBase = tcode && (!tintT[id * 2 + 1] || d === 2) ? 1 : 0;
+        let ovTile = d !== 2 && d !== 3 ? tiles[ti * FS + 7] : -1;
+        const tcode = tintT[ti * 2];
+        let tintBase = tcode && (!tintT[ti * 2 + 1] || d === 2) ? 1 : 0;
         if (d !== 2 && d !== 3 && (id === B.GRASS || id === B.SNOWY_GRASS) && grassMode !== 'off' && y > 0) {
           const below = region[ridx(rx + n[0], y - 1, rz + n[2])] & 255;
           if (grassMode === 'fast' || below === id) { tile = tiles[id * FS + 2]; ovTile = -1; tintBase = tcode ? 1 : 0; }
@@ -405,7 +406,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
 const visSeen = new Uint8Array(4096);
 const visQ = new Int32Array(4096);
 const OCC = new Uint8Array(256);
-for (const b of BLOCKS) if (b && b.opaque && b.render === 'cube') OCC[b.id] = 1;
+for (const b of BLOCKS) if (b && b.id < 256 && b.opaque && b.render === 'cube') OCC[b.id] = 1;
 
 export function facePair(a: number, b: number): number {
   if (a > b) { const t = a; a = b; b = t; }
@@ -568,6 +569,54 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       return;
     }
     case 13: { redstoneMesh(ctx, id, v, x, y, z, sk, bl); return; }
+    case 17: {
+      const tile = tiles[id * FS + 4];
+      const uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
+      if ((v >>> 8) & 1) quadRaw(cut, [[x + 0.5, y, z], [x + 0.5, y, z + 1], [x + 0.5, y + 1, z + 1], [x + 0.5, y + 1, z]], uvq, tile, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+      else quadRaw(cut, [[x, y, z + 0.5], [x + 1, y, z + 0.5], [x + 1, y + 1, z + 0.5], [x, y + 1, z + 0.5]], uvq, tile, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+      return;
+    }
+    case 18: {
+      const tile = tiles[id * FS + 4];
+      const uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
+      const a = 0.05, c = 0.95;
+      quadRaw(cut, [[x + a, y, z + a], [x + c, y, z + c], [x + c, y + 1, z + c], [x + a, y + 1, z + a]], uvq, tile, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+      quadRaw(cut, [[x + a, y, z + c], [x + c, y, z + a], [x + c, y + 1, z + a], [x + a, y + 1, z + c]], uvq, tile, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+      return;
+    }
+    case 19: {
+      const tile = tiles[id * FS + 4];
+      const uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
+      const link = (dx: number, dz: number) => { const n = region[ridx(rx + dx, y, rz + dz)] & 255; return n === id || OPAQUE[n] === 1; };
+      let ax = link(1, 0) || link(-1, 0), az = link(0, 1) || link(0, -1);
+      if (!ax && !az) ax = az = true;
+      if (ax) quadRaw(cut, [[x, y, z + 0.5], [x + 1, y, z + 0.5], [x + 1, y + 1, z + 0.5], [x, y + 1, z + 0.5]], uvq, tile, sk, bl, 230, 255, 255, 255, 0, true);
+      if (az) quadRaw(cut, [[x + 0.5, y, z], [x + 0.5, y, z + 1], [x + 0.5, y + 1, z + 1], [x + 0.5, y + 1, z]], uvq, tile, sk, bl, 230, 255, 255, 255, 0, true);
+      return;
+    }
+    case 15: {
+      const m = v >>> 8, shape = m & 15;
+      const alt = id === B.RAIL ? shape >= 6 : !!(m & 16);
+      const tile = ctx.atlas.blockTiles[id * FS + (alt ? 3 : 2)];
+      const k = shape === 1 || shape === 2 || shape === 3 ? 1 : shape >= 6 ? shape - 6 : 0;
+      const hgt = (fx: number, fz: number) => y + 1 / 16 + (shape === 2 ? fx : shape === 3 ? 1 - fx : shape === 4 ? 1 - fz : shape === 5 ? fz : 0);
+      const uv = (fx: number, fz: number) => (k === 1 ? [fz, 1 - fx] : k === 2 ? [1 - fx, 1 - fz] : k === 3 ? [1 - fz, fx] : [fx, fz]);
+      const corners: [number, number][] = [[0, 1], [1, 1], [1, 0], [0, 0]];
+      quadRaw(builders[1], corners.map(([fx, fz]) => [x + fx, hgt(fx, fz), z + fz]), corners.map(([fx, fz]) => uv(fx, fz)), tile, sk, bl, 255, 255, 255, 255, 0, true);
+      return;
+    }
+    case 16: {
+      const tl = ctx.atlas.blockTiles;
+      const TE = LIGHT_EMIT[id] > 0 ? F_EMIT : 0;
+      const cb = customBoxes(v);
+      const anvil = id === B.ANVIL, ew = anvil && (meta & 1) === 1;
+      cb.forEach((b, i) => {
+        const top = !anvil || i === cb.length - 1;
+        boxFaces(builders[0], x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5], (d) => tl[id * FS + (d === 2 && !top ? 0 : d)], sk, bl, 255, 255, 255, undefined,
+          ew ? (d) => (d === 2 && top ? [[b[5], b[0]], [b[5], b[3]], [b[2], b[3]], [b[2], b[0]]] : null) : undefined, TE);
+      });
+      return;
+    }
     case 14: {
       const mat = SHAPE_MATS[(v >>> 8) & 31] ?? SHAPE_MATS[0];
       const tiles = ctx.atlas.blockTiles;

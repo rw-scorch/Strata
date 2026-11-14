@@ -15,6 +15,7 @@ export interface ComposedPack {
   animations: Map<string, AnimInfo>;
   special: Map<string, string>;
   sounds: Map<string, Uint8Array[]>;
+  itemNames: Map<string, string>;
 }
 
 export interface InstalledPack { manifest: PackManifest; iconURL: string | null; }
@@ -120,7 +121,7 @@ class Manager {
   async compose(ids: string[]): Promise<ComposedPack> {
     const out: ComposedPack = {
       ids: [], names: [], hash: 'default', files: new Map(), blockFaces: new Map(), itemTextures: new Map(),
-      animations: new Map(), special: new Map(), sounds: new Map(),
+      animations: new Map(), special: new Map(), sounds: new Map(), itemNames: new Map(),
     };
     const hashes: string[] = [];
     for (const id of [...ids].reverse()) {
@@ -142,6 +143,7 @@ class Manager {
       for (const [k, v] of Object.entries(m.itemTextures)) out.itemTextures.set(k, v);
       for (const [k, v] of Object.entries(m.animations)) out.animations.set(k, v);
       for (const [k, v] of Object.entries(m.special)) out.special.set(k, v);
+      for (const [k, v] of Object.entries(m.itemNames ?? {})) out.itemNames.set(k, v);
       for (const [ev, paths] of Object.entries(m.sounds)) {
         const bufs: Uint8Array[] = [];
         for (const p of paths) { const b = await dbGet<Uint8Array>('packfiles', `${id}|${p}`); if (b) bufs.push(b); }

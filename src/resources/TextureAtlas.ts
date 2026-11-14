@@ -90,8 +90,8 @@ export class TextureAtlas {
     this.packHash = pack?.hash ?? 'default';
     this.packNames = pack?.names ?? [];
     const special: Record<string, number> = {};
-    const blockTiles = new Int16Array(256 * FACE_SLOTS).fill(-1);
-    const tintTable = new Uint8Array(256 * 2);
+    const blockTiles = new Int16Array(1024 * FACE_SLOTS).fill(-1);
+    const tintTable = new Uint8Array(1024 * 2);
     const sources = new Map<string, { canvas: HTMLCanvasElement; anim?: AnimInfo; fromPack: boolean }>();
 
     const resolveKey = (key: string): string => key;
@@ -254,6 +254,36 @@ export class TextureAtlas {
         this.entityTextures.set(`villager_${pr}`, t);
       }
     }
+  }
+
+  private armorTex = new Map<string, THREE.Texture>();
+
+  armorTexture(mat: string, layer: 1 | 2): THREE.Texture {
+    const key = `${mat}_${layer}`;
+    const hit = this.armorTex.get(key);
+    if (hit) return hit;
+    let c = this.entityCanvases.get(`armor_${key}`) ?? null;
+    if (c && mat === 'leather') {
+      const out = document.createElement('canvas');
+      out.width = c.width; out.height = c.height;
+      const g = out.getContext('2d')!;
+      g.drawImage(c, 0, 0);
+      const d = g.getImageData(0, 0, out.width, out.height);
+      for (let i = 0; i < d.data.length; i += 4) { d.data[i] = d.data[i] * 0xa0 / 255; d.data[i + 1] = d.data[i + 1] * 0x65 / 255; d.data[i + 2] = d.data[i + 2] * 0x40 / 255; }
+      g.putImageData(d, 0, 0);
+      const ov = this.entityCanvases.get(`armor_leather_${layer}o`);
+      if (ov) g.drawImage(ov, 0, 0);
+      c = out;
+    }
+    if (!c) c = defaultArmorCanvas(mat, layer);
+    const t = new THREE.CanvasTexture(c);
+    t.magFilter = THREE.NearestFilter;
+    t.minFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.flipY = false;
+    t.colorSpace = THREE.NoColorSpace;
+    this.armorTex.set(key, t);
+    return t;
   }
 
   get playerSkinCount(): number { let n = 0; while (this.entityTextures.has(`player${n}`)) n++; return n; }
@@ -468,7 +498,7 @@ export class TextureAtlas {
           const bd = BLOCKS[it.id];
           if (bd?.render === 'door' || (bd?.render === 'redstone' && this.pack?.itemTextures.has(it.key) && this.pack.files.has(this.pack.itemTextures.get(it.key)!))) src = this.itemSource(it);
           else {
-            const tile = it.id === B.WHEAT ? this.data.special.wheat7 : this.data.blockTiles[it.id * FACE_SLOTS + (bd?.render === 'redstone' ? 2 : 4)];
+            const tile = it.id === B.WHEAT ? this.data.special.wheat7 : this.data.blockTiles[it.id * FACE_SLOTS + (bd?.render === 'redstone' || bd?.render === 'rail' ? 2 : 4)];
             src = this.tileCanvases[tile] ?? null;
           }
           const tint = this.data.tintTable[it.id * 2];
@@ -670,6 +700,7 @@ export class TextureAtlas {
     this.moonTexture?.dispose();
     this.cloudTexture?.dispose();
     for (const t of this.entityTextures.values()) t.dispose();
+    for (const t of this.armorTex.values()) t.dispose();
   }
 }
 
@@ -749,5 +780,45 @@ function proceduralFire(): HTMLCanvasElement {
     }
   }
   g.putImageData(img, 0, 0);
+  return c;
+}
+
+const ARMOR_COLORS: Record<string, [number, number, number]> = {
+  leather: [0x5a3416, 0x9a5e2e, 0xc08a58], iron: [0x6a6a6a, 0xc6c6c6, 0xf2f2f2], gold: [0x8a6a10, 0xe8c228, 0xfff2a0], aetherite: [0x0e5f5a, 0x3fd8cc, 0xb8fff8],
+};
+
+function defaultArmorCanvas(mat: string, layer: 1 | 2): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 32;
+  const g = c.getContext('2d')!;
+  const [dk, md, lt] = ARMOR_COLORS[mat] ?? ARMOR_COLORS.iron;
+  const rgb = (v: number) => `rgb(${v >> 16},${(v >> 8) & 255},${v & 255})`;
+  let seed = mat.length * 977 + layer * 131;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const box = (u: number, v: number, w: number, h: number, d: number) => {
+    const rects: [number, number, number, number][] = [[u + d, v, w, d], [u + d + w, v, w, d], [u, v + d, d, h], [u + d, v + d, w, h], [u + d + w, v + d, d, h], [u + d + w + d, v + d, w, h]];
+    for (const [x, y, rw, rh] of rects) {
+      for (let yy = 0; yy < rh; yy++) for (let xx = 0; xx < rw; xx++) {
+        const edge = xx === 0 || yy === 0 || xx === rw - 1 || yy === rh - 1;
+        const r = rnd();
+        g.fillStyle = rgb(edge ? dk : r < 0.18 ? lt : r > 0.9 ? dk : md);
+        g.fillRect(x + xx, y + yy, 1, 1);
+      }
+    }
+  };
+  if (layer === 1) {
+    box(0, 0, 8, 8, 8);
+    g.clearRect(8 + 2, 8 + 3, 4, 2);
+    g.clearRect(8 + 1, 8 + 5, 6, 3);
+    box(16, 16, 8, 12, 4);
+    box(40, 16, 4, 12, 4);
+    box(0, 16, 4, 12, 4);
+    g.clearRect(4, 20, 4, 6); g.clearRect(0, 20, 4, 6); g.clearRect(8, 20, 8, 6);
+  } else {
+    box(16, 16, 8, 12, 4);
+    g.clearRect(20, 20, 8, 6); g.clearRect(16, 20, 4, 6); g.clearRect(28, 20, 12, 6);
+    box(0, 16, 4, 12, 4);
+    g.clearRect(0, 26, 16, 6);
+  }
   return c;
 }

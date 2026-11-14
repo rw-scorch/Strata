@@ -3,7 +3,7 @@ const wsBase = base.replace(/^http/, 'ws');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ok = (label, cond, extra = '') => { console.log(cond ? 'PASS' : 'FAIL', label, extra); if (!cond) process.exitCode = 1; };
 const tag = Date.now().toString(36);
-const ORES = new Set([22, 23, 24, 25, 175, 194]);
+const ORES = new Set([22, 23, 24, 25, 175, 194, 215]);
 async function room(mode) {
   const r = await (await fetch(base + '/api/rooms', { method: 'POST', body: JSON.stringify({ name: 'V13 Smoke', seed: 4242, mode, difficulty: 'normal', ownerId: `owner-v13-${tag}`, ownerSecret: 'owner-secret-v13-0000', ownerName: 'Alpha' }) })).json();
   return r.code;
@@ -13,7 +13,7 @@ function client(code, id, secret, name) {
   const c = { ws, msgs: [], welcome: null, closed: false };
   ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome') c.welcome = m; };
   ws.onclose = () => { c.closed = true; };
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 13, id, secret, name, appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 17, id, secret, name, appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
   c.send = (m) => ws.send(JSON.stringify(m));
   c.chats = () => c.msgs.filter((m) => m.t === 'chat').map((m) => m.text);
   c.inv = () => c.msgs.filter((m) => m.t === 'inv').at(-1)?.inv;

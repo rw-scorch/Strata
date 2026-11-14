@@ -1,4 +1,4 @@
-export const GEN_LEVEL = 4;
+export const GEN_LEVEL = 5;
 export const LEGACY_LEVEL = 2;
 export const LEGACY_RADIUS = 10;
 const CELL = 8;

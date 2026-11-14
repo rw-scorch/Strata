@@ -1,3 +1,4 @@
+import { RAIL_EXITS, RAIL_POWERED, isAscending } from '../rails';
 import { B, BLOCKS, FACING_DIRS, blockId, blockMeta, makeBlock, DOOR_UPPER, DOOR_OPEN } from '../blocks';
 import { getItem } from '../items';
 import type { ItemStack } from '../inventory';
@@ -29,6 +30,7 @@ export interface RsHost {
   moveEntities(cells: MoveCell[], dir: number, from: number, to: number): void;
   animate(list: number[]): void;
   primeTnt(x: number, y: number, z: number, fuse: number): void;
+  cartAt(x: number, y: number, z: number): boolean;
   dispense(x: number, y: number, z: number, v: number, dir: number): void;
 }
 
@@ -59,11 +61,11 @@ export function isPlate(id: number): boolean { return id === B.STONE_PRESSURE_PL
 export function isLamp(id: number): boolean { return id === B.REDSTONE_LAMP || id === B.REDSTONE_LAMP_LIT; }
 
 export function isSignalSource(id: number): boolean {
-  return id === B.REDSTONE_WIRE || isTorch(id) || id === B.LEVER || isButton(id) || isPlate(id) || id === B.REDSTONE_BLOCK || isDiode(id) || id === B.OBSERVER;
+  return id === B.REDSTONE_WIRE || isTorch(id) || id === B.LEVER || isButton(id) || isPlate(id) || id === B.REDSTONE_BLOCK || isDiode(id) || id === B.OBSERVER || id === B.DETECTOR_RAIL;
 }
 
 export function isPiston(id: number): boolean { return id === B.PISTON || id === B.STICKY_PISTON; }
-export function isRedstoneId(id: number): boolean { return isSignalSource(id) || isLamp(id) || isPiston(id) || id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER || id === B.PISTON_HEAD; }
+export function isRedstoneId(id: number): boolean { return isSignalSource(id) || isLamp(id) || isPiston(id) || id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER || id === B.PISTON_HEAD || id === B.POWERED_RAIL || id === B.ACTIVATOR_RAIL; }
 export const PISTON_EXT = 8, OBS_ON = 8, HOPPER_OFF = 8, DISP_TRIG = 8;
 
 export type PushReaction = 'empty' | 'destroy' | 'block' | 'normal';
@@ -252,6 +254,7 @@ export class Redstone {
     }
     if (id === B.OAK_DOOR) { this.doorCheck(x, y, z, v); return; }
     if (id === B.TNT) { if (this.hasNeighborSignal(x, y, z)) this.h.primeTnt(x, y, z, 80); return; }
+    if (id === B.POWERED_RAIL || id === B.ACTIVATOR_RAIL) { this.railPower(x, y, z, v); return; }
     if (isPiston(id)) { this.pistonCheck(x, y, z, v); return; }
     if (id === B.HOPPER) {
       const off = this.hasNeighborSignal(x, y, z), m = blockMeta(v);
@@ -292,6 +295,7 @@ export class Redstone {
     if (isLamp(nid)) this.neighborChanged(x, y, z);
     if (nid === B.OAK_DOOR) this.doorCheck(x, y, z, v);
     if (nid === B.TNT && oid !== B.TNT) this.neighborChanged(x, y, z);
+    if ((nid === B.POWERED_RAIL || nid === B.ACTIVATOR_RAIL) && oid !== nid) this.railPower(x, y, z, v);
     if (isPiston(nid) || nid === B.HOPPER || nid === B.DROPPER || nid === B.DISPENSER) this.neighborChanged(x, y, z);
     if (oid === B.PISTON_HEAD && nid !== B.PISTON_HEAD) {
       const f = blockMeta(old) & 7, [dx, dy, dz] = DIR6[opp(f)];
@@ -349,6 +353,7 @@ export class Redstone {
       case B.REPEATER: return m & REP_POWERED && d === opp(diodeOut(v)) ? 15 : 0;
       case B.COMPARATOR: return d === opp(diodeOut(v)) ? this.compOut.get(key(x, y, z)) ?? 0 : 0;
       case B.OBSERVER: return m & OBS_ON && d === (m & 7) ? 15 : 0;
+      case B.DETECTOR_RAIL: return m & RAIL_POWERED ? 15 : 0;
       default: return 0;
     }
   }
@@ -358,6 +363,7 @@ export class Redstone {
     switch (id) {
       case B.REDSTONE_WIRE: case B.REPEATER: case B.COMPARATOR: case B.OBSERVER: return this.blockSignal(x, y, z, d);
       case B.REDSTONE_TORCH: return d === D ? this.blockSignal(x, y, z, d) : 0;
+      case B.DETECTOR_RAIL: return m & RAIL_POWERED && d === U ? 15 : 0;
       case B.LEVER: case B.STONE_BUTTON: case B.OAK_BUTTON: return m & LEVER_ON && attachOut(m & 7) === d ? 15 : 0;
       case B.STONE_PRESSURE_PLATE: case B.OAK_PRESSURE_PLATE: return m & PLATE_ON && d === U ? 15 : 0;
       default: return 0;
@@ -401,8 +407,51 @@ export class Redstone {
     return a.length >= 8;
   }
 
+  private railPower(x: number, y: number, z: number, v: number): void {
+    const id = blockId(v), m = blockMeta(v);
+    const powered = this.hasNeighborSignal(x, y, z) || this.railChain(x, y, z, v, 0) || this.railChain(x, y, z, v, 1);
+    if (powered === !!(m & RAIL_POWERED)) return;
+    this.h.setState(x, y, z, makeBlock(id, powered ? m | RAIL_POWERED : m & ~RAIL_POWERED));
+    this.updateNeighbors(x, y, z);
+    this.updateNeighbors(x, y - 1, z);
+    if (isAscending(m & 15)) this.updateNeighbors(x, y + 1, z);
+  }
+
+  private railChain(x: number, y: number, z: number, v: number, end: number): boolean {
+    const id = blockId(v);
+    let cx = x, cy = y, cz = z, px = x, pz = z, shape = blockMeta(v) & 15;
+    const axis = RAIL_EXITS[shape][0][0] !== 0 || RAIL_EXITS[shape][1][0] !== 0 ? 'x' : 'z';
+    let ex = RAIL_EXITS[shape][end];
+    for (let depth = 0; depth < 8; depth++) {
+      const nx = cx + ex[0], nz = cz + ex[2];
+      let found = -1;
+      for (const dy of [0, 1, -1]) if (blockId(this.g(nx, cy + dy, nz)) === id) { found = dy; break; }
+      if (found === -1) return false;
+      const ny = cy + found, nv = this.g(nx, ny, nz), ns = blockMeta(nv) & 15;
+      const nAxis = RAIL_EXITS[ns][0][0] !== 0 || RAIL_EXITS[ns][1][0] !== 0 ? 'x' : 'z';
+      if (nAxis !== axis) return false;
+      if (this.hasNeighborSignal(nx, ny, nz)) return true;
+      px = cx; pz = cz; cx = nx; cy = ny; cz = nz; shape = ns;
+      const a = RAIL_EXITS[shape][0], b = RAIL_EXITS[shape][1];
+      ex = cx + a[0] === px && cz + a[2] === pz ? b : a;
+    }
+    return false;
+  }
+
+  setDetector(x: number, y: number, z: number, on: boolean): void {
+    const v = this.g(x, y, z);
+    if (blockId(v) !== B.DETECTOR_RAIL) return;
+    const m = blockMeta(v);
+    if (on) this.schedule(x, y, z, 20);
+    if (on === !!(m & RAIL_POWERED)) return;
+    this.h.setState(x, y, z, makeBlock(B.DETECTOR_RAIL, on ? m | RAIL_POWERED : m & ~RAIL_POWERED));
+    this.updateNeighbors(x, y, z);
+    this.updateNeighbors(x, y - 1, z);
+  }
+
   private onTick(x: number, y: number, z: number, v: number): void {
     const id = blockId(v), m = blockMeta(v);
+    if (id === B.DETECTOR_RAIL) { if (m & RAIL_POWERED) this.setDetector(x, y, z, this.h.cartAt(x, y, z)); return; }
     if (isTorch(id)) {
       const powered = this.torchPowered(x, y, z, v);
       if (id === B.REDSTONE_TORCH) {

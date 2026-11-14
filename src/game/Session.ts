@@ -14,7 +14,7 @@ export interface Vitals { health: number; food: number; sat: number; air: number
 
 export interface SessionEvents {
   block(x: number, y: number, z: number, v: number, old: number): void;
-  entity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
+  entity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
   entityRemove(id: string, death: boolean, pickupBy?: string): void;
   sound(name: string, x: number, y: number, z: number, vol?: number, pitch?: number): void;
   fx(kind: string, x: number, y: number, z: number, data?: number): void;
@@ -37,6 +37,10 @@ export interface SessionEvents {
   weather(w: Weather): void;
   lightning(x: number, y: number, z: number): void;
   pistonMove?(list: number[]): void;
+  ride?(id: number): void;
+  knock?(x: number, y: number, z: number, set?: boolean): void;
+  equipment?(id: string, eq: number[]): void;
+  enchantOffers?(o: { cost: number; clue: string | null; clueLvl: number }[]): void;
   boom?(x: number, y: number, z: number, r: number): void;
   player(p: PublicPlayer): void;
   playerLeft(id: string, name: string): void;
@@ -77,6 +81,8 @@ export interface GameSession {
   eat(): void;
   attack(entityId: string): void;
   useEntity(entityId: string): void;
+  enchant?(slot: number): void;
+  anvil?(name: string | null): void;
   shoot(power: number, yaw: number, pitch: number): void;
   swing?(): void;
   trade(entityId: string, index: number, times: number): void;

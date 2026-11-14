@@ -3,7 +3,7 @@ import { I, toolId, armorId } from '../../items';
 
 export type Currency = 'iron' | 'gold' | 'aetherite';
 export const CURRENCY_ITEM: Record<Currency, number> = { iron: I.IRON_INGOT, gold: I.GOLD_INGOT, aetherite: I.AETHERITE };
-export const CURRENCY_NAME: Record<Currency, string> = { iron: 'Iron', gold: 'Gold', aetherite: 'Aetherite' };
+export const CURRENCY_NAME: Record<Currency, string> = { iron: 'Iron', gold: 'Gold', aetherite: 'Diamond' };
 
 export interface ShopOffer {
   key: string;
@@ -29,9 +29,9 @@ export const SHOP: ShopOffer[] = [
   { key: 'ladder', name: 'Ladder x8', desc: 'Climb walls, scale towers.', cost: ['iron', 4], give: [{ id: B.LADDER, count: 8 }], cat: 'blocks', icon: B.LADDER },
   { key: 'stone_sword', name: 'Stone Sword', desc: 'A reliable first upgrade.', cost: ['iron', 10], give: [{ id: sword(1), count: 1 }], cat: 'combat', icon: sword(1) },
   { key: 'iron_sword', name: 'Iron Sword', desc: 'Hits hard, swings true.', cost: ['gold', 7], give: [{ id: sword(2), count: 1 }], cat: 'combat', icon: sword(2) },
-  { key: 'aeth_sword', name: 'Aetherite Sword', desc: 'The finest edge in the skies.', cost: ['aetherite', 4], give: [{ id: sword(4), count: 1 }], cat: 'combat', icon: sword(4) },
+  { key: 'aeth_sword', name: 'Diamond Sword', desc: 'The finest edge in the skies.', cost: ['aetherite', 4], give: [{ id: sword(4), count: 1 }], cat: 'combat', icon: sword(4) },
   { key: 'iron_armor', name: 'Iron Plate Set', desc: 'Chestplate and leggings. Kept when you fall.', cost: ['gold', 12], give: [{ id: armorId(1, 1), count: 1 }, { id: armorId(1, 2), count: 1 }], cat: 'combat', icon: armorId(1, 1) },
-  { key: 'aeth_armor', name: 'Aetherite Plate Set', desc: 'Chestplate and leggings of the rarest metal.', cost: ['aetherite', 6], give: [{ id: armorId(3, 1), count: 1 }, { id: armorId(3, 2), count: 1 }], cat: 'combat', icon: armorId(3, 1) },
+  { key: 'aeth_armor', name: 'Diamond Plate Set', desc: 'Chestplate and leggings of the rarest metal.', cost: ['aetherite', 6], give: [{ id: armorId(3, 1), count: 1 }, { id: armorId(3, 2), count: 1 }], cat: 'combat', icon: armorId(3, 1) },
   { key: 'stone_pick', name: 'Stone Pickaxe', desc: 'Chews through stone defences.', cost: ['iron', 10], give: [{ id: pick(1), count: 1 }], cat: 'tools', icon: pick(1) },
   { key: 'iron_pick', name: 'Iron Pickaxe', desc: 'Makes short work of hearth walls.', cost: ['gold', 3], give: [{ id: pick(2), count: 1 }], cat: 'tools', icon: pick(2) },
   { key: 'iron_axe', name: 'Iron Axe', desc: 'Splits planks in a heartbeat.', cost: ['gold', 3], give: [{ id: toolId(2, 1), count: 1 }], cat: 'tools', icon: toolId(2, 1) },

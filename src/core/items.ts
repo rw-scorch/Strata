@@ -33,7 +33,7 @@ export const I = {
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
   BREAD: 278, CLAY_BALL: 279, DOOR: 280, BRICK: 281, BUCKET: 282, WATER_BUCKET: 283, LAVA_BUCKET: 284,
   ROTTEN_FLESH: 285, PAPER: 286, BOOK: 287, RED_DYE: 288, YELLOW_DYE: 289, ARROW: 290, GOLDEN_APPLE: 291, BOWL: 292, MUSHROOM_STEW: 293, BOW: 294, EMERALD: 295, BOW_PULL0: 296, BOW_PULL1: 297, BOW_PULL2: 298, BONE_MEAL: 299,
-  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370, REDSTONE: 371, GUNPOWDER: 372, FLINT_AND_STEEL: 373,
+  COPPER_INGOT: 364, TRIAL_KEY: 365, INK_SAC: 366, COCOA_BEANS: 367, SHEARS: 368, COOKIE: 369, DRIED_KELP: 370, REDSTONE: 371, GUNPOWDER: 372, FLINT_AND_STEEL: 373, MINECART: 374, TNT_MINECART: 375, CROSSBOW: 376, CROSSBOW_PULL0: 377, CROSSBOW_PULL1: 378, CROSSBOW_PULL2: 379, CROSSBOW_LOADED: 380, MACE: 381, SPEAR: 382, ENCHANTED_BOOK: 388, LAPIS: 389, GOLD_NUGGET: 390, QUARTZ: 391, IRON_NUGGET: 392,
 } as const;
 
 const NEW_DYES = COLORS.filter((c) => c !== 'red' && c !== 'yellow');
@@ -60,12 +60,19 @@ const TAB_FOR_CATEGORY: Record<string, CreativeTab> = {
 
 for (const b of BLOCKS) {
   if (!b || b.id === 0) continue;
-  const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door' || b.render === 'redstone';
+  const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door' || b.render === 'redstone' || b.render === 'rail' || b.render === 'fire' || b.render === 'portal' || b.render === 'bars';
   add({
-    id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.id,
-    texture: b.render === 'door' ? 'oak_door_item' : b.render === 'redstone' ? b.faces.py : b.faces.pz, blockIcon: !flat, tab: TAB_FOR_CATEGORY[b.category] ?? 'building',
+    id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.ext !== undefined ? 218 : b.id, placeMeta: b.ext,
+    texture: b.render === 'door' ? 'oak_door_item' : b.render === 'redstone' || b.render === 'rail' ? b.faces.py : b.faces.pz, blockIcon: !flat, tab: TAB_FOR_CATEGORY[b.category] ?? 'building',
   });
 }
+
+export const SPEAR_MATS = [
+  { key: 'wooden', name: 'Wooden', dmg: 2, dur: 59 }, { key: 'stone', name: 'Stone', dmg: 3, dur: 131 }, { key: 'iron', name: 'Iron', dmg: 4, dur: 250 },
+  { key: 'golden', name: 'Golden', dmg: 2, dur: 32 }, { key: 'aetherite', name: 'Diamond', dmg: 5, dur: 1561 },
+  { key: 'copper', name: 'Copper', dmg: 2, dur: 190 },
+];
+export function spearIndex(id: number): number { return id >= I.SPEAR && id < I.SPEAR + SPEAR_MATS.length ? id - I.SPEAR : -1; }
 
 SHAPE_MATS.forEach((m, i) => {
   add({ id: SLAB_ITEM + i, key: `${m.key}_slab`, name: `${m.name} Slab`, desc: 'Half a block. Place two of the same together for a full block.', kind: 'block', places: B.SLAB, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
@@ -81,20 +88,32 @@ mat(I.COAL, 'coal', 'Coal', 'Burns hot and long. Fuels furnaces and torches.', {
 mat(I.CHARCOAL, 'charcoal', 'Charcoal', 'Smelted wood. Burns like coal.', { fuel: 80 });
 mat(I.IRON_INGOT, 'iron_ingot', 'Iron Ingot', 'Forged from ore. Strong tools await.');
 mat(I.GOLD_INGOT, 'gold_ingot', 'Gold Ingot', 'Soft but swift. Gold tools mine fast and wear quickly.');
-mat(I.AETHERITE, 'aetherite', 'Aetherite Shard', 'A crystal from the deep strata. The finest tool material.');
+mat(I.AETHERITE, 'aetherite', 'Diamond', 'A crystal from the deep strata. The finest tool material.');
 mat(I.FLINT, 'flint', 'Flint', 'A sharp stone knapped from gravel.');
-mat(I.GUNPOWDER, 'blastpowder', 'Blastpowder', 'Coal, flint and Emberdust ground together. Packs a punch.');
-add({ id: I.FLINT_AND_STEEL, key: 'firestriker', name: 'Firestriker', desc: 'Strike it on a Thunder Keg to light the fuse.', kind: 'material', texture: 'firestriker', maxStack: 1, durability: 64, tab: 'tools' });
-mat(I.FEATHER, 'feather', 'Feather', 'Plucked from a Fernhen. Fletches arrows.');
-mat(I.STRING, 'string', 'Silk Thread', 'Spun by a Duskweaver. Strong and fine.');
-mat(I.BONE, 'bone', 'Bone', 'Left behind by a Rattlebone.');
-mat(I.LEATHER, 'leather', 'Hide', 'Tough Mudsnout hide for armour and books.');
+mat(I.GUNPOWDER, 'blastpowder', 'Gunpowder', 'Coal, flint and Emberdust ground together. Packs a punch.');
+add({ id: I.MINECART, key: 'minecart', name: 'Minecart', desc: 'Place it on a rail and climb in. Hold forward to give it a push.', kind: 'material', texture: 'minecart', maxStack: 1, tab: 'tools' });
+add({ id: I.TNT_MINECART, key: 'tnt_minecart', name: 'Minecart with TNT', desc: 'A minecart carrying TNT. Lit by Activator Rails, fire, a hard landing or breaking it on the move. Faster carts blast harder.', kind: 'material', texture: 'tnt_minecart', maxStack: 1, tab: 'combat' });
+add({ id: I.CROSSBOW, key: 'crossbow', name: 'Crossbow', desc: 'Hold to load an arrow, then tap to fire. Hits harder and flies flatter than a bow.', kind: 'material', texture: 'crossbow_standby', maxStack: 1, durability: 465, tab: 'combat' });
+for (let i = 0; i < 3; i++) add({ id: I.CROSSBOW_PULL0 + i, key: `crossbow_pulling_${i}`, name: 'Crossbow', desc: '', kind: 'material', texture: `crossbow_pulling_${i}`, maxStack: 1, tab: 'combat' });
+add({ id: I.CROSSBOW_LOADED, key: 'crossbow_arrow', name: 'Crossbow', desc: '', kind: 'material', texture: 'crossbow_arrow', maxStack: 1, tab: 'combat' });
+add({ id: I.MACE, key: 'mace', name: 'Mace', desc: 'Strike while falling: every block you drop adds damage, and the impact throws back everyone nearby. Landing a smash cancels your fall damage.', kind: 'material', texture: 'mace', maxStack: 1, durability: 500, tab: 'combat' });
+SPEAR_MATS.forEach((m, i) => add({ id: I.SPEAR + i, key: `${m.key}_spear`, name: `${m.name} Spear`, desc: 'Jab from 2 to 4.5 blocks away. Hold use to lower it for a charge: anything you run into takes damage that grows with your closing speed.', kind: 'material', texture: `${m.key}_spear`, maxStack: 1, durability: m.dur, tab: 'combat' }));
+add({ id: I.FLINT_AND_STEEL, key: 'firestriker', name: 'Flint and Steel', desc: 'Strike it on TNT to light the fuse.', kind: 'material', texture: 'firestriker', maxStack: 1, durability: 64, tab: 'tools' });
+mat(I.FEATHER, 'feather', 'Feather', 'Plucked from a Chicken. Fletches arrows.');
+mat(I.STRING, 'string', 'Silk Thread', 'Spun by a Spider. Strong and fine.');
+mat(I.BONE, 'bone', 'Bone', 'Left behind by a Skeleton.');
+mat(I.LEATHER, 'leather', 'Leather', 'Tough Pig hide for armour and books.');
 mat(I.SEEDS, 'wheat_seeds', 'Wheat Seeds', 'Plant on farmland near water.', { kind: 'placer', places: B.WHEAT });
 mat(I.WHEAT, 'wheat', 'Wheat', 'Harvested grain. Bake into bread.');
 mat(I.CLAY_BALL, 'clay_ball', 'Clay Lump', 'Fire in a furnace to make a brick.');
 mat(I.BRICK, 'brick', 'Brick', 'A fired clay brick.');
 mat(I.PAPER, 'paper', 'Paper', 'Pressed sugar cane sheets.');
-mat(I.BOOK, 'book', 'Book', 'Bound in hide. Shelve them as you please.');
+mat(I.BOOK, 'book', 'Book', 'Bound in hide. Shelve them as you please, or enchant it at an Enchanting Table.');
+mat(I.ENCHANTED_BOOK, 'enchanted_book', 'Enchanted Book', 'Combine with gear at an Anvil to pass on its enchantments.', { maxStack: 1, tab: 'tools' });
+mat(I.GOLD_NUGGET, 'gold_nugget', 'Gold Nugget', 'A ninth of a gold ingot.');
+mat(I.QUARTZ, 'quartz', 'Nether Quartz', 'A pale crystal from the Nether.');
+mat(I.IRON_NUGGET, 'iron_nugget', 'Iron Nugget', 'A ninth of an iron ingot.');
+mat(I.LAPIS, 'lapis_lazuli', 'Lapis Lazuli', 'Blue mineral. Enchanting Tables use it as fuel.');
 mat(I.RED_DYE, 'red_dye', 'Crimson Dye', 'Pressed from poppies.');
 mat(I.YELLOW_DYE, 'yellow_dye', 'Saffron Dye', 'Pressed from dandelions.');
 mat(I.ARROW, 'arrow', 'Arrow', 'Fletched with feather and flint.', { tab: 'combat' });
@@ -122,12 +141,12 @@ mat(I.SHEARS, 'shears', 'Shears', 'Clips leaves, vines, seagrass and grass clean
 food(I.GOLDEN_APPLE, 'golden_apple', 'Golden Apple', 'An apple sealed in gold. Deeply restoring.', 4, 9.6);
 food(I.MUSHROOM_STEW, 'mushroom_stew', 'Mushroom Stew', 'Warm and earthy.', 6, 7.2);
 mat(I.BOWL, 'bowl', 'Bowl', 'Carved from planks. Holds stew.');
-food(I.RAW_PORK, 'raw_pork', 'Raw Mudsnout Haunch', 'Better cooked.', 3, 1.8);
+food(I.RAW_PORK, 'raw_pork', 'Raw Pig Haunch', 'Better cooked.', 3, 1.8);
 food(I.COOKED_PORK, 'cooked_pork', 'Roast Haunch', 'Hearty and filling.', 8, 12.8);
-food(I.RAW_MUTTON, 'raw_mutton', 'Raw Woolhorn Chop', 'Better cooked.', 2, 1.2);
+food(I.RAW_MUTTON, 'raw_mutton', 'Raw Sheep Chop', 'Better cooked.', 2, 1.2);
 food(I.COOKED_MUTTON, 'cooked_mutton', 'Seared Chop', 'Savoury and satisfying.', 6, 9.6);
-food(I.RAW_POULTRY, 'raw_poultry', 'Raw Fernhen', 'Better cooked.', 2, 1.2);
-food(I.COOKED_POULTRY, 'cooked_poultry', 'Roast Fernhen', 'A traveller staple.', 6, 7.2);
+food(I.RAW_POULTRY, 'raw_poultry', 'Raw Chicken', 'Better cooked.', 2, 1.2);
+food(I.COOKED_POULTRY, 'cooked_poultry', 'Roast Chicken', 'A traveller staple.', 6, 7.2);
 food(I.BREAD, 'bread', 'Bread', 'Baked from three wheat.', 5, 6);
 
 const TOOL_TIER = [1, 2, 3, 1, 4];
@@ -135,7 +154,7 @@ const TOOL_SPEED = [2, 4, 6, 12, 8];
 const TOOL_DUR = [60, 132, 251, 33, 1562];
 const TOOL_DMG_BASE = [0, 1, 2, 0, 3];
 const TYPE_DMG = [2, 4, 1.5, 4, 1];
-const MAT_NAMES = ['Wooden', 'Stone', 'Iron', 'Golden', 'Aetherite'];
+const MAT_NAMES = ['Wooden', 'Stone', 'Iron', 'Golden', 'Diamond'];
 const MAT_KEYS = ['wooden', 'stone', 'iron', 'golden', 'aetherite'];
 const TYPE_NAMES = ['Pickaxe', 'Axe', 'Shovel', 'Sword', 'Hoe'];
 const TYPE_DESC = [
@@ -156,9 +175,9 @@ for (let m = 0; m < 5; m++) {
 
 const ARMOR_POINTS = [[1, 3, 2, 1], [2, 6, 5, 2], [2, 5, 3, 1], [3, 8, 6, 3]];
 const ARMOR_DUR = [[55, 80, 75, 65], [165, 240, 225, 195], [77, 112, 105, 91], [363, 528, 495, 429]];
-const ARMOR_MAT_NAMES = ['Hide', 'Iron', 'Golden', 'Aetherite'];
-const ARMOR_SLOT_NAMES = ['Cap', 'Tunic', 'Greaves', 'Boots'];
-const ARMOR_SLOT_NAMES_METAL = ['Helm', 'Cuirass', 'Greaves', 'Sabatons'];
+const ARMOR_MAT_NAMES = ['Leather', 'Iron', 'Golden', 'Diamond'];
+const ARMOR_SLOT_NAMES = ['Cap', 'Tunic', 'Pants', 'Boots'];
+const ARMOR_SLOT_NAMES_METAL = ['Helmet', 'Chestplate', 'Leggings', 'Boots'];
 for (let m = 0; m < 4; m++) {
   for (let s = 0; s < 4; s++) {
     const id = armorId(m, s);
@@ -173,6 +192,10 @@ for (let m = 0; m < 4; m++) {
 
 export const ITEM_LIST: ItemDef[] = items.filter(Boolean);
 export const ITEM_BY_KEY = new Map<string, ItemDef>(ITEM_LIST.map((d) => [d.key, d]));
+for (const d of ITEM_LIST) {
+  const alt = d.key.replace(/aetherite/g, 'diamond').replace(/^firestriker$/, 'flint_and_steel').replace(/^blastpowder$/, 'gunpowder');
+  if (alt !== d.key && !ITEM_BY_KEY.has(alt)) ITEM_BY_KEY.set(alt, d);
+}
 
 export function getItem(id: number): ItemDef | undefined {
   return items[id];
@@ -204,4 +227,21 @@ export function fuelSeconds(id: number): number {
   return 0;
 }
 
-export const CREATIVE_HIDDEN = new Set<number>([B.WATER, B.LAVA, B.FURNACE_LIT, B.OAK_DOOR, B.WHEAT, B.FARMLAND, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2]);
+export const CREATIVE_HIDDEN = new Set<number>([...BLOCKS.filter((b) => b && b.category === 'hidden').map((b) => b.id), B.WATER, B.LAVA, B.FURNACE_LIT, B.OAK_DOOR, B.WHEAT, B.FARMLAND, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2, I.CROSSBOW_PULL0, I.CROSSBOW_PULL1, I.CROSSBOW_PULL2, I.CROSSBOW_LOADED]);
+
+const baseNames = new Map<string, string>();
+let packNames: Map<string, string> | null = null;
+let namesOn = true;
+
+function applyNames(): void {
+  for (const it of ITEMS) {
+    if (!it) continue;
+    if (!baseNames.has(it.key)) baseNames.set(it.key, it.name);
+    it.name = (namesOn && packNames?.get(it.key)) || baseNames.get(it.key)!;
+    if (it.kind === 'block' && it.places === it.id && BLOCKS[it.id]) BLOCKS[it.id]!.name = it.name;
+  }
+}
+
+export function setPackNames(map: Map<string, string> | null): void { packNames = map && map.size ? map : null; applyNames(); }
+export function usePackNames(on: boolean): void { namesOn = on; applyNames(); }
+export function hasPackNames(): boolean { return !!packNames; }

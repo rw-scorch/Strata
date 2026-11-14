@@ -46,7 +46,7 @@ export function defaultSellPrices(): Map<number, number> {
     return out;
   };
   for (const it of ITEMS) if (it) value(it.id);
-  for (const id of [I.WATER_BUCKET, I.LAVA_BUCKET, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2]) m.set(id, 0);
+  for (const id of [I.WATER_BUCKET, I.LAVA_BUCKET, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2, I.CROSSBOW_PULL0, I.CROSSBOW_PULL1, I.CROSSBOW_PULL2, I.CROSSBOW_LOADED]) m.set(id, 0);
   cache = m;
   return m;
 }

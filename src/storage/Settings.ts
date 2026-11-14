@@ -7,6 +7,7 @@ export interface ButtonLayout { [id: string]: { x?: number; y?: number; size?: n
 export interface Settings {
   controlScheme: 'auto' | 'touch' | 'mouse';
   labs: boolean;
+  packNames: boolean;
   guiScale: number;
   touchLayout: 'full' | 'minimal' | 'none';
   buttonOpacity: number;
@@ -139,6 +140,7 @@ function defaults(): Settings {
   const lowEnd = !ipad && ((navigator.hardwareConcurrency ?? 4) <= 4 || /iPhone|Android/i.test(navigator.userAgent));
   const preset: GraphicsPreset = lowEnd ? 'low' : touch ? 'medium' : 'high';
   return {
+    packNames: true,
     preset, renderDistance: 6, lodDistance: 32, lodQuality: 'medium', caveCulling: true, idleFps: true, voiceEnabled: false, foodStats: true, sidebar: true, lookInfo: true, dynamicLights: true, fallingLeaves: true, connectedGlass: true, betterGrass: 'off', soundPhysics: true, mouseTweaks: true, voiceMode: 'ptt', voiceVolume: 1, micGain: 1, voiceThreshold: 0.03, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
     fov: 72, showFps: false, sensitivity: 1, touchSensitivity: 1, joystickSize: 1, buttonSize: 1, leftHanded: false, invertY: false,
     controlScheme: 'auto', labs: false, guiScale: 0, touchLayout: 'full', buttonOpacity: 0.85, fireOverlay: 'low', chatTimestamps: false, showCoords: true, showMinimap: true, menuBlur: 5, advancedTooltips: false, autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,

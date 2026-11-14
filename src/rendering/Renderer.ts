@@ -5,7 +5,7 @@ import { PostFX } from './PostFX';
 import { deriveGfx, GfxConfig } from './Graphics';
 import type { Settings } from '../storage/Settings';
 import { POS_SCALE, SECTIONS, facePair } from './Mesher';
-import { LodManager, LOD_SAMPLES } from './lod/LodManager';
+import { LodManager, LOD_SAMPLES, LOD_SPLIT } from './lod/LodManager';
 import { WaypointBeams } from './WaypointBeams';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { MeshResult } from './Mesher';
@@ -36,6 +36,7 @@ export interface FrameEnv {
   cave?: number;
   lensRain?: number;
   wind?: number;
+  nether?: boolean;
 }
 
 export class Renderer {
@@ -218,7 +219,7 @@ export class Renderer {
       this.lod = new LodManager(this.lodWorld!.seed, this.lodWorld!.arena, this.atlas.lodColors(), this.uniforms);
       this.lodScene.add(this.lod.group);
     }
-    this.lod.configure(Math.max(dist, (s!.renderDistance + 2)), LOD_SAMPLES[s!.lodQuality ?? 'medium']);
+    this.lod.configure(Math.max(dist, (s!.renderDistance + 2)), LOD_SAMPLES[s!.lodQuality ?? 'medium'], LOD_SPLIT[s!.lodQuality ?? 'medium']);
   }
 
   disposeLod(): void {
@@ -612,7 +613,9 @@ export class Renderer {
       u.uFogNear.value = fogFar - fogBand;
       u.uFogFar.value = fogFar;
     }
-    const lodActive = !!this.lod && this.lod.distance > 0 && !env.underwater && !env.inLava && (env.cave ?? 0) < 0.6;
+    if (env.nether && !env.inLava) { const far = Math.min(fogFar, 112); u.uFogColor.value.setRGB(0.19, 0.03, 0.03); u.uFogNear.value = far * 0.12; u.uFogFar.value = far; }
+    u.uAmbient.value = env.nether ? 0.2 : 0;
+    const lodActive = !env.nether && !!this.lod && this.lod.distance > 0 && !env.underwater && !env.inLava && (env.cave ?? 0) < 0.6;
     this.placeSky(lodActive);
     if (lodActive) {
       this.lod!.update(this.camera.position.x, this.camera.position.z, env.renderDistance);
@@ -623,7 +626,8 @@ export class Renderer {
     u.uCamNear.value = this.camera.near;
     u.uCamFar.value = this.camera.far;
     this.sky.update(this.camera, st, env.time, env.rain);
-    this.sky.group.visible = !env.underwater && !env.inLava;
+    this.sky.group.visible = !env.underwater && !env.inLava && !env.nether;
+    this.sky.cloudMesh.visible = this.sky.cloudMesh.visible && !env.nether;
     this.cullRadius = env.renderDistance + 1;
     this.beams.update(this.camera.position);
     if (this.shadows && this.gfx.shadowRes) this.fullRanges();

@@ -11,7 +11,9 @@ import { guiURL } from './mc/Gui';
 
 export function slotContent(atlas: TextureAtlas, s: ItemStack | null, size: number): Node[] {
   if (!s) return [];
-  const out: Node[] = [h('div', { class: 'ico', style: atlas.iconStyle(s.id, size) })];
+  const st = atlas.iconStyle(s.id, size);
+  const out: Node[] = [h('div', { class: 'ico', style: st })];
+  if (s.en && Object.keys(s.en).length) out.push(h('div', { class: 'ico glint', style: st.replace(/background-/g, '-webkit-mask-') + ';' + st.replace(/background-/g, 'mask-') }));
   if (s.count > 1) out.push(h('span', { class: 'cnt' }, String(s.count)));
   const max = maxDurability(s.id);
   if (max && s.dmg) {

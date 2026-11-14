@@ -11,13 +11,16 @@ import { loadCustomSkin, skinFromAppearance, convertLegacy, detectSlim } from '.
 import { audio } from '../audio/AudioEngine';
 import { crop, sprite, label, guiScale, guiURL, nineSlice, tooltip, itemTooltipLines } from './mc/Gui';
 import { getSettings } from '../storage/Settings';
+import { anvilResult, enchantLabel, type TableOffer } from '../core/enchants';
+import { maxDurability } from '../core/items';
+import { xpLevel } from '../core/sim/WorldSim';
 import { sellValue, money } from '../core/economy';
 import { OFFERS, PROFESSIONS, PROF_TITLE, LEVEL_NAMES, LEVEL_XP, levelFor, unlocked, canAfford } from '../core/trades';
 
 let sharedPreview: SkinPreview | null = null;
 let previewKey = '';
 
-export type InvScreen = 'player' | 'creative' | 'workbench' | 'chest' | 'furnace' | 'trade';
+export type InvScreen = 'player' | 'creative' | 'workbench' | 'chest' | 'furnace' | 'trade' | 'enchant' | 'anvil';
 type CTab = CreativeTab | 'search' | 'inventory';
 
 const CTABS: { id: CTab; name: string; icon: number; top: boolean; col: number }[] = [
@@ -56,6 +59,79 @@ export class InventoryUI {
   private onTrade: ((id: string, i: number, n: number) => void) | null = null;
   isOpen = false;
   title: string | null = null;
+  private offers: TableOffer[] | null = null;
+  private enchEls: { el: HTMLElement; bg: HTMLElement; lv: HTMLElement; gl: HTMLElement; cost: HTMLElement }[] = [];
+  private anvilInput: HTMLInputElement | null = null;
+  private anvilCost: HTMLElement | null = null;
+  private anvilErr: HTMLElement | null = null;
+  private anvilKey = '';
+
+  setOffers(o: TableOffer[]): void { this.offers = o; if (this.isOpen && this.screen === 'enchant') this.refresh(); }
+
+  private anvilName(): string | null {
+    const left = this.container?.items[0];
+    if (!left || !this.anvilInput) return null;
+    const base = left.nm ?? ITEM_LIST.find((x) => x.id === left.id)?.name ?? '';
+    const v = this.anvilInput.value;
+    if (v === base) return left.nm ?? null;
+    return v.trim() || null;
+  }
+
+  private anvilOut(): ReturnType<typeof anvilResult> | null {
+    const c = this.container?.items;
+    if (!c || !this.session) return null;
+    return anvilResult(c[0] ?? null, c[1] ?? null, this.anvilName(), maxDurability, this.session.me.mode === 'creative', (id) => ingredientMatches('planks', id));
+  }
+
+  private refreshEnchant(): void {
+    if (this.screen !== 'enchant' || !this.session) return;
+    const me = this.session.me, A = this.atlas, s = this.s;
+    const level = xpLevel(me.xp).level, lapis = this.container?.items[1]?.count ?? 0, creative = me.mode === 'creative';
+    this.enchEls.forEach((o, i) => {
+      const off = this.offers?.[i];
+      const has = !!off && off.cost > 0 && !!this.container?.items[0];
+      const ok = has && (creative || (level >= off!.cost && lapis >= i + 1));
+      o.bg.style.backgroundImage = `url(${guiURL(A, `gs:container/enchanting_table/enchantment_slot${!has || !ok ? '_disabled' : o.el.classList.contains('hover') ? '_highlighted' : ''}`)})`;
+      o.lv.style.display = has ? 'block' : 'none';
+      o.lv.style.backgroundImage = `url(${guiURL(A, `gs:container/enchanting_table/level_${i + 1}${ok ? '' : '_disabled'}`)})`;
+      o.gl.textContent = has ? glyphs(off!.cost * 31 + i * 7 + (off!.clueLvl ?? 0)) : '';
+      o.gl.style.color = ok ? '#685e4a' : '#342f25';
+      o.cost.textContent = has ? String(off!.cost) : '';
+      o.cost.style.color = ok ? '#80ff20' : '#407f10';
+      o.cost.style.fontSize = `${8 * s}px`;
+    });
+  }
+
+  private refreshAnvil(): void {
+    if (this.screen !== 'anvil' || !this.session || !this.anvilCost) return;
+    const left = this.container?.items[0] ?? null;
+    const key = left ? `${left.id}|${left.nm ?? ''}` : '';
+    if (key !== this.anvilKey && this.anvilInput) {
+      this.anvilKey = key;
+      this.anvilInput.value = left ? (left.nm ?? ITEM_LIST.find((x) => x.id === left.id)?.name ?? '') : '';
+      this.anvilInput.disabled = !left;
+    }
+    const r = this.anvilOut();
+    const me = this.session.me;
+    const creative = me.mode === 'creative';
+    const level = xpLevel(me.xp).level;
+    if (r?.stack) {
+      const poor = !creative && level < r.cost;
+      this.anvilCost.textContent = r.tooExpensive ? 'Too Expensive!' : `Enchantment Cost: ${r.cost}`;
+      this.anvilCost.style.color = r.tooExpensive || poor ? '#ff6060' : '#80ff20';
+      this.anvilCost.style.display = 'block';
+    } else this.anvilCost.style.display = 'none';
+    if (this.anvilErr) this.anvilErr.style.display = left && this.container?.items[1] && !r?.stack ? 'block' : 'none';
+  }
+
+  private takeAnvil(): void {
+    const r = this.anvilOut();
+    const me = this.session?.me;
+    if (!r?.stack || !me || r.tooExpensive || me.inv.cursor) return;
+    if (me.mode !== 'creative' && xpLevel(me.xp).level < r.cost) return;
+    this.session!.anvil?.(this.anvilName());
+    audio.play('ui.click');
+  }
   sellPrices: Map<number, number> | null = null;
   private sellLabel: HTMLElement | null = null;
   onClose: (() => void) | null = null;
@@ -336,6 +412,8 @@ export class InventoryUI {
     } else this.cursorEl.style.display = 'none';
     this.refreshFurnace();
     this.refreshBook();
+    this.refreshEnchant();
+    this.refreshAnvil();
     if (this.sellLabel && this.container) {
       let total = 0;
       for (const st of this.container.items) if (st) total += sellValue(st, this.sellPrices ?? new Map());
@@ -369,6 +447,7 @@ export class InventoryUI {
     const sess = this.session!;
     this.slotEls = [];
     this.litEl = this.burnEl = this.bookEl = this.thumb = null;
+    this.enchEls = []; this.anvilInput = null; this.anvilCost = null; this.anvilErr = null;
     this.previewBox = null;
     this.sellLabel = null;
     this.gridRefill = null;
@@ -449,6 +528,74 @@ export class InventoryUI {
       win.appendChild(label('Inventory', 8, hgt - 94, s));
       for (let i = 0; i < rows * 9; i++) this.slot(win, ref('cont', i), () => this.container?.items[i] ?? null, 8 + (i % 9) * 18, 18 + Math.floor(i / 9) * 18);
       invSlots(8, 103 + (rows - 4) * 18);
+    } else if (this.screen === 'enchant') {
+      win.appendChild(crop(A, 'gt:container/enchanting_table', 256, 256, 0, 0, 176, 166, s));
+      win.appendChild(label(this.title ?? 'Enchant', 12, 5, s));
+      win.appendChild(label('Inventory', 8, 72, s));
+      this.slot(win, ref('cont', 0), () => this.container?.items[0] ?? null, 15, 47);
+      this.slot(win, ref('cont', 1), () => this.container?.items[1] ?? null, 35, 47, { ghost: I.LAPIS });
+      this.enchEls = [0, 1, 2].map((i) => {
+        const el = h('div', { class: 'ench-opt', style: `left:${60 * s}px;top:${(14 + 19 * i) * s}px;width:${108 * s}px;height:${19 * s}px` });
+        const bg = h('div', { class: 'mc-sprite', style: `left:0;top:0;width:100%;height:100%;background-size:100% 100%` });
+        const lv = h('div', { class: 'mc-sprite', style: `left:${1 * s}px;top:${1 * s}px;width:${16 * s}px;height:${16 * s}px;background-size:100% 100%` });
+        const gl = h('div', { class: 'glyphs', style: `left:${20 * s}px;top:${2 * s}px;width:${68 * s}px;font-size:${7 * s}px;line-height:${8 * s}px` });
+        const cost = h('div', { class: 'cost', style: `right:${2 * s}px;top:${9 * s}px;line-height:${9 * s}px` });
+        el.append(bg, lv, gl, cost);
+        const tip = (e: PointerEvent) => {
+          const off = this.offers?.[i], me = this.session?.me;
+          if (!off || off.cost <= 0 || !me || !this.container?.items[0]) { tooltip().hide(); return; }
+          const lines: { text: string; color: string }[] = [{ text: off.clue ? `${enchantLabel(off.clue, off.clueLvl)} . . . ?` : '. . . ?', color: '#ffffff' }];
+          if (me.mode !== 'creative') {
+            const level = xpLevel(me.xp).level, lapis = this.container?.items[1]?.count ?? 0;
+            lines.push({ text: '', color: '#aaaaaa' });
+            if (level < off.cost) lines.push({ text: `Level Requirement: ${off.cost}`, color: '#ff5555' });
+            else {
+              lines.push({ text: `${i + 1} Lapis Lazuli`, color: lapis >= i + 1 ? '#aaaaaa' : '#ff5555' });
+              lines.push({ text: `${i + 1} Enchantment Level${i ? 's' : ''}`, color: '#aaaaaa' });
+            }
+          }
+          tooltip().show(A, lines, e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 1600);
+        };
+        el.addEventListener('pointerenter', (e) => { el.classList.add('hover'); tip(e); this.refreshEnchant(); });
+        el.addEventListener('pointermove', tip);
+        el.addEventListener('pointerleave', () => { el.classList.remove('hover'); tooltip().hide(); this.refreshEnchant(); });
+        el.addEventListener('pointerdown', (e) => {
+          e.stopPropagation(); e.preventDefault();
+          tip(e);
+          const off = this.offers?.[i], me = this.session?.me;
+          if (!off || off.cost <= 0 || !me || !this.container?.items[0]) return;
+          if (me.mode !== 'creative' && (xpLevel(me.xp).level < off.cost || (this.container?.items[1]?.count ?? 0) < i + 1)) return;
+          this.session?.enchant?.(i);
+          audio.play('ui.click');
+        });
+        win.appendChild(el);
+        return { el, bg, lv, gl, cost };
+      });
+      invSlots(8, 84);
+    } else if (this.screen === 'anvil') {
+      win.appendChild(crop(A, 'gt:container/anvil', 256, 256, 0, 0, 176, 166, s));
+      win.appendChild(label(this.title ?? 'Repair & Name', 60, 6, s));
+      win.appendChild(label('Inventory', 8, 72, s));
+      win.appendChild(sprite(A, 'gs:container/anvil/text_field', 110, 16, s, 59, 20));
+      const inp = h('input', { class: 'anvil-name', type: 'text', maxlength: '50', style: `left:${62 * s}px;top:${24 * s}px;width:${103 * s}px;height:${12 * s}px;font-size:${8 * s}px` }) as HTMLInputElement;
+      inp.addEventListener('keydown', (e) => e.stopPropagation());
+      inp.addEventListener('keyup', (e) => e.stopPropagation());
+      inp.addEventListener('input', () => this.refresh());
+      inp.addEventListener('pointerdown', (e) => e.stopPropagation());
+      win.appendChild(inp);
+      this.anvilInput = inp;
+      this.anvilKey = '\u0000';
+      this.slot(win, ref('cont', 0), () => this.container?.items[0] ?? null, 27, 47);
+      this.slot(win, ref('cont', 1), () => this.container?.items[1] ?? null, 76, 47);
+      this.slot(win, null, () => this.anvilOut()?.stack ?? null, 134, 47, { action: () => this.takeAnvil() });
+      const err = sprite(A, 'gs:container/anvil/error', 28, 21, s, 99, 45);
+      err.style.display = 'none';
+      win.appendChild(err);
+      this.anvilErr = err;
+      const cost = label('', 8, 69, s, { right: true });
+      this.anvilCost = cost;
+      win.appendChild(cost);
+      invSlots(8, 84);
     } else if (this.screen === 'trade') {
       this.renderTrade(win, s, invSlots);
     } else {
@@ -750,4 +897,14 @@ export class InventoryUI {
       grid.appendChild(label(`${this.bookPage + 1}/${pages}`, 73, 141, s, { center: true, color: '#ffffff', shadow: true }));
     }
   }
+}
+
+const GLYPHS = 'ᔑʖᓵ↸ᒷ⎓⊣⍑╎⋮ꖌꖎᒲリ𝙹!¡ᑑ∷ᓭℸ⚍⍊∴̇/||⨅';
+function glyphs(seed: number): string {
+  let x = seed * 2654435761 >>> 0;
+  const chars = [...GLYPHS];
+  let out = '';
+  const n = 9 + (x % 6);
+  for (let i = 0; i < n; i++) { x = (x * 1103515245 + 12345) >>> 0; out += chars[x % chars.length]; if (i === 4) out += ' '; }
+  return out;
 }

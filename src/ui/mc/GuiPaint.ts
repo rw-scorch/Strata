@@ -148,6 +148,60 @@ function paint(key: string): HTMLCanvasElement | null {
       g.fillStyle = '#ff8a00'; g.fillRect(3, 5, 8, 9); g.fillStyle = '#ffd200'; g.fillRect(5, 2, 4, 11); g.fillStyle = '#fff3a0'; g.fillRect(6, 8, 2, 5);
       return c;
     }
+    case 'gt:container/enchanting_table': {
+      const [c, g] = canvas(256, 256);
+      panel(g, 0, 0, 176, 166);
+      slot(g, 14, 46); slot(g, 34, 46);
+      g.fillStyle = C.slotDark; g.fillRect(59, 13, 110, 1); g.fillRect(59, 13, 1, 59);
+      g.fillStyle = C.slotLight; g.fillRect(60, 71, 109, 1); g.fillRect(168, 14, 1, 58);
+      g.fillStyle = '#6b5d52'; g.fillRect(60, 14, 108, 57);
+      g.fillStyle = '#4a2a14'; g.fillRect(16, 16, 30, 22);
+      g.fillStyle = '#e8dcc0'; g.fillRect(18, 18, 12, 18); g.fillRect(31, 18, 12, 18);
+      inventoryPart(g, 7, 83);
+      return c;
+    }
+    case 'gs:container/enchanting_table/enchantment_slot': case 'gs:container/enchanting_table/enchantment_slot_disabled': case 'gs:container/enchanting_table/enchantment_slot_highlighted': {
+      const [c, g] = canvas(108, 19);
+      const fill = key.endsWith('disabled') ? '#8f7f73' : key.endsWith('highlighted') ? '#d9b8f5' : '#c9a6e6';
+      g.fillStyle = '#2c1f3b'; g.fillRect(0, 0, 108, 19);
+      g.fillStyle = fill; g.fillRect(1, 1, 106, 17);
+      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(1, 1, 106, 1);
+      return c;
+    }
+    case 'gs:container/enchanting_table/level_1': case 'gs:container/enchanting_table/level_2': case 'gs:container/enchanting_table/level_3':
+    case 'gs:container/enchanting_table/level_1_disabled': case 'gs:container/enchanting_table/level_2_disabled': case 'gs:container/enchanting_table/level_3_disabled': {
+      const [c, g] = canvas(16, 16);
+      const n = Number(key.match(/level_(\d)/)![1]);
+      const off = key.endsWith('disabled');
+      for (let i = 0; i < n; i++) {
+        const x = 2 + i * 4, y = 10 - i * 4;
+        g.fillStyle = off ? '#3a5a20' : '#2a5a10'; g.fillRect(x, y, 5, 5);
+        g.fillStyle = off ? '#6a8a50' : '#9eff5a'; g.fillRect(x + 1, y + 1, 3, 3);
+      }
+      return c;
+    }
+    case 'gt:container/anvil': {
+      const [c, g] = canvas(256, 256);
+      panel(g, 0, 0, 176, 166);
+      g.fillStyle = '#4a4a4a'; g.fillRect(8, 8, 26, 6); g.fillRect(16, 14, 10, 6); g.fillRect(11, 20, 20, 4);
+      slot(g, 26, 46); slot(g, 75, 46); slot(g, 133, 46);
+      g.fillStyle = C.slot; g.fillRect(54, 52, 13, 3); g.fillRect(59, 47, 3, 13);
+      arrow(g, 100, 45);
+      inventoryPart(g, 7, 83);
+      return c;
+    }
+    case 'gs:container/anvil/text_field': case 'gs:container/anvil/text_field_disabled': {
+      const [c, g] = canvas(110, 16);
+      g.fillStyle = '#a0a0a0'; g.fillRect(0, 0, 110, 16);
+      g.fillStyle = key.endsWith('disabled') ? '#3a3a3a' : '#000000'; g.fillRect(1, 1, 108, 14);
+      return c;
+    }
+    case 'gs:container/anvil/error': {
+      const [c, g] = canvas(28, 21);
+      g.fillStyle = '#e02020';
+      for (let i = 0; i < 15; i++) { g.fillRect(6 + i, 3 + i, 3, 2); g.fillRect(20 - i, 3 + i, 3, 2); }
+      return c;
+    }
     case 'gs:container/furnace/burn_progress': {
       const [c, g] = canvas(24, 16);
       arrow(g, 0, 0, '#ffffff');

@@ -1,11 +1,11 @@
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../core/worldgen/genLevel';
 import { ruleSnapshot } from '../core/sim/WorldSim';
-import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity } from '../core/sim/WorldSim';
+import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity, entTypeCode } from '../core/sim/WorldSim';
 import { Minigame, GameState } from '../core/labs/minigames/Minigame';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { MOBS, MobType } from '../core/sim/mobs';
 import { ENT_KIND } from '../core/protocol';
-import { sanitizeInv, InvOp } from '../core/inventory';
+import { sanitizeInv, InvOp, cloneStack } from '../core/inventory';
 import { cleanPackList } from '../core/datapack';
 import type { DataRecipes } from '../core/crafting';
 import type { ChunkManager } from './ChunkManager';
@@ -118,7 +118,7 @@ export class LocalSession implements GameSession {
       case 'particles': ev.fx(e.k, e.x, e.y, e.z, e.d); return;
       case 'spawn': {
         const x = e.ent;
-        ev.entity(String(x.id), x.kind, x.kind === 'mob' ? MOBS[x.type as MobType].code : x.kind === 'item' ? x.item!.id : 0, x.x, x.y, x.z, x.yaw, x.flags, x.kind === 'item' ? x.item!.count : x.health);
+        ev.entity(String(x.id), x.kind, entTypeCode(x), x.x, x.y, x.z, x.yaw, x.flags, x.kind === 'item' ? x.item!.count : x.health);
         return;
       }
       case 'remove': ev.entityRemove(String(e.id), e.why === 'death', e.by); return;
@@ -146,6 +146,9 @@ export class LocalSession implements GameSession {
       case 'msg': if (e.to && e.to !== this.me.id) return; ev.chat(null, e.text, e.kind === 'death' ? 'death' : e.kind === 'error' ? 'error' : 'info', Date.now()); return;
       case 'lightning': ev.lightning(e.x, e.y, e.z); return;
       case 'pmove': ev.pistonMove?.(e.l); return;
+      case 'ride': if (e.p === this.me) ev.ride?.(e.id); return;
+      case 'work': if (e.p === this.me) { ev.container('work', 'chest', e.items.map((s) => s ? cloneStack(s) : null)); if (e.offers) ev.enchantOffers?.(e.offers); } return;
+      case 'knock': if (e.p === this.me) ev.knock?.(e.x, e.y, e.z, !!e.set); return;
       case 'boom': ev.boom?.(e.x, e.y, e.z, e.r); return;
       case 'weather': ev.weather(e.w); return;
       case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;
@@ -173,7 +176,7 @@ export class LocalSession implements GameSession {
       n++;
     }
     for (const e of this.sim.entities.values()) {
-      const type = e.kind === 'mob' ? MOBS[e.type as MobType].code : e.kind === 'item' ? e.item!.id : 0;
+      const type = entTypeCode(e);
       this.ev.entity(String(e.id), e.kind, type, e.x, e.y, e.z, e.yaw, e.flags, e.kind === 'item' ? e.item!.count : e.health);
     }
     void ENT_KIND;
@@ -189,6 +192,8 @@ export class LocalSession implements GameSession {
   shoot(power: number, yaw: number, pitch: number): void { this.sim.setNow(performance.now()); this.sim.shootBow(this.me, power, yaw, pitch); }
   trade(id: string, index: number, times: number): void { this.sim.setNow(performance.now()); this.sim.trade(this.me, Number(id), index, times); }
   useEntity(id: string): void { this.sim.setNow(performance.now()); this.sim.useEntity(this.me, Number(id)); }
+  enchant(i: number): void { this.sim.enchant(this.me, i); }
+  anvil(n: string | null): void { this.sim.anvil(this.me, n); }
   attack(id: string): void { this.sim.setNow(performance.now()); this.sim.attack(this.me, Number(id)); }
   attackPlayer(): void { /* single player */ }
   invOp(op: InvOp): void { this.sim.invOp(this.me, op); this.ev.inventory(this.me.inv); }

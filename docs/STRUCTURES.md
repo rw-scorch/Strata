@@ -55,3 +55,9 @@ This is the plan for adding structures to Strata. It covers vanilla-style struct
 1) Unit tests check that placement is the same for a seed and region on the client and server.
 2) A worker test generates a 64×64 chunk area and checks that pieces stay connected and inside their bounding boxes.
 3) A browser tool flies over generated villages and outposts and takes screenshots for review.
+
+## v23 addition: ruined portals
+
+Built from the public wiki description, not from Mojang structure files. Layouts are original voxel plans that follow the wiki's sizes and block mix (frame shape, missing blocks, stone brick debris, gold blocks, chest). Placement rules, moss levels, block replacement odds and the loot table follow the wiki numbers. One portal per 640x640 block region, placed in the first 400x400 of it. Generation level 5, so only land generated after the update gets them.
+
+Next: Nether biomes, fossils and Nether-side ruined portals (v24), Nether Fortress (v25), Bastion Remnant (v26).

@@ -12,7 +12,7 @@ import type { ChunkManager } from '../game/ChunkManager';
 import type { Identity } from '../storage/Settings';
 
 const FATAL = new Set(['kicked', 'banned', 'auth', 'version', 'unavailable', 'full', 'duplicate']);
-const KIND = ['mob', 'item', 'arrow', 'tnt'] as const;
+const KIND = ['mob', 'item', 'arrow', 'tnt', 'cart'] as const;
 
 export function wsURL(code: string): string {
   const base = import.meta.env.VITE_SERVER_URL as string | undefined;
@@ -219,7 +219,8 @@ export class RemoteSession implements GameSession {
       case 'blk': for (const u of m.u) this.chunks!.applyRemote(u[0], u[1], u[2], u[3]); return;
       case 'pl':
         for (const r of m.u) {
-          const [id, x, y, z, yaw, pitch, flags, hp, cr] = r as [string, number, number, number, number, number, number, number?, number?];
+          const [id, x, y, z, yaw, pitch, flags, hp, cr, eq] = r as [string, number, number, number, number, number, number, number?, number?, number[]?];
+          if (Array.isArray(eq) && eq.length === 7 && eq.every((n) => Number.isInteger(n))) ev.equipment?.(id, eq);
           const sp = this.sim.players.get(id);
           if (sp) { sp.x = x; sp.y = y; sp.z = z; sp.dead = !!(flags & (1 << 14)); if (typeof hp === 'number') sp.health = hp; }
           ev.playerMove(id, x, y, z, yaw, pitch, flags, typeof hp === 'number' ? hp : -1, cr === 1);
@@ -258,6 +259,7 @@ export class RemoteSession implements GameSession {
       }
       case 'cont': {
         const items = m.items.map((s) => (validStack(s) ? cloneStack(s) : null));
+        if (m.k === 'work') { this.sim.setWork(this.me, items); ev.container('work', 'chest', items); return; }
         const be: BlockEntity = m.type === 'furnace' ? { type: 'furnace', items, burn: m.burn ?? 0, burnMax: m.burnMax ?? 0, cook: m.cook ?? 0, xp: 0 } : { type: 'chest', items };
         this.sim.blockEntities.set(m.k, be);
         ev.container(m.k, m.type, items, m.burn, m.burnMax, m.cook);
@@ -281,6 +283,9 @@ export class RemoteSession implements GameSession {
       case 'wx': this.sim.weather = m.w as Weather; ev.weather(m.w as Weather); return;
       case 'bolt': ev.lightning(m.x, m.y, m.z); return;
       case 'pmove': ev.pistonMove?.(m.l); return;
+      case 'ride': ev.ride?.(m.id); return;
+      case 'knock': ev.knock?.(m.x, m.y, m.z, m.s === 1); return;
+      case 'eo': if (Array.isArray(m.o) && m.o.length === 3) ev.enchantOffers?.(m.o); return;
       case 'boom': ev.boom?.(m.x, m.y, m.z, m.r); return;
       case 'room':
         this.room = m.room;
@@ -358,6 +363,8 @@ export class RemoteSession implements GameSession {
   shoot(power: number, yaw: number, pitch: number): void { this.flushMove(); this.send({ t: 'bow', p: power, y: yaw, x: pitch }); }
   trade(id: string, index: number, times: number): void { this.send({ t: 'trd', id: Number(id), i: index, n: times }); }
   useEntity(id: string): void { this.flushMove(); this.send({ t: 'ue', id: Number(id) }); }
+  enchant(i: number): void { this.send({ t: 'ench', i }); }
+  anvil(n: string | null): void { this.send({ t: 'anvil', n }); }
   attack(id: string): void { this.flushMove(); this.send({ t: 'atk', id: Number(id) }); }
   attackPlayer(pid: string): void { this.flushMove(); this.send({ t: 'pvp', pid }); }
   invOp(op: InvOp): void {

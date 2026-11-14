@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -18,6 +18,7 @@ export interface DropSpec {
 }
 
 export interface BlockDef {
+  ext?: number;
   id: number;
   key: string;
   name: string;
@@ -68,7 +69,7 @@ export const B = {
   SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178, KELP: 179, KELP_PLANT: 180, SEAGRASS: 181, VINE: 182,
   REDSTONE_WIRE: 183, REDSTONE_TORCH: 184, LEVER: 185, STONE_BUTTON: 186, OAK_BUTTON: 187, STONE_PRESSURE_PLATE: 188, OAK_PRESSURE_PLATE: 189,
   REDSTONE_BLOCK: 190, REDSTONE_LAMP: 191, REDSTONE_LAMP_LIT: 192, UNLIT_REDSTONE_TORCH: 193, REDSTONE_ORE: 194, REPEATER: 195, COMPARATOR: 196,
-  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204, SLIME_BLOCK: 205, HONEY_BLOCK: 206, TNT: 207, SLAB: 208, STAIRS: 209,
+  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204, SLIME_BLOCK: 205, HONEY_BLOCK: 206, TNT: 207, SLAB: 208, STAIRS: 209, RAIL: 210, POWERED_RAIL: 211, DETECTOR_RAIL: 212, ACTIVATOR_RAIL: 213, ENCHANTING_TABLE: 214, LAPIS_ORE: 215, LAPIS_BLOCK: 216, ANVIL: 217, EXT: 218, NETHER_PORTAL: 219, FIRE: 220, CRYING_OBSIDIAN: 221, MAGMA_BLOCK: 222, IRON_BARS: 223,
 } as const;
 
 export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
@@ -97,6 +98,19 @@ const COL = (side: string, end: string, bottom = end): FaceTextures => ({ px: si
 type Partial2 = Partial<BlockDef> & { faces: FaceTextures };
 
 const defs: BlockDef[] = [];
+
+export const XB = 600;
+export const XV = {
+  NETHERRACK: 0, NETHER_QUARTZ_ORE: 1, NETHER_GOLD_ORE: 2, BLACKSTONE: 3, SOUL_SAND: 4, SOUL_SOIL: 5, NETHER_BRICKS: 6, BASALT: 7,
+  POLISHED_BLACKSTONE: 8, POLISHED_BLACKSTONE_BRICKS: 9, QUARTZ_BLOCK: 10,
+} as const;
+export function X(variant: number): number { return 218 | (variant << 8); }
+export function tix(v: number): number { const id = v & 0xff; return id === 218 ? XB + (v >>> 8) : id; }
+
+function ext(variant: number, key: string, name: string, desc: string, p: Partial2): void {
+  def(XB + variant, key, name, desc, { drops: [{ item: XB + variant }], ...p });
+  defs[XB + variant].ext = variant;
+}
 
 function def(id: number, key: string, name: string, desc: string, p: Partial2): void {
   defs[id] = {
@@ -145,7 +159,7 @@ def(21, 'jungle_leaves', 'Jungle Leaves', 'Broad, dense leaves.', { faces: ALL('
 def(22, 'coal_ore', 'Coal Ore', 'Black seams of fuel.', { faces: ALL('coal_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 260 }], xp: [0, 2], category: 'ore' });
 def(23, 'iron_ore', 'Iron Ore', 'Rust-flecked stone. Smelt for iron.', { faces: ALL('iron_ore'), hardness: 3, tool: 'pickaxe', tier: 2, category: 'ore' });
 def(24, 'gold_ore', 'Gold Ore', 'Glints of soft, bright metal.', { faces: ALL('gold_ore'), hardness: 3, tool: 'pickaxe', tier: 3, category: 'ore' });
-def(25, 'aetherite_ore', 'Aetherite Ore', 'Deep crystal that hums faintly. Needs iron to mine.', { faces: ALL('aetherite_ore'), hardness: 3, tool: 'pickaxe', tier: 3, drops: [{ item: 264 }], xp: [3, 7], category: 'ore' });
+def(25, 'aetherite_ore', 'Diamond Ore', 'Deep crystal that hums faintly. Needs iron to mine.', { faces: ALL('aetherite_ore'), hardness: 3, tool: 'pickaxe', tier: 3, drops: [{ item: 264 }], xp: [3, 7], category: 'ore' });
 def(26, 'sandstone', 'Sandstone', 'Compressed desert sand.', { faces: COL('sandstone', 'sandstone_top', 'sandstone_bottom'), hardness: 0.8, tool: 'pickaxe', tier: 1, category: 'nature' });
 def(27, 'cactus', 'Cactus', 'Prickly. Hurts to touch.', { faces: COL('cactus_side', 'cactus_top', 'cactus_bottom'), render: 'cactus', opaque: false, lightFilter: 0, hardness: 0.4, sound: 'cloth', needsSupport: 'cactus', category: 'plants', cullSelf: false });
 def(28, 'tall_grass', 'Tall Grass', 'Wild grass. Occasionally hides seeds.', { faces: ALL('short_grass'), ...PLANT, tint: 'grass', replaceable: true, drops: [{ item: 276, chance: 0.125 }] });
@@ -158,16 +172,16 @@ def(34, 'crafting_table', 'Workbench', 'A 3x3 crafting surface for advanced reci
 def(35, 'furnace', 'Furnace', 'Smelts ores and cooks food with fuel.', { faces: COL('furnace_side', 'furnace_top'), front: 'furnace_front', hardness: 3.5, tool: 'pickaxe', tier: 1, orientable: true, interactive: true, category: 'functional' });
 def(36, 'furnace_lit', 'Lit Furnace', '', { faces: COL('furnace_side', 'furnace_top'), front: 'furnace_front_on', hardness: 3.5, tool: 'pickaxe', tier: 1, lightEmit: 13, orientable: true, interactive: true, drops: [{ item: 35 }], category: 'hidden' });
 def(37, 'chest', 'Chest', 'Twenty-seven slots of safekeeping.', { faces: COL('chest_side', 'chest_top'), front: 'chest_front', render: 'chest', opaque: false, lightFilter: 0, hardness: 2.5, tool: 'axe', sound: 'wood', orientable: true, interactive: true, category: 'functional' });
-def(38, 'torch', 'Torch', 'Pushes back the dark. Keeps the Hollowed at bay.', { faces: ALL('torch'), render: 'torch', solid: false, opaque: false, lightFilter: 0, lightEmit: 14, hardness: 0, sound: 'wood', needsSupport: 'solid', category: 'functional' });
+def(38, 'torch', 'Torch', 'Pushes back the dark. Keeps the Zombie at bay.', { faces: ALL('torch'), render: 'torch', solid: false, opaque: false, lightFilter: 0, lightEmit: 14, hardness: 0, sound: 'wood', needsSupport: 'solid', category: 'functional' });
 def(39, 'glass', 'Glass', 'Clear panes of fused sand.', { faces: ALL('glass'), render: 'glass', opaque: false, lightFilter: 0, hardness: 0.3, drops: null, sound: 'glass' });
 def(40, 'bricks', 'Bricks', 'Fired clay, neatly mortared.', { faces: ALL('bricks'), hardness: 2, tool: 'pickaxe', tier: 1 });
 def(41, 'stone_bricks', 'Stone Bricks', 'Dressed stone for fine masonry.', { faces: ALL('stone_bricks'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
 def(42, 'oak_door', 'Oak Door', 'Swings open with a tap.', { faces: ALL('oak_door_bottom'), render: 'door', opaque: false, lightFilter: 0, hardness: 3, tool: 'axe', sound: 'wood', drops: [{ item: 280 }], interactive: true, category: 'hidden' });
 def(43, 'ladder', 'Ladder', 'Climb walls and mineshafts.', { faces: ALL('ladder'), render: 'ladder', solid: false, opaque: false, lightFilter: 0, hardness: 0.4, tool: 'axe', sound: 'wood', climbable: true, needsSupport: 'solid', orientable: true, category: 'functional' });
-def(44, 'white_wool', 'White Wool', 'Soft fleece from a Woolhorn.', { faces: ALL('white_wool'), hardness: 0.8, sound: 'cloth' });
+def(44, 'white_wool', 'White Wool', 'Soft fleece from a Sheep.', { faces: ALL('white_wool'), hardness: 0.8, sound: 'cloth' });
 def(45, 'iron_block', 'Block of Iron', 'Nine ingots, compactly stored.', { faces: ALL('iron_block'), hardness: 5, tool: 'pickaxe', tier: 2, sound: 'metal' });
 def(46, 'gold_block', 'Block of Gold', 'A gleaming hoard.', { faces: ALL('gold_block'), hardness: 3, tool: 'pickaxe', tier: 3, sound: 'metal' });
-def(47, 'aetherite_block', 'Block of Aetherite', 'Crystalline and luminous to the eye.', { faces: ALL('aetherite_block'), hardness: 5, tool: 'pickaxe', tier: 3, sound: 'metal' });
+def(47, 'aetherite_block', 'Block of Diamond', 'Crystalline and luminous to the eye.', { faces: ALL('aetherite_block'), hardness: 5, tool: 'pickaxe', tier: 3, sound: 'metal' });
 def(48, 'mossy_cobblestone', 'Mossy Cobblestone', 'Old stone, green with age.', { faces: ALL('mossy_cobblestone'), hardness: 2, tool: 'pickaxe', tier: 1 });
 def(49, 'obsidian', 'Obsidian', 'Volcanic glass, formed where water meets lava.', { faces: ALL('obsidian'), hardness: 25, tool: 'pickaxe', tier: 4 });
 def(50, 'snowy_grass', 'Snowy Turf', 'Grass beneath a frosting of snow.', { faces: { px: 'grass_block_snow', nx: 'grass_block_snow', py: 'snow', ny: 'dirt', pz: 'grass_block_snow', nz: 'grass_block_snow' }, hardness: 0.6, tool: 'shovel', drops: [{ item: 3 }], sound: 'snow', category: 'nature' });
@@ -202,7 +216,7 @@ def(78, 'terracotta', 'Terracotta', 'Fired clay with a warm, matte face.', { fac
 def(79, 'bone_block', 'Bone Block', 'Bone meal pressed into a block.', { faces: COL('bone_block_side', 'bone_block_top'), hardness: 2, tool: 'pickaxe', tier: 1, category: 'building' });
 def(80, 'emerald_block', 'Block of Emerald', 'A trader\'s fortune.', { faces: ALL('emerald_block'), hardness: 5, tool: 'pickaxe', tier: 2, sound: 'metal', category: 'building' });
 
-for (const c of OTHER_WOOL) def(woolId(c), `${c}_wool`, `${COLOR_NAMES[c]} Wool`, 'Dyed Woolhorn fleece.', { faces: ALL(`${c}_wool`), hardness: 0.8, sound: 'cloth' });
+for (const c of OTHER_WOOL) def(woolId(c), `${c}_wool`, `${COLOR_NAMES[c]} Wool`, 'Dyed Sheep fleece.', { faces: ALL(`${c}_wool`), hardness: 0.8, sound: 'cloth' });
 for (const c of COLORS) {
   const n = COLOR_NAMES[c];
   def(terracottaId(c), `${c}_terracotta`, `${n} Terracotta`, 'Fired clay stained with dye.', { faces: ALL(`${c}_terracotta`), hardness: 1.25, tool: 'pickaxe', tier: 1 });
@@ -247,30 +261,56 @@ def(191, 'redstone_lamp', 'Ember Lamp', 'Lights up when powered.', { faces: ALL(
 def(192, 'redstone_lamp_lit', 'Lit Ember Lamp', '', { faces: ALL('redstone_lamp_on'), hardness: 0.3, sound: 'glass', lightEmit: 15, drops: [{ item: 191 }], category: 'hidden' });
 def(193, 'unlit_redstone_torch', 'Ember Torch', '', { faces: ALL('redstone_torch_off'), render: 'torch', solid: false, opaque: false, lightFilter: 0, hardness: 0, sound: 'wood', needsSupport: 'solid', drops: [{ item: 184 }], category: 'hidden' });
 def(194, 'redstone_ore', 'Ember Ore', 'Deep red veins that crumble into Emberdust.', { faces: ALL('redstone_ore'), hardness: 3, tool: 'pickaxe', tier: 2, drops: [{ item: 371, min: 4, max: 5 }], xp: [1, 5], category: 'ore' });
-def(195, 'repeater', 'Ember Relay', 'Restores a signal to full strength after a delay of 1 to 4 ticks. Tap to change the delay.', { faces: { ...ALL('smooth_stone'), py: 'repeater' }, front: 'repeater_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
-def(196, 'comparator', 'Ember Gauge', 'Compares or subtracts signals, and reads how full a container is. Tap to switch modes.', { faces: { ...ALL('smooth_stone'), py: 'comparator' }, front: 'comparator_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
+def(195, 'repeater', 'Repeater', 'Restores a signal to full strength after a delay of 1 to 4 ticks. Tap to change the delay.', { faces: { ...ALL('smooth_stone'), py: 'repeater' }, front: 'repeater_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
+def(196, 'comparator', 'Comparator', 'Compares or subtracts signals, and reads how full a container is. Tap to switch modes.', { faces: { ...ALL('smooth_stone'), py: 'comparator' }, front: 'comparator_on', ...RS, interactive: true, drops: [{ item: 'self' }] });
 
 const RS6: Partial<BlockDef> = { render: 'rs6', solid: true, opaque: false, lightFilter: 15, hardness: 3, tool: 'pickaxe', sound: 'stone', category: 'functional', needsSupport: null, cullSelf: false };
-def(197, 'observer', 'Watcher', 'Its face watches one block. When that block changes, it sends a short pulse out of its back.', { faces: { ...ALL('observer_side'), py: 'observer_top', ny: 'observer_top' }, front: 'observer_front', ...RS6, opaque: true, drops: [{ item: 'self' }] });
+def(197, 'observer', 'Observer', 'Its face watches one block. When that block changes, it sends a short pulse out of its back.', { faces: { ...ALL('observer_side'), py: 'observer_top', ny: 'observer_top' }, front: 'observer_front', ...RS6, opaque: true, drops: [{ item: 'self' }] });
 def(198, 'piston', 'Piston', 'Pushes up to 12 blocks when powered.', { faces: { ...ALL('piston_side'), ny: 'piston_bottom' }, front: 'piston_top', ...RS6, hardness: 1.5, drops: [{ item: 'self' }] });
 def(199, 'sticky_piston', 'Sticky Piston', 'Pushes like a piston, and pulls the block back when unpowered.', { faces: { ...ALL('piston_side'), ny: 'piston_bottom' }, front: 'piston_top_sticky', ...RS6, hardness: 1.5, drops: [{ item: 'self' }] });
 def(200, 'piston_head', 'Piston Head', '', { faces: ALL('piston_side'), front: 'piston_top', ...RS6, lightFilter: 0, hardness: 1.5, drops: [], category: 'hidden' });
 def(201, 'moving_piston', 'Moving Block', '', { faces: ALL('stone'), render: 'none', solid: false, opaque: false, lightFilter: 0, hardness: -1, drops: null, category: 'hidden' });
 def(202, 'hopper', 'Hopper', 'Catches items from above and passes them on, one at a time.', { faces: { ...ALL('hopper_outside'), py: 'hopper_top' }, ...RS6, lightFilter: 0, interactive: true, drops: [{ item: 'self' }] });
 def(203, 'dropper', 'Dropper', 'Drops one item when powered, or feeds it into a container in front.', { faces: { ...ALL('furnace_side'), py: 'furnace_top', ny: 'furnace_top' }, front: 'dropper_front', ...RS6, opaque: true, hardness: 3.5, tier: 1, interactive: true, drops: [{ item: 'self' }] });
-def(205, 'slime_block', 'Tidegel Block', 'Wobbly kelp jelly. Pistons drag every block stuck to it, and you bounce when you land on it.', { faces: ALL('slime_block'), render: 'translucent', opaque: false, lightFilter: 1, hardness: 0, sound: 'cloth', category: 'functional', drops: [{ item: 'self' }] });
-def(206, 'honey_block', 'Sapwax Block', 'Thick and sticky. Pistons drag blocks stuck to it, but it will not stick to Tidegel.', { faces: { ...ALL('honey_block_side'), py: 'honey_block_top', ny: 'honey_block_bottom' }, render: 'translucent', opaque: false, lightFilter: 1, hardness: 0, sound: 'cloth', category: 'functional', drops: [{ item: 'self' }] });
-def(207, 'tnt', 'Thunder Keg', 'Blasts a crater four blocks wide. Light it with a Firestriker, Ember power or another blast.', { faces: { ...ALL('tnt_side'), py: 'tnt_top', ny: 'tnt_bottom' }, hardness: 0, sound: 'grass', category: 'functional', drops: [{ item: 'self' }] });
+def(205, 'slime_block', 'Slime Block', 'Wobbly kelp jelly. Pistons drag every block stuck to it, and you bounce when you land on it.', { faces: ALL('slime_block'), render: 'translucent', opaque: false, lightFilter: 1, hardness: 0, sound: 'cloth', category: 'functional', drops: [{ item: 'self' }] });
+def(206, 'honey_block', 'Honey Block', 'Thick and sticky. Pistons drag blocks stuck to it, but it will not stick to Slime.', { faces: { ...ALL('honey_block_side'), py: 'honey_block_top', ny: 'honey_block_bottom' }, render: 'translucent', opaque: false, lightFilter: 1, hardness: 0, sound: 'cloth', category: 'functional', drops: [{ item: 'self' }] });
+def(207, 'tnt', 'TNT', 'Blasts a crater four blocks wide. Light it with a Flint and Steel, Ember power or another blast.', { faces: { ...ALL('tnt_side'), py: 'tnt_top', ny: 'tnt_bottom' }, hardness: 0, sound: 'grass', category: 'functional', drops: [{ item: 'self' }] });
 def(208, 'slab', 'Slab', 'Half a block. Two of the same make a full block.', { faces: ALL('stone'), render: 'shape', opaque: false, lightFilter: 0, hardness: 1.5, sound: 'stone', category: 'hidden', drops: [{ item: 'self' }] });
 def(209, 'stairs', 'Stairs', 'Walk straight up them, no jumping needed.', { faces: ALL('stone'), render: 'shape', opaque: false, lightFilter: 0, hardness: 1.5, sound: 'stone', category: 'hidden', drops: [{ item: 'self' }] });
+const RAILDEF: Partial<BlockDef> = { render: 'rail', solid: false, opaque: false, lightFilter: 0, hardness: 0.7, sound: 'stone', needsSupport: 'solid', category: 'functional' };
+def(210, 'rail', 'Rail', 'Track for minecarts. Curves to meet neighbouring rails.', { faces: { ...ALL('rail'), ny: 'rail_corner' }, ...RAILDEF });
+def(211, 'powered_rail', 'Powered Rail', 'Speeds carts along when powered and brakes them when not.', { faces: { ...ALL('powered_rail'), ny: 'powered_rail_on' }, ...RAILDEF });
+def(212, 'detector_rail', 'Detector Rail', 'Gives off an ember signal while a cart rolls over it.', { faces: { ...ALL('detector_rail'), ny: 'detector_rail_on' }, ...RAILDEF });
+def(213, 'activator_rail', 'Activator Rail', 'When powered, lights Minecarts with TNT and tips out riders.', { faces: { ...ALL('activator_rail'), ny: 'activator_rail_on' }, ...RAILDEF });
 def(204, 'dispenser', 'Dispenser', 'Uses or fires one item when powered: buckets, bone meal, arrows and more.', { faces: { ...ALL('furnace_side'), py: 'furnace_top', ny: 'furnace_top' }, front: 'dispenser_front', ...RS6, opaque: true, hardness: 3.5, tier: 1, interactive: true, drops: [{ item: 'self' }] });
+def(218, 'ext_block', 'Block', '', { faces: ALL('netherrack'), hardness: 0.4, tool: 'pickaxe', tier: 1, category: 'hidden' });
+def(219, 'nether_portal', 'Nether Portal', 'Stand inside to cross between worlds.', { faces: ALL('nether_portal'), render: 'portal', solid: false, opaque: false, lightFilter: 0, lightEmit: 11, hardness: -1, drops: [], sound: 'glass', category: 'hidden' });
+def(220, 'fire', 'Fire', 'Burns what stands in it. Lasts forever on netherrack.', { faces: ALL('fire_0'), render: 'fire', solid: false, opaque: false, lightFilter: 0, lightEmit: 15, hardness: 0, drops: [], replaceable: true, sound: 'grass', category: 'hidden' });
+def(221, 'crying_obsidian', 'Crying Obsidian', 'Obsidian that weeps purple light. It cannot frame a portal.', { faces: ALL('crying_obsidian'), hardness: 50, tool: 'pickaxe', tier: 4, lightEmit: 10 });
+def(222, 'magma_block', 'Magma Block', 'Hot to stand on. Crouch to cross it safely.', { faces: ALL('magma'), hardness: 0.5, tool: 'pickaxe', tier: 1, lightEmit: 3 });
+def(223, 'iron_bars', 'Iron Bars', 'A thin grille that links to its neighbours.', { faces: ALL('iron_bars'), render: 'bars', opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', tier: 1, sound: 'metal', cullSelf: false });
+ext(0, 'netherrack', 'Netherrack', 'Soft red rock of the Nether. Fire on it never goes out.', { faces: ALL('netherrack'), hardness: 0.4, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(1, 'nether_quartz_ore', 'Nether Quartz Ore', 'Pale crystal set in netherrack.', { faces: ALL('nether_quartz_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 391 }], xp: [2, 5], category: 'ore' });
+ext(2, 'nether_gold_ore', 'Nether Gold Ore', 'Flecks of gold in netherrack. Breaks into nuggets.', { faces: ALL('nether_gold_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 390, min: 2, max: 6 }], xp: [0, 1], category: 'ore' });
+ext(3, 'blackstone', 'Blackstone', 'Dark stone from the Nether. Works like cobblestone.', { faces: { ...ALL('blackstone'), py: 'blackstone_top', ny: 'blackstone_top' }, hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(4, 'soul_sand', 'Soul Sand', 'Grey sand full of faces. Slows anything walking on it.', { faces: ALL('soul_sand'), hardness: 0.5, tool: 'shovel', sound: 'sand', category: 'nature' });
+ext(5, 'soul_soil', 'Soul Soil', 'Smooth grey soil found beside Soul Sand.', { faces: ALL('soul_soil'), hardness: 0.5, tool: 'shovel', sound: 'sand', category: 'nature' });
+ext(6, 'nether_bricks', 'Nether Bricks', 'Dark red bricks baked from netherrack.', { faces: ALL('nether_bricks'), hardness: 2, tool: 'pickaxe', tier: 1 });
+ext(7, 'basalt', 'Basalt', 'Grey volcanic rock.', { faces: { ...ALL('basalt_side'), py: 'basalt_top', ny: 'basalt_top' }, hardness: 1.25, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(8, 'polished_blackstone', 'Polished Blackstone', 'Blackstone smoothed flat.', { faces: ALL('polished_blackstone'), hardness: 2, tool: 'pickaxe', tier: 1 });
+ext(9, 'polished_blackstone_bricks', 'Polished Blackstone Bricks', 'Neat dark bricks.', { faces: ALL('polished_blackstone_bricks'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+ext(10, 'quartz_block', 'Block of Quartz', 'Clean white stone made from Nether Quartz.', { faces: { ...ALL('quartz_block_side'), py: 'quartz_block_top', ny: 'quartz_block_bottom' }, hardness: 0.8, tool: 'pickaxe', tier: 1 });
+def(214, 'enchanting_table', 'Enchanting Table', 'Spend levels and lapis to enchant gear. Bookshelves two blocks away make it stronger.', { faces: { ...ALL('enchanting_table_side'), py: 'enchanting_table_top', ny: 'enchanting_table_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 7, hardness: 5, tool: 'pickaxe', tier: 1, interactive: true, sound: 'stone', category: 'functional' });
+def(215, 'lapis_ore', 'Lapis Ore', 'Deep blue stone. Drops lapis for enchanting.', { faces: ALL('lapis_ore'), hardness: 3, tool: 'pickaxe', tier: 2, drops: [{ item: 389, min: 4, max: 9 }], xp: [2, 5], category: 'ore' });
+def(216, 'lapis_block', 'Block of Lapis', 'Nine lapis packed together.', { faces: ALL('lapis_block'), hardness: 3, tool: 'pickaxe', tier: 2, category: 'building' });
+def(217, 'anvil', 'Anvil', 'Repair, rename and combine enchanted gear for levels.', { faces: { ...ALL('anvil'), py: 'anvil_top' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', tier: 1, interactive: true, sound: 'metal', category: 'functional' });
 
 export function isWaterPlant(id: number): boolean { return id === 179 || id === 180 || id === 181; }
 export function isWaterLike(v: number): boolean { const id = v & 0xff; return id === 12 || id === 179 || id === 180 || id === 181; }
 
 export const BLOCKS: BlockDef[] = defs;
 
-export const BLOCK_BY_KEY = new Map<string, BlockDef>(defs.map((d) => [d.key, d]));
+export const BLOCK_BY_KEY = new Map<string, BlockDef>(defs.filter(Boolean).map((d) => [d.key, d] as [string, BlockDef]));
 
 export function blockId(v: number): number { return v & 0xff; }
 export function blockMeta(v: number): number { return v >>> 8; }
@@ -281,6 +321,7 @@ const opaqueTable = new Uint8Array(256);
 const filterTable = new Uint8Array(256);
 const emitTable = new Uint8Array(256);
 for (const d of defs) {
+  if (!d || d.id > 255) continue;
   solidTable[d.id] = d.solid ? 1 : 0;
   opaqueTable[d.id] = d.opaque ? 1 : 0;
   filterTable[d.id] = d.lightFilter;
@@ -292,7 +333,9 @@ export const LIGHT_FILTER = filterTable;
 export const LIGHT_EMIT = emitTable;
 
 export function getBlock(id: number): BlockDef {
-  return defs[id & 0xff] ?? defs[0];
+  const b = id & 0xff;
+  if (b === 218) return defs[XB + ((id >>> 8) & 0xff)] ?? defs[218];
+  return defs[b] ?? defs[0];
 }
 
 export function isSolid(v: number): boolean {
@@ -338,6 +381,45 @@ export function torchBox(meta: number): [number, number, number, number, number,
   return [cx - 2.5 / 16, 3 / 16, cz - 2.5 / 16, cx + 2.5 / 16, 13 / 16, cz + 2.5 / 16];
 }
 
+const BLAST: Record<string, number> = {
+  stone: 6, grass: 0.6, dirt: 0.5, cobblestone: 6, oak_planks: 3, birch_planks: 3, spruce_planks: 3, jungle_planks: 3, bedrock: 3600000,
+  sand: 0.5, gravel: 0.6, clay: 0.6, snow_block: 0.2, ice: 0.5, packed_ice: 0.5, water: 100, lava: 100,
+  oak_log: 2, birch_log: 2, spruce_log: 2, jungle_log: 2, oak_leaves: 0.2, birch_leaves: 0.2, spruce_leaves: 0.2, jungle_leaves: 0.2,
+  enchanting_table: 1200, anvil: 1200, lapis_block: 3, ext_block: 0.4, nether_portal: 0, fire: 0, crying_obsidian: 1200, magma_block: 0.5, iron_bars: 6,
+  netherrack: 0.4, nether_quartz_ore: 3, nether_gold_ore: 3, blackstone: 6, soul_sand: 0.5, soul_soil: 0.5, nether_bricks: 6, basalt: 4.2, polished_blackstone: 6, polished_blackstone_bricks: 6, quartz_block: 0.8,
+  coal_ore: 3, iron_ore: 3, gold_ore: 3, aetherite_ore: 3, copper_ore: 3, redstone_ore: 3, emerald_ore: 3, lapis_ore: 3,
+  sandstone: 0.8, cut_sandstone: 0.8, chiseled_sandstone: 0.8, smooth_sandstone: 6, cactus: 0.4, crafting_table: 2.5, furnace: 3.5, furnace_lit: 3.5,
+  chest: 2.5, glass: 0.3, bricks: 6, stone_bricks: 6, mossy_stone_bricks: 6, cracked_stone_bricks: 6, chiseled_stone_bricks: 6, oak_door: 3, ladder: 0.4,
+  iron_block: 6, gold_block: 6, aetherite_block: 6, emerald_block: 6, coal_block: 6, copper_block: 6, cut_copper: 6, copper_lamp: 6,
+  mossy_cobblestone: 6, obsidian: 1200, snowy_grass: 0.6, glowstone: 0.3, mud: 0.5, farmland: 0.6, bookshelf: 1.5, lily_pad: 0,
+  smooth_stone: 6, terracotta: 4.2, bone_block: 2, hay_block: 0.5, tuff: 6, tuff_bricks: 6, chiseled_tuff: 6, polished_tuff: 6,
+  spawner: 5, trial_spawner: 50, vault: 50, kelp: 0, kelp_plant: 0, seagrass: 0, vine: 0.2, torch: 0, redstone_wire: 0, redstone_torch: 0,
+  unlit_redstone_torch: 0, lever: 0.5, stone_button: 0.5, oak_button: 0.5, stone_pressure_plate: 0.5, oak_pressure_plate: 0.5,
+  redstone_block: 6, redstone_lamp: 0.3, redstone_lamp_lit: 0.3, repeater: 0, comparator: 0, observer: 3, piston: 1.5, sticky_piston: 1.5,
+  piston_head: 1.5, moving_piston: 1.5, hopper: 4.8, dropper: 3.5, dispenser: 3.5, slime_block: 0, honey_block: 0, tnt: 0,
+  rail: 0.7, powered_rail: 0.7, detector_rail: 0.7, activator_rail: 0.7, white_wool: 0.8, red_wool: 0.8, yellow_wool: 0.8,
+};
+
+export const BLAST_RES = new Float32Array(1024);
+for (const b of BLOCKS) {
+  if (!b) continue;
+  const k = b.key;
+  let r = BLAST[k];
+  if (r === undefined) {
+    if (k.endsWith('_wool')) r = 0.8;
+    else if (k.endsWith('_concrete_powder')) r = 0.5;
+    else if (k.endsWith('_concrete')) r = 1.8;
+    else if (k.endsWith('_terracotta')) r = 4.2;
+    else if (k.endsWith('_glass')) r = 0.3;
+    else if (k.endsWith('_ore')) r = 3;
+    else if (b.hardness < 0) r = 3600000;
+    else if (b.render === 'cross' || b.render === 'crop' || b.render === 'torch') r = 0;
+    else if (b.fluid) r = 100;
+    else r = b.tool === 'pickaxe' && b.hardness >= 1.5 ? 6 : b.hardness;
+  }
+  BLAST_RES[b.id] = r;
+}
+
 export const SHAPE_MATS: { id: number; key: string; name: string }[] = [
   { id: B.OAK_PLANKS, key: 'oak', name: 'Oak' }, { id: B.BIRCH_PLANKS, key: 'birch', name: 'Birch' }, { id: B.SPRUCE_PLANKS, key: 'spruce', name: 'Spruce' },
   { id: B.JUNGLE_PLANKS, key: 'jungle', name: 'Jungle' }, { id: B.COBBLESTONE, key: 'cobblestone', name: 'Cobblestone' }, { id: B.STONE, key: 'stone', name: 'Stone' },
@@ -359,9 +441,22 @@ export function shapeBoxes(v: number): [number, number, number, number, number, 
   return [base, [x0, y0, z0, x1, y1, z1]];
 }
 
+type Box = [number, number, number, number, number, number];
+export function customBoxes(v: number): Box[] {
+  const id = v & 0xff;
+  if (id === B.ENCHANTING_TABLE) return [[0, 0, 0, 1, 0.75, 1]];
+  if (id === B.ANVIL) {
+    const ew = ((v >>> 8) & 1) === 1;
+    const b = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box => ew ? [z0 / 16, y0 / 16, x0 / 16, z1 / 16, y1 / 16, x1 / 16] : [x0 / 16, y0 / 16, z0 / 16, x1 / 16, y1 / 16, z1 / 16];
+    return [b(2, 0, 2, 14, 4, 14), b(4, 4, 3, 12, 5, 13), b(6, 5, 4, 10, 10, 12), b(3, 10, 0, 13, 16, 16)];
+  }
+  return [];
+}
+
 export function blockBoxes(v: number): [number, number, number, number, number, number][] | null {
   const id = v & 0xff;
   if (id === B.SLAB || id === B.STAIRS) return shapeBoxes(v);
+  if (id === B.ENCHANTING_TABLE || id === B.ANVIL) return customBoxes(v);
   const b = blockBox(v);
   return b ? [b] : null;
 }
@@ -379,6 +474,7 @@ export function blockBox(v: number): [number, number, number, number, number, nu
   if (id === B.CACTUS) return [1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16];
   if (id === B.CHEST) return [1 / 16, 0, 1 / 16, 15 / 16, 14 / 16, 15 / 16];
   if (id === B.SLAB) return shapeBoxes(v)[0];
+  if (id === B.ENCHANTING_TABLE) return [0, 0, 0, 1, 0.75, 1];
   if (!d.solid) return null;
   return [0, 0, 0, 1, 1, 1];
 }
@@ -407,6 +503,7 @@ export function selectionBox(v: number): [number, number, number, number, number
   const id = v & 0xff;
   const d = defs[id];
   if (!d || id === 0 || d.fluid) return null;
+  if (id === B.ANVIL) return (v >>> 8) & 1 ? [0, 0, 2 / 16, 1, 1, 14 / 16] : [2 / 16, 0, 0, 14 / 16, 1, 1];
   const solid = blockBox(v);
   if (solid) return solid;
   switch (d.render) {
@@ -417,6 +514,7 @@ export function selectionBox(v: number): [number, number, number, number, number
     }
     case 'cross': case 'crop': return [2 / 16, 0, 2 / 16, 14 / 16, 13 / 16, 14 / 16];
     case 'redstone': return rsBox(id, v >>> 8);
+    case 'rail': { const sh = (v >>> 8) & 15; return [0, 0, 0, 1, sh >= 2 && sh <= 5 ? 0.5 : 2 / 16, 1]; }
     default: return [0, 0, 0, 1, 1, 1];
   }
 }

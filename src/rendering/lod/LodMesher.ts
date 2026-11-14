@@ -48,6 +48,7 @@ export class LodMesher {
     const W = n + 2;
     const H = new Float32Array(W * W);
     const C = new Uint8Array(W * W * 3);
+    const WT = new Uint8Array(W * W);
     const cols: Column[] = new Array(W * W);
     for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
       const wx = Math.floor(x0 + (i - 1 + 0.5) * s), wz = Math.floor(z0 + (j - 1 + 0.5) * s);
@@ -75,7 +76,9 @@ export class LodMesher {
         top = sc.h[si] + 1;
         this.blockColor(bid, col, rgb);
         if (bid === B.WATER) {
+          WT[k] = 1;
           const w = col.biome.water;
+          rgb[0] *= 0.8; rgb[1] *= 0.8; rgb[2] *= 0.8;
           rgb[0] = rgb[0] * w[0] / 255; rgb[1] = rgb[1] * w[1] / 255; rgb[2] = rgb[2] * w[2] / 255;
         } else if (bid === B.OAK_LEAVES || bid === B.BIRCH_LEAVES || bid === B.SPRUCE_LEAVES || bid === B.JUNGLE_LEAVES) {
           const lt = LEAF_TINT[bid === B.BIRCH_LEAVES ? 1 : bid === B.SPRUCE_LEAVES ? 2 : 0];
@@ -86,9 +89,10 @@ export class LodMesher {
         if (col.biome.cold) this.blockColor(B.ICE, col, rgb);
         else {
           this.blockColor(B.WATER, col, rgb);
+          WT[k] = 1;
           const w = col.biome.water;
-          const depth = Math.min(1, (SEA_LEVEL - h) / 20);
-          const f = 1.08 - depth * 0.22;
+          const depth = Math.min(1, (SEA_LEVEL - h) / 14);
+          const f = 0.95 - depth * 0.33;
           rgb[0] = rgb[0] * w[0] / 255 * f; rgb[1] = rgb[1] * w[1] / 255 * f; rgb[2] = rgb[2] * w[2] / 255 * f;
         }
       } else {
@@ -115,29 +119,47 @@ export class LodMesher {
       for (let v = 0; v < 4; v++) colr.push(r, g, b, sh);
       quads++;
     };
-    for (let j = 1; j <= n; j++) {
-      for (let i = 1; i <= n;) {
-        const k = j * W + i;
-        let w = 1;
-        while (i + w <= n && H[k + w] === H[k] && C[(k + w) * 3] === C[k * 3] && C[(k + w) * 3 + 1] === C[k * 3 + 1] && C[(k + w) * 3 + 2] === C[k * 3 + 2]) w++;
-        const xa = (i - 1) * s, xb = (i - 1 + w) * s, za = (j - 1) * s, zb = j * s, y = H[k];
-        quad(xa, y, za, xa, y, zb, xb, y, zb, xb, y, za, k, 1);
-        i += w;
+    const same = (a: number, b: number) => H[a] === H[b] && C[a * 3] === C[b * 3] && C[a * 3 + 1] === C[b * 3 + 1] && C[a * 3 + 2] === C[b * 3 + 2];
+    const used = new Uint8Array(W * W);
+    for (let j = 1; j <= n; j++) for (let i = 1; i <= n; i++) {
+      const k = j * W + i;
+      if (used[k]) continue;
+      let w = 1;
+      while (i + w <= n && !used[k + w] && same(k, k + w)) w++;
+      let d = 1;
+      grow: while (j + d <= n) {
+        for (let q = 0; q < w; q++) { const o = k + d * W + q; if (used[o] || !same(k, o)) break grow; }
+        d++;
       }
+      for (let dj = 0; dj < d; dj++) for (let q = 0; q < w; q++) used[k + dj * W + q] = 1;
+      const xa = (i - 1) * s, xb = (i - 1 + w) * s, za = (j - 1) * s, zb = (j - 1 + d) * s, y = H[k];
+      quad(xa, y, za, xa, y, zb, xb, y, zb, xb, y, za, k, WT[k] ? 0.97 : 1);
     }
     const skirt = Math.max(2, s * 2);
-    for (let j = 1; j <= n; j++) for (let i = 1; i <= n; i++) {
-      const k = j * W + i, y = H[k];
-      const xa = (i - 1) * s, xb = i * s, za = (j - 1) * s, zb = j * s;
-      const side = (nk: number, edge: boolean, emit: (lo: number) => void) => {
-        let lo = H[nk];
-        if (edge) lo = Math.min(lo, y) - skirt;
-        if (lo < y) emit(lo);
-      };
-      side(k + 1, i === n, (lo) => quad(xb, y, za, xb, y, zb, xb, lo, zb, xb, lo, za, k, 0.8));
-      side(k - 1, i === 1, (lo) => quad(xa, y, zb, xa, y, za, xa, lo, za, xa, lo, zb, k, 0.8));
-      side(k + W, j === n, (lo) => quad(xb, y, zb, xa, y, zb, xa, lo, zb, xb, lo, zb, k, 0.62));
-      side(k - W, j === 1, (lo) => quad(xa, y, za, xb, y, za, xb, lo, za, xa, lo, za, k, 0.62));
+    const lowOf = (k: number, nk: number, edge: boolean) => { let lo = H[nk]; if (edge) lo = Math.min(lo, H[k]) - skirt; return lo; };
+    for (const [dk, horiz] of [[1, false], [-1, false], [W, true], [-W, true]] as [number, boolean][]) {
+      for (let a0 = 1; a0 <= n; a0++) {
+        for (let b0 = 1; b0 <= n;) {
+          const i = horiz ? b0 : a0, j = horiz ? a0 : b0;
+          const k = j * W + i;
+          const edge = dk === 1 ? i === n : dk === -1 ? i === 1 : dk === W ? j === n : j === 1;
+          const lo = lowOf(k, k + dk, edge), y = H[k];
+          if (lo >= y) { b0++; continue; }
+          let len = 1;
+          const stepK = horiz ? 1 : W;
+          while (b0 + len <= n) {
+            const k2 = k + len * stepK;
+            if (!same(k, k2) || lowOf(k2, k2 + dk, edge) !== lo) break;
+            len++;
+          }
+          const xa = (i - 1) * s, za = (j - 1) * s;
+          if (dk === 1) { const x = xa + s, zb = za + len * s; quad(x, y, za, x, y, zb, x, lo, zb, x, lo, za, k, 0.8); }
+          else if (dk === -1) { const zb = za + len * s; quad(xa, y, zb, xa, y, za, xa, lo, za, xa, lo, zb, k, 0.8); }
+          else if (dk === W) { const z = za + s, xb = xa + len * s; quad(xb, y, z, xa, y, z, xa, lo, z, xb, lo, z, k, 0.62); }
+          else { const xb = xa + len * s; quad(xa, y, za, xb, y, za, xb, lo, za, xa, lo, za, k, 0.62); }
+          b0 += len;
+        }
+      }
     }
     const nv = quads * 4;
     const idx = nv > 65535 ? new Uint32Array(quads * 6) : new Uint16Array(quads * 6);

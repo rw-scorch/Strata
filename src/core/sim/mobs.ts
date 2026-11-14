@@ -29,37 +29,37 @@ export interface MobDef {
 
 export const MOBS: Record<MobType, MobDef> = {
   woolhorn: {
-    type: 'woolhorn', code: 0, name: 'Woolhorn', hostile: false, health: 8, speed: 1.6, hw: 0.45, h: 1.3, damage: 0,
+    type: 'woolhorn', code: 0, name: 'Sheep', hostile: false, health: 8, speed: 1.6, hw: 0.45, h: 1.3, damage: 0,
     drops: [{ item: B.WHITE_WOOL, min: 1, max: 2 }, { item: I.RAW_MUTTON, min: 1, max: 2 }], xp: 2, lure: [I.WHEAT],
     spawn: { weight: 12, min: 4, max: 4 },
     desc: 'A curly-horned grazer with a coat of thick fleece.',
   },
   mudsnout: {
-    type: 'mudsnout', code: 1, name: 'Mudsnout', hostile: false, health: 10, speed: 1.5, hw: 0.45, h: 0.9, damage: 0,
+    type: 'mudsnout', code: 1, name: 'Pig', hostile: false, health: 10, speed: 1.5, hw: 0.45, h: 0.9, damage: 0,
     drops: [{ item: I.RAW_PORK, min: 1, max: 3 }, { item: I.LEATHER, min: 0, max: 2 }], xp: 2, lure: [I.WHEAT, I.APPLE],
     spawn: { weight: 10, min: 4, max: 4 },
     desc: 'A stout, snuffling forager that loves apples.',
   },
   fernhen: {
-    type: 'fernhen', code: 2, name: 'Fernhen', hostile: false, health: 4, speed: 1.4, hw: 0.25, h: 0.7, damage: 0,
+    type: 'fernhen', code: 2, name: 'Chicken', hostile: false, health: 4, speed: 1.4, hw: 0.25, h: 0.7, damage: 0,
     drops: [{ item: I.FEATHER, min: 0, max: 2 }, { item: I.RAW_POULTRY, min: 1, max: 1 }], xp: 1, lure: [I.SEEDS],
     spawn: { weight: 10, min: 4, max: 4 },
     desc: 'A skittish ground bird with leaf-green plumage.',
   },
   hollowed: {
-    type: 'hollowed', code: 3, name: 'Hollowed', hostile: true, health: 20, speed: 2.4, hw: 0.3, h: 1.9, damage: 3,
+    type: 'hollowed', code: 3, name: 'Zombie', hostile: true, health: 20, speed: 2.4, hw: 0.3, h: 1.9, damage: 3,
     drops: [{ item: I.ROTTEN_FLESH, min: 0, max: 2 }, { item: I.IRON_INGOT, min: 1, max: 1, chance: 0.025 }], xp: 5, burnsInDay: true,
     spawn: { weight: 95, min: 4, max: 4 },
     desc: 'A shambling husk that hungers in the dark. Sunlight sets it smouldering.',
   },
   rattlebone: {
-    type: 'rattlebone', code: 4, name: 'Rattlebone', hostile: true, health: 20, speed: 2.5, hw: 0.3, h: 1.95, damage: 2,
+    type: 'rattlebone', code: 4, name: 'Skeleton', hostile: true, health: 20, speed: 2.5, hw: 0.3, h: 1.95, damage: 2,
     drops: [{ item: I.BONE, min: 0, max: 2 }, { item: I.ARROW, min: 0, max: 2 }], xp: 5, burnsInDay: true, ranged: true,
     spawn: { weight: 100, min: 4, max: 4 },
     desc: 'A clattering skeleton archer that keeps its distance.',
   },
   duskweaver: {
-    type: 'duskweaver', code: 5, name: 'Duskweaver', hostile: true, health: 16, speed: 3.2, hw: 0.65, h: 0.9, damage: 2,
+    type: 'duskweaver', code: 5, name: 'Spider', hostile: true, health: 16, speed: 3.2, hw: 0.65, h: 0.9, damage: 2,
     drops: [{ item: I.STRING, min: 0, max: 2 }, { item: I.INK_SAC, min: 1, max: 1, chance: 0.33 }], xp: 5, climbs: true,
     spawn: { weight: 100, min: 4, max: 4 },
     desc: 'A many-eyed spider that pounces from the gloom. Calm in daylight unless provoked.',

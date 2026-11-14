@@ -8,6 +8,9 @@ import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
 import { GEN_LEVEL } from './genLevel';
+import { NetherGen } from './nether';
+import { isNether } from '../dimension';
+import { PortalPlan, PORTAL_GRID, planRuinedPortal, stampRuinedPortal } from './ruinedPortal';
 import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines } from './trees';
 import { StructurePlan, STRONGHOLD_REGION, TRIAL_REGION, planStronghold, planTrial, stampStructure } from './structures';
 
@@ -111,6 +114,32 @@ export class WorldGenerator {
     return best;
   }
 
+  private nether: NetherGen | null = null;
+  private portalPlans = new Map<string, PortalPlan | null>();
+
+  ruinedPortal(rx: number, rz: number): PortalPlan | null {
+    const k = `${rx},${rz}`;
+    if (this.portalPlans.has(k)) return this.portalPlans.get(k)!;
+    const p = planRuinedPortal(this.seed, rx, rz, (x, z) => this.column(x, z));
+    if (this.portalPlans.size > 64) this.portalPlans.clear();
+    this.portalPlans.set(k, p);
+    return p;
+  }
+
+  portalsNear(bx: number, bz: number): PortalPlan[] {
+    const out: PortalPlan[] = [];
+    const seen = new Set<string>();
+    for (const [ox, oz] of [[-24, -24], [40, -24], [-24, 40], [40, 40]]) {
+      const rx = Math.floor((bx + ox) / PORTAL_GRID), rz = Math.floor((bz + oz) / PORTAL_GRID);
+      const k = `${rx},${rz}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const p = this.ruinedPortal(rx, rz);
+      if (p) out.push(p);
+    }
+    return out;
+  }
+
   constructor(seed: number, arena: ArenaKind | null = null, opts?: GenOptions) {
     this.seed = seed >>> 0;
     this.arena = arena;
@@ -209,6 +238,7 @@ export class WorldGenerator {
   generate(cx: number, cz: number, level = GEN_LEVEL): GeneratedChunk {
     this.lv = level;
     if (this.arena) return { blocks: generateArenaChunk(this.arena, cx, cz), entities: [] };
+    if (isNether(cx * S)) return { blocks: (this.nether ??= new NetherGen(this.seed)).generate(cx, cz), entities: [] };
     const blocks = new Uint16Array(CHUNK_VOLUME);
     const entities: GenBlockEntity[] = [];
     const bx = cx * S, bz = cz * S;
@@ -259,6 +289,7 @@ export class WorldGenerator {
     const structs = this.structuresNear(bx, bz, bx + S - 1, bz + S - 1);
     for (const p of structs) stampStructure(p, this.oreSeed!, bx, bz, S, set, entities);
     for (const v of this.villagesNear(bx + 8, bz + 8, 12)) stampVillage(v, bx, bz, S, set, get, (x, z) => this.column(x, z), entities);
+    if (this.lv >= 5) for (const pp of this.portalsNear(bx, bz)) stampRuinedPortal(pp, bx, bz, S, set, get, entities);
     this.placeVegetation(cx, cz, rng, set, get, colAt);
     this.placeWaterfalls(rng, set, get, colAt);
     return structs.length ? { blocks, entities, special: true } : { blocks, entities };
@@ -370,7 +401,7 @@ export class WorldGenerator {
     write = true;
     ores();
     if (mountain) vein(B.IRON_ORE, 4, 6, 70, 120);
-    if (this.lv >= 4) vein(B.REDSTONE_ORE, 7, 7, 2, 18);
+    if (this.lv >= 4) { vein(B.REDSTONE_ORE, 7, 7, 2, 18); vein(B.LAPIS_ORE, 2, 7, 3, 34); }
   }
 
   private treeAt(wx: number, wz: number, col: Column): { kind: number; height: number } | null {

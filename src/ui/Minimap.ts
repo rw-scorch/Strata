@@ -1,3 +1,4 @@
+import { localX } from '../core/dimension';
 import * as THREE from 'three';
 import { h, clear } from './dom';
 import { B, blockId, getBlock } from '../core/blocks';
@@ -142,7 +143,7 @@ export class Minimap {
   update(): void {
     const now = performance.now();
     const p = this.host.pos();
-    const fx = Math.floor(p.x), fy = Math.floor(p.y), fz = Math.floor(p.z);
+    const fx = Math.floor(localX(p.x)), fy = Math.floor(p.y), fz = Math.floor(p.z);
     const dirs = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE'];
     const deg = (((p.yaw * 180) / Math.PI) % 360 + 360) % 360;
     this.coords.textContent = `${fx}, ${fy}, ${fz}  ${dirs[Math.round(deg / 45) % 8]}`;
@@ -333,7 +334,7 @@ export class Minimap {
           mapOk ? h('div', { class: 'map-wrap' }, cv, h('div', { class: 'map-zoom' },
             h('button', { class: 'btn small', onclick: () => { zoom = Math.max(32, zoom / 1.5); redraw(); } }, '+'),
             h('button', { class: 'btn small', onclick: () => { zoom = Math.min(256, zoom * 1.5); redraw(); } }, '-'))) : h('div', { class: 'small muted' }, 'The map is turned off in this world.'),
-          coordsOk ? h('div', { class: 'small muted' }, (() => { const p = this.host.pos(); return `You are at ${Math.floor(p.x)}, ${Math.floor(p.y)}, ${Math.floor(p.z)}`; })()) : null,
+          coordsOk ? h('div', { class: 'small muted' }, (() => { const p = this.host.pos(); return `You are at ${Math.floor(localX(p.x))}, ${Math.floor(p.y)}, ${Math.floor(p.z)}`; })()) : null,
           h('div', { class: 'row wp-tools' },
             h('button', { class: 'btn primary', onclick: addHere }, 'New here'),
             h('button', { class: 'btn', onclick: importMenu }, 'Import'),

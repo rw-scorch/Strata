@@ -11,7 +11,8 @@ const SURF = new Map<number, Map<string, { h: Uint8Array; id: Uint8Array }>>();
 const SKIP_TOP = new Uint8Array(256);
 for (const b of BLOCKS) if (b && (b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'redstone' || b.render === 'none' || b.render === 'ladder')) SKIP_TOP[b.id] = 1;
 
-export const LOD_SAMPLES: Record<'low' | 'medium' | 'high', number> = { low: 16, medium: 32, high: 48 };
+export const LOD_SAMPLES: Record<'low' | 'medium' | 'high', number> = { low: 32, medium: 64, high: 64 };
+export const LOD_SPLIT: Record<'low' | 'medium' | 'high', number> = { low: 1.3, medium: 2.2, high: 4 };
 
 export class LodManager {
   readonly group = new THREE.Group();
@@ -62,12 +63,19 @@ export class LodManager {
           vec2 c = floor(vWorld.xz / 16.0) - uMaskOrigin;
           if (c.x >= 0.0 && c.y >= 0.0 && c.x < uMaskSize && c.y < uMaskSize && texture2D(uMask, (c + 0.5) / uMaskSize).r > 0.5) discard;
           float light = mix(0.1, 1.0, uDay) * vColor.a;
-          vec3 col = vColor.rgb * light * mix(vec3(0.75, 0.8, 1.0), vec3(1.0), uDay);
+          vec3 bp = vColor.a > 0.9 ? vec3(floor(vWorld.x), 0.0, floor(vWorld.z)) : vColor.a > 0.7 ? vec3(7.0, floor(vWorld.y), floor(vWorld.z)) : vec3(floor(vWorld.x), floor(vWorld.y), 13.0);
+          vec3 sp = vColor.a > 0.9 ? vec3(floor(vWorld.x * 4.0), 0.0, floor(vWorld.z * 4.0)) : vColor.a > 0.7 ? vec3(7.0, floor(vWorld.y * 4.0), floor(vWorld.z * 4.0)) : vec3(floor(vWorld.x * 4.0), floor(vWorld.y * 4.0), 13.0);
+          float nb = fract(sin(dot(bp, vec3(12.9898, 78.233, 37.719))) * 43758.5453) - 0.5;
+          float ns = fract(sin(dot(sp, vec3(26.651, 41.117, 17.31))) * 24634.6345) - 0.5;
+          float tex = 1.0 + nb * 0.11 * (1.0 - smoothstep(350.0, 900.0, vDist)) + ns * 0.12 * (1.0 - smoothstep(90.0, 260.0, vDist));
+          if (vColor.a > 0.96 && vColor.a < 0.98) tex = 1.0 + nb * 0.03;
+          vec3 col = vColor.rgb * tex * light * mix(vec3(0.75, 0.8, 1.0), vec3(1.0), uDay);
           float fog = smoothstep(uFogNear, uFogFar, vDist);
           gl_FragColor = vec4(mix(col, uFogColor, fog), 1.0);
         }`,
     });
-    const n = Math.max(1, Math.min(2, (navigator.hardwareConcurrency ?? 4) > 4 ? 2 : 1));
+    const hc = navigator.hardwareConcurrency ?? 4;
+    const n = hc >= 8 ? 3 : hc > 4 ? 2 : 1;
     for (let i = 0; i < n; i++) {
       const w = new Worker(new URL('../../workers/LodWorker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (e) => this.onWorker(i, e.data);
@@ -79,17 +87,19 @@ export class LodManager {
     }
   }
 
-  get minSize(): number { return Math.max(64, this.samples * 2); }
+  get minSize(): number { return 64; }
+  split = 2.2;
 
   setColors(colors: Uint8Array): void {
     for (const w of this.workers) w.postMessage({ t: 'colors', colors });
     this.clear();
   }
 
-  configure(distanceChunks: number, samples: number): void {
+  configure(distanceChunks: number, samples: number, split = 2.2): void {
     const d = distanceChunks * 16;
-    if (d === this.distance && samples === this.samples) return;
-    if (samples !== this.samples) this.clear();
+    if (d === this.distance && samples === this.samples && split === this.split) return;
+    if (samples !== this.samples || split !== this.split) this.clear();
+    this.split = split;
     this.distance = d;
     this.samples = samples;
     this.lastX = Infinity;
@@ -179,7 +189,7 @@ export class LodManager {
       const dx = Math.max(x0 - cx, 0, cx - (x0 + size)), dz = Math.max(z0 - cz, 0, cz - (z0 + size));
       const d = Math.hypot(dx, dz);
       if (d > D) return;
-      if (size > MIN && d < size * 1.1) {
+      if (size > MIN && d < size * this.split) {
         const h = size / 2;
         visit(x0, z0, h); visit(x0 + h, z0, h); visit(x0, z0 + h, h); visit(x0 + h, z0 + h, h);
         return;
@@ -235,7 +245,7 @@ export class LodManager {
       const id = this.nextId++;
       this.jobs.set(id, t);
       this.busy[i] = true;
-      this.workers[i].postMessage({ t: 'tile', id, x0: t.x0, z0: t.z0, size: t.size, n: this.samples });
+      this.workers[i].postMessage({ t: 'tile', id, x0: t.x0, z0: t.z0, size: t.size, n: t.size >= 512 ? Math.max(16, this.samples / 4) : t.size >= 256 ? Math.max(16, this.samples / 2) : this.samples });
     }
   }
 

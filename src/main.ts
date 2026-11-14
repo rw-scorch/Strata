@@ -1,3 +1,4 @@
+import { setPackNames, usePackNames } from './core/items';
 import './styles.css';
 import { Menus } from './ui/Menus';
 import { Game } from './game/Game';
@@ -76,6 +77,8 @@ class App {
       if (up.missing.length && !(window as unknown as { __reimp?: boolean }).__reimp) (window as unknown as { __reimp?: boolean }).__reimp = true, toast(`${up.missing.join(', ')} was imported by an older version. Open Resource Packs and tap "Re-import this pack" to get textures for new blocks, villagers and screens.`, 'info', 15000);
     }
     const composed = ids.length ? await ResourcePackManager.compose(ids) : null;
+    setPackNames(composed?.itemNames ?? null);
+    usePackNames(getSettings().packNames !== false);
     const maxTile = isTouchDevice() ? 32 : 64;
     const next = new TextureAtlas(composed, maxTile);
     if (composed?.sounds.size) void audio.setPackSounds(composed.sounds);

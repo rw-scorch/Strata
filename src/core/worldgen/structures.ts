@@ -104,6 +104,7 @@ export function trialLoot(r: Rng): ItemStack[] {
   const t: [number, number, number][] = [[I.ARROW, 4, 8], [I.BREAD, 2, 4], [I.EMERALD, 1, 3], [I.IRON_INGOT, 1, 3], [I.COPPER_INGOT, 2, 6], [I.COOKED_PORK, 1, 3]];
   for (let i = 0, n = 1 + r.int(2); i < n; i++) { const [id, a, b] = t[r.int(t.length)]; out.push({ id, count: a + r.int(b - a + 1) }); }
   if (r.chance(0.05)) out.push({ id: I.GOLDEN_APPLE, count: 1 });
+  if (r.chance(0.04)) out.push({ id: I.ENCHANTED_BOOK, count: 1, en: { [['wind_burst', 'quick_charge', 'piercing', 'power', 'unbreaking'][r.int(5)]]: 1 } });
   return out;
 }
 
@@ -114,6 +115,11 @@ export function vaultLoot(r: Rng): ItemStack[] {
   for (let i = 0, n = 2 + r.int(3); i < n; i++) {
     let pick = r.next() * total;
     for (const [id, a, b, w] of t) { if ((pick -= w) < 0) { out.push({ id, count: a + r.int(b - a + 1) }); break; } }
+  }
+  if (r.chance(0.25)) {
+    const books: [string, number][] = [['wind_burst', 1], ['mending', 1], ['density', 3], ['breach', 2], ['unbreaking', 3], ['efficiency', 4], ['protection', 3], ['sharpness', 4], ['feather_falling', 3], ['lunge', 2]];
+    const [k, l] = books[r.int(books.length)];
+    out.push({ id: I.ENCHANTED_BOOK, count: 1, en: { [k]: l } });
   }
   return out;
 }

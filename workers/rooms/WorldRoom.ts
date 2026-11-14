@@ -4,12 +4,12 @@ import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator } from '../../src/core/worldgen/WorldGenerator';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
-import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot } from '../../src/core/sim/WorldSim';
+import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot, entTypeCode } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
 import { Minigame } from '../../src/core/labs/minigames/Minigame';
 import { isArenaKind } from '../../src/core/labs/minigames/arena';
 import { B, blockId } from '../../src/core/blocks';
-import { sanitizeInv, validateOp, invHash, validStack, cloneStack } from '../../src/core/inventory';
+import { sanitizeInv, validateOp, invHash, validStack, cloneStack, equipmentOf } from '../../src/core/inventory';
 import { cleanPackList } from '../../src/core/datapack';
 import { Economy } from './Economy';
 import { ORE_REVEAL_RADIUS, maskChunk, exposedOres, revealAround, publicValue } from '../../src/core/antixray';
@@ -175,6 +175,7 @@ export class WorldRoom extends DurableObject<Env> {
         e.dirty = true;
       },
       isLoaded: (x, z) => this.cache.has(chunkKey(x >> 4, z >> 4)),
+      ensure: (x, z) => { this.getChunk(x >> 4, z >> 4); },
       raw: (cx, cz) => this.cache.get(chunkKey(cx, cz))?.c.blocks ?? null,
     };
     const spawnRow = this.sql.exec(`SELECT v FROM kv WHERE k = 'spawn'`).toArray()[0];
@@ -806,6 +807,8 @@ export class WorldRoom extends DurableObject<Env> {
       case 'bow': if (typeof msg.p === 'number' && typeof msg.y === 'number' && typeof msg.x === 'number') sim.shootBow(p, msg.p, msg.y, msg.x); return;
       case 'atk': if (isInt(msg.id, 0, 1e9)) sim.attack(p, msg.id); return;
       case 'ue': if (isInt(msg.id, 0, 1e9)) sim.useEntity(p, msg.id); return;
+      case 'ench': if (isInt(msg.i, 0, 2)) sim.enchant(p, msg.i); return;
+      case 'anvil': if (msg.n === null || (typeof msg.n === 'string' && msg.n.length <= 50)) sim.anvil(p, msg.n); return;
       case 'trd': if (isInt(msg.id, 0, 1e9) && isInt(msg.i, 0, 64) && isInt(msg.n, 1, 64)) sim.trade(p, msg.id, msg.i, msg.n); return;
       case 'pvp': if (typeof msg.pid === 'string') sim.attackPlayer(p, msg.pid); return;
       case 'inv': {
@@ -1093,6 +1096,15 @@ export class WorldRoom extends DurableObject<Env> {
         else this.systemChat(ev.text, ev.kind);
         return;
       case 'lightning': this.broadcast({ t: 'bolt', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z) }); return;
+      case 'knock': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'knock', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), ...(ev.set ? { s: 1 } : {}) }); return; }
+      case 'ride': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'ride', id: ev.id }); return; }
+      case 'work': {
+        const s = this.sessionFor(ev.p.id);
+        if (!s) return;
+        this.send(s, { t: 'cont', k: 'work', type: 'chest', items: ev.items });
+        if (ev.offers) this.send(s, { t: 'eo', o: ev.offers });
+        return;
+      }
       case 'pmove': this.sendNear(ev.l[0], ev.l[2], 96, { t: 'pmove', l: ev.l }); return;
       case 'boom': this.sendNear(ev.x, ev.z, 128, { t: 'boom', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), r: ev.r }); return;
       case 'weather': this.broadcast({ t: 'wx', w: ev.w }); return;
@@ -1171,12 +1183,12 @@ export class WorldRoom extends DurableObject<Env> {
     for (const s of this.sessions.values()) {
       if (!s.pid) continue;
       const me = sim.players.get(s.pid);
-      const u: (string | number)[][] = [];
+      const u: (string | number | number[])[][] = [];
       for (const p of sim.players.values()) {
         if (p.id === s.pid) continue;
         if (p.vanished && !s.op) continue;
         if (!full && me && Math.abs(p.x - me.x) + Math.abs(p.z - me.z) > 192) continue;
-        const row = [p.id, q2(p.x), q2(p.y), q2(p.z), Math.round(p.yaw * 100) / 100, Math.round(p.pitch * 100) / 100, p.flags | (p.dead ? 1 << 14 : 0), Math.ceil(p.health), p.mode === 'creative' ? 1 : 0];
+        const row = [p.id, q2(p.x), q2(p.y), q2(p.z), Math.round(p.yaw * 100) / 100, Math.round(p.pitch * 100) / 100, p.flags | (p.dead ? 1 << 14 : 0), Math.ceil(p.health), p.mode === 'creative' ? 1 : 0, equipmentOf(p.inv)];
         const key = row.slice(1).join(',');
         if (s.sentPlayers.get(p.id) === key) continue;
         s.sentPlayers.set(p.id, key);
@@ -1187,7 +1199,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private entRow(e: Entity): number[] {
-    const type = e.kind === 'mob' ? MOBS[e.type as MobType].code : e.kind === 'item' ? e.item!.id : 0;
+    const type = entTypeCode(e);
     return [e.id, ENT_KIND[e.kind], type, q2(e.x), q2(e.y), q2(e.z), Math.round(e.yaw * 100) / 100, e.flags, e.kind === 'item' ? e.item!.count : Math.ceil(e.health)];
   }
 

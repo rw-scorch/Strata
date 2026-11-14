@@ -1,8 +1,10 @@
+import { isNether, localX } from '../core/dimension';
 import { GEN_LEVEL } from '../core/worldgen/genLevel';
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import { loadCustomSkin } from '../resources/skins';
 import { VoiceChat, VoiceState } from '../audio/VoiceChat';
 import type { RuleSet } from '../core/sim/WorldSim';
+import { MF } from '../core/sim/WorldSim';
 import * as THREE from 'three';
 import { Renderer, FrameEnv } from '../rendering/Renderer';
 import { ChunkManager } from './ChunkManager';
@@ -33,8 +35,8 @@ import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
-import { getBlock, blockId, LIGHT_EMIT, isWaterLike } from '../core/blocks';
-import { heldStack } from '../core/inventory';
+import { getBlock, blockId, LIGHT_EMIT, isWaterLike, tix } from '../core/blocks';
+import { heldStack, equipmentOf } from '../core/inventory';
 import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
 import { biomeNameAt, WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -353,6 +355,7 @@ export class Game {
     this.interaction.onDigSound = (g, x, y, z) => audio.play(`dig.${g}`, x, y, z);
     this.interaction.onDigParticles = (x, y, z, v) => this.breakParticles(x, y, z, v, false);
     this.interaction.onEatTick = () => { this.renderer.handEat += 1 / 60; if (Math.random() < 0.08) audio.play('player.eat', this.player.x, this.player.eyeY, this.player.z); };
+    this.interaction.riding = () => !!this.riding;
     this.interaction.pvpCheck = () => this.session?.info.kind === 'remote' && ((this.session as unknown as { sim?: { settings: { pvp: boolean } } }).sim?.settings.pvp ?? !!this.room?.settings.pvp);
     this.unsub = onSettings((st) => this.applySettings(st));
     this.applySettings(s);
@@ -386,6 +389,10 @@ export class Game {
     weather: (w) => { this.weather = w; },
     lightning: (x, y, z) => this.onLightning(x, y, z),
     pistonMove: (l) => this.renderer?.moving.add(l, performance.now()),
+    ride: (id) => { this.riding = id >= 0 ? String(id) : null; },
+    enchantOffers: (o) => { this.inv?.setOffers(o); },
+    equipment: (id, eq) => { this.renderer?.entities.setEquipment(`p:${id}`, eq); },
+    knock: (x, y, z, set) => { this.player.body.vx += x; this.player.body.vy = set ? y : Math.max(this.player.body.vy, y); this.player.body.vz += z; },
     boom: (x, y, z, r) => this.onBoom(x, y, z, r),
     player: (p) => this.onPlayer(p),
     playerLeft: (id) => this.onPlayerLeft(id),
@@ -706,12 +713,14 @@ export class Game {
     document.querySelector('.chat-input-row')?.remove();
     document.body.classList.remove('touch-active');
     audio.setRain(0, false);
+    if (this.portalEl) this.portalEl.style.opacity = '0';
   }
 
   private setHeld(force = false): void {
     if (!this.session) return;
     const s = heldStack(this.session.me.inv);
     let id = s?.id ?? null;
+    if (id === I.CROSSBOW) { const d = this.interaction?.drawing ?? 0; id = s?.ld ? I.CROSSBOW_LOADED : d > 0 ? (d > 1.1 ? I.CROSSBOW_PULL2 : d > 0.6 ? I.CROSSBOW_PULL1 : I.CROSSBOW_PULL0) : I.CROSSBOW; }
     if (id === I.BOW && this.interaction?.drawing > 0) { const d = this.interaction.drawing; id = d > 0.9 ? I.BOW_PULL2 : d > 0.45 ? I.BOW_PULL1 : I.BOW_PULL0; }
     if (force) this.renderer.setHeld(-99, this.session.me.appearance.skin);
     this.renderer.setHeld(id, this.session.me.appearance.skin);
@@ -721,7 +730,7 @@ export class Game {
     const d = this.atlas.data;
     const id = blockId(v);
     if (!id) return;
-    const tile = d.blockTiles[id * FACE_SLOTS + (getBlock(v).render === 'cross' ? 4 : 2)];
+    const tile = d.blockTiles[tix(v) * FACE_SLOTS + (getBlock(v).render === 'cross' ? 4 : 2)];
     const tint = d.tintTable[id * 2] ? [0.55, 0.75, 0.35] as [number, number, number] : null;
     const light = this.chunks.lightProbe(x, y, z, this.renderer.skyState.day);
     this.renderer.particles.blockBreak(x, y, z, tile, tint, light, many);
@@ -730,7 +739,7 @@ export class Game {
   // ---- SessionEvents ----
   private onBlock(): void { /* chunk data is updated by the store */ }
 
-  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
+  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
     this.renderer?.entities.upsert(id, kind, type, x, y, z, yaw, 0, flags, extra, performance.now());
   }
 
@@ -754,6 +763,22 @@ export class Game {
       case 'splash': p.puff(x, y, z, 0.6, 0.75, 1, 10, 3, 9, 0.06, 0.6); break;
       case 'xp': p.puff(x, y, z, 0.7, 1, 0.3, 8, 2, -2, 0.07, 0.8); break;
     }
+  }
+
+  private portalFx = 0;
+  private portalEl: HTMLElement | null = null;
+  private updatePortalFx(dt: number): void {
+    const p = this.player;
+    const bx = Math.floor(p.x), by = Math.floor(p.y + 0.1), bz = Math.floor(p.z);
+    const inside = blockId(this.chunks.getBlock(bx, by, bz)) === 219 || blockId(this.chunks.getBlock(bx, by + 1, bz)) === 219;
+    this.portalFx = Math.max(0, Math.min(1, this.portalFx + (inside ? dt / 4 : -dt * 1.5)));
+    if (!this.portalEl) {
+      const el = document.createElement('div');
+      el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:3;background:radial-gradient(circle at 50% 50%,rgba(150,60,230,0.55),rgba(60,10,120,0.9));opacity:0;';
+      document.body.appendChild(el);
+      this.portalEl = el;
+    }
+    this.portalEl.style.opacity = String(this.portalFx * 0.85);
   }
 
   private updateScreenFx(camId: number, now: number): void {
@@ -856,7 +881,7 @@ export class Game {
       this.desktop.unlock();
       this.setState('inventory');
       this.inv.open(this.session, type as InvScreen);
-    } else if (this.inv.isOpen && ['chest', 'furnace', 'workbench', 'trade'].includes(this.inv.current)) {
+    } else if (this.inv.isOpen && ['chest', 'furnace', 'workbench', 'trade', 'enchant', 'anvil'].includes(this.inv.current)) {
       this.inv.close(true);
     }
   }
@@ -901,6 +926,7 @@ export class Game {
   }
 
   private shake = 0;
+  private riding: string | null = null;
 
   onLightning(x: number, y: number, z: number): void {
     this.renderer?.weather.lightning(x, y, z);
@@ -1000,13 +1026,20 @@ export class Game {
       if (this.input.drop || this.input.dropAll) s.invOp({ t: 'drop', s: { c: 'inv', i: me.inv.selected }, all: this.input.dropAll });
       if (this.input.pick) this.interaction.pickBlock(s, this.chunks);
     } else this.input.consumeLook();
-    if (!frozen) {
+    const cartView = this.riding ? this.renderer.entities.views.get(this.riding) : undefined;
+    if (this.riding && !cartView && !frozen) this.riding = null;
+    if (cartView && !frozen) {
+      this.player.setPos(cartView.x, cartView.y + 0.35, cartView.z);
+      const rf = MF.RIDE | (playing && this.input.moveZ > 0.3 ? MF.FORWARD : 0) | (playing && this.input.crouch ? MF.CROUCH : 0) | (this.interaction?.charging ? MF.CHARGE : 0);
+      if (!me.dead) s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, rf);
+      s.tick(dt, performance.now());
+    } else if (!frozen) {
       this.player.update(dt, playing ? this.input : new InputState(), this.chunks, me.mode, me.dead);
       if (this.player.landed) audio.play('player.fall', this.player.x, this.player.y, this.player.z, 0.6);
       if (this.player.enteredWater) { audio.play('splash', this.player.x, this.player.y, this.player.z); this.onFx('splash', this.player.x, this.player.y + 0.5, this.player.z); }
       if (!this.player.frozen && !me.dead) {
         this.moveSendT -= dt;
-        s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0));
+        s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0) | (this.interaction?.charging ? MF.CHARGE : 0));
       }
       s.tick(dt, performance.now());
     } else if (!local) s.tick(dt, performance.now());
@@ -1045,7 +1078,8 @@ export class Game {
         }
       }
       cam.position.copy(eye).addScaledVector(dir, -dist);
-      this.renderer.entities.upsert('me', 'player', 0, this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0), 0, performance.now(), { name: me.name, appearance: me.appearance, skin: this.renderer.selfSkin });
+      this.renderer.entities.setEquipment('me', equipmentOf(me.inv));
+      this.renderer.entities.upsert('me', 'player', 0, this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0) | (this.riding ? MF.RIDE : 0), 0, performance.now(), { name: me.name, appearance: me.appearance, skin: this.renderer.selfSkin });
     } else cam.position.copy(eye);
     const draw = Math.min(1, this.interaction.drawing);
     const zoom = this.zoomHeld && this.state === 'playing' ? this.zoomLevel : 1;
@@ -1069,7 +1103,7 @@ export class Game {
     this.renderer.particles.update(dt, this.chunks);
     if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12 }, this.chunks);
     const biomeAt = (x: number, z: number) => this.gen!.column(x, z).biome;
-    this.renderer.weather.intensity = this.rain;
+    this.renderer.weather.intensity = isNether(this.player.x) ? 0 : this.rain;
     this.renderer.weather.splash = (x, y, z) => this.renderer.particles.puff(x, y, z, 0.6, 0.7, 0.9, 2, 1.2, 6, 0.04, 0.3);
     this.renderer.weather.update(dt, cam.position, (x, z) => this.chunks.topAt(x, z), (x, z) => {
       const b = biomeAt(x, z);
@@ -1082,7 +1116,7 @@ export class Game {
     audio.setUnderwater(underwater);
     const sheltered = this.chunks.topAt(Math.floor(this.player.x), Math.floor(this.player.z)) > this.player.eyeY + 1;
     const precip = biomeAt(Math.floor(this.player.x), Math.floor(this.player.z));
-    audio.setRain(precip.rain && !precip.cold ? this.rain * (sheltered ? 0.35 : 1) : 0, this.weather === 'thunder');
+    audio.setRain(precip.rain && !precip.cold && !isNether(this.player.x) ? this.rain * (sheltered ? 0.35 : 1) : 0, this.weather === 'thunder');
     const underground = this.player.y < 50 && sheltered;
     audio.tickMusic(dt, this.renderer.skyState.night > 0.5, underground);
     if (underground) { this.caveT -= dt; if (this.caveT <= 0) { this.caveT = 25 + Math.random() * 60; audio.ambientCave(); } }
@@ -1090,7 +1124,9 @@ export class Game {
     this.caveFx += ((underground ? 1 : 0) - this.caveFx) * Math.min(1, dt * 0.8);
     const wetSky = precip.rain && !precip.cold && !sheltered && !underwater ? this.rain : 0;
     this.renderer.sky.aurora += ((precip.cold ? 1 : 0) - this.renderer.sky.aurora) * Math.min(1, dt * 0.3);
-    const env: FrameEnv = { time: this.time, rain: this.rain, thunder: this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
+    const nether = isNether(this.player.x);
+    this.updatePortalFx(dt);
+    const env: FrameEnv = { nether, time: this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
     const dl = this.updateDynLights();
     const pl = Math.max(this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day), dl);
     if (this.interaction.eating > 0) this.renderer.handEat = this.interaction.eating; else if (this.renderer.handEat > 0 && this.interaction.eating === 0) this.renderer.handEat = 0;
@@ -1101,7 +1137,8 @@ export class Game {
     this.chatUI.tick();
     if (!this.panoDone && this.state === 'playing' && performance.now() - this.loadStart > 20000) { this.panoDone = true; if (!localStorage.getItem('strata.panorama')) this.capturePanorama(); }
     this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0;
-    { const held = heldStack(this.session.me.inv); this.hud.setAttackCharge(attackCharge(performance.now() - this.interaction.lastSwing, attackStats(held).speed)); }
+    this.player.depthStrider = this.session.me.inv.armor[3]?.en?.depth_strider ?? 0;
+    { const held = heldStack(this.session.me.inv); this.hud.setAttackCharge(attackCharge(performance.now() - Math.max(this.interaction.lastSwing, this.interaction.strengthT), attackStats(held).speed)); }
     if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
     if (!loading && this.minimap) { this.minimap.update(); this.renderer.beams.set(this.minimap.visibleWaypoints(), this.minimap.version * 2 + (this.minimap.hideAll ? 1 : 0) + (this.minimap.mapAllowed ? 0 : 7919)); }
     { const hs = heldStack(this.session.me.inv); const fd = hs ? getItem(hs.id)?.food : undefined; this.hud.updateVitals(this.vitals, this.hurtShake > 0, fd && this.vitals.food < 20 ? fd : null); }
@@ -1132,7 +1169,7 @@ export class Game {
     const lines = [
       `Strata  ${this.fpsVal} fps  scale ${this.renderer.effectiveScale.toFixed(2)}`,
       ...(this.session.sim.settings.allowCoords === false && !this.session.me.op ? [`Facing ${facing}`] : [
-        `XYZ ${p.x.toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`,
+        `${isNether(p.x) ? 'Nether ' : ''}XYZ ${localX(p.x).toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`,
         `Chunk ${Math.floor(p.x / 16)}, ${Math.floor(p.z / 16)}  facing ${facing}`]),
       `Biome ${biomeNameAt(this.gen!, p.x, p.z)}`,
       `Chunks ${this.chunks.loadedCount} loaded, ${this.renderer.chunkCount} meshed, ${this.chunks.pendingJobs} jobs, mesh ${avgMesh} ms`,

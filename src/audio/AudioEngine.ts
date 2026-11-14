@@ -276,7 +276,11 @@ export class AudioEngine {
         break;
       }
       case 'piston': this.noiseHit(dest, t, sub === 'out' ? 520 : 420, 2, 'bandpass', { a: 0.005, d: 0.22, v: 0.45 }, sub === 'out' ? 1.4 : 0.7); this.tone(dest, t, sub === 'out' ? 140 : 120, 'sawtooth', { a: 0.005, d: 0.15, v: 0.08 }, sub === 'out' ? 180 : 90); break;
+      case 'crossbow': this.noiseHit(dest, t, sub === 'load' ? 1800 : 1200, 3, 'bandpass', { a: 0.002, d: sub === 'load' ? 0.12 : 0.18, v: 0.5 }, sub === 'load' ? 1.6 : 0.9); break;
+      case 'spear': this.noiseHit(dest, t, sub === 'hit' ? 900 : 2400, 2, 'bandpass', { a: 0.002, d: sub === 'hit' ? 0.16 : 0.08, v: 0.6 }, 0.8); break;
+      case 'mace': this.noiseHit(dest, t, 300, 0.7, 'lowpass', { a: 0.003, d: 0.45, v: 1 }, 0.4); this.tone(dest, t, 90, 'sine', { a: 0.003, d: 0.3, v: 0.4 }, 40); break;
       case 'tnt': this.noiseHit(dest, t, 3500, 1, 'highpass', { a: 0.02, d: 0.9, v: 0.3 }, 0.8); break;
+      case 'portal': this.tone(dest, t, sub === 'travel' ? 70 : 110, 'sine', { a: 0.3, d: sub === 'travel' ? 2.2 : 1.2, v: 0.35 }, sub === 'travel' ? 220 : 60, 5); this.noiseHit(dest, t, 500, 0.6, 'lowpass', { a: 0.4, d: 1.5, v: 0.25 }, 0.6); break;
       case 'fire': this.noiseHit(dest, t, 2500, 2, 'bandpass', { a: 0.002, d: 0.25, v: 0.35 }, 1.3); break;
       case 'explode': {
         this.noiseHit(dest, t, 900, 0.5, 'lowpass', { a: 0.003, d: 0.5, v: 1 }, 0.3);

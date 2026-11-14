@@ -215,7 +215,7 @@ export function buildVanilla(spec: VanillaSpec, mainMat: THREE.ShaderMaterial, o
   return { obj, parts, rig };
 }
 
-export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; swim?: number; }
+export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; swim?: number; crawl?: boolean; riding?: boolean; holdR?: boolean; holdL?: boolean; xbow?: boolean; lance?: boolean; }
 
 function reset(rig: Map<string, RigPart>): void {
   for (const r of rig.values()) { r.obj.position.copy(r.pos); r.obj.rotation.copy(r.rot); }
@@ -233,6 +233,8 @@ export function animateVanilla(spec: VanillaSpec, rig: Map<string, RigPart>, s: 
     la.rotation.x = c(s.ls * 0.6662) * s.amt;
     rl.rotation.x = c(s.ls * 0.6662) * 1.4 * s.amt;
     ll.rotation.x = c(s.ls * 0.6662 + PI) * 1.4 * s.amt;
+    if (s.holdR) ra.rotation.x = ra.rotation.x * 0.5 - PI / 10;
+    if (s.holdL) la.rotation.x = la.rotation.x * 0.5 - PI / 10;
     if (s.type === 'hollowed') {
       const f = sn(s.attack * PI), f1 = sn((1 - (1 - s.attack) ** 2) * PI);
       const up = -PI / (s.aggressive ? 1.5 : 2.25);
@@ -247,17 +249,21 @@ export function animateVanilla(spec: VanillaSpec, rig: Map<string, RigPart>, s: 
       ra.rotation.x -= f * 1.2 + sn(s.attack * PI) * 0.6;
       ra.rotation.y = body.rotation.y * 2;
     }
+    if (s.xbow) { ra.rotation.set(-HALF_PI - s.pitch + 0.1, -0.3, 0); la.rotation.set(-1.5 - s.pitch, 0.6, 0); }
+    else if (s.lance) ra.rotation.set(-1.15 - s.pitch * 0.8, -0.15, 0);
     const bob = c(s.age * 0.09) * 0.05 + 0.05, bx = sn(s.age * 0.067) * 0.05;
     ra.rotation.z += bob; la.rotation.z -= bob; ra.rotation.x += bx; la.rotation.x -= bx;
+    if (s.riding) { rl.rotation.x = -1.4; ll.rotation.x = -1.4; rl.rotation.z = 0.15; ll.rotation.z = -0.15; ra.rotation.x = -0.4; la.rotation.x = -0.4; }
     const sw = s.swim ?? 0;
     if (sw > 0) {
-      const t = s.age * 0.16;
+      const t = s.crawl ? s.ls * 0.5 : s.age * 0.16;
       const stroke = (1 - c(t)) / 2;
       const mixTo = (o: { rotation: { x: number; y: number; z: number } }, x: number, z: number) => { o.rotation.x += (x - o.rotation.x) * sw; o.rotation.z += (z - o.rotation.z) * sw; };
       mixTo(ra, -PI + PI * stroke, sn(t) * 0.9 + 0.2);
       mixTo(la, -PI + PI * stroke, -(sn(t) * 0.9 + 0.2));
-      mixTo(rl, sn(s.age * 0.5) * 0.35, 0);
-      mixTo(ll, -sn(s.age * 0.5) * 0.35, 0);
+      const kick = s.crawl ? s.ls * 0.5 : s.age * 0.5;
+      mixTo(rl, sn(kick) * 0.35, 0);
+      mixTo(ll, -sn(kick) * 0.35, 0);
       if (head) head.rotation.x += (-0.9 - head.rotation.x) * sw * 0.8;
     }
     if (s.crouch) {
