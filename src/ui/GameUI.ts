@@ -91,7 +91,7 @@ export class ChatUI {
     this.close();
   }
 
-  add(from: { id: string; name: string } | null, text: string, kind: ChatKind, ts: number): void {
+  add(from: { id: string; name: string; sup?: string } | null, text: string, kind: ChatKind, ts: number): void {
     if (from && this.localMuted.has(from.id)) return;
     const d = new Date(ts);
     const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -99,7 +99,7 @@ export class ChatUI {
     const loose = !found && from ? findCoords(text) : null;
     const wp = found ?? (loose ? { name: `From ${from!.name}`, ...loose } : null);
     const full = from ? `<${from.name}> ${text}` : text;
-    const el = h('div', { class: `line ${from ? 'msg' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, `<${from.name}>`) : null, text,
+    const el = h('div', { class: `line ${from ? 'msg' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, '<', from.sup ? h('span', { class: 'sup-badge', title: 'Supporter' }) : null, from.sup ? h('span', { style: `color:${from.sup}` }, from.name) : from.name, '>') : null, text,
       wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, found ? 'Save waypoint' : `Save ${wp.x} ${wp.y} ${wp.z}`) : null,
       !from && /Type \/tpaccept or \/tpdeny/.test(text) ? h('span', { class: 'tpa-btns' },
         h('button', { class: 'wp-save tpa-yes', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/tpaccept'); (e.target as HTMLElement).parentElement!.remove(); } }, 'Accept'),

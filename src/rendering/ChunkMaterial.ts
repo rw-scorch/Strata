@@ -227,6 +227,18 @@ vec3 waterNormal(vec2 p, float t) {
   }
   return normalize(vec3(-g.x, 1.0, -g.y));
 }
+float fbm2(vec2 p) { float a = 0.0, w = 0.5; for (int i = 0; i < 4; i++) { a += vnoise(p) * w; p = p * 2.03 + 17.1; w *= 0.5; } return a; }
+vec2 flowNoiseGrad(vec2 p, vec2 dir, float t, out float h) {
+  float ph0 = fract(t), ph1 = fract(t + 0.5);
+  float w0 = 1.0 - abs(1.0 - 2.0 * ph0), w1 = 1.0 - w0;
+  vec2 p0 = p - dir * ph0, p1 = p - dir * ph1 + 0.37;
+  float e = 0.06;
+  float a0 = fbm2(p0), a1 = fbm2(p1);
+  h = a0 * w0 + a1 * w1;
+  float gx = (fbm2(p0 + vec2(e, 0.0)) - a0) * w0 + (fbm2(p1 + vec2(e, 0.0)) - a1) * w1;
+  float gy = (fbm2(p0 + vec2(0.0, e)) - a0) * w0 + (fbm2(p1 + vec2(0.0, e)) - a1) * w1;
+  return vec2(gx, gy) / e;
+}
 vec2 flowGrad(vec2 p, float t) {
   vec2 g = vec2(0.0);
   g += vec2(cos(p.x * 3.1 + p.y * 0.7) * 0.04, cos((p.y - t * 2.2) * 2.6 + p.x * 0.9) * 0.08);
@@ -381,30 +393,71 @@ void main() {
     float skyVis = smoothstep(0.5, 1.0, skyL);
     vec3 skyRefl = mix(uFogColor, uSkyTop, smoothstep(-0.05, 0.6, R.y)) * mix(0.12, 1.0, skyVis);
     float spec = pow(max(dot(R, uSunDir), 0.0), 320.0) * 5.0 * uDay * (1.0 - uRain) * skyVis * sun;
-    float wdep = vUV.w < -99.5 ? -vUV.w - 100.0 + 0.9 : 3.0;
+    float wcode = vUV.w < -99.5 ? -vUV.w - 100.0 : 3.0;
+    float wdep = mod(wcode, 16.0) + 0.9;
+    float splash = floor(wcode / 16.0);
     vec3 wtint = vTint.rgb;
     vec3 shallowC = mix(vec3(0.32, 0.86, 0.82), wtint * 1.25, 0.35);
     vec3 deepC = mix(vec3(0.03, 0.17, 0.34), wtint * 0.35, 0.3);
 #if WATER_Q > 0
+    float white = 0.0;
+    vec2 distort = top ? N.xz * 0.04 : vec2(0.0);
+    if (!still || splash > 0.5) {
+      vec2 dux2 = dFdx(vUV.xy), duy2 = dFdy(vUV.xy);
+      vec3 dpx2 = dFdx(vWorld), dpy2 = dFdy(vWorld);
+      float det2 = dux2.x * duy2.y - duy2.x * dux2.y;
+      vec3 fd = abs(det2) > 1e-9 ? normalize((dpy2 * dux2.x - dpx2 * dux2.y) / det2 + vec3(1e-5)) : vec3(0.0, -1.0, 0.0);
+      if (top) fd = -fd; else fd = vec3(0.0, -1.0, 0.0);
+      if (still) fd = vec3(1.0, 0.0, 0.0);
+      vec3 sd = normalize(cross(n, fd) + vec3(1e-5));
+      vec2 q = vec2(dot(vWorld, sd), dot(vWorld, fd));
+      float hgt;
+      float lod = clamp(length(fwidth(vWorld)) * 5.0, 0.0, 1.0);
+      float detail = 1.0 - lod * 0.85;
+      if (top) {
+        float slope = 1.0 - n.y;
+        float speed = still ? 0.15 : 0.55 + slope * 6.0;
+        vec2 gr = flowNoiseGrad(q * vec2(1.6, 1.2), vec2(0.0, 1.0) * speed * 1.4, uTime * 0.9, hgt);
+        float amp = still ? 0.25 : 0.5 + slope * 2.0;
+        vec3 nb = normalize(n + vec3(0.0, 1.6, 0.0));
+        N = normalize(nb + (sd * gr.x + fd * gr.y) * 0.09 * amp * detail);
+        float churn = still ? 0.0 : smoothstep(0.6, 0.88, hgt) * clamp(slope * 6.0 + 0.15, 0.0, 1.0);
+        float rim = splash > 0.5 ? smoothstep(0.58 - splash * 0.06, 0.82, fbm2(vWorld.xz * 2.6 + vec2(uTime * 0.7, -uTime * 0.5))) * (splash / 3.0) * 0.7 : 0.0;
+        white = max(churn * 0.55, rim);
+        distort = N.xz * (0.05 + slope * 0.08);
+      } else {
+        vec2 gr = flowNoiseGrad(q * vec2(3.0, 0.9), vec2(0.0, 1.0) * 3.2, uTime * 1.6, hgt);
+        N = normalize(n + (sd * gr.x * 0.6 + fd * gr.y * 0.15) * 0.18 * detail);
+        float sheets = fbm2(vec2(q.x * 7.0, q.y * 0.8 + uTime * 9.0));
+        white = smoothstep(0.42, 0.78, sheets) * 0.55 + smoothstep(0.62, 0.8, hgt) * 0.35;
+        distort = vec2(gr.x * 0.012, 0.0);
+      }
+    }
     vec2 suv = gl_FragCoord.xy / uResolution;
     float wz = linZ(gl_FragCoord.z);
     float sd0 = linZ(texture2D(uSceneDepth, suv).r);
-    vec2 ruv = suv + (top ? N.xz * 0.04 * clamp((sd0 - wz) * 0.4, 0.0, 1.0) : vec2(0.0));
+    vec2 ruv = suv + distort * clamp((sd0 - wz) * 0.4, 0.0, 1.0);
     if (linZ(texture2D(uSceneDepth, ruv).r) < wz) ruv = suv;
     vec3 refr = texture2D(uSceneColor, ruv).rgb;
     float dz = max(linZ(texture2D(uSceneDepth, ruv).r) - wz, 0.0);
-    if (!top) dz = 2.2;
+    if (!top) dz = 1.4;
     vec3 absorb = exp(-dz * vec3(0.3, 0.07, 0.055));
     refr = mix(refr, refr * shallowC * 1.6 + shallowC * 0.08 * light, clamp(dz * 0.5, 0.0, 0.8));
     vec3 deep = deepC * light;
     vec3 body = mix(deep, refr, absorb);
-    body = mix(body, col, 0.18);
+    body = mix(body, col, still ? 0.18 : 0.08);
+    fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+    R = reflect(-V, N);
+    skyRefl = mix(uFogColor, uSkyTop, smoothstep(-0.05, 0.6, R.y)) * mix(0.12, 1.0, skyVis);
+    spec = pow(max(dot(R, uSunDir), 0.0), still ? 320.0 : 60.0) * (still ? 5.0 : 1.2 * (1.0 - clamp(length(fwidth(vWorld)) * 4.0, 0.0, 0.9))) * uDay * (1.0 - uRain) * skyVis * sun;
     vec3 refl = skyRefl;
 #if REFLECT > 0
     if (top) { vec4 ss = ssr(vWorld, N); refl = mix(refl, ss.rgb, ss.a); }
 #endif
     float foam = top ? (1.0 - smoothstep(0.0, 0.3, dz)) * smoothstep(0.35, 0.8, vnoise(vWorld.xz * 5.0 + uTime * 0.6)) : 0.0;
-    col = mix(body, refl, top ? fres : fres * 0.35) + spec + (foam + streak) * light * 0.6;
+    vec3 foamCol = vec3(0.92, 0.97, 1.0) * light * (0.55 + 0.45 * skyVis * uDay + 0.25);
+    col = mix(body, refl, top ? fres * (still ? 1.0 : 0.6) : fres * 0.35) + spec;
+    col = mix(col, foamCol, clamp(max(foam * 0.6, white), 0.0, 0.8));
     alpha = 1.0;
 #else
     float shallow = exp(-wdep * 0.2);

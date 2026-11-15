@@ -1,5 +1,5 @@
 import type { RuleSet } from '../core/sim/WorldSim';
-export interface TradeInfo { id: string; prof: number; xp: number; uses: number[]; }
+export interface TradeInfo { id: string; prof: number; xp: number; uses: number[]; seed?: number; }
 import type { GameMode, Difficulty } from '../core/constants';
 import type { PlayerInv, InvOp, ItemStack } from '../core/inventory';
 import type { Weather, Appearance, SimPlayer, BlockEntity, WorldSim, ScreenType } from '../core/sim/WorldSim';
@@ -26,13 +26,14 @@ export interface SessionEvents {
   game(state: GameState): void;
   title(text: string, sub: string): void;
   trade?(info: TradeInfo): void;
+  mobName?(id: string, name: string): void;
   chestLid?(x: number, y: number, z: number, n: number): void;
   hurt(amount: number, cause: string, fx: number, fz: number, kb?: number): void;
   playerHurt?(id: string): void;
   death(msg: string): void;
   respawn(x: number, y: number, z: number): void;
   teleport(x: number, y: number, z: number): void;
-  chat(from: { id: string; name: string } | null, text: string, kind: ChatKind, ts: number): void;
+  chat(from: { id: string; name: string; sup?: string } | null, text: string, kind: ChatKind, ts: number): void;
   time(time: number, cycle: boolean): void;
   weather(w: Weather): void;
   lightning(x: number, y: number, z: number): void;

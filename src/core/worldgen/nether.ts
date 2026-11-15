@@ -5,6 +5,8 @@ import { B, X, XV } from '../blocks';
 import { NETHER_HEIGHT, NETHER_LAVA } from '../dimension';
 import { planNetherPortal, stampRuinedPortal, PORTAL_GRID } from './ruinedPortal';
 import type { GenBlockEntity } from './WorldGenerator';
+import { fortressesNear, bastionsNear, stampFortress } from './fortress';
+import { stampBastion } from './bastion';
 
 const S = CHUNK_SIZE;
 const RACK = X(XV.NETHERRACK), QUARTZ = X(XV.NETHER_QUARTZ_ORE), GOLD = X(XV.NETHER_GOLD_ORE), SOUL = X(XV.SOUL_SAND), SOIL = X(XV.SOUL_SOIL);
@@ -48,7 +50,7 @@ export class NetherGen {
     return n + bias - 0.02 + open;
   }
 
-  generate(cx: number, cz: number): { blocks: Uint16Array; entities: GenBlockEntity[] } {
+  generate(cx: number, cz: number, level = 6): { blocks: Uint16Array; entities: GenBlockEntity[] } {
     const blocks = new Uint16Array(CHUNK_VOLUME);
     const entities: GenBlockEntity[] = [];
     const bx = cx * S, bz = cz * S;
@@ -122,6 +124,20 @@ export class NetherGen {
     };
     vein(QUARTZ, 12, 12);
     vein(GOLD, 8, 9);
+    if (level >= 7) {
+      const dr = new Rng(hash2(cx, cz, this.seed ^ 0xdeb715));
+      const DEBRIS = X(XV.ANCIENT_DEBRIS);
+      const buried = (x: number, y: number, z: number) => { for (const [a, b, c] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) { const v = get(x + a, y + b, z + c); if (v === 0 || v === B.LAVA) return false; } return true; };
+      const place = (y0: number, size: number, hidden: boolean) => {
+        let x = dr.int(S), y = y0, z = dr.int(S);
+        for (let i = 0; i < size; i++) {
+          if (get(x, y, z) === RACK && (!hidden || buried(x, y, z))) set(x, y, z, DEBRIS);
+          x += dr.int(3) - 1; y += dr.int(3) - 1; z += dr.int(3) - 1;
+        }
+      };
+      place(8 + dr.int(16), 1 + dr.int(3), true);
+      if (dr.chance(0.5)) place(8 + dr.int(112), 1 + dr.int(2), false);
+    }
     const center = bAt(8, 8);
     const floors = (x: number, z: number, lo = NETHER_LAVA + 1, hi = 118): number[] => {
       const out: number[] = [];
@@ -260,7 +276,12 @@ export class NetherGen {
       }
     }
 
-    if (center !== 'basalt_deltas') this.ruinedPortal(cx, cz, get, set, entities);
+    const bio = (x: number, z: number) => this.biome(x, z);
+    const forts = level >= 6 ? fortressesNear(this.seed, bx - 8, bz - 8, bx + S + 8, bz + S + 8, level >= 7 ? bio : undefined).filter((f) => level >= f.minLevel) : [];
+    const basts = level >= 7 ? bastionsNear(this.seed, bx - 8, bz - 8, bx + S + 8, bz + S + 8, bio) : [];
+    if (center !== 'basalt_deltas' && !forts.length && !basts.length) this.ruinedPortal(cx, cz, get, set, entities);
+    for (const f of forts) stampFortress(f, bx, bz, S, set, get, entities);
+    for (const b of basts) stampBastion(b, bx, bz, S, set, get, entities);
     return { blocks, entities };
   }
 

@@ -1,3 +1,4 @@
+import { localSupporterColor } from '../storage/Settings';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../core/worldgen/genLevel';
 import { ruleSnapshot } from '../core/sim/WorldSim';
 import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity, entTypeCode } from '../core/sim/WorldSim';
@@ -64,6 +65,7 @@ export class LocalSession implements GameSession {
       if (s.homes) p.homes = s.homes;
       if (s.back) p.back = s.back;
     }
+    p.supporter = localSupporterColor();
     this.me = p;
     this.pendingMobs = state?.mobs ?? [];
     this.info = { kind: 'local', name: meta.name, seed: meta.seed, mode: p.mode, difficulty: meta.difficulty, spawn: this.sim.spawn, isOwner: true, arena: meta.arena ?? null };
@@ -97,6 +99,7 @@ export class LocalSession implements GameSession {
   }
 
   chunkLevel(cx: number, cz: number): number { return this.meta.arena ? GEN_LEVEL : this.levels.level(cx, cz); }
+  chunkOld(cx: number, cz: number): Uint8Array | null { return this.meta.arena ? null : this.levels.oldMask(cx, cz); }
 
   onGenerated(cx: number, cz: number, ents: GenBlockEntity[]): void {
     const k = chunkKey(cx, cz);
@@ -157,7 +160,8 @@ export class LocalSession implements GameSession {
       case 'crafted': ev.crafted(e.recipe.id, e.times); return;
       case 'game': ev.game(e.state as GameState); return;
       case 'title': if (!e.to || e.to === this.me.id) ev.title(e.text, e.sub); return;
-      case 'trade': if (e.p === this.me) ev.trade?.({ id: String(e.v.id), prof: e.v.prof ?? 0, xp: e.v.vxp ?? 0, uses: [...(e.v.uses ?? [])] }); return;
+      case 'mobname': ev.mobName?.(String(e.id), e.name); return;
+      case 'trade': if (e.p === this.me) ev.trade?.({ id: String(e.v.id), prof: e.v.prof ?? 0, xp: e.v.vxp ?? 0, uses: [...(e.v.uses ?? [])], seed: e.v.tseed ?? 0 }); return;
       case 'reject': return;
     }
   }

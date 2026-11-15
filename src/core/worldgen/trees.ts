@@ -1,4 +1,4 @@
-import { B, makeBlock, FACING_DIRS } from '../blocks';
+import { B, makeBlock, FACING_DIRS, sp, SPECIES } from '../blocks';
 
 export type TreeSet = (x: number, y: number, z: number, v: number, leaf: boolean) => void;
 
@@ -61,4 +61,49 @@ export function hangingVines(set: TreeSet, get: (x: number, y: number, z: number
       break;
     }
   }
+}
+
+export function acacia(set: TreeSet, x: number, y: number, z: number, h: number, rnd: (n: number) => number): void {
+  const log = sp(B.OAK_LOG, SPECIES.ACACIA), leaf = sp(B.OAK_LEAVES, SPECIES.ACACIA);
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const [dx, dz] = dirs[rnd(4)];
+  const bend = h - 1 - rnd(3);
+  let cx = x, cz = z;
+  for (let i = 0; i < h; i++) {
+    if (i >= bend && i < h - 1) { cx += dx; cz += dz; }
+    set(cx, y + i, cz, log, false);
+  }
+  const top = y + h - 1;
+  const canopy = (px: number, py: number, pz: number, big: boolean) => {
+    for (let ox = -3; ox <= 3; ox++) for (let oz = -3; oz <= 3; oz++) {
+      const d = Math.abs(ox) + Math.abs(oz);
+      if (d <= (big ? 4 : 2) && !(Math.abs(ox) === 3 && Math.abs(oz) === 3)) set(px + ox, py, pz + oz, leaf, true);
+    }
+    for (let ox = -1; ox <= 1; ox++) for (let oz = -1; oz <= 1; oz++) set(px + ox, py + 1, pz + oz, leaf, true);
+  };
+  canopy(cx, top + 1, cz, true);
+  if (rnd(3) > 0) {
+    const [ex, ez] = dirs[(dirs.findIndex((d) => d[0] === dx && d[1] === dz) + 2 + (rnd(2) ? 1 : 0)) % 4];
+    const by = y + Math.max(2, bend - 1 - rnd(2));
+    let bx = x, bz = z;
+    for (let i = 0; i < 2 + rnd(2); i++) { bx += ex; bz += ez; set(bx, by + i, bz, log, false); }
+    canopy(bx, by + 3, bz, false);
+  }
+}
+
+export function darkOak(set: TreeSet, x: number, y: number, z: number, h: number, rnd: (n: number) => number): void {
+  const log = sp(B.OAK_LOG, SPECIES.DARK_OAK), leaf = sp(B.OAK_LEAVES, SPECIES.DARK_OAK);
+  for (let i = 0; i < h; i++) for (const [a, c] of [[0, 0], [1, 0], [0, 1], [1, 1]]) set(x + a, y + i, z + c, log, false);
+  const top = y + h;
+  for (let ly = top - 2; ly <= top + 1; ly++) {
+    const r = ly === top + 1 ? 2 : ly === top - 2 ? 3 : 4;
+    for (let ox = -r; ox <= r + 1; ox++) for (let oz = -r; oz <= r + 1; oz++) {
+      const ex = ox < 0 ? -ox : ox > 1 ? ox - 1 : 0, ez = oz < 0 ? -oz : oz > 1 ? oz - 1 : 0;
+      if (ex + ez > r + (ly === top ? 1 : 0)) continue;
+      if (ex === r && ez === r && rnd(2)) continue;
+      set(x + ox, ly, z + oz, leaf, true);
+    }
+  }
+  const stubs: [number, number][] = [[-1, rnd(2)], [2, rnd(2)], [rnd(2), -1], [rnd(2), 2]];
+  for (let i = 0; i < 4; i++) if (rnd(3) === 0) { const [ox, oz] = stubs[i]; set(x + ox, top - 2 - rnd(2), z + oz, log, false); }
 }

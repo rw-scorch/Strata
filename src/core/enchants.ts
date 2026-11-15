@@ -65,8 +65,8 @@ export function compatible(a: string, b: string): boolean {
 }
 
 export function catOf(id: number): Cat | null {
-  if (id >= 300 && id < 325) return (['pick', 'axe', 'shovel', 'sword', 'hoe'] as Cat[])[(id - 300) % 5];
-  if (id >= 330 && id < 346) return ARMOR[(id - 330) % 4];
+  if (id >= 300 && id < 330) return (['pick', 'axe', 'shovel', 'sword', 'hoe'] as Cat[])[(id - 300) % 5];
+  if (id >= 330 && id < 350) return ARMOR[(id - 330) % 4];
   if (id === I.BOW) return 'bow';
   if (id === I.CROSSBOW) return 'crossbow';
   if (id === I.MACE) return 'mace';
@@ -82,8 +82,8 @@ const ARMOR_ENCH = [15, 9, 25, 10];
 const SPEAR_ENCH = [15, 5, 14, 22, 10, 13];
 
 export function enchantability(id: number): number {
-  if (id >= 300 && id < 325) return TOOL_ENCH[Math.floor((id - 300) / 5)];
-  if (id >= 330 && id < 346) return ARMOR_ENCH[Math.floor((id - 330) / 4)];
+  if (id >= 300 && id < 330) return TOOL_ENCH[Math.floor((id - 300) / 5)];
+  if (id >= 330 && id < 350) return ARMOR_ENCH[Math.floor((id - 330) / 4)];
   if (id >= I.SPEAR && id < I.SPEAR + 6) return SPEAR_ENCH[id - I.SPEAR];
   if (id === I.MACE) return 15;
   if (id === I.BOW || id === I.CROSSBOW || id === I.BOOK) return 1;
@@ -204,8 +204,8 @@ export function tableOffers(seed: number, stack: ItemStack | null, shelves: numb
 export interface AnvilResult { stack: ItemStack | null; cost: number; tooExpensive: boolean; useMaterial: number; }
 
 export function repairMaterial(id: number): number | null {
-  if (id >= 300 && id < 325) return [-1, 4, I.IRON_INGOT, I.GOLD_INGOT, I.AETHERITE][Math.floor((id - 300) / 5)];
-  if (id >= 330 && id < 346) return [I.LEATHER, I.IRON_INGOT, I.GOLD_INGOT, I.AETHERITE][Math.floor((id - 330) / 4)];
+  if (id >= 300 && id < 330) return [-1, 4, I.IRON_INGOT, I.GOLD_INGOT, I.AETHERITE, I.CINDERITE_INGOT][Math.floor((id - 300) / 5)];
+  if (id >= 330 && id < 350) return [I.LEATHER, I.IRON_INGOT, I.GOLD_INGOT, I.AETHERITE, I.CINDERITE_INGOT][Math.floor((id - 330) / 4)];
   if (id >= I.SPEAR && id < I.SPEAR + 6) return [-1, 4, I.IRON_INGOT, I.GOLD_INGOT, I.AETHERITE, I.COPPER_INGOT][id - I.SPEAR];
   if (id === I.MACE) return I.IRON_INGOT;
   return null;

@@ -60,8 +60,36 @@ This is the plan for adding structures to Strata. It covers vanilla-style struct
 
 Built from the public wiki description, not from Mojang structure files. Layouts are original voxel plans that follow the wiki's sizes and block mix (frame shape, missing blocks, stone brick debris, gold blocks, chest). Placement rules, moss levels, block replacement odds and the loot table follow the wiki numbers. One portal per 640x640 block region, placed in the first 400x400 of it. Generation level 5, so only land generated after the update gets them.
 
-Next: Nether biomes, fossils and Nether-side ruined portals (v24), Nether Fortress (v25), Bastion Remnant (v26).
+Nether structures are complete as of v26.
 
 ## v24 addition: Nether features
 
 Huge fungi, Nether fossils (bone block spine and ribs), basalt pillars and columns, delta pools and Nether ruined portals are all generated from rules in code, written from the wiki's descriptions. No Mojang structure files are used. Fortress (v25) and Bastion Remnant (v26) come next.
+
+## v25 addition: Nether Fortress
+
+Fortresses are built by `src/core/worldgen/fortress.ts`, which is written from the wiki's description of the layout. No Mojang structure files are used.
+
+1) Placement: one roll per 432 by 432 block region, with a 40 percent chance of a fortress. The start crossing sits in a chunk inside the region, leaving a gap near the region's south and east edges. The deck height is 48 to 63.
+2) Layout: the pieces sit on a 12-block lattice.
+   - Exterior: bridges span two cells and link crossings (up to 6), two Blaze spawner platforms, up to two stair rooms and one lava well room.
+   - Interior: grows out of the well room into corridor turns, crossings (any piece with three or more links), up to two Nether Wart rooms and up to two balconies.
+3) Building: each chunk stamps only the parts of the pieces that fall inside it.
+   - First it clears air inside the pieces, so the fortress tunnels through netherrack.
+   - Bridges get decks, arches and fence railings. Corridors get walls, a roof and 1 by 2 fence windows.
+   - Piers run down through air and lava until they reach solid ground.
+4) Contents:
+   - Spawners hold Blazes.
+   - Corridor dead ends and some corridor turns hold a chest filled from the fortress loot table.
+   - Wart rooms have soul sand beds with Nether Wart at random growth stages.
+5) Mobs: inside a fortress's bounds, a spawn on nether bricks uses the fortress mob list in place of the biome's list.
+6) Old chunks: fortresses are only stamped into chunks generated at gen level 6 or above, so Nether land saved before v25 does not change.
+
+## v26 addition: Bastion Remnant
+
+Bastions are built by `src/core/worldgen/bastion.ts`, written from the wiki's descriptions. No Mojang structure files are used.
+
+1) Placement: the regions that miss the 40 percent fortress roll pick a site. If the site is in Basalt Deltas a fortress is built there instead; otherwise a bastion is. The base sits just above the lava sea (y 34 to 37), with a random rotation.
+2) Kinds: housing units, hoglin stables, treasure room and bridge, as listed in the README. Every kind uses decayed polished blackstone bricks: a mix of cracked bricks, blackstone and gilded blackstone, with piers down to the ground.
+3) Contents: chests filled from the treasure table or the general table, Magma Cube spawners in the treasure room, and guard mobs (piglins, brutes and hoglins). The mobs are spawned once, when the chunk is first generated.
+4) Old chunks: bastions, deltas fortresses and ancient debris are only stamped into chunks generated at gen level 7 or above.

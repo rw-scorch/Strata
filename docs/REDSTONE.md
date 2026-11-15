@@ -22,9 +22,10 @@ This is the plan for adding Java Edition style redstone to Strata, so players ca
    - Comparators read hoppers, droppers and dispensers.
 4) **v18 additions:**
    - Java's piston structure resolver: Tidegel (slime) and Sapwax (honey) blocks drag every block stuck to them, they do not stick to each other, and the 12-block limit counts the whole structure.
-   - Block states are captured before anything is destroyed, and moving blocks are placed farthest first, like Java. A Thunder Keg (TNT) that is lit by an update in the middle of a push still arrives, so TNT duplicators work. A torch, flower or other block that breaks when pushed does the job of Java's coral fan.
+   - Block states are captured before anything is destroyed, and moving blocks are placed farthest first, like Java. A Thunder Keg (TNT) that is lit by an update in the middle of a push still arrives.
+   - TNT duplicators (v29): a Torch or Ladder stuck to the side of a Slime or Honey block rides along with it, the way Java's dead coral fan does. When a push or pull moves a TNT block that touches one of these riders, the TNT is lit and the block still arrives, so every cycle drops one lit TNT and keeps the original. Java tutorials work if you use a Torch or Ladder where they place the coral fan.
    - Short pulses: a sticky piston that is unpowered before its push finishes leaves the block behind ("spitting").
-   - Entities move with the blocks over the 2 ticks: a piston facing up lifts you, pushed blocks shove you out of the way, and blocks moving sideways carry you only if they are sticky.
+   - Entities move with the blocks over the 2 ticks: a piston facing up lifts you, pushed blocks shove you out of the way, and blocks moving sideways carry you only if they are sticky. A Slime Block that is pushed into you launches you in that direction, like Java's slime launchers (v29).
    - Smooth piston animation on the client.
    - Thunder Keg (TNT): 4-second fuse, Java's explosion rays and blast resistance, chain reactions, no block damage in water, and dispensers can place lit kegs.
 5) **Not yet:** daylight detector, target block, items carried by water at Java speeds, shape (PP) updates as a separate pass, and phases 3 and 4.

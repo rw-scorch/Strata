@@ -1,6 +1,7 @@
 export type BiomeId =
   | 'ocean' | 'deep_ocean' | 'beach' | 'river' | 'plains' | 'forest' | 'birch_forest' | 'desert'
-  | 'mountains' | 'snowy_mountains' | 'snowy_tundra' | 'taiga' | 'swamp' | 'jungle' | 'island';
+  | 'mountains' | 'snowy_mountains' | 'snowy_tundra' | 'taiga' | 'swamp' | 'jungle' | 'island'
+  | 'savanna' | 'badlands' | 'dark_forest' | 'meadow' | 'old_growth_taiga';
 
 export interface Biome {
   id: BiomeId;
@@ -29,6 +30,11 @@ const list: Omit<Biome, 'index'>[] = [
   { id: 'swamp', name: 'Mirewood Swamp', grass: [106, 112, 57], foliage: [106, 112, 57], water: [97, 123, 100], cold: false, rain: true },
   { id: 'jungle', name: 'Verdant Tangle', grass: [89, 201, 60], foliage: [48, 187, 11], water: [20, 160, 180], cold: false, rain: true },
   { id: 'island', name: 'Castaway Isle', grass: [145, 189, 89], foliage: [119, 171, 47], water: [68, 175, 245], cold: false, rain: true },
+  { id: 'savanna', name: 'Sunbleached Savanna', grass: [191, 183, 85], foliage: [174, 164, 42], water: [44, 160, 160], cold: false, rain: false },
+  { id: 'badlands', name: 'Rustmesa Badlands', grass: [144, 129, 77], foliage: [158, 129, 77], water: [78, 127, 129], cold: false, rain: false },
+  { id: 'dark_forest', name: 'Gloomroot Thicket', grass: [80, 122, 50], foliage: [64, 120, 34], water: [59, 107, 210], cold: false, rain: true },
+  { id: 'meadow', name: 'Bloomvale Meadow', grass: [131, 187, 109], foliage: [99, 165, 79], water: [14, 78, 207], cold: false, rain: true },
+  { id: 'old_growth_taiga', name: 'Elderspire Taiga', grass: [134, 183, 131], foliage: [104, 164, 100], water: [40, 112, 160], cold: false, rain: true },
 ];
 
 export const BIOMES: Biome[] = list.map((b, i) => ({ ...b, index: i }));

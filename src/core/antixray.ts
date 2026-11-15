@@ -7,7 +7,7 @@ const HIDDEN = new Uint8Array(256);
 for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.AETHERITE_ORE, B.COPPER_ORE, B.REDSTONE_ORE, B.LAPIS_ORE]) HIDDEN[id] = 1;
 
 const RACK = 218;
-function cover(v: number): number { const id = v & 0xff; if (HIDDEN[id]) return B.STONE; if (id === 218 && ((v >>> 8) === 1 || (v >>> 8) === 2)) return RACK; return 0; }
+function cover(v: number): number { const id = v & 0xff; if (HIDDEN[id]) return B.STONE; if (id === 218 && ((v >>> 8) === 1 || (v >>> 8) === 2 || (v >>> 8) === 21)) return RACK; return 0; }
 export function isHiddenOre(v: number): boolean { return cover(v) !== 0; }
 
 export type BlockGetter = (x: number, y: number, z: number) => number | null;

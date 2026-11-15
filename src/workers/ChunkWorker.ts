@@ -9,8 +9,8 @@ let atlas: AtlasData | null = null;
 type InMsg =
   | { t: 'init'; seed: number; arena?: ArenaKind | null; atlas: AtlasData; client?: boolean }
   | { t: 'atlas'; atlas: AtlasData }
-  | { t: 'gen'; id: number; cx: number; cz: number; level?: number }
-  | { t: 'mesh'; id: number; cx: number; cz: number; chunks: (Uint16Array | null)[]; smooth: boolean; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' } };
+  | { t: 'gen'; id: number; cx: number; cz: number; level?: number; old?: Uint8Array | null }
+  | { t: 'mesh'; id: number; cx: number; cz: number; chunks: (Uint16Array | null)[]; smooth: boolean; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' }; lv?: number };
 
 const scope = self as unknown as { postMessage(m: unknown, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<InMsg>) => void) | null };
 
@@ -26,13 +26,13 @@ scope.onmessage = (e) => {
     if (m.t === 'atlas') { atlas = m.atlas; return; }
     if (!gen || !atlas) throw new Error('worker not initialised');
     if (m.t === 'gen') {
-      const g = gen.generate(m.cx, m.cz, m.level);
+      const g = gen.generate(m.cx, m.cz, m.level, m.old ?? null);
       scope.postMessage({ t: 'gen', id: m.id, cx: m.cx, cz: m.cz, blocks: g.blocks, entities: g.entities }, [g.blocks.buffer]);
       return;
     }
     if (m.t === 'mesh') {
       const t0 = performance.now();
-      const r = meshChunk({ atlas, gen, opts: m.opts }, m.cx, m.cz, m.chunks, m.smooth);
+      const r = meshChunk({ atlas, gen, opts: m.opts, lv: m.lv }, m.cx, m.cz, m.chunks, m.smooth);
       const tr: Transferable[] = [];
       transfers(r.opaque, tr); transfers(r.cutout, tr); transfers(r.trans, tr);
       scope.postMessage({ t: 'mesh', id: m.id, cx: m.cx, cz: m.cz, result: r, ms: performance.now() - t0 }, tr);

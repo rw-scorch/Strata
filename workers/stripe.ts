@@ -1,0 +1,142 @@
+export interface StripeEnv {
+  ACCOUNTS?: DurableObjectNamespace;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_ID?: string;
+  SUPPORTER_CURRENCY?: string;
+  SUPPORTER_AMOUNT?: string;
+}
+
+const API = 'https://api.stripe.com/v1';
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+}
+
+function form(obj: Record<string, unknown>, prefix = '', out = new URLSearchParams()): URLSearchParams {
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (Array.isArray(v)) v.forEach((item, i) => (typeof item === 'object' ? form(item as Record<string, unknown>, `${key}[${i}]`, out) : out.append(`${key}[${i}]`, String(item))));
+    else if (typeof v === 'object') form(v as Record<string, unknown>, key, out);
+    else out.append(key, String(v));
+  }
+  return out;
+}
+
+async function stripe<T>(env: StripeEnv, method: 'GET' | 'POST', path: string, params?: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'content-type': 'application/x-www-form-urlencoded', 'stripe-version': '2025-03-31.basil' },
+    body: method === 'POST' && params ? form(params).toString() : undefined,
+  });
+  const data = (await res.json()) as T & { error?: { message?: string } };
+  if (!res.ok) throw new Error(data.error?.message ?? `Stripe request failed (${res.status})`);
+  return data;
+}
+
+function accounts(env: StripeEnv): DurableObjectStub {
+  return env.ACCOUNTS!.get(env.ACCOUNTS!.idFromName('global'));
+}
+
+async function accountsPost<T>(env: StripeEnv, path: string, body: unknown): Promise<T> {
+  const r = await accounts(env).fetch(`https://accounts${path}`, { method: 'POST', body: JSON.stringify(body) });
+  return (await r.json()) as T;
+}
+
+function hexOf(buf: ArrayBuffer): string { return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join(''); }
+
+export async function verifyStripeSignature(payload: string, header: string, secret: string, now = Date.now(), tolerance = 300): Promise<boolean> {
+  const parts = header.split(',').map((p) => p.trim().split('='));
+  const t = parts.find(([k]) => k === 't')?.[1];
+  const sigs = parts.filter(([k]) => k === 'v1').map(([, v]) => v);
+  if (!t || !sigs.length || Math.abs(now / 1000 - Number(t)) > tolerance) return false;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const expected = hexOf(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${t}.${payload}`)));
+  return sigs.some((s) => s.length === expected.length && [...s].reduce((d, c, i) => d | (c.charCodeAt(0) ^ expected.charCodeAt(i)), 0) === 0);
+}
+
+interface Sub { id: string; status: string; customer: string; metadata?: Record<string, string>; current_period_end?: number; items?: { data?: { current_period_end?: number }[] } }
+
+function periodEnd(s: Sub): number {
+  const t = s.current_period_end ?? Math.max(0, ...(s.items?.data ?? []).map((i) => i.current_period_end ?? 0));
+  return t * 1000;
+}
+
+function priceLabel(env: StripeEnv): string {
+  const amount = Number(env.SUPPORTER_AMOUNT ?? 200);
+  const cur = (env.SUPPORTER_CURRENCY ?? 'usd').toUpperCase();
+  return `${cur === 'USD' || cur === 'NZD' || cur === 'AUD' || cur === 'CAD' ? '$' : ''}${(amount / 100).toFixed(2).replace(/\.00$/, '')} ${cur} a month`;
+}
+
+async function readBody(req: Request): Promise<Record<string, string>> {
+  try { return JSON.parse((await req.text()).slice(0, 2048)) as Record<string, string>; } catch { return {}; }
+}
+
+export async function supporterRoute(req: Request, env: StripeEnv, path: string): Promise<Response> {
+  if (!env.ACCOUNTS) return json({ error: 'Accounts are not enabled on this server.' }, 503);
+  if (path === '/api/stripe/webhook') return webhook(req, env);
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const body = await readBody(req);
+  const me = await accountsPost<{ ok?: boolean; error?: string; pid: string; name: string; customerId: string | null; active: boolean; until: number; color: string | null; status: string | null }>(env, '/sup/verify', { id: body.id, secret: body.secret });
+  if (!me.ok) return json({ error: me.error ?? 'Sign in first.' }, 401);
+  const enabled = !!env.STRIPE_SECRET_KEY;
+  if (path === '/api/supporter/status') return json({ enabled, price: priceLabel(env), active: me.active, until: me.until, color: me.color, status: me.status, canManage: !!me.customerId });
+  if (path === '/api/supporter/color') {
+    const r = await accountsPost<{ ok?: boolean; error?: string; color?: string }>(env, '/sup/color', { id: body.id, secret: body.secret, color: body.color });
+    return json(r, r.ok ? 200 : 400);
+  }
+  if (!enabled) return json({ error: 'Supporter payments are not set up on this server yet.' }, 503);
+  const origin = new URL(req.url).origin;
+  try {
+    if (path === '/api/supporter/checkout') {
+      if (me.active) return json({ error: 'You are already a Supporter. Thank you!' }, 409);
+      const line = env.STRIPE_PRICE_ID
+        ? { price: env.STRIPE_PRICE_ID, quantity: 1 }
+        : { quantity: 1, price_data: { currency: (env.SUPPORTER_CURRENCY ?? 'usd').toLowerCase(), unit_amount: Number(env.SUPPORTER_AMOUNT ?? 200), recurring: { interval: 'month' }, product_data: { name: 'Strata Supporter' } } };
+      const session = await stripe<{ url: string }>(env, 'POST', '/checkout/sessions', {
+        mode: 'subscription',
+        line_items: [line],
+        client_reference_id: me.pid,
+        customer: me.customerId ?? undefined,
+        metadata: { pid: me.pid, name: me.name },
+        subscription_data: { metadata: { pid: me.pid, name: me.name } },
+        allow_promotion_codes: true,
+        success_url: `${origin}/?supporter=thanks`,
+        cancel_url: `${origin}/?supporter=cancelled`,
+      });
+      return json({ url: session.url });
+    }
+    if (path === '/api/supporter/portal') {
+      if (!me.customerId) return json({ error: 'There is no subscription on this account yet.' }, 404);
+      const session = await stripe<{ url: string }>(env, 'POST', '/billing_portal/sessions', { customer: me.customerId, return_url: `${origin}/` });
+      return json({ url: session.url });
+    }
+  } catch (e) {
+    return json({ error: `Payment service error: ${(e as Error).message}` }, 502);
+  }
+  return json({ error: 'Not found' }, 404);
+}
+
+async function webhook(req: Request, env: StripeEnv): Promise<Response> {
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  if (!env.STRIPE_WEBHOOK_SECRET || !env.STRIPE_SECRET_KEY) return json({ error: 'Webhook not configured' }, 503);
+  const payload = await req.text();
+  if (payload.length > 512_000) return json({ error: 'Too large' }, 413);
+  if (!(await verifyStripeSignature(payload, req.headers.get('stripe-signature') ?? '', env.STRIPE_WEBHOOK_SECRET))) return json({ error: 'Bad signature' }, 400);
+  const evt = JSON.parse(payload) as { id: string; type: string; data: { object: Record<string, unknown> } };
+  const obj = evt.data.object;
+  try {
+    if (evt.type === 'checkout.session.completed' && obj.mode === 'subscription' && typeof obj.subscription === 'string') {
+      const sub = await stripe<Sub>(env, 'GET', `/subscriptions/${obj.subscription}`);
+      const pid = (obj.client_reference_id as string | null) ?? sub.metadata?.pid ?? '';
+      await accountsPost(env, '/sup/event', { event: evt.id, pid, customer: obj.customer, sub: sub.id, status: sub.status, until: periodEnd(sub) });
+    } else if (evt.type === 'customer.subscription.created' || evt.type === 'customer.subscription.updated' || evt.type === 'customer.subscription.deleted') {
+      const sub = obj as unknown as Sub;
+      await accountsPost(env, '/sup/event', { event: evt.id, pid: sub.metadata?.pid ?? '', customer: sub.customer, sub: sub.id, status: evt.type.endsWith('deleted') ? 'canceled' : sub.status, until: periodEnd(sub) });
+    }
+  } catch (e) {
+    return json({ error: (e as Error).message }, 500);
+  }
+  return json({ received: true });
+}

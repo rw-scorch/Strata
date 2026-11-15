@@ -1,7 +1,7 @@
 import { ARENA_KINDS, ARENA_INFO, ArenaKind } from '../core/labs/minigames/arena';
 import { h, clear, toast, modal, confirmDialog, promptDialog, toggle, segmented, slider, select, copyText, fmtDate, fmtTime, download } from './dom';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
-import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord, getAccount, setAccount, accountRequest, markLoginSeen } from '../storage/Settings';
+import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord, getAccount, setAccount, accountRequest, markLoginSeen, supporterRequest } from '../storage/Settings';
 import { GAME_VERSION, MODE_TITLES, GameMode, Difficulty, DIFFICULTIES, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, isValidRoomCode, normalizeRoomCode, PROTOCOL_VERSION } from '../core/constants';
 import { seedFromInput } from '../core/rng';
 import { drawAvatar } from './avatar';
@@ -169,10 +169,43 @@ export class Menus {
             h('button', { class: 'btn small', onclick: () => this.changePassword(acc.name) }, 'Change password'),
             h('button', { class: 'btn small danger', onclick: () => { setAccount(null); toast('Signed out. You are playing as a guest.', 'info'); this.profile(); } }, 'Sign out')))
         : h('div', { class: 'account-box' }, h('div', { class: 'small muted' }, 'Playing as a guest.'), h('button', { class: 'btn small primary', onclick: () => this.login(() => this.profile()) }, 'Sign in or create account')),
+      acc ? this.supporterBox() : null,
       acc ? h('div', { class: 'small muted' }, 'Your account name is shown to other players.') : h('label', { class: 'field' }, h('span', {}, 'Name shown to other players'), name),
       h('div', { class: 'row', style: 'align-items:flex-start;gap:18px' }, prev, h('div', { class: 'stack' }, pick('Skin', 'skin', 8), pick('Hair', 'hair', 8), pick('Shirt', 'shirt', 12), pick('Trousers', 'pants', 12))),
       h('button', { class: 'btn primary', onclick: () => { if (!acc) updateSettings({ playerName: name.value.replace(/[<>~]/g, '').trim().slice(0, 16) }); this.title(); } }, 'Save'),
     ));
+  }
+
+  private supporterBox(): HTMLElement {
+    const box = h('div', { class: 'sup-box', style: 'display:none' });
+    const COLORS = ['#ffcc33', '#ff5555', '#ff77cc', '#bb77ff', '#5599ff', '#55ffff', '#55ff55', '#ffffff'];
+    const fill = async () => {
+      const r = await supporterRequest('status');
+      clear(box);
+      if (!r.ok || (!r.data.enabled && !r.data.active)) { box.style.display = 'none'; return; }
+      box.style.display = '';
+      const st = r.data;
+      box.appendChild(h('div', {}, h('span', { class: 'sup-badge' }), h('b', {}, 'Strata Supporter')));
+      if (st.active) {
+        box.appendChild(h('div', { class: 'small' }, `Thank you for supporting Strata. Your perks are on${st.until ? ` until ${new Date(st.until).toLocaleDateString()}, renewing automatically` : ''}.`));
+        const sw = h('div', { class: 'sup-colors' });
+        for (const c of COLORS) sw.appendChild(h('button', { class: st.color === c || (!st.color && c === '#ffcc33') ? 'on' : '', style: `background:${c}`, title: 'Name colour', onclick: async () => { const x = await supporterRequest('color', { color: c }); if (!x.ok) { toast(x.error, 'error'); return; } toast('Name colour saved. It shows the next time you join a world.', 'info'); void fill(); } }));
+        box.appendChild(h('div', { class: 'small muted' }, 'Name colour'));
+        box.appendChild(sw);
+        if (st.canManage) box.appendChild(h('button', { class: 'btn small', onclick: async () => { const x = await supporterRequest('portal'); if (!x.ok) { toast(x.error, 'error'); return; } location.href = x.data.url!; } }, 'Manage or cancel subscription'));
+        return;
+      }
+      box.appendChild(h('div', { class: 'small' }, `Help keep the servers running for ${st.price ?? 'a small monthly fee'}. Perks: 2 extra homes in every world, a bigger minimap that zooms out further, a gold star by your name, and a name colour you choose.`));
+      box.appendChild(h('button', { class: 'btn small primary', onclick: async (e: Event) => {
+        (e.target as HTMLButtonElement).disabled = true;
+        const x = await supporterRequest('checkout');
+        if (!x.ok) { toast(x.error, 'error'); (e.target as HTMLButtonElement).disabled = false; return; }
+        location.href = x.data.url!;
+      } }, 'Become a Supporter'));
+      if (st.canManage) box.appendChild(h('button', { class: 'btn small', onclick: async () => { const x = await supporterRequest('portal'); if (x.ok) location.href = x.data.url!; else toast(x.error, 'error'); } }, 'Billing history'));
+    };
+    void fill();
+    return box;
   }
 
   changePassword(accName: string): void {

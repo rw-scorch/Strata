@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars' | 'fence';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -19,6 +19,7 @@ export interface DropSpec {
 
 export interface BlockDef {
   ext?: number;
+  species?: { base: number; s: number };
   id: number;
   key: string;
   name: string;
@@ -43,7 +44,7 @@ export interface BlockDef {
   replaceable: boolean;
   climbable: boolean;
   fluid: 'water' | 'lava' | null;
-  needsSupport: 'soil' | 'nylium' | 'hang' | 'sand' | 'solid' | 'farmland' | 'water-edge' | 'cactus' | 'water-plant' | null;
+  needsSupport: 'soil' | 'nylium' | 'hang' | 'soulsand' | 'sand' | 'solid' | 'farmland' | 'water-edge' | 'cactus' | 'water-plant' | null;
   orientable: boolean;
   interactive: boolean;
   category: 'building' | 'nature' | 'functional' | 'ore' | 'plants' | 'hidden';
@@ -69,7 +70,9 @@ export const B = {
   SPAWNER: 176, TRIAL_SPAWNER: 177, VAULT: 178, KELP: 179, KELP_PLANT: 180, SEAGRASS: 181, VINE: 182,
   REDSTONE_WIRE: 183, REDSTONE_TORCH: 184, LEVER: 185, STONE_BUTTON: 186, OAK_BUTTON: 187, STONE_PRESSURE_PLATE: 188, OAK_PRESSURE_PLATE: 189,
   REDSTONE_BLOCK: 190, REDSTONE_LAMP: 191, REDSTONE_LAMP_LIT: 192, UNLIT_REDSTONE_TORCH: 193, REDSTONE_ORE: 194, REPEATER: 195, COMPARATOR: 196,
-  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204, SLIME_BLOCK: 205, HONEY_BLOCK: 206, TNT: 207, SLAB: 208, STAIRS: 209, RAIL: 210, POWERED_RAIL: 211, DETECTOR_RAIL: 212, ACTIVATOR_RAIL: 213, ENCHANTING_TABLE: 214, LAPIS_ORE: 215, LAPIS_BLOCK: 216, ANVIL: 217, EXT: 218, NETHER_PORTAL: 219, FIRE: 220, CRYING_OBSIDIAN: 221, MAGMA_BLOCK: 222, IRON_BARS: 223, SHROOMLIGHT: 224, CRIMSON_ROOTS: 225, WARPED_ROOTS: 226, NETHER_SPROUTS: 227, CRIMSON_FUNGUS: 228, WARPED_FUNGUS: 229, WEEPING_VINES: 230, TWISTING_VINES: 231, SOUL_FIRE: 232,
+  OBSERVER: 197, PISTON: 198, STICKY_PISTON: 199, PISTON_HEAD: 200, MOVING_PISTON: 201, HOPPER: 202, DROPPER: 203, DISPENSER: 204, SLIME_BLOCK: 205, HONEY_BLOCK: 206, TNT: 207, SLAB: 208, STAIRS: 209, RAIL: 210, POWERED_RAIL: 211, DETECTOR_RAIL: 212, ACTIVATOR_RAIL: 213, ENCHANTING_TABLE: 214, LAPIS_ORE: 215, LAPIS_BLOCK: 216, ANVIL: 217, EXT: 218, NETHER_PORTAL: 219, FIRE: 220, CRYING_OBSIDIAN: 221, MAGMA_BLOCK: 222, IRON_BARS: 223, SHROOMLIGHT: 224, CRIMSON_ROOTS: 225, WARPED_ROOTS: 226, NETHER_SPROUTS: 227, CRIMSON_FUNGUS: 228, WARPED_FUNGUS: 229, WEEPING_VINES: 230, TWISTING_VINES: 231, SOUL_FIRE: 232, NETHER_BRICK_FENCE: 233, NETHER_WART: 234, SMITHING_TABLE: 235,
+  COMPOSTER: 236, LECTERN: 237, BLAST_FURNACE: 238, SMOKER: 239, FLETCHING_TABLE: 240, BREWING_STAND: 241, STONECUTTER: 242, BARREL: 243, CARTOGRAPHY_TABLE: 244, CAULDRON: 245, LOOM: 246, GRINDSTONE: 247,
+  BELL: 248, LANTERN: 249, PUMPKIN: 250, MELON: 251, CAKE: 252, CARROTS: 253, POTATOES: 254, BEETROOTS: 255,
 } as const;
 
 export const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const;
@@ -104,9 +107,27 @@ export const XV = {
   NETHERRACK: 0, NETHER_QUARTZ_ORE: 1, NETHER_GOLD_ORE: 2, BLACKSTONE: 3, SOUL_SAND: 4, SOUL_SOIL: 5, NETHER_BRICKS: 6, BASALT: 7,
   POLISHED_BLACKSTONE: 8, POLISHED_BLACKSTONE_BRICKS: 9, QUARTZ_BLOCK: 10, CRIMSON_NYLIUM: 11, WARPED_NYLIUM: 12, CRIMSON_STEM: 13, WARPED_STEM: 14,
   NETHER_WART_BLOCK: 15, WARPED_WART_BLOCK: 16, BONE_BLOCK: 17, CRIMSON_PLANKS: 18, WARPED_PLANKS: 19, SMOOTH_BASALT: 20,
+  ANCIENT_DEBRIS: 21, CINDERITE_BLOCK: 22, GILDED_BLACKSTONE: 23, CRACKED_POLISHED_BLACKSTONE_BRICKS: 24, CHISELED_POLISHED_BLACKSTONE: 25,
+  GRANITE: 26, POLISHED_GRANITE: 27, DIORITE: 28, POLISHED_DIORITE: 29, ANDESITE: 30, POLISHED_ANDESITE: 31, DRIPSTONE_BLOCK: 32, QUARTZ_PILLAR: 33, DRIED_KELP_BLOCK: 34, GLAZED_TERRACOTTA: 35,
 } as const;
 export function X(variant: number): number { return 218 | (variant << 8); }
-export function tix(v: number): number { const id = v & 0xff; return id === 218 ? XB + (v >>> 8) : id; }
+export const SPB = 880;
+const SPMAP = new Int16Array(256 * 16);
+export function tix(v: number): number {
+  const id = v & 0xff;
+  if (id === 218) return XB + ((v >>> 8) & 0xff);
+  const s = (v >>> 12) & 15;
+  return s ? SPMAP[id * 16 + s] || id : id;
+}
+export const SPECIES = { ACACIA: 1, DARK_OAK: 2 } as const;
+export function sp(base: number, s: number, extra = 0): number { return (base & 0xff) | (((s << 4) | (extra & 15)) << 8); }
+export function speciesOf(v: number): number { return (v >>> 12) & 15; }
+function species(id: number, base: number, s: number, key: string, name: string, desc: string, p: Partial2): void {
+  const { id: _i, key: _k, name: _n, desc: _d, ...rest } = defs[base];
+  def(id, key, name, desc, { ...rest, drops: [{ item: id }], ...p });
+  defs[id].species = { base, s };
+  SPMAP[base * 16 + s] = id;
+}
 
 function ext(variant: number, key: string, name: string, desc: string, p: Partial2): void {
   def(XB + variant, key, name, desc, { drops: [{ item: XB + variant }], ...p });
@@ -300,6 +321,8 @@ def(229, 'warped_fungus', 'Warped Fungus', 'A small teal mushroom of the Nether.
 def(230, 'weeping_vines', 'Weeping Vines', 'Red vines that hang from crimson ceilings. Climbable.', { faces: ALL('weeping_vines'), ...PLANT, needsSupport: 'hang', climbable: true, drops: [{ item: 'self', chance: 0.33 }] });
 def(231, 'twisting_vines', 'Twisting Vines', 'Teal vines that climb up from warped ground. Climbable.', { faces: ALL('twisting_vines'), ...PLANT, needsSupport: 'solid', climbable: true, drops: [{ item: 'self', chance: 0.33 }] });
 def(232, 'soul_fire', 'Soul Fire', 'Blue flame that burns on soul sand and soul soil.', { faces: ALL('soul_fire_0'), render: 'fire', solid: false, opaque: false, lightFilter: 0, lightEmit: 10, hardness: 0, drops: [], replaceable: true, sound: 'grass', category: 'hidden' });
+def(233, 'nether_brick_fence', 'Nether Brick Fence', 'A dark brick fence that links to its neighbours.', { faces: ALL('nether_bricks'), render: 'fence', opaque: false, lightFilter: 0, hardness: 2, tool: 'pickaxe', tier: 1, cullSelf: false });
+def(234, 'nether_wart', 'Nether Wart', 'A red fungus that grows only on soul sand.', { faces: ALL('nether_wart_stage2'), ...PLANT, render: 'crop', needsSupport: 'soulsand', drops: [{ item: 398 }], category: 'hidden' });
 ext(0, 'netherrack', 'Netherrack', 'Soft red rock of the Nether. Fire on it never goes out.', { faces: ALL('netherrack'), hardness: 0.4, tool: 'pickaxe', tier: 1, category: 'nature' });
 ext(1, 'nether_quartz_ore', 'Nether Quartz Ore', 'Pale crystal set in netherrack.', { faces: ALL('nether_quartz_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 391 }], xp: [2, 5], category: 'ore' });
 ext(2, 'nether_gold_ore', 'Nether Gold Ore', 'Flecks of gold in netherrack. Breaks into nuggets.', { faces: ALL('nether_gold_ore'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: 390, min: 2, max: 6 }], xp: [0, 1], category: 'ore' });
@@ -320,6 +343,43 @@ ext(16, 'warped_wart_block', 'Warped Wart Block', 'The fleshy cap of a warped fu
 ext(17, 'bone_block', 'Bone Block', 'Packed bone. Old fossils are made of it.', { faces: { ...ALL('bone_block_side'), py: 'bone_block_top', ny: 'bone_block_top' }, hardness: 2, tool: 'pickaxe', tier: 1, category: 'nature' });
 ext(18, 'crimson_planks', 'Crimson Planks', 'Planks cut from crimson stems. Fireproof.', { faces: ALL('crimson_planks'), hardness: 2, tool: 'axe', sound: 'wood' });
 ext(19, 'warped_planks', 'Warped Planks', 'Planks cut from warped stems. Fireproof.', { faces: ALL('warped_planks'), hardness: 2, tool: 'axe', sound: 'wood' });
+ext(21, 'ancient_debris', 'Ancient Debris', 'A scorched lump buried deep in the Nether. Shrugs off explosions. Smelt it for Netherite Scrap.', { faces: { ...ALL('ancient_debris_side'), py: 'ancient_debris_top', ny: 'ancient_debris_top' }, hardness: 30, tool: 'pickaxe', tier: 4, category: 'ore' });
+ext(22, 'cinderite_block', 'Block of Netherite', 'Nine Netherite Ingots pressed into one dark, heavy block.', { faces: ALL('cinderite_block'), hardness: 50, tool: 'pickaxe', tier: 4 });
+ext(23, 'gilded_blackstone', 'Gilded Blackstone', 'Blackstone streaked with gold. Sometimes crumbles into nuggets.', { faces: ALL('gilded_blackstone'), hardness: 1.5, tool: 'pickaxe', tier: 1, drops: [{ item: 'self' }] });
+ext(24, 'cracked_polished_blackstone_bricks', 'Cracked Polished Blackstone Bricks', 'Old blackstone bricks split by heat.', { faces: ALL('cracked_polished_blackstone_bricks'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+ext(25, 'chiseled_polished_blackstone', 'Chiseled Polished Blackstone', 'Blackstone carved with a piglin face.', { faces: ALL('chiseled_polished_blackstone'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+const JOB = { interactive: true, category: 'functional' as const };
+def(236, 'composter', 'Composter', 'Drop in plant scraps to make bone meal. Farmers work here.', { faces: { ...ALL('composter_side'), py: 'composter_top', ny: 'composter_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 0.6, tool: 'axe', sound: 'wood', ...JOB });
+def(237, 'lectern', 'Lectern', 'A reading stand. Librarians work here.', { faces: { ...ALL('lectern_sides'), py: 'lectern_top', ny: 'lectern_base', nz: 'lectern_front', pz: 'lectern_front' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 2.5, tool: 'axe', sound: 'wood', ...JOB });
+def(238, 'blast_furnace', 'Blast Furnace', 'Smelts ores and metal twice as fast as a furnace. Armorers work here.', { faces: COL('blast_furnace_side', 'blast_furnace_top'), front: 'blast_furnace_front', orientable: true, hardness: 3.5, tool: 'pickaxe', tier: 1, ...JOB });
+def(239, 'smoker', 'Smoker', 'Cooks food twice as fast as a furnace. Butchers work here.', { faces: { ...ALL('smoker_side'), py: 'smoker_top', ny: 'smoker_bottom' }, front: 'smoker_front', orientable: true, hardness: 3.5, tool: 'pickaxe', tier: 1, ...JOB });
+def(240, 'fletching_table', 'Fletching Table', 'A bench strewn with feathers and flint. Fletchers work here.', { faces: { px: 'fletching_table_side', nx: 'fletching_table_side', py: 'fletching_table_top', ny: 'birch_planks', pz: 'fletching_table_front', nz: 'fletching_table_front' }, hardness: 2.5, tool: 'axe', sound: 'wood', ...JOB });
+def(241, 'brewing_stand', 'Brewing Stand', 'A stand of glass bottles over a flame. Clerics work here.', { faces: { ...ALL('brewing_stand'), ny: 'brewing_stand_base', py: 'brewing_stand_base' }, render: 'boxes', opaque: false, solid: true, lightFilter: 0, lightEmit: 1, hardness: 0.5, tool: 'pickaxe', ...JOB });
+def(242, 'stonecutter', 'Stonecutter', 'A spinning saw blade set in stone. Masons work here.', { faces: { ...ALL('stonecutter_side'), py: 'stonecutter_top', ny: 'stonecutter_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 3.5, tool: 'pickaxe', tier: 1, ...JOB });
+def(243, 'barrel', 'Barrel', 'Twenty-seven slots, and it fits anywhere. Fishermen work here.', { faces: { ...ALL('barrel_side'), py: 'barrel_top', ny: 'barrel_bottom' }, hardness: 2.5, tool: 'axe', sound: 'wood', ...JOB });
+def(244, 'cartography_table', 'Cartography Table', 'A desk covered in maps. Cartographers work here.', { faces: { px: 'cartography_table_side3', nx: 'cartography_table_side1', py: 'cartography_table_top', ny: 'spruce_planks', pz: 'cartography_table_side2', nz: 'cartography_table_side1' }, hardness: 2.5, tool: 'axe', sound: 'wood', ...JOB });
+def(245, 'cauldron', 'Cauldron', 'A big iron pot. Leatherworkers work here.', { faces: { ...ALL('cauldron_side'), py: 'cauldron_top', ny: 'cauldron_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 2, tool: 'pickaxe', tier: 1, ...JOB });
+def(246, 'loom', 'Loom', 'A frame for weaving cloth. Shepherds work here.', { faces: { ...ALL('loom_side'), py: 'loom_top', ny: 'loom_bottom' }, front: 'loom_front', orientable: true, hardness: 2.5, tool: 'axe', sound: 'wood', ...JOB });
+def(247, 'grindstone', 'Grindstone', 'A stone wheel on a wooden frame. Weaponsmiths work here.', { faces: { ...ALL('grindstone_side'), py: 'grindstone_round', ny: 'grindstone_round' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 2, tool: 'pickaxe', ...JOB });
+def(248, 'bell', 'Bell', 'A golden village bell. Ring it to call everyone together.', { faces: { ...ALL('bell_side'), py: 'bell_top', ny: 'bell_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', interactive: true, category: 'functional' });
+def(249, 'lantern', 'Lantern', 'An iron lantern with a candle-bright flame.', { faces: ALL('lantern'), render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 15, hardness: 3.5, tool: 'pickaxe', category: 'functional' });
+def(250, 'pumpkin', 'Pumpkin', 'A big orange gourd.', { faces: COL('pumpkin_side', 'pumpkin_top'), hardness: 1, tool: 'axe', sound: 'wood', category: 'plants' });
+def(251, 'melon', 'Melon', 'A striped green melon. Breaks into slices.', { faces: COL('melon_side', 'melon_top'), hardness: 1, tool: 'axe', sound: 'wood', drops: [{ item: 433, min: 3, max: 7 }], category: 'plants' });
+def(252, 'cake', 'Cake', 'Use it to eat a slice. Seven slices per cake.', { faces: { ...ALL('cake_side'), py: 'cake_top', ny: 'cake_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 0.5, sound: 'cloth', interactive: true, drops: [], category: 'functional' });
+def(253, 'carrots', 'Carrots', 'Carrots growing in the soil.', { faces: ALL('carrots_stage3'), ...PLANT, render: 'crop', needsSupport: 'farmland', drops: [{ item: 428 }], category: 'hidden' });
+def(254, 'potatoes', 'Potatoes', 'Potatoes growing in the soil.', { faces: ALL('potatoes_stage3'), ...PLANT, render: 'crop', needsSupport: 'farmland', drops: [{ item: 426 }], category: 'hidden' });
+def(255, 'beetroots', 'Beetroots', 'Beetroots growing in the soil.', { faces: ALL('beetroots_stage3'), ...PLANT, render: 'crop', needsSupport: 'farmland', drops: [{ item: 430 }], category: 'hidden' });
+def(235, 'smithing_table', 'Smithing Table', 'Use an upgrade template to turn Diamond gear into Netherite gear, keeping its enchantments.', { faces: { ...ALL('smithing_table_side'), py: 'smithing_table_top', ny: 'smithing_table_bottom', pz: 'smithing_table_front', nz: 'smithing_table_front' }, hardness: 2.5, tool: 'axe', sound: 'wood', interactive: true, category: 'functional' });
+ext(26, 'granite', 'Granite', 'Speckled pink stone found in patches underground.', { faces: ALL('granite'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(27, 'polished_granite', 'Polished Granite', 'Granite ground smooth.', { faces: ALL('polished_granite'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+ext(28, 'diorite', 'Diorite', 'Pale grey and white stone found in patches underground.', { faces: ALL('diorite'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(29, 'polished_diorite', 'Polished Diorite', 'Diorite ground smooth.', { faces: ALL('polished_diorite'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+ext(30, 'andesite', 'Andesite', 'Mottled grey stone found in patches underground.', { faces: ALL('andesite'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(31, 'polished_andesite', 'Polished Andesite', 'Andesite ground smooth.', { faces: ALL('polished_andesite'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+ext(32, 'dripstone_block', 'Dripstone Block', 'Brown limestone built up by dripping water.', { faces: ALL('dripstone_block'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' });
+ext(33, 'quartz_pillar', 'Quartz Pillar', 'A tall column of polished quartz.', { faces: { ...ALL('quartz_pillar'), py: 'quartz_pillar_top', ny: 'quartz_pillar_top' }, hardness: 0.8, tool: 'pickaxe', tier: 1 });
+ext(34, 'dried_kelp_block', 'Dried Kelp Block', 'Nine bundles of dried kelp. Burns for a long time.', { faces: { ...ALL('dried_kelp_side'), py: 'dried_kelp_top', ny: 'dried_kelp_bottom' }, hardness: 0.5, tool: 'hoe', sound: 'grass' });
+COLORS.forEach((c, i) => ext(35 + i, `${c}_glazed_terracotta`, `${COLOR_NAMES[c]} Glazed Terracotta`, 'Fired clay with a bold glazed pattern.', { faces: ALL(`${c}_glazed_terracotta`), hardness: 1.4, tool: 'pickaxe', tier: 1 }));
 ext(20, 'smooth_basalt', 'Smooth Basalt', 'Basalt smoothed by heat.', { faces: ALL('smooth_basalt'), hardness: 1.25, tool: 'pickaxe', tier: 1 });
 def(214, 'enchanting_table', 'Enchanting Table', 'Spend levels and lapis to enchant gear. Bookshelves two blocks away make it stronger.', { faces: { ...ALL('enchanting_table_side'), py: 'enchanting_table_top', ny: 'enchanting_table_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 7, hardness: 5, tool: 'pickaxe', tier: 1, interactive: true, sound: 'stone', category: 'functional' });
 def(215, 'lapis_ore', 'Lapis Ore', 'Deep blue stone. Drops lapis for enchanting.', { faces: ALL('lapis_ore'), hardness: 3, tool: 'pickaxe', tier: 2, drops: [{ item: 389, min: 4, max: 9 }], xp: [2, 5], category: 'ore' });
@@ -328,6 +388,24 @@ def(217, 'anvil', 'Anvil', 'Repair, rename and combine enchanted gear for levels
 
 export function isWaterPlant(id: number): boolean { return id === 179 || id === 180 || id === 181; }
 export function isWaterLike(v: number): boolean { const id = v & 0xff; return id === 12 || id === 179 || id === 180 || id === 181; }
+
+export const SB = {
+  ACACIA_PLANKS: SPB, ACACIA_LOG: SPB + 1, ACACIA_LEAVES: SPB + 2, ACACIA_SAPLING: SPB + 3,
+  DARK_OAK_PLANKS: SPB + 4, DARK_OAK_LOG: SPB + 5, DARK_OAK_LEAVES: SPB + 6, DARK_OAK_SAPLING: SPB + 7,
+  RED_SAND: SPB + 8, COARSE_DIRT: SPB + 9, PODZOL: SPB + 10, RED_SANDSTONE: SPB + 11,
+} as const;
+species(SB.ACACIA_PLANKS, 5, 1, 'acacia_planks', 'Acacia Planks', 'Warm orange timber from the savanna.', { faces: ALL('acacia_planks') });
+species(SB.ACACIA_LOG, 14, 1, 'acacia_log', 'Acacia Log', 'Grey bark around bright orange wood.', { faces: COL('acacia_log', 'acacia_log_top') });
+species(SB.ACACIA_LEAVES, 15, 1, 'acacia_leaves', 'Acacia Leaves', 'Flat-topped canopy of the savanna.', { faces: ALL('acacia_leaves'), drops: [{ item: SPB + 3, chance: 0.05 }, { item: 256, chance: 0.02 }] });
+species(SB.ACACIA_SAPLING, 55, 1, 'acacia_sapling', 'Acacia Sapling', 'Plant on soil and wait for a crooked acacia.', { faces: ALL('acacia_sapling') });
+species(SB.DARK_OAK_PLANKS, 5, 2, 'dark_oak_planks', 'Dark Oak Planks', 'Deep brown timber from the thickest woods.', { faces: ALL('dark_oak_planks') });
+species(SB.DARK_OAK_LOG, 14, 2, 'dark_oak_log', 'Dark Oak Log', 'Thick, nearly black bark.', { faces: COL('dark_oak_log', 'dark_oak_log_top') });
+species(SB.DARK_OAK_LEAVES, 15, 2, 'dark_oak_leaves', 'Dark Oak Leaves', 'A canopy so dense the ground stays dim.', { faces: ALL('dark_oak_leaves'), drops: [{ item: SPB + 7, chance: 0.05 }, { item: 258, chance: 0.01 }, { item: 256, chance: 0.02 }] });
+species(SB.DARK_OAK_SAPLING, 55, 2, 'dark_oak_sapling', 'Dark Oak Sapling', 'Plant four in a square to grow a dark oak.', { faces: ALL('dark_oak_sapling') });
+species(SB.RED_SAND, 7, 1, 'red_sand', 'Red Sand', 'Iron-stained sand from the badlands.', { faces: ALL('red_sand') });
+species(SB.COARSE_DIRT, 3, 1, 'coarse_dirt', 'Coarse Dirt', 'Gravelly soil that grass will not grow over.', { faces: ALL('coarse_dirt') });
+species(SB.PODZOL, 3, 2, 'podzol', 'Podzol', 'Needle-strewn forest floor.', { faces: { ...ALL('podzol_side'), py: 'podzol_top', ny: 'dirt' }, drops: [{ item: 3 }] });
+species(SB.RED_SANDSTONE, 26, 1, 'red_sandstone', 'Red Sandstone', 'Compressed red sand.', { faces: COL('red_sandstone', 'red_sandstone_top', 'red_sandstone_bottom') });
 
 export const BLOCKS: BlockDef[] = defs;
 
@@ -356,6 +434,8 @@ export const LIGHT_EMIT = emitTable;
 export function getBlock(id: number): BlockDef {
   const b = id & 0xff;
   if (b === 218) return defs[XB + ((id >>> 8) & 0xff)] ?? defs[218];
+  const s = (id >>> 12) & 15;
+  if (s) { const t = SPMAP[b * 16 + s]; if (t) return defs[t]; }
   return defs[b] ?? defs[0];
 }
 
@@ -406,7 +486,7 @@ const BLAST: Record<string, number> = {
   stone: 6, grass: 0.6, dirt: 0.5, cobblestone: 6, oak_planks: 3, birch_planks: 3, spruce_planks: 3, jungle_planks: 3, bedrock: 3600000,
   sand: 0.5, gravel: 0.6, clay: 0.6, snow_block: 0.2, ice: 0.5, packed_ice: 0.5, water: 100, lava: 100,
   oak_log: 2, birch_log: 2, spruce_log: 2, jungle_log: 2, oak_leaves: 0.2, birch_leaves: 0.2, spruce_leaves: 0.2, jungle_leaves: 0.2,
-  enchanting_table: 1200, anvil: 1200, lapis_block: 3, ext_block: 0.4, nether_portal: 0, fire: 0, crying_obsidian: 1200, magma_block: 0.5, iron_bars: 6,
+  enchanting_table: 1200, anvil: 1200, lapis_block: 3, ext_block: 0.4, nether_portal: 0, fire: 0, crying_obsidian: 1200, magma_block: 0.5, iron_bars: 6, nether_brick_fence: 6, blast_furnace: 3.5, smoker: 3.5, stonecutter: 3.5, lantern: 3.5, bell: 5, grindstone: 6, cauldron: 2, nether_wart: 0, ancient_debris: 1200, cinderite_block: 1200, gilded_blackstone: 6, cracked_polished_blackstone_bricks: 6, chiseled_polished_blackstone: 6, smithing_table: 2.5,
   netherrack: 0.4, nether_quartz_ore: 3, nether_gold_ore: 3, blackstone: 6, soul_sand: 0.5, soul_soil: 0.5, nether_bricks: 6, basalt: 4.2, polished_blackstone: 6, polished_blackstone_bricks: 6, quartz_block: 0.8,
   coal_ore: 3, iron_ore: 3, gold_ore: 3, aetherite_ore: 3, copper_ore: 3, redstone_ore: 3, emerald_ore: 3, lapis_ore: 3,
   sandstone: 0.8, cut_sandstone: 0.8, chiseled_sandstone: 0.8, smooth_sandstone: 6, cactus: 0.4, crafting_table: 2.5, furnace: 3.5, furnace_lit: 3.5,
@@ -449,6 +529,8 @@ export const SHAPE_MATS: { id: number; key: string; name: string }[] = [
   { id: B.BRICKS, key: 'brick', name: 'Brick' }, { id: B.SANDSTONE, key: 'sandstone', name: 'Sandstone' }, { id: B.CUT_SANDSTONE, key: 'cut_sandstone', name: 'Cut Sandstone' },
   { id: B.SMOOTH_SANDSTONE, key: 'smooth_sandstone', name: 'Smooth Sandstone' }, { id: B.TUFF, key: 'tuff', name: 'Tuff' }, { id: B.POLISHED_TUFF, key: 'polished_tuff', name: 'Polished Tuff' },
   { id: B.TUFF_BRICKS, key: 'tuff_brick', name: 'Tuff Brick' }, { id: B.CUT_COPPER, key: 'cut_copper', name: 'Cut Copper' },
+  { id: 600 + 6, key: 'nether_brick', name: 'Nether Brick' },
+  { id: 600 + 9, key: 'polished_blackstone_brick', name: 'Polished Blackstone Brick' }, { id: 600 + 3, key: 'blackstone', name: 'Blackstone' },
 ];
 export const SLAB_ITEM = 400, STAIRS_ITEM = 440, SLAB_TOP = 32, STAIRS_UP = 128;
 
@@ -463,9 +545,34 @@ export function shapeBoxes(v: number): [number, number, number, number, number, 
 }
 
 type Box = [number, number, number, number, number, number];
+export function fenceBoxes(n: [boolean, boolean, boolean, boolean]): Box[] {
+  const p0 = 6 / 16, p1 = 10 / 16, r0 = 7 / 16, r1 = 9 / 16;
+  const out: Box[] = [[p0, 0, p0, p1, 1, p1]];
+  for (const [y0, y1] of [[6 / 16, 9 / 16], [12 / 16, 15 / 16]]) {
+    if (n[0]) out.push([p1, y0, r0, 1, y1, r1]);
+    if (n[1]) out.push([r0, y0, p1, r1, y1, 1]);
+    if (n[2]) out.push([0, y0, r0, p0, y1, r1]);
+    if (n[3]) out.push([r0, y0, 0, r1, y1, p0]);
+  }
+  return out;
+}
+
+export const CUSTOM_BOX = new Uint8Array(256);
 export function customBoxes(v: number): Box[] {
   const id = v & 0xff;
   if (id === B.ENCHANTING_TABLE) return [[0, 0, 0, 1, 0.75, 1]];
+  const p = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box => [x0 / 16, y0 / 16, z0 / 16, x1 / 16, y1 / 16, z1 / 16];
+  switch (id) {
+    case B.COMPOSTER: return [p(0, 0, 0, 16, 2, 16), p(0, 2, 0, 2, 16, 16), p(14, 2, 0, 16, 16, 16), p(2, 2, 0, 14, 16, 2), p(2, 2, 14, 14, 16, 16), ...(((v >>> 8) & 15) > 0 ? [p(2, 2, 2, 14, 2 + Math.min(8, (v >>> 8) & 15) * 1.6, 14)] : [])];
+    case B.LECTERN: return [p(0, 0, 0, 16, 2, 16), p(4, 2, 4, 12, 13, 12), p(0, 13, 0, 16, 16, 16)];
+    case B.BREWING_STAND: return [p(1, 0, 1, 15, 2, 15), p(7, 2, 7, 9, 14, 9), p(2, 2, 6, 6, 9, 10), p(10, 2, 2, 14, 9, 6), p(10, 2, 10, 14, 9, 14)];
+    case B.STONECUTTER: return [p(0, 0, 0, 16, 9, 16)];
+    case B.CAULDRON: return [p(0, 3, 0, 16, 4, 16), p(0, 4, 0, 2, 16, 16), p(14, 4, 0, 16, 16, 16), p(2, 4, 0, 14, 16, 2), p(2, 4, 14, 14, 16, 16), p(0, 0, 0, 4, 3, 4), p(12, 0, 0, 16, 3, 4), p(0, 0, 12, 4, 3, 16), p(12, 0, 12, 16, 3, 16)];
+    case B.GRINDSTONE: return [p(4, 4, 2, 12, 16, 14), p(2, 0, 6, 4, 13, 10), p(12, 0, 6, 14, 13, 10)];
+    case B.BELL: return [p(4, 3, 4, 12, 10, 12), p(5, 10, 5, 11, 12, 11), p(3, 2, 3, 13, 3, 13), p(7, 12, 7, 9, 16, 9)];
+    case B.LANTERN: return [p(5, 0, 5, 11, 7, 11), p(6, 7, 6, 10, 9, 10), p(7, 9, 7, 9, 11, 9)];
+    case B.CAKE: { const b = Math.min(6, (v >>> 8) & 7); return [p(1 + b * 2, 0, 1, 15, 8, 15)]; }
+  }
   if (id === B.ANVIL) {
     const ew = ((v >>> 8) & 1) === 1;
     const b = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box => ew ? [z0 / 16, y0 / 16, x0 / 16, z1 / 16, y1 / 16, x1 / 16] : [x0 / 16, y0 / 16, z0 / 16, x1 / 16, y1 / 16, z1 / 16];
@@ -477,7 +584,7 @@ export function customBoxes(v: number): Box[] {
 export function blockBoxes(v: number): [number, number, number, number, number, number][] | null {
   const id = v & 0xff;
   if (id === B.SLAB || id === B.STAIRS) return shapeBoxes(v);
-  if (id === B.ENCHANTING_TABLE || id === B.ANVIL) return customBoxes(v);
+  if (CUSTOM_BOX[id]) return customBoxes(v);
   const b = blockBox(v);
   return b ? [b] : null;
 }
@@ -539,3 +646,11 @@ export function selectionBox(v: number): [number, number, number, number, number
     default: return [0, 0, 0, 1, 1, 1];
   }
 }
+
+for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE]) CUSTOM_BOX[id] = 1;
+export const CROPS: Record<number, { max: number; tex: string; stages: number[] }> = {
+  [B.WHEAT]: { max: 7, tex: 'wheat', stages: [0, 1, 2, 3, 4, 5, 6, 7] },
+  [B.CARROTS]: { max: 7, tex: 'carrots', stages: [0, 0, 1, 1, 2, 2, 2, 3] },
+  [B.POTATOES]: { max: 7, tex: 'potatoes', stages: [0, 0, 1, 1, 2, 2, 2, 3] },
+  [B.BEETROOTS]: { max: 3, tex: 'beetroots', stages: [0, 1, 2, 3] },
+};

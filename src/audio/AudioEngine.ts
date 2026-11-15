@@ -15,10 +15,12 @@ const MATERIAL: Record<string, { f: number; q: number; type: BiquadFilterType; d
   lava: { f: 300, q: 0.7, type: 'lowpass', dur: 0.4 },
 };
 
-const MOB_VOICE: Record<string, { base: number; kind: 'bleat' | 'grunt' | 'cluck' | 'groan' | 'rattle' | 'hiss' | 'hum' | 'wail' | 'squelch' | 'chirp' }> = {
+const MOB_VOICE: Record<string, { base: number; kind: 'bleat' | 'grunt' | 'cluck' | 'groan' | 'rattle' | 'hiss' | 'hum' | 'wail' | 'squelch' | 'chirp' | 'breath' }> = {
   woolhorn: { base: 420, kind: 'bleat' }, mudsnout: { base: 140, kind: 'grunt' }, fernhen: { base: 1300, kind: 'cluck' },
   hollowed: { base: 95, kind: 'groan' }, rattlebone: { base: 0, kind: 'rattle' }, duskweaver: { base: 0, kind: 'hiss' }, villager: { base: 210, kind: 'hum' },
   cinderhusk: { base: 120, kind: 'grunt' }, wailer: { base: 520, kind: 'wail' }, emberslime: { base: 90, kind: 'squelch' }, lavastrider: { base: 260, kind: 'chirp' },
+  flarewisp: { base: 160, kind: 'breath' }, witherbone: { base: 0, kind: 'rattle' },
+  piglin: { base: 170, kind: 'grunt' }, piglin_brute: { base: 105, kind: 'grunt' }, hoglin: { base: 75, kind: 'grunt' },
 };
 
 export class AudioEngine {
@@ -282,6 +284,8 @@ export class AudioEngine {
       case 'mace': this.noiseHit(dest, t, 300, 0.7, 'lowpass', { a: 0.003, d: 0.45, v: 1 }, 0.4); this.tone(dest, t, 90, 'sine', { a: 0.003, d: 0.3, v: 0.4 }, 40); break;
       case 'tnt': this.noiseHit(dest, t, 3500, 1, 'highpass', { a: 0.02, d: 0.9, v: 0.3 }, 0.8); break;
       case 'portal': this.tone(dest, t, sub === 'travel' ? 70 : 110, 'sine', { a: 0.3, d: sub === 'travel' ? 2.2 : 1.2, v: 0.35 }, sub === 'travel' ? 220 : 60, 5); this.noiseHit(dest, t, 500, 0.6, 'lowpass', { a: 0.4, d: 1.5, v: 0.25 }, 0.6); break;
+      case 'bell': for (const [f, v] of [[784, 0.3], [1568, 0.12], [2350, 0.06]] as const) this.tone(dest, t, f, 'sine', { a: 0.002, d: 2.4, v }, f * 0.998); break;
+      case 'composter': this.noiseHit(dest, t, sub === 'empty' ? 500 : 900, 1.5, 'bandpass', { a: 0.01, d: sub === 'fill_success' ? 0.35 : 0.2, v: 0.35 }); break;
       case 'fire': this.noiseHit(dest, t, 2500, 2, 'bandpass', { a: 0.002, d: 0.25, v: 0.35 }, 1.3); break;
       case 'explode': {
         this.noiseHit(dest, t, 900, 0.5, 'lowpass', { a: 0.003, d: 0.5, v: 1 }, 0.3);
@@ -318,6 +322,7 @@ export class AudioEngine {
           case 'hum': this.hum(dest, t, voice.base * p * rnd(), len, kind === 'hurt' ? -1 : 0); break;
           case 'wail': { const k2 = kind === 'shoot' ? 0.6 : kind === 'warn' ? 0.9 : 1.6; this.tone(dest, t, voice.base * p * rnd(), 'sine', { a: 0.15, d: k2, v: kind === 'shoot' ? 0.25 : 0.18 }, voice.base * 0.55 * p, 12); this.tone(dest, t + 0.05, voice.base * 1.5 * p, 'triangle', { a: 0.2, d: k2 * 0.8, v: 0.08 }, voice.base * 0.9, 6); if (kind === 'shoot') this.noiseHit(dest, t, 700, 1, 'lowpass', { a: 0.01, d: 0.35, v: 0.3 }); break; }
           case 'squelch': this.noiseHit(dest, t, 400 * rnd(), 2, 'lowpass', { a: 0.005, d: 0.18, v: 0.3 }); this.tone(dest, t, voice.base * p * rnd(), 'sine', { a: 0.005, d: 0.15, v: 0.18 }, voice.base * 0.5, 0); break;
+          case 'breath': { const k2 = kind === 'shoot' ? 0.3 : kind === 'warn' ? 1.2 : 0.9; this.noiseHit(dest, t, kind === 'shoot' ? 900 : 380 * rnd(), 1, 'lowpass', { a: kind === 'shoot' ? 0.005 : 0.25, d: k2, v: kind === 'shoot' ? 0.3 : 0.18 }); if (kind !== 'shoot') this.tone(dest, t, voice.base * p * rnd(), 'sawtooth', { a: 0.2, d: k2 * 0.8, v: 0.05 }, voice.base * 0.7 * p, 18); break; }
           case 'chirp': for (let i = 0; i < 3; i++) this.tone(dest, t + i * 0.07, voice.base * p * rnd(), 'triangle', { a: 0.005, d: 0.06, v: 0.1 }, voice.base * 1.3); break;
         }
         break;

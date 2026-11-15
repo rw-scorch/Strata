@@ -30,11 +30,12 @@ export interface RsHost {
   moveEntities(cells: MoveCell[], dir: number, from: number, to: number): void;
   animate(list: number[]): void;
   primeTnt(x: number, y: number, z: number, fuse: number): void;
+  dupeTnt?(x: number, y: number, z: number): void;
   cartAt(x: number, y: number, z: number): boolean;
   dispense(x: number, y: number, z: number, v: number, dir: number): void;
 }
 
-export interface MoveCell { x: number; y: number; z: number; sticky: boolean }
+export interface MoveCell { x: number; y: number; z: number; sticky: boolean; slime?: boolean }
 
 export function isSticky(v: number): boolean { const id = v & 0xff; return id === B.SLIME_BLOCK || id === B.HONEY_BLOCK; }
 export function stickTogether(a: number, b: number): boolean {
@@ -81,6 +82,13 @@ export function pushReaction(v: number): PushReaction {
   if (id === B.OBSERVER) return 'normal';
   if (d.render === 'cross' || d.render === 'crop' || d.render === 'torch' || d.render === 'ladder' || d.render === 'door' || d.render === 'redstone' || id === B.CACTUS || id === B.SUGAR_CANE) return 'destroy';
   return 'normal';
+}
+
+export function riderSupport(v: number): [number, number, number] | null {
+  const id = v & 0xff;
+  if (id === B.LADDER) { const [dx, dz] = FACING_DIRS[blockMeta(v) & 3]; return [dx, 0, dz]; }
+  if (id === B.TORCH) { const m = blockMeta(v) & 7; if (m === 0) return [0, -1, 0]; const [dx, dz] = FACING_DIRS[(m - 1) & 3]; return [dx, 0, dz]; }
+  return null;
 }
 
 export function diodeOut(v: number): number { return FACE_TO_DIR6[blockMeta(v) & 3]; }
@@ -594,13 +602,17 @@ export class Redstone {
         l++;
       }
     };
+    const riders: [number, number, number][] = [];
     const branch = (bx: number, by: number, bz: number): boolean => {
       const st = this.g(bx, by, bz);
       for (let d = 0; d < 6; d++) {
-        if ((d >> 1) === (pd >> 1)) continue;
         const [dx, dy, dz] = DIR6[d];
         const nx = bx + dx, ny = by + dy, nz = bz + dz;
-        if (stickTogether(this.g(nx, ny, nz), st) && !line(nx, ny, nz)) return false;
+        const nv = this.g(nx, ny, nz);
+        const sup = riderSupport(nv);
+        if (sup && nx + sup[0] === bx && ny + sup[1] === by && nz + sup[2] === bz && !pk.has(key(nx, ny, nz)) && !riders.some((q) => q[0] === nx && q[1] === ny && q[2] === nz)) { riders.push([nx, ny, nz]); continue; }
+        if ((d >> 1) === (pd >> 1)) continue;
+        if (stickTogether(nv, st) && !line(nx, ny, nz)) return false;
       }
       return true;
     };
@@ -611,6 +623,12 @@ export class Redstone {
     }
     if (!line(sx, sy, sz)) return null;
     for (let k = 0; k < push.length; k++) if (isSticky(this.g(...push[k])) && !branch(...push[k])) return null;
+    for (const [a, b, c] of riders) {
+      const tx = a + pdx, ty = b + pdy, tz = c + pdz;
+      if (pk.has(key(a, b, c)) || push.length >= 12 || destroy.some((q) => q[0] === a && q[1] === b && q[2] === c)) continue;
+      if (!pk.has(key(tx, ty, tz)) && !empty(tx, ty, tz) && !(isBase(tx, ty, tz) && !extending)) continue;
+      add(a, b, c);
+    }
     return { push, destroy };
   }
 
@@ -662,6 +680,14 @@ export class Redstone {
   private moveBlocks(x: number, y: number, z: number, dir: number, r: { push: [number, number, number][]; destroy: [number, number, number][] }, pid: string, head: [number, number, number, number] | null, anim: number[] = []): void {
     const [dx, dy, dz] = DIR6[dir];
     const states = r.push.map(([a, b, c]) => this.g(a, b, c));
+    if (this.h.dupeTnt) {
+      for (let k = 0; k < r.push.length; k++) {
+        if (blockId(states[k]) !== B.TNT) continue;
+        const [a, b, c] = r.push[k];
+        const hit = r.push.some(([q, w, e], j) => riderSupport(states[j]) && Math.abs(q - a) + Math.abs(w - b) + Math.abs(e - c) === 1);
+        if (hit) this.h.dupeTnt(a, b, c);
+      }
+    }
     for (let k = r.destroy.length - 1; k >= 0; k--) this.h.breakBlock(...r.destroy[k]);
     const left = new Set(r.push.map(([a, b, c]) => key(a, b, c)));
     const due = this.h.tick() + 2;
@@ -672,7 +698,7 @@ export class Redstone {
       left.delete(key(tx, ty, tz));
       this.h.setState(tx, ty, tz, B.MOVING_PISTON);
       this.moving.push({ x: tx, y: ty, z: tz, v: states[k], due, pid });
-      cells.push({ x: tx, y: ty, z: tz, sticky: isSticky(states[k]) });
+      cells.push({ x: tx, y: ty, z: tz, sticky: isSticky(states[k]), slime: blockId(states[k]) === B.SLIME_BLOCK });
       anim.push(a, b, c, tx, ty, tz, states[k]);
     }
     if (head) {

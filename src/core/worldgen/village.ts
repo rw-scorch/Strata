@@ -3,7 +3,7 @@ import { B, makeBlock, doorMeta, FACING_DIRS } from '../blocks';
 import { I, toolId } from '../items';
 import { Rng, hash2 } from '../rng';
 import type { ItemStack } from '../inventory';
-import type { Profession } from '../trades';
+import { PROFESSIONS, JOB_BLOCK, type Profession } from '../trades';
 import type { Column, GenBlockEntity } from './WorldGenerator';
 
 export const VILLAGE_REGION = 384;
@@ -136,7 +136,7 @@ type Getter = (x: number, y: number, z: number) => number;
 const SOFT = new Set<number>([0, B.TALL_GRASS, B.FERN, B.DANDELION, B.POPPY, B.DEAD_BUSH, B.OAK_LEAVES, B.BIRCH_LEAVES, B.SPRUCE_LEAVES, B.JUNGLE_LEAVES,
   B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, B.SNOW, B.SUGAR_CANE, B.CACTUS, B.RED_MUSHROOM, B.BROWN_MUSHROOM]);
 
-export function stampVillage(plan: VillagePlan, bx: number, bz: number, size: number, set: Setter, get: Getter, column: (x: number, z: number) => Column, entities: GenBlockEntity[]): void {
+export function stampVillage(plan: VillagePlan, bx: number, bz: number, size: number, set: Setter, get: Getter, column: (x: number, z: number) => Column, entities: GenBlockEntity[], level = 7): void {
   const inChunk = (x: number, z: number) => x >= bx && x < bx + size && z >= bz && z < bz + size;
   const P = PALETTES[plan.style];
   const S = (x: number, y: number, z: number, v: number) => { if (inChunk(x, z) && y > 0 && y < WORLD_HEIGHT) set(x - bx, y, z - bz, v); };
@@ -202,7 +202,7 @@ export function stampVillage(plan: VillagePlan, bx: number, bz: number, size: nu
         const border = u === u0 || u === u1 || v === 0 || v === b.d - 1;
         if (border) S(x, y, z, P.corner);
         else if (u === 0) S(x, y, z, B.WATER);
-        else { S(x, y, z, makeBlock(B.FARMLAND, 1)); S(x, y + 1, z, makeBlock(B.WHEAT, rr.int(8))); }
+        else { S(x, y, z, makeBlock(B.FARMLAND, 1)); const crop = level >= 8 ? [B.WHEAT, B.WHEAT, B.CARROTS, B.POTATOES, B.BEETROOTS][(b.seed >>> (Math.abs(u) & 7)) % 5] : B.WHEAT; S(x, y + 1, z, makeBlock(crop, rr.int(crop === B.BEETROOTS ? 4 : 8))); }
       }
       continue;
     }
@@ -265,6 +265,20 @@ export function stampVillage(plan: VillagePlan, bx: number, bz: number, size: nu
         S(cx3, y + 1, cz3, makeBlock(B.CHEST, front));
         if (inChunk(cx3, cz3)) entities.push({ x: cx3 - bx, y: y + 1, z: cz3 - bz, type: 'chest', items: houseLoot(rr) });
       }
+    }
+  }
+  if (level >= 8) {
+    for (const hm of plan.homes) {
+      if (hm.ix === undefined || hm.iz === undefined) continue;
+      const b = plan.buildings.find((q) => hm.ix! >= q.x0 && hm.ix! <= q.x1 && hm.iz! >= q.z0 && hm.iz! <= q.z1);
+      if (!b) continue;
+      const jx = hm.ix + b.ux, jz = hm.iz + b.uz;
+      if (!inChunk(jx, jz) || G(jx, b.y + 1, jz) !== 0) continue;
+      S(jx, b.y + 1, jz, JOB_BLOCK[PROFESSIONS.indexOf(hm.prof)] ?? B.COMPOSTER);
+    }
+    if (inChunk(plan.x + 1, plan.z + 1)) {
+      const h = column(plan.x + 1, plan.z + 1).height;
+      if (G(plan.x + 1, h + 1, plan.z + 1) === 0) S(plan.x + 1, h + 1, plan.z + 1, B.BELL);
     }
   }
 }

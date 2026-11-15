@@ -2,6 +2,7 @@ import { cleanKey, keyHint } from './adminKey';
 import { WorldRoom, Env } from './rooms/WorldRoom';
 import { Accounts } from './accounts/Accounts';
 import { Registry } from './registry/Registry';
+import { supporterRoute } from './stripe';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode, PROTOCOL_VERSION } from '../src/core/constants';
 
 export { WorldRoom, Accounts, Registry };
@@ -126,6 +127,8 @@ export default {
     if (path.startsWith('/api/admin/')) return admin(req, env, path);
 
     if (path === '/api/rooms' && req.method === 'POST') return createRoom(req, env);
+
+    if (path.startsWith('/api/supporter/') || path === '/api/stripe/webhook') return supporterRoute(req, env, path);
 
     const auth = path.match(/^\/api\/auth\/(register|login|password)$/);
     if (auth) {

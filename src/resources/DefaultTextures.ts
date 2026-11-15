@@ -299,6 +299,23 @@ const TEX: Record<string, () => Px> = {
   cobblestone: () => cobble('cobble', hex(0x8a8a8a), hex(0x4e4e4e)),
   mossy_cobblestone: () => cobble('cobble', hex(0x8a8a8a), hex(0x4e4e4e), hex(0x5c7f3a)),
   oak_planks: () => planks('oak', hex(0xa8834d)),
+  acacia_planks: () => planks('acacia', hex(0xb05d37)),
+  dark_oak_planks: () => planks('dark_oak', hex(0x4a3220)),
+  acacia_log: () => logSide('acacia_log', hex(0x6a645c), hex(0x524c45)),
+  acacia_log_top: () => logTop('acacia_top', hex(0x6a645c), hex(0xb05d37)),
+  dark_oak_log: () => logSide('dark_oak_log', hex(0x3b2a19), hex(0x2a1d10)),
+  dark_oak_log_top: () => logTop('dark_oak_top', hex(0x3b2a19), hex(0x5a4129)),
+  acacia_leaves: () => leaves('acacia_leaves'),
+  dark_oak_leaves: () => leaves('dark_oak_leaves'),
+  acacia_sapling: () => plant('asap', (p) => { stem(p, 7, 8, 15, hex(0x6a645c)); for (let y = 2; y < 7; y++) for (let x = 2; x < 14; x++) if (Math.abs(y - 4) * 3 + Math.abs(x - 7.5) < 7 && (x + y) % 3) p.set(x, y, hex(0x6f8f2c)); }),
+  dark_oak_sapling: () => plant('dsap', (p) => { stem(p, 7, 9, 15, hex(0x3b2a19)); for (let y = 2; y < 10; y++) for (let x = 3; x < 12; x++) if ((x - 7) ** 2 + (y - 6) ** 2 < 15 && (x * y + 1) % 3) p.set(x, y, hex(0x2f6a1c)); }),
+  red_sand: () => speckle(noise('rsand', hex(0xbe6621), 0.06), 'rsand', [hex(0xa85818), hex(0xd27a35)], 30),
+  coarse_dirt: () => speckle(noise('cdirt', hex(0x77553a), 0.12), 'cdirt', [hex(0x5a3f2a), hex(0x8f8f8f), hex(0x6b6b6b), hex(0x9a7a5a)], 40),
+  podzol_top: () => speckle(noise('podz', hex(0x5b3e1d), 0.12), 'podz', [hex(0x7a5a2a), hex(0x3f2a12), hex(0x6a4f22)], 44),
+  podzol_side: () => { const p = TEX.dirt(); for (let x = 0; x < 16; x++) for (let y = 0; y < 3 + ((x * 7) % 3); y++) p.set(x, y, (x + y) % 3 ? hex(0x5b3e1d) : hex(0x7a5a2a)); return p; },
+  red_sandstone: () => { const p = noise('rss', hex(0xb5621f), 0.05); for (let x = 0; x < 16; x++) { p.set(x, 3, hex(0x9c521a)); p.set(x, 10, hex(0x9c521a)); p.set(x, 11, hex(0xc97a35)); } return p; },
+  red_sandstone_top: () => speckle(noise('rsst', hex(0xbb6a26), 0.04), 'rsst', [hex(0xa85d1f)], 12),
+  red_sandstone_bottom: () => speckle(noise('rssb', hex(0xb0601e), 0.08), 'rssb', [hex(0x96501a)], 20),
   birch_planks: () => planks('birch', hex(0xd2bf88)),
   spruce_planks: () => planks('spruce', hex(0x6e5134)),
   jungle_planks: () => planks('jungle', hex(0xa87656)),
@@ -414,6 +431,79 @@ const TEX: Record<string, () => Px> = {
   moon: () => { const p = new Px(32, 32); for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) { const d = Math.max(Math.abs(x - 15.5), Math.abs(y - 15.5)); if (d < 7) { const crater = ((x - 13) ** 2 + (y - 13) ** 2 < 5) || ((x - 18) ** 2 + (y - 19) ** 2 < 3); p.set(x, y, crater ? [170, 178, 200, 255] : [220, 226, 240, 255]); } } return p; },
 };
 for (let i = 0; i < 8; i++) TEX[`wheat_stage${i}`] = () => plant(`wheat${i}`, wheatStage(i));
+const OAKC = hex(0xa2824e), SPRC = hex(0x6b4f2e), BIRC = hex(0xc4b07a), STONEC = hex(0x8a8a8a), DARKS = hex(0x4a4a4e), IRONC = hex(0x5e5e64);
+const box = (base: Px, c: RGBA, x0: number, y0: number, x1: number, y1: number) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) base.set(x, y, c); return base; };
+const rim = (base: Px, c: RGBA) => { for (let i = 0; i < 16; i++) { base.set(i, 0, c); base.set(i, 15, c); base.set(0, i, c); base.set(15, i, c); } return base; };
+Object.assign(TEX, {
+  composter_side: () => { const p = planks('comp', OAKC); for (let x = 0; x < 16; x += 5) box(p, shade(OAKC, 0.6), x, 0, x, 15); return p; },
+  composter_top: () => rim(box(planks('compt', OAKC), hex(0x5a3e22), 2, 2, 13, 13), shade(OAKC, 0.7)),
+  composter_bottom: () => planks('compb', shade(OAKC, 0.85)),
+  lectern_sides: () => planks('lecs', OAKC), lectern_base: () => planks('lecb', shade(OAKC, 0.9)),
+  lectern_front: () => box(planks('lecf', OAKC), shade(OAKC, 0.65), 6, 2, 9, 13),
+  lectern_top: () => { const p = planks('lect', OAKC); box(p, hex(0xe8e0c8), 2, 4, 13, 11); box(p, hex(0x7a5a3a), 7, 4, 8, 11); return p; },
+  blast_furnace_side: () => rim(noise('bfs', DARKS, 0.08), shade(DARKS, 0.7)), blast_furnace_top: () => box(noise('bft', DARKS, 0.08), IRONC, 3, 3, 12, 12),
+  blast_furnace_front: () => { const p = rim(noise('bff', DARKS, 0.08), shade(DARKS, 0.7)); box(p, IRONC, 3, 2, 12, 13); for (let x = 4; x < 12; x += 2) box(p, hex(0x1a1a1a), x, 8, x, 12); return p; },
+  smoker_side: () => box(cobble('smks', STONEC, shade(STONEC, 0.6)), SPRC, 0, 12, 15, 15), smoker_top: () => box(planks('smkt', SPRC), DARKS, 4, 4, 11, 11), smoker_bottom: () => cobble('smkb', STONEC, shade(STONEC, 0.6)),
+  smoker_front: () => { const p = box(cobble('smkf', STONEC, shade(STONEC, 0.6)), SPRC, 0, 12, 15, 15); box(p, hex(0x1a1a1a), 4, 5, 11, 10); return p; },
+  fletching_table_side: () => planks('fls', BIRC), fletching_table_top: () => box(planks('flt', BIRC), hex(0x9a8a6a), 3, 3, 12, 12),
+  fletching_table_front: () => { const p = planks('flf', BIRC); for (let i = 0; i < 6; i++) { p.set(4 + i, 4 + i, hex(0xf0f0f0)); p.set(5 + i, 4 + i, hex(0xd0d0d0)); } box(p, hex(0x4a4a4a), 10, 10, 12, 12); return p; },
+  brewing_stand_base: () => noise('brb', STONEC, 0.08), brewing_stand: () => { const p = new Px(); box(p, hex(0xb08a3a), 7, 1, 8, 13); box(p, hex(0x9ad0f0), 2, 8, 4, 13); box(p, hex(0x9ad0f0), 11, 8, 13, 13); return p; },
+  stonecutter_side: () => box(noise('stcs', STONEC, 0.06), shade(STONEC, 0.7), 0, 0, 15, 2), stonecutter_bottom: () => noise('stcb', STONEC, 0.06),
+  stonecutter_top: () => { const p = noise('stct', STONEC, 0.06); box(p, hex(0xc8c8c8), 1, 7, 14, 8); return p; },
+  barrel_side: () => { const p = planks('brs', SPRC); box(p, IRONC, 0, 2, 15, 2); box(p, IRONC, 0, 13, 15, 13); return p; },
+  barrel_top: () => { const p = rim(planks('brt', SPRC), shade(SPRC, 0.6)); box(p, shade(SPRC, 0.5), 6, 6, 9, 9); return p; }, barrel_bottom: () => rim(planks('brb2', SPRC), shade(SPRC, 0.6)),
+  cartography_table_side1: () => box(planks('cts1', SPRC), hex(0xe8dcb8), 3, 3, 12, 9), cartography_table_side2: () => box(planks('cts2', SPRC), hex(0xe8dcb8), 2, 2, 8, 12), cartography_table_side3: () => planks('cts3', SPRC),
+  cartography_table_top: () => { const p = box(planks('ctt', SPRC), hex(0xe8dcb8), 1, 1, 14, 14); for (let i = 2; i < 14; i += 3) box(p, hex(0x7a9a5a), i, 3, i + 1, 5); box(p, hex(0x5a8ac8), 3, 9, 12, 12); return p; },
+  cauldron_side: () => rim(noise('cas', IRONC, 0.06), shade(IRONC, 0.7)), cauldron_top: () => box(rim(noise('cat', IRONC, 0.06), shade(IRONC, 1.2)), hex(0x2a2a2e), 2, 2, 13, 13), cauldron_bottom: () => noise('cab', shade(IRONC, 0.8), 0.06), cauldron_inner: () => noise('cai', shade(IRONC, 0.7), 0.06),
+  loom_side: () => planks('lms', OAKC), loom_top: () => box(planks('lmt', OAKC), hex(0xe8e8e8), 2, 5, 13, 10), loom_bottom: () => planks('lmb', shade(OAKC, 0.85)),
+  loom_front: () => { const p = planks('lmf', OAKC); for (let x = 3; x < 13; x += 2) box(p, hex(0xe8e8e8), x, 2, x, 13); box(p, hex(0x6a4a2a), 2, 7, 13, 8); return p; },
+  grindstone_side: () => rim(noise('gss', hex(0x9a9a9a), 0.05), hex(0x6a6a6a)), grindstone_round: () => noise('gsr', hex(0x8a8a8a), 0.05), grindstone_pivot: () => planks('gsp', SPRC),
+  bell_side: () => noise('bls', hex(0xe8c040), 0.05), bell_top: () => noise('blt', hex(0xd0a830), 0.05), bell_bottom: () => box(noise('blb', hex(0xd0a830), 0.05), hex(0x5a4010), 5, 5, 10, 10),
+  lantern: () => { const p = box(new Px(), hex(0x3a3a40), 4, 2, 11, 15); box(p, hex(0xffc860), 5, 5, 10, 12); return p; },
+  pumpkin_side: () => { const p = noise('pks', hex(0xd08a1a), 0.06); for (let x = 1; x < 16; x += 4) box(p, hex(0xb06a10), x, 0, x, 15); return p; },
+  pumpkin_top: () => { const p = noise('pkt', hex(0xc8821a), 0.06); box(p, hex(0x5a7a2a), 7, 7, 8, 8); return p; },
+  melon_side: () => { const p = noise('mls', hex(0x6a9a2a), 0.06); for (let x = 2; x < 16; x += 4) box(p, hex(0xb8c840), x, 0, x, 15); return p; },
+  melon_top: () => { const p = noise('mlt', hex(0x7aa832), 0.06); box(p, hex(0x4a6a1a), 7, 7, 8, 8); return p; },
+  cake_side: () => { const p = box(new Px(), hex(0xc88a5a), 0, 0, 15, 15); box(p, hex(0xf8f0f0), 0, 0, 15, 3); box(p, hex(0xe03030), 0, 7, 15, 8); return p; },
+  cake_top: () => { const p = noise('ckt', hex(0xf8f0f0), 0.03); for (const [x, y] of [[3, 4], [10, 3], [6, 9], [12, 11], [2, 12]]) p.set(x, y, hex(0xe03030)); return p; },
+  cake_bottom: () => noise('ckb', hex(0xb07a4a), 0.05), cake_inner: () => noise('cki', hex(0xd8a070), 0.05),
+  granite: () => speckle(noise('gra', hex(0x9a6a56), 0.06), 'gra', [hex(0xc8907a), hex(0x6a4a3a)], 22),
+  polished_granite: () => rim(noise('pgra', hex(0xa2725e), 0.03), hex(0x7a5040)),
+  diorite: () => speckle(noise('dio', hex(0xc8c8c8), 0.05), 'dio', [hex(0xf0f0f0), hex(0x7a7a7a)], 26),
+  polished_diorite: () => rim(noise('pdio', hex(0xd0d0d0), 0.03), hex(0x9a9a9a)),
+  andesite: () => speckle(noise('and', hex(0x868686), 0.06), 'and', [hex(0xa0a0a0), hex(0x5a5a5a)], 26),
+  polished_andesite: () => rim(noise('pand', hex(0x8a8c8c), 0.03), hex(0x5e6060)),
+  dripstone_block: () => { const p = noise('drp', hex(0x8a6a50), 0.06); for (let y = 2; y < 16; y += 4) box(p, hex(0x6a4e3a), 0, y, 15, y); return p; },
+  quartz_pillar: () => { const p = noise('qp', hex(0xece6dc), 0.02); box(p, hex(0xd8d0c4), 2, 0, 2, 15); box(p, hex(0xd8d0c4), 13, 0, 13, 15); return p; },
+  quartz_pillar_top: () => rim(noise('qpt', hex(0xece6dc), 0.02), hex(0xd0c8bc)),
+  dried_kelp_side: () => { const p = noise('dks', hex(0x3a4a26), 0.08); for (let y = 0; y < 16; y += 3) box(p, hex(0x2a3a1a), 0, y, 15, y); return p; },
+  dried_kelp_top: () => noise('dkt', hex(0x445a2c), 0.08), dried_kelp_bottom: () => noise('dkb', hex(0x3a4a26), 0.08),
+});
+for (const [i, c] of (['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'] as const).entries()) {
+  const base = hex([0xf0f0f0, 0xe08030, 0xc050c0, 0x60a0e0, 0xf0d040, 0x80c030, 0xf0a0c0, 0x505058, 0xa0a0a8, 0x30a0a8, 0x8040b0, 0x3050b0, 0x806040, 0x507030, 0xb03030, 0x202024][i]);
+  TEX[`${c}_glazed_terracotta`] = () => { const p = noise(`gt${c}`, base, 0.04); for (let k = 0; k < 16; k++) { p.set(k, k, shade(base, 0.6)); p.set(15 - k, k, shade(base, 1.25)); } box(p, shade(base, 0.8), 6, 6, 9, 9); return rim(p, shade(base, 0.7)); };
+}
+const cropStage = (key: string, stage: number, leaf: RGBA, root: RGBA | null) => () => plant(`${key}${stage}`, (p: Px, r: Rng) => {
+  for (const x of [2, 5, 9, 12]) {
+    const top = 15 - (2 + stage * 3) - r.int(2);
+    stem(p, x, top, 15, leaf);
+    p.set(x - 1, top + 1, leaf); p.set(x + 1, top + 1, leaf);
+    if (root && stage === 3) { p.set(x, 15, root); p.set(x, 14, root); }
+  }
+});
+for (let i = 0; i < 4; i++) {
+  TEX[`carrots_stage${i}`] = cropStage('car', i, hex(0x4a9a2a), hex(0xf08a20));
+  TEX[`potatoes_stage${i}`] = cropStage('pot', i, hex(0x5aa83a), hex(0xd8b060));
+  TEX[`beetroots_stage${i}`] = cropStage('bet', i, hex(0x4a8a2a), hex(0xa02040));
+}
+for (let i = 0; i < 3; i++) TEX[`nether_wart_stage${i}`] = () => plant(`nwart${i}`, (p: Px, r: Rng) => {
+  const stalk = hex(0x6a1418), bulb = hex(0xa8242a), hi = hex(0xd8443a);
+  for (const x of [2, 6, 10, 13]) {
+    const top = 15 - (3 + i * 3) - r.int(2);
+    stem(p, x, top + 1, 15, stalk);
+    for (const [dx, dy] of [[0, 0], [-1, 0], [1, 0], [0, -1], ...(i > 0 ? [[-1, -1], [1, -1]] : []), ...(i > 1 ? [[0, -2], [-1, 1], [1, 1]] : [])]) p.set(x + dx, top + dy, (dx + dy) % 2 ? bulb : hi);
+  }
+});
 for (let i = 0; i < 10; i++) TEX[`destroy_stage_${i}`] = () => crack(i);
 
 function framed(base: Px, light: RGBA, dark: RGBA): Px {
@@ -701,7 +791,7 @@ const SPRITES: Record<string, { rows: string[]; pal: Record<string, number> }> =
 const MAT_PAL: Record<string, [number, number, number]> = {
   wooden: [0x4a3418, 0x8a6a3e, 0xb08d57], stone: [0x3a3a3a, 0x7a7a7a, 0xa8a8a8], iron: [0x4a4a4a, 0xc8c8c8, 0xf4f4f4],
   golden: [0x8a6a10, 0xf0cc2a, 0xfff2a0], aetherite: [0x0e5f5a, 0x3fd8cc, 0xb8fff8], leather: [0x5a3416, 0x9a5e2e, 0xb87a48],
-  gold: [0x8a6a10, 0xf0cc2a, 0xfff2a0], copper: [0x6a3018, 0xc06a48, 0xf0b090],
+  gold: [0x8a6a10, 0xf0cc2a, 0xfff2a0], cinderite: [0x1e1a20, 0x4a4248, 0x7a6e78], copper: [0x6a3018, 0xc06a48, 0xf0b090],
 };
 
 function drawSprite(rows: string[], pal: Record<string, number>): Px {
@@ -780,6 +870,26 @@ const ITEM_MAP: Record<string, () => Px> = {
   ITEM_MAP.gold_nugget = nug(0x8a6a10, 0xf0cc2a, 0xfff2a0);
   ITEM_MAP.iron_nugget = nug(0x55585e, 0xc6c6c6, 0xf2f2f2);
   ITEM_MAP.ghast_tear = () => drawSprite(['................', '................', '.......a........', '......aba.......', '......aba.......', '.....abbba......', '.....abcba......', '....abbcbba.....', '....abbbbba.....', '....abbbbba.....', '.....abbba......', '......aaa.......', '................', '................', '................', '................'], { a: 0x6aa0b0, b: 0xc8eef4, c: 0xffffff });
+  ITEM_MAP.blaze_rod = () => drawSprite(['................', '...........aa...', '..........abba..', '.........abba...', '........abba....', '.......abba.....', '......abba......', '.....abba.......', '....abba........', '...abba.........', '..abba..........', '.abba...........', '.aa.............', '................', '................', '................'], { a: 0x8a4a00, b: 0xffd040 });
+  ITEM_MAP.blaze_powder = () => drawSprite(['................', '................', '................', '.......a........', '.....a.b..a.....', '....ab.bba.b....', '...abbbcbbba....', '...bbcccccbb....', '..abbccdccbba...', '..bbccddddcbb...', '...abbccccba....', '....aabbbaa.....', '................', '................', '................', '................'], { a: 0xa04800, b: 0xe08a10, c: 0xf8c030, d: 0xfff080 });
+  ITEM_MAP.nether_wart_item = () => drawSprite(['................', '................', '......aab.......', '.....abbcb......', '....abbbbcb.....', '....abbbbbb.....', '.....abbbba.....', '......aaaa......', '.......dd.......', '......d..d......', '.....d....d.....', '................', '................', '................', '................', '................'], { a: 0x6a1418, b: 0xa8242a, c: 0xd8443a, d: 0x4a1012 });
+  ITEM_MAP.wither_skeleton_skull = () => drawSprite(['................', '................', '...aaaaaaaaaa...', '..abbbbbbbbbba..', '..abbbbbbbbbba..', '..abccbbbbccba..', '..abccbbbbccba..', '..abbbbbbbbbba..', '..abbbbccbbbba..', '..abbbbbbbbbba..', '..abcbcbcbcbba..', '..abbbbbbbbbba..', '...aaaaaaaaaa...', '................', '................', '................'], { a: 0x101010, b: 0x3a3a3a, c: 0x0a0a0a });
+  ITEM_MAP.nether_brick_fence_item = () => drawSprite(['................', '................', '...aa......aa...', '...ab......ab...', '...abaaaaaaab...', '...abbbbbbbbb...', '...abaaaaaaab...', '...ab......ab...', '...abaaaaaaab...', '...abbbbbbbbb...', '...abaaaaaaab...', '...ab......ab...', '...ab......ab...', '...ab......ab...', '...aa......aa...', '................'], { a: 0x1a0c0f, b: 0x3d1f24 });
+  ITEM_MAP.potato = () => drawSprite(['................', '................', '.....aaaa.......', '....abbbba......', '...abbbbbba.....', '...abbcbbbba....', '...abbbbbbba....', '....abbbcbba....', '....abbbbbba....', '.....abbbba.....', '......aaaa......', '................', '................', '................', '................', '................'], { a: 0x8a6a30, b: 0xd8b060, c: 0x6a5020 });
+  ITEM_MAP.baked_potato = () => drawSprite(['................', '................', '.....aaaa.......', '....abbbba......', '...abbcbbba.....', '...abbbbbbba....', '...abbbbcbba....', '....abbbbbba....', '....abbcbbba....', '.....abbbba.....', '......aaaa......', '................', '................', '................', '................', '................'], { a: 0x8a5a20, b: 0xe8b850, c: 0xf8e0a0 });
+  ITEM_MAP.carrot = () => drawSprite(['..........g.g...', '..........ggg...', '.........aagg...', '........abba....', '.......abba.....', '......abba......', '.....abba.......', '....abba........', '...abba.........', '..abba..........', '..aba...........', '..aa............', '................', '................', '................', '................'], { a: 0xb05a10, b: 0xf08a20, g: 0x4a9a2a });
+  ITEM_MAP.golden_carrot = () => drawSprite(['..........g.g...', '..........ggg...', '.........aagg...', '........abba....', '.......abca.....', '......abba......', '.....acba.......', '....abba........', '...abca.........', '..abba..........', '..aba...........', '..aa............', '................', '................', '................', '................'], { a: 0xb08a10, b: 0xf0d040, c: 0xfff0a0, g: 0x4a9a2a });
+  ITEM_MAP.beetroot = () => drawSprite(['.......gg.......', '......g..g......', '.......gg.......', '.....aaaaaa.....', '....abbbbbba....', '....abbbbbba....', '....abbbbbba....', '.....abbbba.....', '......abba......', '.......aa.......', '.......a........', '................', '................', '................', '................', '................'], { a: 0x6a1020, b: 0xa02040, g: 0x4a8a2a });
+  ITEM_MAP.beetroot_seeds = () => drawSprite(['................', '................', '................', '.....a...a......', '......b.....a...', '....a....b......', '.......a.....b..', '...b.......a....', '......a.b.......', '....a.......a...', '........a.......', '................', '................', '................', '................', '................'], { a: 0xc8b070, b: 0x8a7040 });
+  ITEM_MAP.beetroot_soup = () => drawSprite(['................', '................', '................', '................', '................', '..aaaaaaaaaaaa..', '..abbbbbbbbbba..', '..abbbcbbbbbba..', '...abbbbbbbba...', '....aaaaaaaa....', '.....aaaaaa.....', '................', '................', '................', '................', '................'], { a: 0x6a4a2a, b: 0xa02040, c: 0xd04060 });
+  ITEM_MAP.pumpkin_pie = () => drawSprite(['................', '................', '................', '.....aaaaaa.....', '...aabbbbbbaa...', '..abbbbcbbbbba..', '..abbcbbbbcbba..', '..abbbbbbbbbba..', '...aabbbbbbaa...', '.....aaaaaa.....', '................', '................', '................', '................', '................', '................'], { a: 0xb07a3a, b: 0xe0902a, c: 0xf8c070 });
+  ITEM_MAP.melon_slice = () => drawSprite(['................', '................', '................', '..a.............', '..aa............', '..aba...........', '..abba..........', '..abcba.........', '..abbbba........', '..abbcbba.......', '..aaaaaaaa......', '..gggggggggg....', '................', '................', '................', '................'], { a: 0xc83030, b: 0xe85050, c: 0x202020, g: 0x4a8a2a });
+  ITEM_MAP.glistering_melon_slice = () => drawSprite(['................', '...........y....', '................', '..a......y......', '..aa............', '..aya...........', '..abba.....y....', '..abcba.........', '..abbbya........', '..abbcbba.......', '..aaaaaaaa......', '..yyyyyyyyyy....', '................', '................', '................', '................'], { a: 0xc83030, b: 0xe85050, c: 0x202020, y: 0xf8d840 });
+  ITEM_MAP.compass = () => drawSprite(['................', '................', '.....aaaaaa.....', '....abbbbbba....', '...abbbbcbbba...', '...abbbbcbbba...', '...abbbccbbba...', '...abbbcdbbba...', '...abbbddbbba...', '...abbbdbbbba...', '...abbbdbbbba...', '....abbbbbba....', '.....aaaaaa.....', '................', '................', '................'], { a: 0x5a5a60, b: 0xb0b0b8, c: 0xe03030, d: 0x404048 });
+  ITEM_MAP.clock = () => drawSprite(['................', '................', '.....aaaaaa.....', '....abbbbbba....', '...abbbcbbbba...', '...abbbcbbbba...', '...abbbcbbbba...', '...abbbccccba...', '...abbbbbbbba...', '...abbbbbbbba...', '....abbbbbba....', '.....aaaaaa.....', '................', '................', '................', '................'], { a: 0xb08a10, b: 0xf0e0a0, c: 0x404040 });
+  ITEM_MAP.name_tag = () => drawSprite(['................', '................', '..........aa....', '.........a..a...', '........a....a..', '.......abbbbba..', '......abbbbbba..', '.....abbbbbba...', '....abbbbbba....', '...abbbbbba.....', '...abbbbba......', '...aaaaaa.......', '................', '................', '................', '................'], { a: 0x6a5a40, b: 0xe8dcb8 });
+  ITEM_MAP.glass_bottle = () => drawSprite(['................', '.......aa.......', '.......bb.......', '......abba......', '......a..a......', '.....a....a.....', '....a......a....', '....a......a....', '....a......a....', '....a......a....', '.....aaaaaa.....', '................', '................', '................', '................', '................'], { a: 0xc8e0f0, b: 0x8a6a40 });
+  ITEM_MAP.writable_book = () => drawSprite(['................', '...........ff...', '..........ff....', '...aaaaaaff.....', '...abbbbff......', '...abbbfbba.....', '...abbbbbba.....', '...abbbbbba.....', '...abbbbbba.....', '...abbbbbba.....', '...aaaaaaaa.....', '................', '................', '................', '................', '................'], { a: 0x6a3a1a, b: 0xa05a2a, f: 0xf0f0f0 });
   ITEM_MAP.magma_cream = () => drawSprite(['................', '................', '................', '.....aaaaa......', '....abbbbba.....', '...abccbbcba....', '...abcdbbdcba...', '...abbbbbbbba...', '...abdcbbcdba...', '....abccccba....', '.....aaaaaa.....', '................', '................', '................', '................', '................'], { a: 0x5a2a08, b: 0xd86a10, c: 0xf8b030, d: 0xfff070 });
   ITEM_MAP.tripwire_hook = () => drawSprite(['................', '......aaaa......', '.....abbbba.....', '.....ab..ba.....', '.....abbbba.....', '......aaaa......', '.......cc.......', '.......cc.......', '.......cc.......', '.......cc.......', '.....dddddd.....', '.....deeeed.....', '.....deeeed.....', '.....dddddd.....', '................', '................'], { a: 0x4a4a4a, b: 0xcfcfcf, c: 0x6b4a2a, d: 0x5a4020, e: 0xa8834e });
   ITEM_MAP.quartz = () => drawSprite(['................', '................', '.........aa.....', '........abca....', '.......abbca....', '......abbba.....', '.....abbcba.....', '....abbbba......', '....abcba.......', '...abbba........', '...abba.........', '....aa..........', '................', '................', '................', '................'], { a: 0xa89a90, b: 0xece6df, c: 0xffffff });

@@ -42,7 +42,7 @@ export interface PackManifest {
   catalog?: string;
 }
 
-export const IMPORTER_VERSION = 21;
+export const IMPORTER_VERSION = 25;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -70,7 +70,7 @@ export const GUI_SPRITES = [
   'recipe_book/page_forward', 'recipe_book/page_backward', 'recipe_book/page_forward_highlighted', 'recipe_book/page_backward_highlighted', 'recipe_book/tab', 'recipe_book/tab_selected',
   'recipe_book/filter_enabled', 'recipe_book/filter_disabled', 'recipe_book/filter_enabled_highlighted', 'recipe_book/filter_disabled_highlighted', 'hud/hotbar_offhand_left', 'container/slot/shield', 'icon/search',
 ];
-export const GUI_TEXTURES = ['container/enchanting_table', 'container/anvil', 'container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/hopper', 'container/dispenser', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
+export const GUI_TEXTURES = ['container/enchanting_table', 'container/anvil', 'container/smithing', 'container/inventory', 'container/crafting_table', 'container/furnace', 'container/generic_54', 'container/hopper', 'container/dispenser', 'container/villager', 'container/creative_inventory/tab_items', 'container/creative_inventory/tab_item_search', 'container/creative_inventory/tab_inventory', 'recipe_book', 'menu_background', 'header_separator', 'footer_separator', 'inworld_menu_background'];
 
 
 export interface PackFiles { [path: string]: Uint8Array; }
@@ -78,13 +78,13 @@ export interface PackFiles { [path: string]: Uint8Array; }
 export interface ImportedPack { manifest: PackManifest; files: PackFiles; icon: Uint8Array | null; }
 
 export const JAVA_BLOCK_NAMES: Record<string, { name: string; state?: string }> = {
-  aetherite_ore: { name: 'diamond_ore' }, aetherite_block: { name: 'diamond_block' }, tall_grass: { name: 'short_grass' },
+  aetherite_ore: { name: 'diamond_ore' }, aetherite_block: { name: 'diamond_block' }, cinderite_block: { name: 'netherite_block' }, tall_grass: { name: 'short_grass' },
   snowy_grass: { name: 'grass_block', state: 'snowy=true' }, copper_lamp: { name: 'copper_bulb', state: 'lit=true,powered=false' }, trial_spawner: { name: 'trial_spawner', state: 'ominous=false,trial_spawner_state=inactive' }, vault: { name: 'vault', state: 'facing=north,ominous=false,vault_state=inactive' }, furnace: { name: 'furnace', state: 'facing=north,lit=false' },
   furnace_lit: { name: 'furnace', state: 'facing=north,lit=true' }, grass: { name: 'grass_block', state: 'snowy=false' },
   farmland: { name: 'farmland', state: 'moisture=7' }, wheat: { name: 'wheat', state: 'age=0' },
 };
 
-const SKIP_MODEL = new Set(['chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser']);
+const SKIP_MODEL = new Set(['chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'nether_wart', 'nether_brick_fence', 'carrots', 'potatoes', 'beetroots', 'lectern', 'brewing_stand', 'cauldron', 'grindstone', 'stonecutter', 'bell', 'lantern', 'cake', 'composter', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser']);
 
 const all6 = (t: string) => ({ px: t, nx: t, py: t, ny: t, pz: t, nz: t });
 const RS_FACES: Record<string, Record<string, string>> = {
@@ -110,7 +110,7 @@ const RS6_TEX = ['observer_back', 'observer_back_on', 'piston_inner', 'hopper_in
 
 const JAVA_ITEM_NAMES: Record<string, string> = {
   aetherite: 'diamond', raw_pork: 'porkchop', cooked_pork: 'cooked_porkchop', raw_mutton: 'mutton', raw_poultry: 'chicken',
-  cooked_poultry: 'cooked_chicken', oak_door_item: 'oak_door', blastpowder: 'gunpowder', firestriker: 'flint_and_steel', crossbow: 'crossbow_standby',
+  cooked_poultry: 'cooked_chicken', oak_door_item: 'oak_door', blastpowder: 'gunpowder', firestriker: 'flint_and_steel', crossbow: 'crossbow_standby', nether_wart_item: 'nether_wart', compass: 'compass_16', clock: 'clock_00', cinderite_upgrade_smithing_template: 'netherite_upgrade_smithing_template',
 };
 
 export function langKeys(key: string, block: boolean): string[] {
@@ -138,7 +138,7 @@ export function readLangNames(raw: Uint8Array | undefined): Record<string, strin
 
 export function javaItemName(key: string): string {
   if (JAVA_ITEM_NAMES[key]) return JAVA_ITEM_NAMES[key];
-  return key.replace(/^aetherite_/, 'diamond_').replace(/^gold_(helmet|chestplate|leggings|boots)$/, 'golden_$1');
+  return key.replace(/^aetherite_/, 'diamond_').replace(/^cinderite_/, 'netherite_').replace(/^gold_(helmet|chestplate|leggings|boots)$/, 'golden_$1');
 }
 
 const BEDROCK_BLOCK_FILES: Record<string, string[]> = {
@@ -175,9 +175,9 @@ const BEDROCK_ITEM_FILES: Record<string, string[]> = {
   lava_bucket: ['bucket_lava'], rotten_flesh: ['rotten_flesh'], paper: ['paper'], book: ['book_normal'], red_dye: ['dye_powder_red_new', 'dye_powder_red'],
   yellow_dye: ['dye_powder_yellow_new', 'dye_powder_yellow'], arrow: ['arrow'], oak_door_item: ['door_wood'], bow: ['bow_standby', 'bow'], emerald: ['emerald'], bone_meal: ['dye_powder_white_new', 'dye_powder_white'], bow_pulling_0: ['bow_pulling_0'], bow_pulling_1: ['bow_pulling_1'], bow_pulling_2: ['bow_pulling_2'],
 };
-const BR_MAT: Record<string, string> = { wooden: 'wood', stone: 'stone', iron: 'iron', golden: 'gold', aetherite: 'diamond', leather: 'leather', gold: 'gold' };
-for (const m of ['wooden', 'stone', 'iron', 'golden', 'aetherite']) for (const t of ['pickaxe', 'axe', 'shovel', 'sword', 'hoe']) BEDROCK_ITEM_FILES[`${m}_${t}`] = [`${BR_MAT[m]}_${t}`];
-for (const m of ['leather', 'iron', 'gold', 'aetherite']) for (const s of ['helmet', 'chestplate', 'leggings', 'boots']) BEDROCK_ITEM_FILES[`${m}_${s}`] = [`${BR_MAT[m]}_${s}`];
+const BR_MAT: Record<string, string> = { wooden: 'wood', stone: 'stone', iron: 'iron', golden: 'gold', aetherite: 'diamond', cinderite: 'netherite', leather: 'leather', gold: 'gold' };
+for (const m of ['wooden', 'stone', 'iron', 'golden', 'aetherite', 'cinderite']) for (const t of ['pickaxe', 'axe', 'shovel', 'sword', 'hoe']) BEDROCK_ITEM_FILES[`${m}_${t}`] = [`${BR_MAT[m]}_${t}`];
+for (const m of ['leather', 'iron', 'gold', 'aetherite', 'cinderite']) for (const s of ['helmet', 'chestplate', 'leggings', 'boots']) BEDROCK_ITEM_FILES[`${m}_${s}`] = [`${BR_MAT[m]}_${s}`];
 
 const SOUND_EVENTS: Record<string, { java: string[]; bedrock: string[] }> = {};
 for (const g of ['stone', 'wood', 'grass', 'gravel', 'sand', 'snow', 'glass', 'metal']) {
@@ -405,16 +405,17 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     for (const b of BLOCKS) if (b && b.id && SKIP_MODEL.has(b.key)) {
       const extra: Record<string, string[]> = {
         chest: [], oak_door: ['block/oak_door_top', 'block/oak_door_bottom'], torch: ['block/torch'], ladder: ['block/ladder'],
-        water: ['block/water_still', 'block/water_flow'], lava: ['block/lava_still', 'block/lava_flow'], wheat: Array.from({ length: 8 }, (_, i) => `block/wheat_stage${i}`), lily_pad: ['block/lily_pad'], air: [],
+        water: ['block/water_still', 'block/water_flow'], lava: ['block/lava_still', 'block/lava_flow'], wheat: Array.from({ length: 8 }, (_, i) => `block/wheat_stage${i}`), nether_wart: [0, 1, 2].map((i) => `block/nether_wart_stage${i}`), carrots: [0, 1, 2, 3].map((i) => `block/carrots_stage${i}`), potatoes: [0, 1, 2, 3].map((i) => `block/potatoes_stage${i}`), beetroots: [0, 1, 2, 3].map((i) => `block/beetroots_stage${i}`), lily_pad: ['block/lily_pad'], air: [],
       };
       for (const t of extra[b.key] ?? []) needTex.add(t);
+      if (b.render === 'boxes') for (const f of new Set([...Object.values(b.faces), b.front].filter(Boolean) as string[])) needTex.add(`block/${f}`);
     }
     for (const t of RS6_TEX) needTex.add(`block/${t}`);
     for (let i = 0; i < 10; i++) needTex.add(`block/destroy_stage_${i}`);
     for (const k of ['grass_block_top', 'grass_block_side', 'grass_block_side_overlay', 'grass_block_snow', 'farmland_moist']) needTex.add(`block/${k}`);
     const itemModelNames = new Map<string, string>();
     for (const it of ITEMS) {
-      if (!it || it.kind === 'block' || it.blockIcon) continue;
+      if (!it || it.kind === 'block' || it.blockIcon || it.key === 'wither_skeleton_skull') continue;
       itemModelNames.set(it.key, javaItemName(it.key));
     }
     for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door' && !itemModelNames.has(it.key)) itemModelNames.set(it.key, BLOCKS[it.id]?.render === 'redstone' ? it.key : '');
@@ -466,6 +467,12 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       ent_magmacube: firstOf('entity/slime/magmacube'),
       ent_strider: firstOf('entity/strider/strider'),
       ent_strider_cold: firstOf('entity/strider/strider_cold'),
+      ent_strider_saddle: firstOf('entity/equipment/strider_saddle/saddle', 'entity/strider/strider_saddle'),
+      ent_blaze: firstOf('entity/blaze/blaze', 'entity/blaze'),
+      ent_wither_skeleton: firstOf('entity/skeleton/wither_skeleton'),
+      ent_piglin: firstOf('entity/piglin/piglin'),
+      ent_piglin_brute: firstOf('entity/piglin/piglin_brute'),
+      ent_hoglin: firstOf('entity/hoglin/hoglin'),
       ent_chest: firstOf('entity/chest/normal'),
       ent_chest_left: firstOf('entity/chest/normal_left'),
       ent_chest_right: firstOf('entity/chest/normal_right'),
@@ -476,8 +483,8 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       gui_slot: firstOf('gui/sprites/container/slot'),
     };
     ['steve', 'alex', 'ari', 'efe', 'kai', 'makena', 'noor', 'sunny', 'zuri'].forEach((n, i) => { ent[`ent_player${i}`] = firstOf(`entity/player/wide/${n}`, i === 0 ? 'entity/steve' : `entity/player/wide/${n}`); });
-    for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason']) ent[`ent_vprof_${pr}`] = firstOf(`entity/villager/profession/${pr}`);
-    for (const [m, j] of [['leather', 'leather'], ['iron', 'iron'], ['gold', 'gold'], ['aetherite', 'diamond']]) {
+    for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason', 'fisherman', 'cartographer', 'leatherworker', 'shepherd', 'weaponsmith']) ent[`ent_vprof_${pr}`] = firstOf(`entity/villager/profession/${pr}`);
+    for (const [m, j] of [['leather', 'leather'], ['iron', 'iron'], ['gold', 'gold'], ['aetherite', 'diamond'], ['cinderite', 'netherite']]) {
       ent[`ent_armor_${m}_1`] = firstOf(`entity/equipment/humanoid/${j}`, `models/armor/${j}_layer_1`);
       ent[`ent_armor_${m}_2`] = firstOf(`entity/equipment/humanoid_leggings/${j}`, `models/armor/${j}_layer_2`);
     }
@@ -584,7 +591,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     add('s:ent_player0', ['textures/entity/steve']);
     add('s:ent_villager', ['textures/entity/villager2/villager', 'textures/entity/villager/villager']);
     add('s:ent_villager_type', ['textures/entity/villager2/biomes/biome_plains']);
-    for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason']) add(`s:ent_vprof_${pr}`, [`textures/entity/villager2/professions/${pr}`, `textures/entity/villager/profession/${pr}`]);
+    for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason', 'fisherman', 'cartographer', 'leatherworker', 'shepherd', 'weaponsmith']) add(`s:ent_vprof_${pr}`, [`textures/entity/villager2/professions/${pr}`, `textures/entity/villager/profession/${pr}`]);
     add('s:foliage_colormap', ['textures/colormap/foliage']);
     const paths = new Set<string>();
     for (const c of wanted.values()) for (const p of c) { paths.add(`${p}.png`); paths.add(`${p}.tga`); }
@@ -617,7 +624,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       }
       if (Object.keys(fo).length) { blockFaces[b.key] = fo; report.mappedBlocks++; }
     }
-    for (const [k, path] of texKeyFor) if (k.startsWith('wheat_stage') || k.startsWith('destroy_stage') || k === 'oak_door_top' || k === 'oak_door_bottom' || k === 'water_still' || k === 'lava_still') special[`tex:${k}`] = path;
+    for (const [k, path] of texKeyFor) if (k.startsWith('wheat_stage') || k.startsWith('nether_wart_stage') || /^(carrots|potatoes|beetroots)_stage/.test(k) || k.startsWith('destroy_stage') || k === 'oak_door_top' || k === 'oak_door_bottom' || k === 'water_still' || k === 'lava_still') special[`tex:${k}`] = path;
     for (const f of flip) {
       const p = f.flipbook_texture;
       if (files[p]) { animations[p] = { frametime: f.ticks_per_frame ?? 1 }; report.animated++; }

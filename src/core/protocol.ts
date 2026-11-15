@@ -51,12 +51,12 @@ export interface RoomInfo {
 }
 
 export interface SkinRef { png: string; slim: boolean }
-export interface PublicPlayer { id: string; name: string; appearance: Appearance; op: boolean; mode: GameMode; muted?: boolean; skin?: SkinRef | null }
+export interface PublicPlayer { id: string; name: string; appearance: Appearance; op: boolean; mode: GameMode; muted?: boolean; skin?: SkinRef | null; sup?: string }
 
 export interface YouState {
   id: string; x: number; y: number; z: number; yaw: number; pitch: number;
   mode: GameMode; inv: PlayerInv; health: number; food: number; sat: number; air: number; xp: number; dead: boolean;
-  spawn: { x: number; y: number; z: number }; op: boolean;
+  spawn: { x: number; y: number; z: number }; op: boolean; sup?: string;
 }
 
 export type C2S =
@@ -97,7 +97,7 @@ export type S2C =
   | { t: 'rtc'; from: string; d: unknown }
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
   | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
-  | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[] }
+  | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[]; lv?: number }
   | { t: 'ores'; cx: number; cz: number; o: number[] }
   | { t: 'blk'; u: number[][] }
   | { t: 'pl'; u: (string | number | number[])[][] }
@@ -121,7 +121,7 @@ export type S2C =
   | { t: 'death'; msg: string }
   | { t: 'respawn'; x: number; y: number; z: number }
   | { t: 'tp'; x: number; y: number; z: number }
-  | { t: 'chat'; from: { id: string; name: string } | null; text: string; kind: 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error'; ts: number }
+  | { t: 'chat'; from: { id: string; name: string; sup?: string } | null; text: string; kind: 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error'; ts: number }
   | { t: 'time'; time: number; cycle: boolean }
   | { t: 'wx'; w: string }
   | { t: 'bolt'; x: number; y: number; z: number }
@@ -131,7 +131,8 @@ export type S2C =
   | { t: 'crafted'; r: string; n: number }
   | { t: 'game'; s: GameState }
   | { t: 'title'; text: string; sub: string }
-  | { t: 'trade'; id: number; prof: number; xp: number; uses: number[] }
+  | { t: 'mn'; id: number; n: string }
+  | { t: 'trade'; id: number; prof: number; xp: number; uses: number[]; seed?: number }
   | { t: 'lid'; x: number; y: number; z: number; n: number };
 
 export const ENT_KIND = { mob: 0, item: 1, arrow: 2, tnt: 3, cart: 4, fireball: 5 } as const;

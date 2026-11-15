@@ -152,7 +152,7 @@ export class RemoteSession implements GameSession {
       this.sim.addPlayer(this.me);
     }
     const y = w.you;
-    Object.assign(this.me, { x: y.x, y: y.y, z: y.z, yaw: y.yaw, pitch: y.pitch, mode: y.mode, health: y.health, food: y.food, sat: y.sat, air: y.air, xp: y.xp, dead: y.dead, spawn: y.spawn, op: y.op });
+    Object.assign(this.me, { x: y.x, y: y.y, z: y.z, yaw: y.yaw, pitch: y.pitch, mode: y.mode, health: y.health, food: y.food, sat: y.sat, air: y.air, xp: y.xp, dead: y.dead, spawn: y.spawn, op: y.op, supporter: y.sup });
     this.me.inv = sanitizeInv(y.inv);
     this.sim.time = w.time;
     this.sim.settings.dayCycle = w.cycle;
@@ -211,6 +211,7 @@ export class RemoteSession implements GameSession {
       case 'chunk': {
         let data: Uint16Array | null = null;
         if (m.d) { try { data = decodeRLE(base64ToU16(m.d)); } catch { data = null; } }
+        this.chunks!.setLevel(m.cx, m.cz, m.lv);
         if (this.chunks!.chunkReady(m.cx, m.cz)) { ev.chunkData(m.cx, m.cz, data); if (m.o) this.chunks!.applyOres(m.cx, m.cz, m.o); }
         else this.chunks!.receiveRemote(m.cx, m.cz, data, m.o);
         return;
@@ -304,7 +305,8 @@ export class RemoteSession implements GameSession {
       case 'recipes': this.sim.setDataPacks(cleanPackList(m.d)); ev.recipes?.(this.sim.dataPacks); return;
       case 'rtc': ev.rtc?.(m.from, m.d); return;
       case 'lid': ev.chestLid?.(m.x, m.y, m.z, m.n); return;
-      case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses }); return;
+      case 'mn': ev.mobName?.(String(m.id), m.n); return;
+      case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses, seed: m.seed ?? 0 }); return;
       case 'pong': this.rtt = Date.now() - m.c; return;
     }
   }

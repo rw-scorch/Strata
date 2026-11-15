@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { WorldGenerator } from '../src/core/worldgen/WorldGenerator';
-import { OFFERS, performTrade, unlocked } from '../src/core/trades';
+import { villagerOffers, performTrade, unlocked } from '../src/core/trades';
 import { I } from '../src/core/items';
 import { emptyInv } from '../src/core/inventory';
 
@@ -20,8 +20,11 @@ it('villages appear and stamp blocks', () => {
 it('trades swap items', () => {
   const inv = emptyInv();
   inv.slots[0] = { id: I.WHEAT, count: 40 };
-  const of = OFFERS.farmer[0];
-  expect(unlocked('farmer', 0)).toContain(0);
+  let seed = 0;
+  while (!villagerOffers('farmer', seed).some((o) => o.cost[0].id === I.WHEAT)) seed++;
+  const idx = villagerOffers('farmer', seed).findIndex((o) => o.cost[0].id === I.WHEAT);
+  const of = villagerOffers('farmer', seed)[idx];
+  expect(unlocked('farmer', 0, seed)).toContain(idx);
   expect(performTrade(inv, of)).not.toBeNull();
   expect(inv.slots[0]!.count).toBe(20);
   expect(inv.slots.some((s) => s?.id === I.EMERALD)).toBe(true);

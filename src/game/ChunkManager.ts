@@ -15,6 +15,7 @@ export interface ChunkSourceHooks {
   onUnload(key: string): void;
   saveChunk?(cx: number, cz: number, data: Uint16Array): void;
   genLevel?(cx: number, cz: number): number;
+  genOld?(cx: number, cz: number): Uint8Array | null;
   onLoaded?(cx: number, cz: number): void;
   onSurface?(cx: number, cz: number, blocks: Uint16Array): void;
 }
@@ -36,6 +37,9 @@ interface CChunk {
   meshed: boolean;
   fresh: boolean;
   reqAt?: number;
+  fails?: number;
+  loadAt?: number;
+  lv?: number;
 }
 
 type Job = { kind: 'gen' | 'mesh'; c: CChunk; pri: number };
@@ -66,18 +70,48 @@ export class ChunkManager implements WorldStore {
     this.seed = seed;
     this.hooks = hooks;
     this.remote = remote;
+    this.init = { arena, atlas };
     const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency ?? 4) - 1));
-    for (let i = 0; i < n; i++) {
-      const w = new Worker(new URL('../workers/ChunkWorker.ts', import.meta.url), { type: 'module' });
-      w.onmessage = (e) => this.onWorker(i, e.data);
-      w.onerror = (e) => console.error('chunk worker error', e.message);
-      w.postMessage({ t: 'init', seed, arena, atlas, client: remote });
-      this.workers.push(w);
-      this.busy.push(false);
+    for (let i = 0; i < n; i++) { this.workers.push(this.spawnWorker(i)); this.busy.push(false); this.workJob.push(0); this.workAt.push(0); }
+  }
+
+  private init: { arena: ArenaKind | null; atlas: AtlasData };
+  private workJob: number[] = [];
+  private workAt: number[] = [];
+
+  private spawnWorker(i: number): Worker {
+    const w = new Worker(new URL('../workers/ChunkWorker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e) => { if (this.workers[i] === w) this.onWorker(i, e.data); };
+    w.onerror = (e) => console.error('chunk worker error', e.message);
+    w.postMessage({ t: 'init', seed: this.seed, arena: this.init.arena, atlas: this.init.atlas, client: this.remote });
+    return w;
+  }
+
+  private requeue(job: Job | undefined): void {
+    if (!job) return;
+    const c = job.c;
+    if (this.chunks.get(c.nkey) !== c) return;
+    if (job.kind === 'mesh') { c.meshing = false; c.dirty = true; return; }
+    c.fails = (c.fails ?? 0) + 1;
+    c.genRequested = false;
+    if (c.fails < 6) this.requestGen(c, Math.hypot(c.cx - Math.floor(this.centerX / 16), c.cz - Math.floor(this.centerZ / 16)));
+  }
+
+  private watchdog(now: number): void {
+    for (let i = 0; i < this.workers.length; i++) {
+      if (!this.busy[i] || now - this.workAt[i] < 20000) continue;
+      console.warn('chunk worker stalled, restarting');
+      this.workers[i].terminate();
+      this.workers[i] = this.spawnWorker(i);
+      this.busy[i] = false;
+      const job = this.jobs.get(this.workJob[i]);
+      this.jobs.delete(this.workJob[i]);
+      this.requeue(job);
     }
   }
 
   setAtlas(atlas: AtlasData): void {
+    this.init.atlas = atlas;
     for (const w of this.workers) w.postMessage({ t: 'atlas', atlas });
     for (const c of this.chunks.values()) if (c.data) { c.dirty = true; c.meshed = false; }
   }
@@ -114,6 +148,10 @@ export class ChunkManager implements WorldStore {
   }
 
   chunkReady(cx: number, cz: number): boolean { const c = this.get_(cx, cz); return !!c?.data; }
+
+  setLevel(cx: number, cz: number, lv: number | undefined): void { const c = this.get_(cx, cz); if (c && c.lv !== lv) { c.lv = lv; if (c.data) c.dirty = true; } }
+
+  levelAt(x: number, z: number): number | undefined { const c = this.get_(Math.floor(x / 16), Math.floor(z / 16)); return c?.lv; }
   chunkMeshed(cx: number, cz: number): boolean { const c = this.get_(cx, cz); return !!c?.meshed; }
 
   setBlock(x: number, y: number, z: number, v: number): void {
@@ -219,8 +257,9 @@ export class ChunkManager implements WorldStore {
           const stored = this.hooks.loadStored(cx, cz);
           if (stored) {
             c.fresh = false;
+            c.loadAt = performance.now();
             stored.then((d) => {
-              if (!this.chunks.has(key)) return;
+              if (this.chunks.get(key) !== c || c.data) return;
               if (d) { c.gen = d; c.fresh = false; this.tryFinalize(c); }
               else { c.fresh = true; this.requestGen(c, r); }
             }).catch(() => { c.fresh = true; this.requestGen(c, r); });
@@ -228,16 +267,26 @@ export class ChunkManager implements WorldStore {
         }
       }
     }
-    if (this.remote && this.hooks.requestRemote) {
-      const tnow = performance.now();
-      if (tnow - this.retryAt > 2500) {
-        this.retryAt = tnow;
-        for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
-          const c = this.chunks.get(nk(pcx + dx, pcz + dz));
-          if (c && c.remote === 'waiting' && !c.data && tnow - (c.reqAt ?? tnow) > 2400) { c.reqAt = tnow; wantRemote.push([c.cx, c.cz]); }
-          else if (c && c.reqAt === undefined) c.reqAt = tnow;
+    const tnow = performance.now();
+    if (tnow - this.retryAt > 2500) {
+      this.retryAt = tnow;
+      this.watchdog(tnow);
+      const stuck: [number, CChunk][] = [];
+      for (const c of this.chunks.values()) {
+        if (c.data) continue;
+        const d = (c.cx - pcx) ** 2 + (c.cz - pcz) ** 2;
+        if (d > (load + 0.5) ** 2) continue;
+        if (this.remote) {
+          if (c.remote === 'waiting' && tnow - (c.reqAt ?? tnow) > (d <= 8 ? 2400 : 6000)) stuck.push([d, c]);
+          else if (c.reqAt === undefined) c.reqAt = tnow;
+        } else if (!c.genRequested && c.loadAt !== undefined && tnow - c.loadAt > 8000) {
+          c.loadAt = tnow;
+          const stored = this.hooks.loadStored(c.cx, c.cz);
+          if (stored) stored.then((dd) => { if (this.chunks.get(c.nkey) !== c || c.data) return; if (dd) { c.gen = dd; c.fresh = false; this.tryFinalize(c); } else { c.fresh = true; this.requestGen(c, 0); } }).catch(() => {});
         }
       }
+      stuck.sort((a, b) => a[0] - b[0]);
+      for (const [, c] of stuck.slice(0, 16)) { c.reqAt = tnow; wantRemote.push([c.cx, c.cz]); }
     }
     if (wantRemote.length && this.hooks.requestRemote) for (const [cx, cz] of wantRemote) this.hooks.requestRemote(cx, cz);
     const unload = rd + 2.5;
@@ -288,7 +337,8 @@ export class ChunkManager implements WorldStore {
       const id = this.nextJob++;
       this.jobs.set(id, job);
       this.busy[i] = true;
-      if (job.kind === 'gen') this.workers[i].postMessage({ t: 'gen', id, cx: job.c.cx, cz: job.c.cz, level: this.remote ? undefined : this.hooks.genLevel?.(job.c.cx, job.c.cz) });
+      this.workJob[i] = id; this.workAt[i] = performance.now();
+      if (job.kind === 'gen') this.workers[i].postMessage({ t: 'gen', id, cx: job.c.cx, cz: job.c.cz, level: this.remote ? undefined : this.hooks.genLevel?.(job.c.cx, job.c.cz), old: this.remote ? null : this.hooks.genOld?.(job.c.cx, job.c.cz) ?? null });
       else {
         job.c.meshQueued = false;
         job.c.meshing = true;
@@ -297,7 +347,8 @@ export class ChunkManager implements WorldStore {
           const n = this.get_(job.c.cx + dx, job.c.cz + dz);
           arr.push(n?.data ? n.data.blocks.slice() : null);
         }
-        this.workers[i].postMessage({ t: 'mesh', id, cx: job.c.cx, cz: job.c.cz, chunks: arr, smooth: this.smooth, opts: this.meshOpts }, arr.filter(Boolean).map((a) => a!.buffer));
+        if (!this.remote && job.c.lv === undefined) job.c.lv = this.hooks.genLevel?.(job.c.cx, job.c.cz);
+        this.workers[i].postMessage({ t: 'mesh', id, cx: job.c.cx, cz: job.c.cz, chunks: arr, smooth: this.smooth, opts: this.meshOpts, lv: job.c.lv }, arr.filter(Boolean).map((a) => a!.buffer));
       }
     }
   }
@@ -306,7 +357,7 @@ export class ChunkManager implements WorldStore {
     this.busy[i] = false;
     const job = this.jobs.get(m.id);
     this.jobs.delete(m.id);
-    if (m.t === 'error') { console.error('worker job failed', m.message); if (job?.kind === 'mesh') { job.c.meshing = false; job.c.dirty = true; } this.dispatch(); return; }
+    if (m.t === 'error') { console.error('worker job failed', m.message); this.requeue(job); this.dispatch(); return; }
     if (!job) { this.dispatch(); return; }
     const c = job.c;
     const alive = this.chunks.get(c.nkey) === c;

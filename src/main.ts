@@ -4,7 +4,7 @@ import { Menus } from './ui/Menus';
 import { Game } from './game/Game';
 import { TextureAtlas } from './resources/TextureAtlas';
 import { ResourcePackManager } from './resources/ResourcePackManager';
-import { loginSeen, getSettings, isTouchDevice, onSettings } from './storage/Settings';
+import { loginSeen, getSettings, isTouchDevice, onSettings, supporterRequest, getAccount } from './storage/Settings';
 import { showSettings } from './ui/SettingsUI';
 import { showResourcePacks } from './ui/ResourcePackUI';
 import { h, toast, modal } from './ui/dom';
@@ -51,6 +51,13 @@ class App {
     try { await this.rebuildAtlas(getSettings().activePacks); }
     catch (e) { console.error(e); await this.rebuildAtlas([]); toast('A resource pack failed to load; using built-in textures.', 'error'); }
     this.registerSW();
+    const sup = new URLSearchParams(location.search).get('supporter');
+    if (sup) {
+      history.replaceState(null, '', location.pathname);
+      if (sup === 'thanks') toast('Thank you for supporting Strata! Your perks switch on as soon as the payment is confirmed.', 'info', 8000);
+      else toast('Checkout cancelled. Nothing was charged.', 'info');
+    }
+    if (getAccount()) void supporterRequest('status');
     const m = location.pathname.match(/^\/join\/([A-Za-z0-9]+)/);
     if (m) {
       const code = normalizeRoomCode(m[1]);

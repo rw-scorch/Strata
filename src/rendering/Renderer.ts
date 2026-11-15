@@ -66,7 +66,8 @@ export class Renderer {
   private visStamp = new Uint32Array(0);
   private visDirs = new Uint8Array(0);
   private visQ = new Int32Array(0);
-  private visEntry = new Int8Array(0);
+  private visEntry = new Uint8Array(0);
+  private visProc = new Uint32Array(0);
   private stamp = 0;
   cullRadius = 8;
   lod: LodManager | null = null;
@@ -249,6 +250,7 @@ export class Renderer {
     this.gl.clearDepth();
     this.gl.render(this.lodScene, l);
     sg.visible = skyVis;
+    if (this.post) this.post.captureLod(l, this.post.sceneRT);
     this.gl.clearDepth();
   }
 
@@ -428,7 +430,7 @@ export class Renderer {
     this.frustum.setFromProjectionMatrix(this.projView);
     const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16), psy = Math.floor(p.y / 16);
     const R = this.cullRadius + 2, G = R * 2 + 1, N = G * G * SECTIONS;
-    if (this.visStamp.length < N) { this.visStamp = new Uint32Array(N); this.visDirs = new Uint8Array(N); this.visQ = new Int32Array(N); this.visEntry = new Int8Array(N); }
+    if (this.visStamp.length < N) { this.visStamp = new Uint32Array(N); this.visDirs = new Uint8Array(N); this.visQ = new Int32Array(N); this.visEntry = new Uint8Array(N); this.visProc = new Uint32Array(N); }
     const st = ++this.stamp;
     const masks = new Map<ChunkMeshes, number>();
     const inFrustum = (cx: number, sy: number, cz: number) => {
@@ -447,10 +449,11 @@ export class Renderer {
       const idx = (dx: number, sy: number, dz: number) => ((dz + R) * G + (dx + R)) * SECTIONS + sy;
       let head = 0, tail = 0;
       const s0 = idx(0, psy, 0);
-      this.visStamp[s0] = st; this.visDirs[s0] = 0; this.visEntry[s0] = -1;
+      this.visStamp[s0] = st; this.visDirs[s0] = 0; this.visEntry[s0] = 128;
       this.visQ[tail++] = s0;
       while (head < tail) {
         const i = this.visQ[head++];
+        this.visProc[i] = st;
         const sy = i % SECTIONS, cell = (i - sy) / SECTIONS;
         const dx = (cell % G) - R, dz = Math.floor(cell / G) - R;
         const c = this.byNum.get(cnum(pcx + dx, pcz + dz));
@@ -460,15 +463,22 @@ export class Renderer {
         const entry = this.visEntry[i], dirs = this.visDirs[i];
         for (let d = 0; d < 6; d++) {
           if (dirs & (1 << OPP[d])) continue;
-          if (entry >= 0 && !(conn & (1 << facePair(entry, d)))) continue;
+          if (!(entry & 128)) {
+            let ok = false;
+            for (let e = 0; e < 6 && !ok; e++) if (entry & (1 << e) && e !== d && conn & (1 << facePair(e, d))) ok = true;
+            if (!ok) continue;
+          }
           const nx = dx + DIR[d][0], ny = sy + DIR[d][1], nz = dz + DIR[d][2];
           if (ny < 0 || ny >= SECTIONS || Math.abs(nx) > R - 1 || Math.abs(nz) > R - 1) continue;
           const j = idx(nx, ny, nz);
-          if (this.visStamp[j] === st) continue;
+          if (this.visStamp[j] === st) {
+            if (this.visEntry[j] && this.visProc[j] !== st) { this.visEntry[j] |= 1 << OPP[d]; this.visDirs[j] &= dirs | (1 << d); }
+            continue;
+          }
           this.visStamp[j] = st;
-          if (!inFrustum(pcx + nx, ny, pcz + nz)) continue;
+          if (!inFrustum(pcx + nx, ny, pcz + nz)) { this.visEntry[j] = 0; continue; }
           this.visDirs[j] = dirs | (1 << d);
-          this.visEntry[j] = OPP[d];
+          this.visEntry[j] = 1 << OPP[d];
           this.visQ[tail++] = j;
         }
       }

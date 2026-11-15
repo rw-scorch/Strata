@@ -12,15 +12,16 @@ import { audio } from '../audio/AudioEngine';
 import { crop, sprite, label, guiScale, guiURL, nineSlice, tooltip, itemTooltipLines } from './mc/Gui';
 import { getSettings } from '../storage/Settings';
 import { anvilResult, enchantLabel, type TableOffer } from '../core/enchants';
+import { smithResult } from '../core/smithing';
 import { maxDurability } from '../core/items';
 import { xpLevel } from '../core/sim/WorldSim';
 import { sellValue, money } from '../core/economy';
-import { OFFERS, PROFESSIONS, PROF_TITLE, LEVEL_NAMES, LEVEL_XP, levelFor, unlocked, canAfford } from '../core/trades';
+import { villagerOffers, PROFESSIONS, PROF_TITLE, LEVEL_NAMES, LEVEL_XP, levelFor, unlocked, canAfford } from '../core/trades';
 
 let sharedPreview: SkinPreview | null = null;
 let previewKey = '';
 
-export type InvScreen = 'player' | 'creative' | 'workbench' | 'chest' | 'furnace' | 'trade' | 'enchant' | 'anvil';
+export type InvScreen = 'player' | 'creative' | 'workbench' | 'chest' | 'furnace' | 'trade' | 'enchant' | 'anvil' | 'smith';
 type CTab = CreativeTab | 'search' | 'inventory';
 
 const CTABS: { id: CTab; name: string; icon: number; top: boolean; col: number }[] = [
@@ -596,6 +597,16 @@ export class InventoryUI {
       this.anvilCost = cost;
       win.appendChild(cost);
       invSlots(8, 84);
+    } else if (this.screen === 'smith') {
+      win.appendChild(crop(A, 'gt:container/smithing', 256, 256, 0, 0, 176, 166, s));
+      win.appendChild(label(this.title ?? 'Upgrade Gear', 44, 15, s));
+      win.appendChild(label('Inventory', 8, 72, s));
+      const out = () => smithResult(this.container?.items[0] ?? null, this.container?.items[1] ?? null, this.container?.items[2] ?? null);
+      this.slot(win, ref('cont', 0), () => this.container?.items[0] ?? null, 8, 48);
+      this.slot(win, ref('cont', 1), () => this.container?.items[1] ?? null, 26, 48);
+      this.slot(win, ref('cont', 2), () => this.container?.items[2] ?? null, 44, 48);
+      this.slot(win, null, () => out(), 98, 48, { action: () => { if (!out() || this.session?.me.inv.cursor) return; this.session!.anvil?.(null); audio.play('ui.click'); } });
+      invSlots(8, 84);
     } else if (this.screen === 'trade') {
       this.renderTrade(win, s, invSlots);
     } else {
@@ -730,13 +741,14 @@ export class InventoryUI {
     const frac = next === undefined ? 1 : (info.xp - LEVEL_XP[lvl]) / (next - LEVEL_XP[lvl]);
     const cur = h('div', { class: 'mc-progress', style: `left:${136 * s}px;top:${16 * s}px;width:${Math.round(102 * frac) * s}px;height:${5 * s}px;background-image:url(${guiURL(A, 'gs:container/villager/experience_bar_current')});background-size:${102 * s}px ${5 * s}px` });
     win.appendChild(cur);
-    const offers = unlocked(prof, info.xp);
+    const OFF = villagerOffers(prof, info.seed ?? 0);
+    const offers = unlocked(prof, info.xp, info.seed ?? 0);
     if (!offers.includes(this.tradeSel)) this.tradeSel = offers[0] ?? 0;
     const maxScroll = Math.max(0, offers.length - 7);
     this.tradeScroll = Math.min(this.tradeScroll, maxScroll);
     const inv = this.liveInv();
     offers.slice(this.tradeScroll, this.tradeScroll + 7).forEach((oi, row) => {
-      const of = OFFERS[prof][oi];
+      const of = OFF[oi];
       const out = (info.uses[oi] ?? 0) >= of.max;
       const sel = oi === this.tradeSel;
       const btn = h('div', { class: `mc-tradebtn${sel ? ' sel' : ''}`, style: `left:${5 * s}px;top:${(18 + row * 20) * s}px;width:${88 * s}px;height:${20 * s}px;${nineSlice(A, sel ? 'gs:widget/button_highlighted' : 'gs:widget/button', 3, s)}` });
@@ -752,7 +764,7 @@ export class InventoryUI {
       this.tradeAffordEls.push({ el: btn, i: oi });
     });
     if (offers.length > 7) win.appendChild(sprite(A, 'gs:container/villager/scroller', 6, 27, s, 94, 18 + Math.round((this.tradeScroll / maxScroll) * 113)));
-    const of = OFFERS[prof][this.tradeSel];
+    const of = OFF[this.tradeSel];
     if (!of) return;
     const left = of.max - (info.uses[this.tradeSel] ?? 0);
     this.slot(win, null, () => of.cost[0], 136, 37, { fixed: false });
@@ -774,7 +786,7 @@ export class InventoryUI {
     const info = this.trade;
     if (!info || !this.session) return;
     const prof = PROFESSIONS[info.prof] ?? 'farmer';
-    for (const { el, i } of this.tradeAffordEls) el.classList.toggle('poor', !canAfford(this.session.me.inv, OFFERS[prof][i]));
+    for (const { el, i } of this.tradeAffordEls) el.classList.toggle('poor', !canAfford(this.session.me.inv, villagerOffers(prof, info.seed ?? 0)[i]));
   }
 
   private showGhost(r: Recipe): void {

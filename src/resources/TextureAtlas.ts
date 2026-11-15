@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes } from '../core/blocks';
+import { BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
 import { BIOMES } from '../core/worldgen/biomes';
 import { defaultBlockTexture, defaultItemTexture, cloudTexture, hudIcon, Px } from './DefaultTextures';
@@ -101,7 +101,10 @@ export class TextureAtlas {
       let src = sources.get(k);
       if (!src) {
         const packPath = this.packPathFor(k);
-        if (packPath && pack?.files.has(packPath)) src = { canvas: toCanvas(pack.files.get(packPath)!), anim: pack.animations.get(packPath), fromPack: true };
+        if (packPath && pack?.files.has(packPath)) {
+          src = { canvas: toCanvas(pack.files.get(packPath)!), anim: pack.animations.get(packPath), fromPack: true };
+          if ((k === 'water_flow' || k === 'lava_flow') && src.canvas.width >= 32) src.canvas = flowQuadrant(src.canvas);
+        }
         else {
           const def = defaultBlockTexture(k.includes('/') ? k.split('/').pop()! : k);
           const anim = k === 'water_still' || k === 'water_flow' ? { frametime: 2 } : k === 'lava_still' || k === 'lava_flow' ? { frametime: 3 } : undefined;
@@ -137,6 +140,8 @@ export class TextureAtlas {
       tintTable[b.id * 2 + 1] = b.tintFaces === 'top' ? 1 : 0;
     }
     for (let i = 0; i < 8; i++) special[`wheat${i}`] = get(`wheat_stage${i}`);
+    [0, 1, 1, 2].forEach((st, i) => { special[`wart${i}`] = get(`nether_wart_stage${st}`); });
+    for (const c of ['carrots', 'potatoes', 'beetroots']) for (let i = 0; i < 4; i++) special[`${c}${i}`] = get(`${c}_stage${i}`);
     for (let i = 0; i < 10; i++) special[`destroy${i}`] = get(`destroy_stage_${i}`);
     for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top']) special[k] = get(k);
     special.doorTop = get('oak_door_top');
@@ -235,11 +240,25 @@ export class TextureAtlas {
       this.entityTextures.set(k.slice(4), t);
       this.entityCanvases.set(k.slice(4), c);
     }
+    const sad = this.entityCanvases.get('strider_saddle');
+    if (sad) for (const k of ['strider', 'strider_cold']) {
+      const b = this.entityCanvases.get(k);
+      if (!b) continue;
+      const c = document.createElement('canvas');
+      c.width = b.width; c.height = b.height;
+      const g = c.getContext('2d')!;
+      g.drawImage(b, 0, 0);
+      g.drawImage(sad, 0, 0, b.width, b.height);
+      const t = new THREE.CanvasTexture(c);
+      t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapLinearFilter; t.generateMipmaps = true; t.flipY = false; t.colorSpace = THREE.NoColorSpace;
+      this.entityTextures.set(`${k}_saddled`, t);
+      this.entityCanvases.set(`${k}_saddled`, c);
+    }
     const base = this.entityCanvases.get('villager');
     if (base) {
       const layer = (key: string) => { const pth = this.pack!.special.get(key); const src = pth ? this.pack!.files.get(pth) : undefined; if (!src) return null; const c = toCanvas(src); return c.width === 64 && c.height === 64 ? c : null; };
       const typeC = layer('ent_villager_type');
-      for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason']) {
+      for (const pr of ['none', 'farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason', 'fisherman', 'cartographer', 'leatherworker', 'shepherd', 'weaponsmith']) {
         const c = document.createElement('canvas');
         c.width = 64; c.height = 64;
         const g = c.getContext('2d')!;
@@ -295,7 +314,7 @@ export class TextureAtlas {
     if (key.includes('/')) return key;
     const bedrock = this.pack.special.get(`tex:${key}`);
     if (bedrock) return bedrock;
-    const alias: Record<string, string> = { aetherite_ore: 'diamond_ore', aetherite_block: 'diamond_block' };
+    const alias: Record<string, string> = { aetherite_ore: 'diamond_ore', aetherite_block: 'diamond_block', cinderite_block: 'netherite_block' };
     return `block/${alias[key] ?? key}`;
   }
 
@@ -336,6 +355,7 @@ export class TextureAtlas {
     const MC: Record<string, [number, number]> = {
       ocean: [0.5, 0.5], deep_ocean: [0.5, 0.5], beach: [0.8, 0.4], river: [0.5, 0.5], plains: [0.8, 0.4], forest: [0.7, 0.8], birch_forest: [0.6, 0.6],
       desert: [1, 0], mountains: [0.2, 0.3], snowy_mountains: [0, 0.5], snowy_tundra: [0, 0.5], taiga: [0.25, 0.8], swamp: [0.8, 0.9], jungle: [0.95, 0.9], island: [0.8, 0.4],
+      savanna: [1, 0], dark_forest: [0.7, 0.8], meadow: [0.5, 0.8], old_growth_taiga: [0.3, 0.8],
     };
     const sample = (key: string): ((t: number, d: number) => number[] | null) => {
       const p = this.pack?.special.get(key);
@@ -355,6 +375,8 @@ export class TextureAtlas {
       let grass = g(t, d) ?? b.grass;
       let foliage = f(t, d) ?? b.foliage;
       if (b.id === 'swamp') { grass = [106, 112, 57]; foliage = [106, 112, 57]; }
+      if (b.id === 'badlands') { grass = [144, 129, 77]; foliage = [158, 129, 77]; }
+      if (b.id === 'dark_forest') grass = grass.map((c, i) => ((c & 0xfe) + [0x28, 0x34, 0x0a][i]) >> 1);
       out.push([...grass, ...foliage, ...b.water]);
     }
     return out;
@@ -431,7 +453,7 @@ export class TextureAtlas {
       if (it.places === B.SLAB) return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }];
       return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }, { b: [0, 0.5, 0, 1, 1, 0.5], ...tl }];
     }
-    if (id === B.ANVIL || id === B.ENCHANTING_TABLE) return customBoxes(id).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
+    if (id < 256 && CUSTOM_BOX[id]) return customBoxes(id).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
     if (id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) return [{ b: px([1, 7, 1, 15, 8, 15]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.STONE_BUTTON || id === B.OAK_BUTTON) return [{ b: px([5, 6, 6, 11, 10, 10]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.PISTON || id === B.STICKY_PISTON) return [{ b: [0, 0, 0, 1, 1, 1], top: id === B.PISTON ? sp.piston_top : sp.piston_top_sticky, left: sp.piston_side, right: sp.piston_side }];
@@ -579,11 +601,12 @@ export class TextureAtlas {
 
   lodColors(): Uint8Array {
     if (this.lodTable) return this.lodTable;
-    const out = new Uint8Array(256 * 4);
+    const out = new Uint8Array(1024 * 4);
     const c = document.createElement('canvas');
     c.width = c.height = 4;
     const g = c.getContext('2d', { willReadFrequently: true })!;
-    for (let id = 0; id < 256; id++) {
+    for (let id = 0; id < 1024; id++) {
+      if (id >= 256 && !BLOCKS[id]) continue;
       const tile = this.blockTileCanvas(id, 2) ?? this.blockTileCanvas(id, 0);
       if (!tile) continue;
       g.clearRect(0, 0, 4, 4);
@@ -824,4 +847,14 @@ function defaultArmorCanvas(mat: string, layer: 1 | 2): HTMLCanvasElement {
     g.clearRect(0, 26, 16, 6);
   }
   return c;
+}
+
+function flowQuadrant(c: HTMLCanvasElement): HTMLCanvasElement {
+  const w = c.width, half = w >> 1, frames = Math.max(1, Math.floor(c.height / w));
+  const out = document.createElement('canvas');
+  out.width = half; out.height = half * frames;
+  const g = out.getContext('2d')!;
+  g.imageSmoothingEnabled = false;
+  for (let f = 0; f < frames; f++) g.drawImage(c, 0, f * w, half, half, 0, f * half, half, half);
+  return out;
 }

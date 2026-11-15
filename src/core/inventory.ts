@@ -18,7 +18,7 @@ export interface PlayerInv {
   off: (ItemStack | null)[];
 }
 
-export type ContainerKind = 'chest' | 'furnace' | 'enchant' | 'anvil';
+export type ContainerKind = 'chest' | 'furnace' | 'enchant' | 'anvil' | 'smith';
 export type SlotGroup = 'inv' | 'armor' | 'craft' | 'out' | 'cont' | 'off';
 export interface SlotRef { c: SlotGroup; i: number; }
 
@@ -156,6 +156,7 @@ export function canPlaceIn(ctx: InvContext, s: SlotRef, stack: ItemStack): boole
 function slotLimit(s: SlotRef, id: number, ctx?: InvContext): number {
   if (s.c === 'armor') return 1;
   if (s.c === 'cont' && s.i === 0 && ctx?.containerKind === 'enchant') return 1;
+  if (s.c === 'cont' && s.i === 1 && ctx?.containerKind === 'smith') return 1;
   return maxStack(id);
 }
 

@@ -1,7 +1,7 @@
 import { I } from '../items';
 import { B } from '../blocks';
 
-export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider';
+export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider' | 'flarewisp' | 'witherbone' | 'piglin' | 'piglin_brute' | 'hoglin';
 
 export interface MobDrop { item: number; min: number; max: number; chance?: number; }
 
@@ -29,6 +29,7 @@ export interface MobDef {
   flying?: boolean;
   lavaWalker?: boolean;
   nether?: Partial<Record<string, { weight: number; min: number; max: number }>>;
+  fortress?: { weight: number; min: number; max: number };
   desc: string;
 }
 
@@ -62,6 +63,7 @@ export const MOBS: Record<MobType, MobDef> = {
     drops: [{ item: I.BONE, min: 0, max: 2 }, { item: I.ARROW, min: 0, max: 2 }], xp: 5, burnsInDay: true, ranged: true,
     spawn: { weight: 100, min: 4, max: 4 },
     nether: { soul_sand_valley: { weight: 20, min: 5, max: 5 } },
+    fortress: { weight: 2, min: 5, max: 5 },
     desc: 'A clattering skeleton archer that keeps its distance.',
   },
   duskweaver: {
@@ -83,10 +85,11 @@ export const MOBS: Record<MobType, MobDef> = {
     desc: 'A village local. Use on them to trade emeralds for goods.',
   },
   cinderhusk: {
-    type: 'cinderhusk', code: 9, name: 'Zombified Hogman', hostile: false, neutral: true, fireImmune: true, health: 20, speed: 2.3, hw: 0.3, h: 1.95, damage: 5,
+    type: 'cinderhusk', code: 9, name: 'Zombified Piglin', hostile: false, neutral: true, fireImmune: true, health: 20, speed: 2.3, hw: 0.3, h: 1.95, damage: 5,
     drops: [{ item: I.ROTTEN_FLESH, min: 0, max: 1 }, { item: I.GOLD_NUGGET, min: 0, max: 1 }, { item: I.GOLD_INGOT, min: 1, max: 1, chance: 0.025 }], xp: 5,
     nether: { nether_wastes: { weight: 100, min: 4, max: 4 }, crimson_forest: { weight: 1, min: 2, max: 4 } },
-    desc: 'A rotting hog-faced wanderer of the Nether. Leaves you alone until you strike one, then the whole pack comes for you.',
+    fortress: { weight: 5, min: 4, max: 4 },
+    desc: 'A rotting piglin that wanders the Nether. Leaves you alone until you strike one, then the whole pack comes for you.',
   },
   wailer: {
     type: 'wailer', code: 10, name: 'Ghast', hostile: true, fireImmune: true, flying: true, health: 10, speed: 1.2, hw: 2, h: 4, damage: 6,
@@ -98,6 +101,7 @@ export const MOBS: Record<MobType, MobDef> = {
     type: 'emberslime', code: 11, name: 'Magma Cube', hostile: true, fireImmune: true, health: 16, speed: 2.6, hw: 1.02, h: 2.04, damage: 6,
     drops: [{ item: I.MAGMA_CREAM, min: 0, max: 1, chance: 0.25 }], xp: 4,
     nether: { nether_wastes: { weight: 2, min: 4, max: 4 }, basalt_deltas: { weight: 100, min: 2, max: 5 } },
+    fortress: { weight: 3, min: 4, max: 4 },
     desc: 'A bouncing cube of molten slime. Splits into smaller cubes when beaten.',
   },
   lavastrider: {
@@ -105,6 +109,35 @@ export const MOBS: Record<MobType, MobDef> = {
     drops: [{ item: I.STRING, min: 2, max: 5 }], xp: 2,
     nether: { nether_wastes: { weight: 60, min: 1, max: 2 }, crimson_forest: { weight: 60, min: 1, max: 2 }, warped_forest: { weight: 60, min: 1, max: 2 }, soul_sand_valley: { weight: 60, min: 1, max: 2 }, basalt_deltas: { weight: 60, min: 1, max: 2 } },
     desc: 'A long-legged walker that strolls across lava seas. Shivers and turns purple when out of the heat.',
+  },
+  flarewisp: {
+    type: 'flarewisp', code: 13, name: 'Blaze', hostile: true, fireImmune: true, flying: true, health: 20, speed: 2.3, hw: 0.3, h: 1.8, damage: 6,
+    drops: [{ item: I.BLAZE_ROD, min: 0, max: 1 }], xp: 10,
+    fortress: { weight: 10, min: 2, max: 3 },
+    desc: 'A floating spirit of flame wrapped in spinning rods. Hurls bursts of three fireballs. Water stings it.',
+  },
+  witherbone: {
+    type: 'witherbone', code: 14, name: 'Wither Skeleton', hostile: true, fireImmune: true, health: 20, speed: 2.5, hw: 0.35, h: 2.4, damage: 8,
+    drops: [{ item: I.COAL, min: 0, max: 1, chance: 0.33 }, { item: I.BONE, min: 0, max: 2 }, { item: I.WITHER_SKULL, min: 1, max: 1, chance: 0.025 }], xp: 5,
+    fortress: { weight: 8, min: 5, max: 5 },
+    desc: 'A tall, soot-black skeleton with a stone sword. Its blows wither you for a while.',
+  },
+  piglin: {
+    type: 'piglin', code: 15, name: 'Piglin', hostile: false, neutral: true, health: 16, speed: 2.5, hw: 0.3, h: 1.95, damage: 5,
+    drops: [], xp: 5,
+    nether: { nether_wastes: { weight: 15, min: 4, max: 4 }, crimson_forest: { weight: 5, min: 3, max: 4 } },
+    desc: 'A gold-loving Nether native with a sword or crossbow. Wear something golden and it leaves you be. Toss it a gold ingot to barter.',
+  },
+  piglin_brute: {
+    type: 'piglin_brute', code: 16, name: 'Piglin Brute', hostile: true, health: 50, speed: 2.5, hw: 0.3, h: 1.95, damage: 7,
+    drops: [], xp: 20,
+    desc: 'A hulking Bastion guard with a golden axe. Gold does not calm it.',
+  },
+  hoglin: {
+    type: 'hoglin', code: 17, name: 'Hoglin', hostile: true, health: 40, speed: 2.1, hw: 0.7, h: 1.4, damage: 6,
+    drops: [{ item: I.RAW_PORK, min: 2, max: 4 }, { item: I.LEATHER, min: 0, max: 1 }], xp: 5,
+    nether: { crimson_forest: { weight: 9, min: 3, max: 4 } },
+    desc: 'A tusked beast of the Crimson Forest that tosses you into the air. It flees from Warped Fungus.',
   },
 };
 

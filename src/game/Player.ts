@@ -42,6 +42,7 @@ export class LocalPlayer {
   swimSound: (() => void) | null = null;
   usingItem = false;
   depthStrider = 0;
+  flow: ((x: number, y: number, z: number) => [number, number] | null) | null = null;
 
   get x(): number { return this.prev.x + (this.body.x - this.prev.x) * this.alpha; }
   get y(): number { return this.prev.y + (this.body.y - this.prev.y) * this.alpha; }
@@ -188,6 +189,8 @@ export class LocalPlayer {
       let ds = Math.min(3, this.depthStrider) / 3;
       if (!b.onGround) ds *= 0.5;
       if (ds > 0) { f += (0.546 - f) * ds; acc += (0.1 * (this.sprinting ? 1.3 : 1) - acc) * ds; }
+      const cur = this.flow?.(b.x, b.y, b.z);
+      if (cur) { b.vx += cur[0] * 0.014; b.vz += cur[1] * 0.014; }
       if (swimming) {
         const ly = Math.sin(this.pitch);
         const k = ly < -0.2 ? 0.085 : 0.06;

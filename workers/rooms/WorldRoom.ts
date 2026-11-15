@@ -17,6 +17,8 @@ import {
   C2S, S2C, RoomMeta, RoomInfo, PublicPlayer, RoomSettings, PackRef, ENT_KIND, q2, isNum, isInt, cleanName, cleanText, cleanAppearance,
 } from '../../src/core/protocol';
 
+const SUPPORTER_GOLD = '#ffcc33';
+
 export interface Env {
   WORLD_ROOMS: DurableObjectNamespace<WorldRoom>;
   ASSETS: Fetcher;
@@ -25,6 +27,11 @@ export interface Env {
   REGISTRY?: DurableObjectNamespace;
   TURN_KEY_ID?: string;
   TURN_KEY_API_TOKEN?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_ID?: string;
+  SUPPORTER_CURRENCY?: string;
+  SUPPORTER_AMOUNT?: string;
 }
 
 interface StoredMeta extends RoomMeta { genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
@@ -274,13 +281,14 @@ export class WorldRoom extends DurableObject<Env> {
         modified = true;
       } else if (near) blocks = this.getChunk(cx, cz).blocks;
     }
-    if (!modified && (this.gen?.hasStructure(cx, cz) || this.chunkLevel(cx, cz) < GEN_LEVEL)) {
+    if (!modified && (this.gen?.hasStructure(cx, cz) || this.chunkLevel(cx, cz) < GEN_LEVEL || this.levels?.oldMask(cx, cz))) {
       blocks ??= this.getChunk(cx, cz).blocks;
       modified = true;
     }
     const so = (s.oreSent ??= new Set());
     if (modified && blocks) {
-      this.send(s, { t: 'chunk', cx, cz, d: u16ToBase64(encodeRLE(maskChunk(blocks, cx, cz, world))) });
+      const lv = this.chunkLevel(cx, cz);
+      this.send(s, { t: 'chunk', cx, cz, d: u16ToBase64(encodeRLE(maskChunk(blocks, cx, cz, world))), lv: lv < GEN_LEVEL ? lv : undefined });
       if (near) so.add(k); else so.delete(k);
       return;
     }
@@ -351,7 +359,7 @@ export class WorldRoom extends DurableObject<Env> {
       c = new ChunkData(cx, cz, decodeRLE(rle));
       c.modified = true;
     } else {
-      const g = this.gen!.generate(cx, cz, this.chunkLevel(cx, cz));
+      const g = this.gen!.generate(cx, cz, this.chunkLevel(cx, cz), this.levels?.oldMask(cx, cz) ?? null);
       c = new ChunkData(cx, cz, g.blocks);
       if (g.entities.length && this.sim) {
         const done = this.sql.exec(`SELECT k FROM genbe WHERE k = ?`, k).toArray().length > 0;
@@ -359,7 +367,7 @@ export class WorldRoom extends DurableObject<Env> {
           for (const e of g.entities) {
             const wx = cx * 16 + e.x, wz = cz * 16 + e.z;
             this.sim.addGeneratedChest(wx, e.y, wz, e.items, e.type, e.mob);
-            this.dirtyBE.add(posKey(wx, e.y, wz));
+            if (e.type !== 'mob') this.dirtyBE.add(posKey(wx, e.y, wz));
           }
           this.sql.exec(`INSERT OR REPLACE INTO genbe (k) VALUES (?)`, k);
         }
@@ -611,7 +619,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private publicPlayer(p: SimPlayer): PublicPlayer {
-    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id), skin: p.skin ?? null };
+    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id), skin: p.skin ?? null, sup: p.supporter };
   }
 
   private systemChat(text: string, kind: Extract<S2C, { t: 'chat' }>['kind'] = 'system', to?: Session): void {
@@ -710,12 +718,17 @@ export class WorldRoom extends DurableObject<Env> {
     const first = this.sql.exec(`SELECT secret FROM players WHERE id = ?`, id).toArray()[0];
     if (first && first.secret !== hash) { this.sendErr(s, 'auth', 'That player identity belongs to someone else.'); return; }
     let name = cleanName(msg.name);
+    let supColor: string | undefined;
     if (this.env.ACCOUNTS) {
       try {
         const acc = this.env.ACCOUNTS.get(this.env.ACCOUNTS.idFromName('global'));
         const r = (await (await acc.fetch(`https://accounts/check?name=${encodeURIComponent(name)}&pid=${encodeURIComponent(id)}`)).json()) as { registered: boolean; owner: boolean; name: string | null };
         if (r.registered && !r.owner) name = `~${name}`.slice(0, 16);
         else if (r.owner && r.name) name = r.name;
+        if (r.owner) {
+          const sup = (await (await acc.fetch(`https://accounts/supporter?pid=${encodeURIComponent(id)}`)).json()) as { active: boolean; color: string | null };
+          if (sup.active) supColor = sup.color ?? SUPPORTER_GOLD;
+        }
       } catch { /* accounts unavailable: keep the requested name */ }
     }
     if (!this.sessions.has(s.ws)) return;
@@ -732,6 +745,7 @@ export class WorldRoom extends DurableObject<Env> {
     sim.setNow(Date.now());
     const p = this.playerFromData(id, name, row && row.data ? JSON.parse(row.data as string) : null);
     p.appearance = cleanAppearance(msg.appearance);
+    p.supporter = supColor;
     p.skin = cleanSkin(msg.skin);
     p.op = (id === m.ownerId && hash === m.ownerHash) || !!m.ops?.some((o) => o.id === id && o.hash === hash);
     if (spectate) {
@@ -751,8 +765,9 @@ export class WorldRoom extends DurableObject<Env> {
     const players = [...sim.players.values()].filter((x) => !x.vanished || p.op).map((x) => this.publicPlayer(x));
     this.send(s, {
       t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, worldSpawn: sim.spawn, rules: ruleSnapshot(sim.settings), recipes: sim.dataPacks.length ? sim.dataPacks : undefined,
-      you: { id, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, op: p.op },
+      you: { id, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, op: p.op, sup: p.supporter },
     });
+    for (const nm of sim.namedMobs()) this.send(s, { t: 'mn', id: nm.id, n: nm.name });
     if (!spectate) this.eco.joined(p);
     if (spectate) { this.systemChat('You are spectating as a server admin. Other players cannot see you.', 'info', s); this.report(true); return; }
     this.broadcast({ t: 'pj', p: this.publicPlayer(p) }, s);
@@ -901,7 +916,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (this.meta!.muted.includes(p.id)) { this.systemChat('You are muted in this world.', 'error', s); return; }
     if (text === s.lastChat && now - s.chatT < 3000) return;
     s.lastChat = text;
-    this.broadcast({ t: 'chat', from: { id: p.id, name: p.name }, text, kind: 'chat', ts: now });
+    this.broadcast({ t: 'chat', from: { id: p.id, name: p.name, sup: p.supporter }, text, kind: 'chat', ts: now });
   }
 
   private async claimAdmin(s: Session, p: SimPlayer, keyIn: string): Promise<void> {
@@ -1112,7 +1127,8 @@ export class WorldRoom extends DurableObject<Env> {
       case 'rules': this.saveMeta(); this.broadcast({ t: 'rules', r: ruleSnapshot(this.sim!.settings) }); return;
       case 'crafted': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'crafted', r: ev.recipe.id, n: ev.times }); return; }
       case 'game': this.broadcast({ t: 'game', s: ev.state as never }); return;
-      case 'trade': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trade', id: ev.v.id, prof: ev.v.prof ?? 0, xp: ev.v.vxp ?? 0, uses: [...(ev.v.uses ?? [])].map((u) => u ?? 0) }); return; }
+      case 'mobname': this.broadcast({ t: 'mn', id: ev.id, n: ev.name }); return;
+      case 'trade': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trade', id: ev.v.id, prof: ev.v.prof ?? 0, xp: ev.v.vxp ?? 0, uses: [...(ev.v.uses ?? [])].map((u) => u ?? 0), seed: ev.v.tseed ?? 0 }); return; }
       case 'title': {
         const msg: S2C = { t: 'title', text: ev.text, sub: ev.sub };
         if (ev.to) { const s = this.sessionFor(ev.to); if (s) this.send(s, msg); } else this.broadcast(msg);

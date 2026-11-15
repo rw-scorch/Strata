@@ -39,7 +39,7 @@ export class Particles {
           if (vData.x >= 0.0) { float col = mod(vData.x, uAtlasGrid.x); float row = floor(vData.x / uAtlasGrid.x + 0.0001);
             vec2 f = vec2(vData.y, vData.z) + gl_PointCoord * 0.25; c = texture2D(uAtlas, (vec2(col,row) + clamp(f, 0.02, 0.98)) / uAtlasGrid);
             if (c.a < 0.5) discard; c.rgb *= vCol.rgb; }
-          else { c = vec4(vCol.rgb, 1.0); if (vData.y > 0.5) { float r = length(gl_PointCoord - 0.5); if (r > 0.5) discard; c.rgb *= 1.0 - r * 1.4; } }
+          else { c = vec4(vCol.rgb, 1.0); if (vData.y > 1.5) { float r = length(gl_PointCoord - 0.5); float a = (1.0 - r * 2.0) * 0.6; if (fract(sin(dot(floor(gl_FragCoord.xy * 0.5), vec2(12.9898, 78.233))) * 43758.5453) > a) discard; } else if (vData.y > 0.5) { float r = length(gl_PointCoord - 0.5); if (r > 0.5) discard; c.rgb *= 1.0 - r * 1.4; } }
           c.rgb *= vCol.a;
           gl_FragColor = vec4(mix(c.rgb, uFogColor, smoothstep(uFogNear, uFogFar, vFog)), 1.0); }`,
       depthWrite: true,
@@ -58,6 +58,9 @@ export class Particles {
   }
   private head = 0;
   private ambT = 0;
+  private mistScanT = 9;
+  private mistPts: number[] = [];
+  private mistT = 0;
 
   ambient(dt: number, cx: number, cy: number, cz: number, env: AmbientEnv, world: BlockReader): void {
     if (this.level === 'off') return;
@@ -80,6 +83,34 @@ export class Particles {
         const above = world.getBlock(Math.floor(x), Math.floor(y) + 1, Math.floor(z));
         if (!LEAVES[blockId(above)]) continue;
         this.add({ x, y: Math.floor(y) + 0.95, z, vx: 0, vy: -0.4, vz: 0, life: 0, max: 6, tile: -1, su: 0, sv: 0, size: 0.07, r: 0.32, g: 0.5, b: 0.18, grav: 0, bright: 0.85, wander: 0.6 });
+      }
+    }
+    this.mistScanT += dt;
+    if (this.mistScanT > 1.2) {
+      this.mistScanT = 0;
+      const pts: number[] = [];
+      const bx = Math.floor(cx), by = Math.floor(cy), bz = Math.floor(cz);
+      for (let dz = -14; dz <= 14 && pts.length < 96; dz++) for (let dx = -14; dx <= 14 && pts.length < 96; dx++) {
+        let prevFall = false;
+        for (let y = by + 12; y >= by - 12; y--) {
+          const v = world.getBlock(bx + dx, y, bz + dz);
+          const fall = blockId(v) === 12 && ((v >>> 8) & 8) !== 0;
+          if (prevFall && !fall) { const X = bx + dx, Z = bz + dz; if (blockId(world.getBlock(X + 1, y + 1, Z)) === 0 || blockId(world.getBlock(X - 1, y + 1, Z)) === 0 || blockId(world.getBlock(X, y + 1, Z + 1)) === 0 || blockId(world.getBlock(X, y + 1, Z - 1)) === 0) pts.push(X, y + 1, Z); break; }
+          prevFall = fall;
+        }
+      }
+      this.mistPts = pts;
+    }
+    if (this.mistPts.length && !env.underwater) {
+      this.mistT += dt;
+      const n = this.mistPts.length / 3, mrate = (this.level === 'low' ? 0.12 : 0.03) / Math.min(4, Math.sqrt(n));
+      while (this.mistT > mrate) {
+        this.mistT -= mrate;
+        const i = Math.floor(Math.random() * n) * 3;
+        const a = Math.random() * Math.PI * 2, rr = 0.55 + Math.random() * 0.35, sp = 0.6 + Math.random() * 1.4;
+        const px = this.mistPts[i] + 0.5 + Math.cos(a) * rr, py = this.mistPts[i + 1] + 0.1, pz = this.mistPts[i + 2] + 0.5 + Math.sin(a) * rr;
+        if (Math.random() < 0.55) this.add({ x: px, y: py, z: pz, vx: Math.cos(a) * sp, vy: 1.6 + Math.random() * 1.8, vz: Math.sin(a) * sp, life: 0, max: 0.6 + Math.random() * 0.4, tile: -1, su: 0, sv: 0, size: 0.05 + Math.random() * 0.03, r: 0.9, g: 0.96, b: 1, grav: 9, bright: 1.25, wander: 0 });
+        else this.add({ x: px, y: py + Math.random() * 0.6, z: pz, vx: Math.cos(a) * 0.5, vy: 0.5 + Math.random() * 0.5, vz: Math.sin(a) * 0.5, life: 0, max: 1.6 + Math.random() * 1.2, tile: -1, su: 2, sv: 0, size: 0.35 + Math.random() * 0.3, r: 0.92, g: 0.96, b: 1, grav: -0.1, bright: 1.15, wander: 0.5 });
       }
     }
     if (this.fallingLeaves && env.cave < 0.5 && !env.underwater) {

@@ -190,6 +190,15 @@ function paint(key: string): HTMLCanvasElement | null {
       inventoryPart(g, 7, 83);
       return c;
     }
+    case 'gt:container/smithing': {
+      const [c, g] = canvas(256, 256);
+      panel(g, 0, 0, 176, 166);
+      g.fillStyle = '#4a4a4a'; g.fillRect(8, 8, 26, 6); g.fillRect(16, 14, 10, 6); g.fillRect(11, 20, 20, 4);
+      slot(g, 7, 47); slot(g, 25, 47); slot(g, 43, 47); slot(g, 97, 47);
+      arrow(g, 68, 45);
+      inventoryPart(g, 7, 83);
+      return c;
+    }
     case 'gs:container/anvil/text_field': case 'gs:container/anvil/text_field_disabled': {
       const [c, g] = canvas(110, 16);
       g.fillStyle = '#a0a0a0'; g.fillRect(0, 0, 110, 16);

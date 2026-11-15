@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
 import { PROFESSIONS } from '../core/trades';
-import { I, getItem } from '../core/items';
-import { BLOCKS, B, customBoxes } from '../core/blocks';
+import { I, getItem, toolId } from '../core/items';
+import { BLOCKS, B, customBoxes, CUSTOM_BOX } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
@@ -22,7 +22,7 @@ export const CLOTH = [0x3366cc, 0xcc3333, 0x33aa55, 0xe0b030, 0x7a3fb5, 0x222831
 
 interface PartSpec { n: string; s: [number, number, number]; p: [number, number, number]; o?: [number, number, number]; c: number; e?: boolean; parent?: string; r?: [number, number, number]; }
 
-const ROBE = [0x5a8a3a, 0xe8e0d0, 0x3a3a3a, 0x6a6a74, 0xd8d0c0, 0x7a5a2a, 0x7a3a8a, 0x8a6a4a];
+const ROBE = [0x5a8a3a, 0xe8e0d0, 0x3a3a3a, 0x6a6a74, 0xd8d0c0, 0x7a5a2a, 0x7a3a8a, 0x8a6a4a, 0x3a6a8a, 0xc8b070, 0x8a4a2a, 0xf0f0f0, 0x2a2a2a];
 function villagerParts(prof: number): PartSpec[] {
   const robe = ROBE[prof] ?? 0x6a5040;
   return [
@@ -93,6 +93,51 @@ const MOB_PARTS: Partial<Record<MobType, PartSpec[]>> = {
     { n: 'armR', s: [0.22, 0.7, 0.22], p: [0.37, 1.36, 0], o: [0, -0.3, 0], c: 0xd89a8a },
     { n: 'legL', s: [0.23, 0.7, 0.23], p: [-0.12, 0.7, 0], o: [0, -0.35, 0], c: 0x5a4a3a },
     { n: 'legR', s: [0.23, 0.7, 0.23], p: [0.12, 0.7, 0], o: [0, -0.35, 0], c: 0x5a4a3a },
+  ],
+  flarewisp: [
+    { n: 'head', s: [0.5, 0.5, 0.5], p: [0, 1.5, 0], c: 0xf0c030, e: true },
+    { n: 'eyeL', s: [0.1, 0.06, 0.02], p: [-0.12, 1.52, -0.26], c: 0x3a1a00 },
+    { n: 'eyeR', s: [0.1, 0.06, 0.02], p: [0.12, 1.52, -0.26], c: 0x3a1a00 },
+    ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ n: `r${i}`, s: [0.12, 0.5, 0.12] as [number, number, number], p: [Math.cos(i * Math.PI / 4) * (i % 2 ? 0.45 : 0.32), i % 2 ? 1.05 : 0.55, Math.sin(i * Math.PI / 4) * (i % 2 ? 0.45 : 0.32)] as [number, number, number], c: 0xe8a020, e: true })),
+  ],
+  piglin: [
+    { n: 'body', s: [0.5, 0.75, 0.25], p: [0, 1.12, 0], c: 0x7a4a2a },
+    { n: 'head', s: [0.62, 0.5, 0.5], p: [0, 1.5, 0], o: [0, 0.25, 0], c: 0xe8a090 },
+    { n: 'snout', s: [0.25, 0.25, 0.06], p: [0, 0, 0], o: [0, 0.18, -0.28], c: 0xf0b0a0, parent: 'head' },
+    { n: 'armL', s: [0.25, 0.75, 0.25], p: [-0.37, 1.45, 0], o: [0, -0.3, 0], c: 0xe8a090 },
+    { n: 'armR', s: [0.25, 0.75, 0.25], p: [0.37, 1.45, 0], o: [0, -0.3, 0], c: 0xe8a090 },
+    { n: 'legL', s: [0.25, 0.75, 0.25], p: [-0.125, 0.75, 0], o: [0, -0.375, 0], c: 0x5a3a20 },
+    { n: 'legR', s: [0.25, 0.75, 0.25], p: [0.125, 0.75, 0], o: [0, -0.375, 0], c: 0x5a3a20 },
+  ],
+  piglin_brute: [
+    { n: 'body', s: [0.5, 0.75, 0.25], p: [0, 1.12, 0], c: 0x3a2a20 },
+    { n: 'head', s: [0.62, 0.5, 0.5], p: [0, 1.5, 0], o: [0, 0.25, 0], c: 0xd08878 },
+    { n: 'snout', s: [0.25, 0.25, 0.06], p: [0, 0, 0], o: [0, 0.18, -0.28], c: 0xe0a090, parent: 'head' },
+    { n: 'armL', s: [0.25, 0.75, 0.25], p: [-0.37, 1.45, 0], o: [0, -0.3, 0], c: 0xd08878 },
+    { n: 'armR', s: [0.25, 0.75, 0.25], p: [0.37, 1.45, 0], o: [0, -0.3, 0], c: 0xd08878 },
+    { n: 'legL', s: [0.25, 0.75, 0.25], p: [-0.125, 0.75, 0], o: [0, -0.375, 0], c: 0x2a2018 },
+    { n: 'legR', s: [0.25, 0.75, 0.25], p: [0.125, 0.75, 0], o: [0, -0.375, 0], c: 0x2a2018 },
+  ],
+  hoglin: [
+    { n: 'body', s: [1.0, 0.9, 1.6], p: [0, 0.95, 0], c: 0xb87a60 },
+    { n: 'mane', s: [0.04, 0.6, 1.1], p: [0, 1.65, -0.1], c: 0xe8d0a0 },
+    { n: 'head', s: [0.85, 0.4, 1.0], p: [0, 1.0, -0.95], c: 0xc88a6a },
+    { n: 'tuskL', s: [0.12, 0.6, 0.12], p: [-0.45, 1.2, -1.3], c: 0xf0e8d8 },
+    { n: 'tuskR', s: [0.12, 0.6, 0.12], p: [0.45, 1.2, -1.3], c: 0xf0e8d8 },
+    { n: 'legFL', s: [0.36, 0.85, 0.36], p: [-0.25, 0.85, -0.53], o: [0, -0.42, 0], c: 0x9a6248 },
+    { n: 'legFR', s: [0.36, 0.85, 0.36], p: [0.25, 0.85, -0.53], o: [0, -0.42, 0], c: 0x9a6248 },
+    { n: 'legBL', s: [0.3, 0.7, 0.3], p: [-0.3, 0.7, 0.62], o: [0, -0.35, 0], c: 0x9a6248 },
+    { n: 'legBR', s: [0.3, 0.7, 0.3], p: [0.3, 0.7, 0.62], o: [0, -0.35, 0], c: 0x9a6248 },
+  ],
+  witherbone: [
+    { n: 'body', s: [0.55, 0.85, 0.24], p: [0, 1.3, 0], c: 0x2a2a2a },
+    { n: 'head', s: [0.58, 0.58, 0.58], p: [0, 1.73, 0], o: [0, 0.29, 0], c: 0x343434 },
+    { n: 'eyeL', s: [0.14, 0.12, 0.02], p: [0, 0, 0], o: [-0.13, 0.32, -0.3], c: 0x0a0a0a, parent: 'head' },
+    { n: 'eyeR', s: [0.14, 0.12, 0.02], p: [0, 0, 0], o: [0.13, 0.32, -0.3], c: 0x0a0a0a, parent: 'head' },
+    { n: 'armL', s: [0.14, 0.85, 0.14], p: [-0.38, 1.66, 0], o: [0, -0.36, 0], c: 0x2e2e2e },
+    { n: 'armR', s: [0.14, 0.85, 0.14], p: [0.38, 1.66, 0], o: [0, -0.36, 0], c: 0x2e2e2e },
+    { n: 'legL', s: [0.14, 0.85, 0.14], p: [-0.14, 0.85, 0], o: [0, -0.42, 0], c: 0x262626 },
+    { n: 'legR', s: [0.14, 0.85, 0.14], p: [0.14, 0.85, 0], o: [0, -0.42, 0], c: 0x262626 },
   ],
   wailer: [
     { n: 'body', s: [4, 4, 4], p: [0, 2, 0], c: 0xeeeeee },
@@ -250,6 +295,7 @@ export class EntityRenderer {
 
   setAtlas(a: TextureAtlas): void {
     this.atlas = a;
+    if (this.tntMesh) { this.group.remove(this.tntMesh); this.tntMesh.dispose(); this.tntMesh = null; this.tntCap = 0; }
     const now = performance.now();
     for (const v of [...this.views.values()]) {
       const app = (v as EntityView & { app?: Appearance }).app;
@@ -366,7 +412,7 @@ export class EntityRenderer {
     const b = it?.kind === 'block' && it.blockIcon ? BLOCKS[itemId] : null;
     if (b) {
       const d = this.atlas.data;
-      const custom = itemId === B.ANVIL || itemId === B.ENCHANTING_TABLE ? customBoxes(itemId) : [];
+      const custom = CUSTOM_BOX[itemId] ? customBoxes(itemId) : [];
       const boxes = custom.length ? custom : [[0, 0, 0, 1, 1, 1]];
       const m = this.material(this.atlas.texture);
       m.side = THREE.FrontSide;
@@ -477,8 +523,8 @@ export class EntityRenderer {
     held(e[1], 1, true);
     for (let s = 0; s < 4; s++) {
       const id = e[2 + s];
-      if (id < 330 || id >= 346) continue;
-      const mat = ['leather', 'iron', 'gold', 'aetherite'][Math.floor((id - 330) / 4)];
+      if (id < 330 || id >= 350) continue;
+      const mat = ['leather', 'iron', 'gold', 'aetherite', 'cinderite'][Math.floor((id - 330) / 4)];
       const g = !!(glint & (1 << (2 + s)));
       const layer: 1 | 2 = s === 2 ? 2 : 1;
       if (vanilla) {
@@ -493,7 +539,7 @@ export class EntityRenderer {
           add(v.parts.get(part), new THREE.Mesh(armorGeo(`${s}|${part}`, cubes), m), [m], g);
         }
       } else {
-        const col = [0x9a5e2e, 0xc6c6c6, 0xe8c228, 0x3fd8cc][Math.floor((id - 330) / 4)];
+        const col = [0x9a5e2e, 0xc6c6c6, 0xe8c228, 0x3fd8cc, 0x4a4248][Math.floor((id - 330) / 4)];
         const box = (part: string, size: [number, number, number], off: [number, number, number]) => {
           const m = this.material();
           const mesh = new THREE.Mesh(boxGeo(size, col), m);
@@ -559,6 +605,16 @@ export class EntityRenderer {
   }
 
   private tags = new Map<string, { name: string; color: string }>();
+  private mobNames = new Map<string, string>();
+
+  setMobName(id: string, name: string): void {
+    this.mobNames.set(id, name);
+    if (this.mobNames.size > 2000) this.mobNames.delete(this.mobNames.keys().next().value!);
+    const v = this.views.get(id);
+    if (!v || v.kind !== 'mob') return;
+    if (v.tag) v.obj.remove(v.tag);
+    v.name = name; v.tag = this.nameTag(name); v.tag.position.y = Math.max(1.2, v.h + 0.35); v.obj.add(v.tag);
+  }
 
   setTags(map: Map<string, { name: string; color: string }>): void {
     this.tags = map;
@@ -570,18 +626,25 @@ export class EntityRenderer {
     }
   }
 
-  private nameTag(name: string, color = '#fff'): THREE.Sprite {
+  private nameTag(name: string, color = '#fff', badge = false): THREE.Sprite {
     const c = document.createElement('canvas');
     const g = c.getContext('2d')!;
     g.font = 'bold 28px system-ui, sans-serif';
-    const w = Math.ceil(g.measureText(name).width) + 20;
+    const bw = badge ? 30 : 0;
+    const w = Math.ceil(g.measureText(name).width) + 20 + bw;
     c.width = w; c.height = 40;
     g.font = 'bold 28px system-ui, sans-serif';
     g.fillStyle = 'rgba(0,0,0,0.45)';
     g.fillRect(0, 0, w, 40);
+    if (badge) {
+      g.fillStyle = '#ffcc33';
+      g.beginPath();
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 5 : 12; g.lineTo(22 + Math.cos(a) * r, 20 + Math.sin(a) * r); }
+      g.closePath(); g.fill();
+    }
     g.fillStyle = color;
     g.textBaseline = 'middle';
-    g.fillText(name, 10, 21);
+    g.fillText(name, 10 + bw, 21);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.NoColorSpace;
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: true, transparent: true }));
@@ -590,9 +653,13 @@ export class EntityRenderer {
     return s;
   }
 
-  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance; skin?: { png: string; slim: boolean } | null }): EntityView {
+  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance; skin?: { png: string; slim: boolean } | null; sup?: string }): EntityView {
     let v = this.views.get(id);
     if (v && v.kind === 'player' && opts?.appearance && (JSON.stringify(opts.appearance) !== JSON.stringify((v as EntityView & { app?: Appearance }).app) || (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : '') !== (v as EntityView & { skinKey?: string }).skinKey)) {
+      this.removeNow(id);
+      v = undefined;
+    }
+    if (v && kind === 'mob' && (v as EntityView & { pb?: number }).pb !== undefined && (v as EntityView & { pb?: number }).pb !== ((flags >> 9) & 15)) {
       this.removeNow(id);
       v = undefined;
     }
@@ -606,8 +673,8 @@ export class EntityRenderer {
           const ap = def.type === 'quartermaster' ? { skin: 3, hair: 5, shirt: 7, pants: 2 } : { skin: n % 6, hair: n % 8, shirt: (n * 3) % 12, pants: (n * 5) % 12 };
           built = this.vanilla('player', def.type === 'quartermaster' ? 7 : n) ?? this.build(playerParts(ap));
         } else if (def.type === 'villager') {
-          const prof = Math.max(0, ((flags >> 9) & 15) - 1);
-          built = this.vanilla('villager', 0, `villager_${PROFESSIONS[prof] ?? 'farmer'}`) ?? this.build(villagerParts(prof));
+          const pb = (flags >> 9) & 15, prof = Math.max(0, pb - 1);
+          built = this.vanilla('villager', 0, pb ? `villager_${PROFESSIONS[prof] ?? 'farmer'}` : 'villager_none') ?? this.build(villagerParts(pb ? prof : -1));
         } else {
           const vb = this.vanilla(def.type);
           if (vb && def.type === 'rattlebone') {
@@ -623,6 +690,21 @@ export class EntityRenderer {
               vb.mats.push(...bm.mats);
             }
           }
+          const wpn = def.type === 'witherbone' ? toolId(1, 3) : def.type === 'piglin' ? (flags & 32 ? I.CROSSBOW : toolId(3, 3)) : def.type === 'piglin_brute' ? toolId(3, 1) : def.type === 'cinderhusk' ? toolId(3, 3) : 0;
+          if (vb && wpn) {
+            const ra = vb.parts.get('right_arm');
+            if (ra) {
+              const m = this.heldModel(wpn), deg = Math.PI / 180;
+              const g1 = new THREE.Group(); g1.rotation.x = -Math.PI / 2;
+              const g2 = new THREE.Group(); g2.rotation.y = Math.PI;
+              const g3 = new THREE.Group(); g3.position.set(1, 2, -10);
+              const g4 = new THREE.Group(); g4.position.set(0, 4, 0.5); g4.rotation.set(0, -90 * deg, 55 * deg); g4.scale.setScalar(0.85);
+              m.obj.scale.setScalar(16 / 0.42);
+              g4.add(m.obj); g3.add(g4); g2.add(g3); g1.add(g2); ra.add(g1);
+              vb.mats.push(...m.mats);
+            }
+          }
+          if (vb && def.type === 'flarewisp') for (const m of vb.mats) m.uniforms.uEmissive.value = 0.85;
           built = vb ?? this.build(MOB_PARTS[def.type] ?? MOB_PARTS.woolhorn!);
         }
         hw = def.hw; h = def.h;
@@ -689,15 +771,11 @@ export class EntityRenderer {
         (shell.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.5;
         (shell.material as THREE.ShaderMaterial).transparent = true;
         g.add(core, shell);
+        if (flags & 1) { g.scale.setScalar(0.45); g.position.y = -0.1; }
         built = { obj: g, parts: new Map(), mats: [m, shell.material as THREE.ShaderMaterial] };
-        hw = 0.5; h = 1;
+        hw = flags & 1 ? 0.2 : 0.5; h = flags & 1 ? 0.4 : 1;
       } else if (kind === 'tnt') {
-        const im = this.itemModel(B.TNT);
-        im.obj.scale.setScalar(0.98 / 0.26);
-        im.obj.position.y = 0.49;
-        const g = new THREE.Group();
-        g.add(im.obj);
-        built = { obj: g, parts: new Map(), mats: im.mats };
+        built = { obj: new THREE.Group(), parts: new Map(), mats: [] };
         hw = 0.49; h = 0.98;
       } else {
         const g = new THREE.Group();
@@ -717,12 +795,14 @@ export class EntityRenderer {
         age: Math.random() * 100, spd: 0, spec: built.spec, rig: built.rig,
         limbs: [...built.parts].filter(([n]) => /^leg([0-3LR])$/.test(n)).map(([n, o]) => { const c = n.slice(3); return [o, c === 'L' ? 0 : c === 'R' ? 1 : Number(c)] as [THREE.Object3D, number]; }),
       };
-      if (kind === 'player' && opts?.name) { v.name = opts.name; v.tag = this.nameTag(opts.name); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; (v as EntityView & { skinKey?: string }).skinKey = (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : ''); (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin = opts.skin ?? null; }
+      if (kind === 'player' && opts?.name) { v.name = opts.name; v.tag = this.nameTag(opts.name, opts.sup ?? '#fff', !!opts.sup); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; (v as EntityView & { skinKey?: string }).skinKey = (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : ''); (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin = opts.skin ?? null; }
       if (kind === 'mob') {
         const def = MOB_BY_CODE[type];
         const tg = this.tags.get(id) ?? (def?.type === 'quartermaster' ? { name: 'Quartermaster', color: '#f3d27a' } : undefined);
         if (tg) { v.name = tg.name; v.tag = this.nameTag(tg.name, tg.color); v.obj.add(v.tag); }
+        else { const mn = this.mobNames.get(id); if (mn) { v.name = mn; v.tag = this.nameTag(mn); v.tag.position.y = Math.max(1.2, v.h + 0.35); v.obj.add(v.tag); } }
       }
+      if (kind === 'mob' && MOB_BY_CODE[type]?.type === 'villager') (v as EntityView & { pb?: number }).pb = (flags >> 9) & 15;
       v.obj.position.set(x, y, z);
       this.group.add(v.obj);
       this.views.set(id, v);
@@ -804,7 +884,7 @@ export class EntityRenderer {
             v.squish = (v.squish ?? 0) + (target - (v.squish ?? 0)) * Math.min(1, dt * 10);
             if (!v.rig) v.obj.scale.y = n * (1 + (v.squish ?? 0) * 0.3);
           } else if (mt === 'wailer' || mt === 'lavastrider') {
-            const alt = mt === 'wailer' ? ((v.flags & 4) ? 'ghast_shooting' : 'ghast') : ((v.flags & 32) ? 'strider_cold' : 'strider');
+            const alt = mt === 'wailer' ? ((v.flags & 4) ? 'ghast_shooting' : 'ghast') : ((v.flags & 32) ? 'strider_cold' : 'strider') + ((v.flags & 64) && this.atlas.entityTextures.has('strider_saddled') ? '_saddled' : '');
             const tex = this.atlas.entityTextures.get(alt);
             if (tex && v.rig && v.mats[0]?.uniforms.uMap && v.mats[0].uniforms.uMap.value !== tex) v.mats[0].uniforms.uMap.value = tex;
             if (mt === 'wailer') v.obj.position.y += Math.sin(v.age * 0.05) * 0.15;
@@ -815,7 +895,7 @@ export class EntityRenderer {
         const aggressive = (v.flags & 16) !== 0;
         const mtype = v.kind === 'mob' ? MOB_BY_CODE[v.type]?.type ?? '' : 'player';
         if (v.spec && v.rig) {
-          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0, crawl: (v.flags & 16384) !== 0 && (v.flags & 16) === 0, squish: v.squish, cold: (v.flags & 32) !== 0 && mtype === 'lavastrider', riding: v.kind === 'player' && !!(v.flags & 8192), ...this.holdState(v) });
+          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0, crawl: (v.flags & 16384) !== 0 && (v.flags & 16) === 0, squish: v.squish, cold: (v.flags & 32) !== 0 && mtype === 'lavastrider', riding: v.kind === 'player' && !!(v.flags & 8192), ...this.holdState(v), ...(mtype === 'piglin' && (v.flags & 32) && aggressive ? { xbow: true } : {}) });
         } else {
           this.animateSimple(v, amp, aggressive, mtype);
         }
@@ -844,12 +924,67 @@ export class EntityRenderer {
         }
       }
       v.lightT -= dt;
-      if (v.lightT <= 0) { v.lightT = 0.25 + Math.random() * 0.1; v.light = this.probe(v.x, v.y + Math.min(1.2, v.h * 0.6), v.z); }
+      if (v.lightT <= 0) { v.lightT = (v.kind === 'tnt' ? 1 : 0.25) + Math.random() * 0.1; v.light = this.probe(v.x, v.y + Math.min(1.2, v.h * 0.6), v.z); }
       const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
       for (const m of v.mats) { m.uniforms.uLight.value = Math.max(0.2, v.light); if (!v.dying) m.uniforms.uHurt.value = hurt; }
       if (v.kind === 'tnt' || v.kind === 'cart') for (const m of v.mats) if (m.uniforms.uWhite) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
+    this.drawTnt();
+  }
+
+  private tntMesh: THREE.InstancedMesh | null = null;
+  private tntCap = 0;
+
+  private tntBatch(cap: number): THREE.InstancedMesh {
+    if (this.tntMesh && this.tntCap >= cap) return this.tntMesh;
+    if (this.tntMesh) { this.group.remove(this.tntMesh); this.tntMesh.dispose(); }
+    const src = this.itemModel(B.TNT).obj.children[0] as THREE.Mesh;
+    const g = src.geometry.clone();
+    g.scale(0.98 / 0.26, 0.98 / 0.26, 0.98 / 0.26);
+    g.translate(0, 0.49, 0);
+    const n = Math.max(64, 1 << Math.ceil(Math.log2(cap)));
+    g.setAttribute('aFx', new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2));
+    const m = new THREE.ShaderMaterial({
+      uniforms: { uFogColor: this.u.uFogColor, uFogNear: this.u.uFogNear, uFogFar: this.u.uFogFar, uMap: { value: this.atlas.texture } },
+      vertexShader: `attribute vec3 color; attribute vec2 aFx; varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade; varying vec2 vFx;
+        void main(){ vColor = color; vUv = uv; vFx = aFx; vec3 n = normalize(normal);
+        vShade = 0.6 + 0.4 * max(n.y, 0.0) + 0.15 * abs(n.z) - 0.12 * max(-n.y, 0.0);
+        vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0); vFog = length(mv.xyz); gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar; uniform sampler2D uMap;
+        varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade; varying vec2 vFx;
+        void main(){ vec4 t = texture2D(uMap, vUv); if (t.a < 0.5) discard;
+          vec3 c = mix(vColor * t.rgb * vFx.x * vShade, vec3(1.0), vFx.y);
+          gl_FragColor = vec4(mix(c, uFogColor, smoothstep(uFogNear, uFogFar, vFog)), 1.0); }`,
+    });
+    const im = new THREE.InstancedMesh(g, m, n);
+    im.frustumCulled = false;
+    im.count = 0;
+    this.tntMesh = im; this.tntCap = n;
+    this.group.add(im);
+    return im;
+  }
+
+  private tntMat = new THREE.Matrix4();
+
+  private drawTnt(): void {
+    let n = 0;
+    for (const v of this.views.values()) if (v.kind === 'tnt' && v.obj.visible) n++;
+    if (!n) { if (this.tntMesh) this.tntMesh.count = 0; return; }
+    const im = this.tntBatch(n);
+    const fx = im.geometry.getAttribute('aFx') as THREE.InstancedBufferAttribute;
+    let i = 0;
+    for (const v of this.views.values()) {
+      if (v.kind !== 'tnt' || !v.obj.visible) continue;
+      const o = v.obj.position;
+      this.tntMat.makeTranslation(o.x, o.y, o.z);
+      im.setMatrixAt(i, this.tntMat);
+      fx.setXY(i, Math.max(0.2, v.light), v.flags & 1 ? 0.7 : 0);
+      i++;
+    }
+    im.count = i;
+    im.instanceMatrix.needsUpdate = true;
+    fx.needsUpdate = true;
   }
 
   private animateSimple(v: EntityView, amp: number, aggressive: boolean, mtype: string): void {

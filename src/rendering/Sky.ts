@@ -45,6 +45,7 @@ export class Sky {
   private moon: THREE.Mesh;
   private stars: THREE.Points;
   private clouds: THREE.Mesh;
+  private cloudDepth: THREE.Mesh;
   private domeMat: THREE.ShaderMaterial;
   private cloudMat: THREE.ShaderMaterial;
   private starMat!: THREE.ShaderMaterial;
@@ -137,11 +138,19 @@ export class Sky {
       vertexShader: 'attribute float aShade; varying float vShade; varying float vD; void main(){ vShade = aShade; vec4 mv = modelViewMatrix * vec4(position,1.0); vD = length(mv.xyz); gl_Position = projectionMatrix * mv; }',
       fragmentShader: `uniform vec3 uColor; uniform vec3 uFogColor; uniform float uOpacity; uniform float uFade; varying float vShade; varying float vD;
         void main(){ float f = smoothstep(uFade * 0.45, uFade, vD); if (f > 0.98) discard; gl_FragColor = vec4(mix(uColor * vShade, uFogColor, f * 0.6), uOpacity * (1.0 - f)); }`,
-      transparent: true, depthWrite: true, side: THREE.DoubleSide,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
     });
     this.clouds = new THREE.Mesh(new THREE.BufferGeometry(), this.cloudMat);
     this.clouds.renderOrder = 5;
     this.clouds.frustumCulled = false;
+    this.cloudDepth = new THREE.Mesh(this.clouds.geometry, new THREE.ShaderMaterial({
+      vertexShader: 'varying float vD; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vD = length(mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'uniform float uFade; varying float vD; void main(){ if (smoothstep(uFade * 0.45, uFade, vD) > 0.98) discard; gl_FragColor = vec4(0.0); }',
+      uniforms: { uFade: this.cloudMat.uniforms.uFade }, transparent: true, colorWrite: false, depthWrite: true, side: THREE.DoubleSide,
+    }));
+    this.cloudDepth.renderOrder = 4;
+    this.cloudDepth.frustumCulled = false;
+    this.clouds.add(this.cloudDepth);
     this.readCloudMap(atlas);
     this.group.add(this.dome, this.stars, this.sun, this.moon);
   }
@@ -192,6 +201,7 @@ export class Sky {
     geo.setAttribute('aShade', new THREE.Float32BufferAttribute(sh, 1));
     this.clouds.geometry.dispose();
     this.clouds.geometry = geo;
+    this.cloudDepth.geometry = geo;
   }
 
   update(camera: THREE.Camera, state: SkyState, time: number, rain: number): void {

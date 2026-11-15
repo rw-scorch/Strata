@@ -47,6 +47,14 @@ export class HUD {
   readonly crosshair: HTMLElement;
   private itemName: HTMLElement;
   private nameTimer = 0;
+  private instrument: string | null = null;
+
+  setInstrument(text: string | null): void {
+    if (text === this.instrument) return;
+    this.instrument = text;
+    if (text) { this.itemName.textContent = text; this.itemName.classList.add('show'); this.nameTimer = 0; }
+    else this.itemName.classList.remove('show');
+  }
   readonly debug: HTMLElement;
   readonly fps: HTMLElement;
   private status: HTMLElement;

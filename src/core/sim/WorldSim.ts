@@ -1,3 +1,6 @@
+import { fortressAt } from '../worldgen/fortress';
+import { smithResult } from '../smithing';
+import { CROPS, sp, SPECIES, speciesOf, tix, SB } from '../blocks';
 import { isRail, railShape, railPowered, railHeight, railLine, RAIL_EXITS, shapeFor, reshapeNeighbor, neighborRails } from '../rails';
 import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
@@ -5,7 +8,7 @@ import {
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE, isWaterPlant, isWaterLike,
   SHAPE_MATS, SLAB_TOP, STAIRS_UP, SLAB_ITEM, STAIRS_ITEM, BLAST_RES, X, XV,
 } from '../blocks';
-import { getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY } from '../items';
+import { getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorId, toolId } from '../items';
 import { lvl, tableOffers, tableList, anvilResult, JavaRandom, ENCH, ENCHANTS, supports, compatible, enchantLabel, type TableOffer } from '../enchants';
 import {
   PlayerInv, ItemStack, InvOp, applyInvOp, emptyInv, giveItem, heldStack, damageHeld, consumeHeld,
@@ -15,9 +18,9 @@ import { findSmelt, Recipe, RecipeBook, BASE_BOOK, DataRecipes, makeBook, ingred
 import { mergeData } from '../datapack';
 import { trialLoot, vaultLoot } from '../worldgen/structures';
 import { Redstone, isButton, isPlate, isTorch, isDiode, attachOut, DIR6, LEVER_ON, isPiston, HOPPER_OFF } from './redstone';
-import { TreeSet, megaJungle, megaSpruce, jungleVines } from '../worldgen/trees';
+import { TreeSet, megaJungle, megaSpruce, jungleVines, acacia, darkOak } from '../worldgen/trees';
 import { enchantBonus, WIND_BURST, attackStats, attackCharge, scaledDamage, armorReduce, armorToughness, maceBonus, arrowDamage, attackRange, SPEAR_STATS, SPEAR_MIN, SPEAR_MARGIN, CHARGE_HURT_SPEED, CHARGE_KNOCK_SPEED, chargeDamage, SMASH_RANGE, SMASH_PUSH, SMASH_HEAVY, type AttackStats } from './combat';
-import { PROFESSIONS, OFFERS, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
+import { JOB_SITES, JOB_BLOCK, PROFESSIONS, villagerOffers, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
 import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium } from '../physics';
 import { Rng } from '../rng';
 import { WorldGenerator } from '../worldgen/WorldGenerator';
@@ -53,6 +56,8 @@ export function entTypeCode(e: Entity): number {
 }
 
 const SIX = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const;
+const EXP_Y = [0.1, 0.5, 0.9], EXP_X = [-0.8, 0.8], EXP_Y_FEW = [0.25, 0.75], EXP_X_FEW = [0];
+const FLUID_ID = (() => { const t = new Uint8Array(256); for (let i = 0; i < 256; i++) if (BLOCKS[i]?.fluid) t[i] = 1; return t; })();
 const RAYS: Float32Array = (() => {
   const out: number[] = [];
   for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) for (let k = 0; k < 16; k++) {
@@ -82,7 +87,7 @@ export interface SimPlayer {
   dig: { x: number; y: number; z: number; t: number } | null;
   portalT?: number; portalLock?: boolean;
   travel?: { tx: number; ty: number; tz: number; t: number; ox: number; oy: number; oz: number; axis: number; nether: boolean; dest?: { x: number; y: number; z: number; axis: number; exist: boolean } };
-  hurtCd: number; fireT: number; peakY: number; absorb?: number; absorbT?: number; regenT?: number;
+  hurtCd: number; fireT: number; peakY: number; absorb?: number; absorbT?: number; regenT?: number; witherT?: number;
   t: { lava: number; suffocate?: number; drown: number; cactus: number; void: number; starve: number; regen: number; fire: number };
   riding?: number;
   speed?: number;
@@ -96,6 +101,7 @@ export interface SimPlayer {
   op: boolean;
   sel: [number[] | null, number[] | null];
   homes?: Record<string, { x: number; y: number; z: number }>;
+  supporter?: string;
   back?: { x: number; y: number; z: number };
   vanished?: boolean;
   skin?: { png: string; slim: boolean } | null;
@@ -104,7 +110,7 @@ export interface SimPlayer {
 }
 
 export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball';
-export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade' | 'enchant' | 'anvil';
+export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade' | 'enchant' | 'anvil' | 'smith';
 
 export interface GameHooks {
   tick(): void;
@@ -135,6 +141,16 @@ export interface Entity extends Body {
   type: MobType | 'item' | 'arrow' | 'tnt' | 'cart' | 'tntcart' | 'fireball';
   size?: number;
   charge?: number;
+  wield?: number;
+  tseed?: number;
+  job?: [number, number, number];
+  jobless?: number;
+  cname?: string;
+  saddled?: boolean;
+  boost?: number;
+  admire?: number;
+  zomb?: number;
+  scared?: [number, number] | null;
   goal?: [number, number, number];
   rider?: string;
   fall?: number;
@@ -232,6 +248,7 @@ export type SimEvent =
   | { e: 'game'; state: unknown }
   | { e: 'title'; text: string; sub: string; to?: string }
   | { e: 'trade'; p: SimPlayer; v: Entity }
+  | { e: 'mobname'; id: number; name: string }
   | { e: 'chestLid'; x: number; y: number; z: number; n: number };
 
 export interface SimOptions {
@@ -277,7 +294,7 @@ const CREATURE_CAP = 10;
 const SPAWN_RANGE = 128;
 const MAX_NATURAL = 480;
 const TICKABLE = new Uint8Array(256);
-for (const id of [B.KELP, B.VINE, B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE, B.FIRE]) TICKABLE[id] = 1;
+for (const id of [B.KELP, B.VINE, B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE, B.FIRE, B.NETHER_WART, B.CARROTS, B.POTATOES, B.BEETROOTS]) TICKABLE[id] = 1;
 const PLAYER_HW = 0.3, PLAYER_H = 1.8;
 
 export function posKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
@@ -308,6 +325,23 @@ export function xpLevel(total: number): { level: number; progress: number; need:
 export function toolFor(stack: ItemStack | null) {
   return stack ? getItem(stack.id)?.tool ?? null : null;
 }
+
+export function fireproof(id: number): boolean {
+  return id === I.CINDERITE_SCRAP || id === I.CINDERITE_INGOT || id === 600 + XV.ANCIENT_DEBRIS || id === 600 + XV.CINDERITE_BLOCK || (id >= 325 && id < 330) || (id >= 346 && id < 350);
+}
+
+export const BLAST_OUT = new Set<number>([I.IRON_INGOT, I.GOLD_INGOT, I.COPPER_INGOT, I.IRON_NUGGET, I.GOLD_NUGGET, I.CINDERITE_SCRAP, I.AETHERITE, I.COAL, I.REDSTONE, I.LAPIS, I.QUARTZ, I.EMERALD]);
+const COMPOST: Record<number, number> = {
+  [I.SEEDS]: 0.3, [I.BEETROOT_SEEDS]: 0.3, [B.GRASS]: 0.3, [B.OAK_LEAVES]: 0.3, [I.DRIED_KELP]: 0.3, [B.OAK_SAPLING]: 0.3, [B.BIRCH_SAPLING]: 0.3, [B.SPRUCE_SAPLING]: 0.3, [B.JUNGLE_SAPLING]: 0.3,
+  [I.MELON_SLICE]: 0.5, [B.CACTUS]: 0.5, [B.SUGAR_CANE]: 0.5, [B.VINE]: 0.5, [600 + XV.DRIED_KELP_BLOCK]: 0.5,
+  [I.APPLE]: 0.65, [I.BEETROOT]: 0.65, [I.CARROT]: 0.65, [I.POTATO]: 0.65, [I.WHEAT]: 0.65, [B.PUMPKIN]: 0.65, [B.MELON]: 0.65, [B.LILY_PAD]: 0.65, [I.NETHER_WART]: 0.65, [B.CRIMSON_FUNGUS]: 0.65, [B.WARPED_FUNGUS]: 0.65,
+  [I.BAKED_POTATO]: 0.85, [I.BREAD]: 0.85, [I.COOKIE]: 0.85, [B.HAY_BLOCK]: 0.85,
+  [I.PUMPKIN_PIE]: 1, [B.CAKE]: 1,
+};
+
+export function rideOffset(e: { type: string }): number { return e.type === 'lavastrider' ? 1.6 : 0.35; }
+
+export function wearsGold(p: SimPlayer): boolean { return p.inv.armor.some((a) => !!a && a.id >= 338 && a.id < 342); }
 
 export function canHarvest(blockV: number, stack: ItemStack | null): boolean {
   const d = getBlock(blockV);
@@ -419,6 +453,7 @@ export class WorldSim {
       moveEntities: (cells, dir, from, to) => this.moveEntities(cells, dir, from, to),
       animate: (l) => this.emit({ e: 'pmove', l }),
       primeTnt: (x, y, z, fuse) => this.primeTnt(x, y, z, fuse),
+      dupeTnt: (x, y, z) => { this.spawnPrimed(x + 0.5, y, z + 0.5, 80); this.emit({ e: 'sound', s: 'tnt.primed', x: x + 0.5, y: y + 0.5, z: z + 0.5 }); },
       cartAt: (x, y, z) => [...this.entities.values()].some((e) => e.kind === 'cart' && Math.floor(e.x) === x && Math.floor(e.z) === z && Math.abs(Math.floor(e.y) - y) <= 1),
       dispense: (x, y, z, v, dir) => this.dispense(x, y, z, v, dir),
     });
@@ -516,11 +551,40 @@ export class WorldSim {
     }
   }
 
+  private growSpeciesTree(x: number, y: number, z: number, spc: number): boolean {
+    const sap = sp(B.OAK_SAPLING, spc);
+    const set: TreeSet = (sx, sy, sz, v, isLeaf) => {
+      const cur = this.get(sx, sy, sz);
+      if (isLeaf) { if (isReplaceable(cur) && !getBlock(cur).fluid) this.setBlock(sx, sy, sz, v); }
+      else if (isReplaceable(cur) || getBlock(cur).render === 'leaves' || cur === sap) this.setBlock(sx, sy, sz, v);
+    };
+    const rnd = (n: number) => this.rng.int(n);
+    const clear = (tx: number, tz: number, w: number, h: number) => {
+      for (let i = 1; i < h; i++) for (let a = 0; a < w; a++) for (let c = 0; c < w; c++) { const v = this.get(tx + a, y + i, tz + c); if (!isReplaceable(v) && getBlock(v).render !== 'leaves') return false; }
+      return true;
+    };
+    if (spc === SPECIES.DARK_OAK) {
+      for (const [ox, oz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
+        const tx = x + ox, tz = z + oz;
+        if (![[0, 0], [1, 0], [0, 1], [1, 1]].every(([a, c]) => this.get(tx + a, y, tz + c) === sap)) continue;
+        if (!clear(tx, tz, 2, 8)) return false;
+        for (const [a, c] of [[0, 0], [1, 0], [0, 1], [1, 1]]) this.setBlock(tx + a, y, tz + c, 0);
+        darkOak(set, tx, y, tz, 6 + rnd(3), rnd);
+        return true;
+      }
+      return false;
+    }
+    if (!clear(x, z, 1, 7)) return false;
+    this.setBlock(x, y, z, 0);
+    acacia(set, x, y, z, 5 + rnd(3), rnd);
+    return true;
+  }
+
   private leafDecayQueue: [number, number, number, number][] = [];
   private scheduleLeafDecay(x: number, y: number, z: number): void {
     for (let dy = -3; dy <= 4; dy++) for (let dz = -4; dz <= 4; dz++) for (let dx = -4; dx <= 4; dx++) {
       const v = this.get(x + dx, y + dy, z + dz);
-      if (getBlock(v).render === 'leaves' && blockMeta(v) === 0) {
+      if (getBlock(v).render === 'leaves' && (blockMeta(v) & 15) === 0) {
         this.leafDecayQueue.push([x + dx, y + dy, z + dz, this.tickCount + 60 + this.rng.int(900)]);
       }
     }
@@ -554,7 +618,34 @@ export class WorldSim {
     }
     if (!e || e.kind !== 'mob' || p.dead) return false;
     if (Math.hypot(e.x - p.x, e.z - p.z) > 6) return false;
+    if (e.type === 'lavastrider' && !e.baby) {
+      const held = heldStack(p.inv);
+      if (p.riding === e.id) {
+        if (held?.id === I.FUNGUS_STICK) {
+          if ((e.boost ?? 0) > 0) return false;
+          e.boost = 60 + this.rng.int(40);
+          if (p.mode === 'survival') { damageHeld(p.inv, 1); this.emit({ e: 'inv', p }); }
+          this.emit({ e: 'sound', s: 'mob.lavastrider.ambient', x: e.x, y: e.y + 1, z: e.z });
+          return true;
+        }
+        this.dismount(p);
+        return true;
+      }
+      if (!e.saddled && held?.id === I.SADDLE) {
+        e.saddled = true; e.persistent = true;
+        if (p.mode === 'survival') { held.count--; if (held.count <= 0) p.inv.slots[p.inv.selected] = null; this.emit({ e: 'inv', p }); }
+        this.emit({ e: 'sound', s: 'armor.equip', x: e.x, y: e.y, z: e.z });
+        return true;
+      }
+      if (e.saddled) return this.mount(p, e);
+    }
     const def = MOBS[e.type as MobType];
+    if (def?.trader && (e.prof === undefined || e.prof < 0)) {
+      if (heldStack(p.inv)?.id === I.NAME_TAG && heldStack(p.inv)?.nm) return this.nameMob(p, e);
+      this.emit({ e: 'sound', s: 'villager.no', x: e.x, y: e.y + 1.5, z: e.z });
+      return true;
+    }
+    if (heldStack(p.inv)?.id === I.NAME_TAG && heldStack(p.inv)?.nm) return this.nameMob(p, e);
     if (def?.trader) return this.openTrade(p, e);
     const held = heldStack(p.inv);
     if (!def?.lure || !held || !def.lure.includes(held.id)) return false;
@@ -568,10 +659,26 @@ export class WorldSim {
     return true;
   }
 
+  nameMob(p: SimPlayer, e: Entity): boolean {
+    const held = heldStack(p.inv)!;
+    e.cname = held.nm!.slice(0, 32);
+    e.persistent = true;
+    if (p.mode === 'survival') { held.count--; if (held.count <= 0) p.inv.slots[p.inv.selected] = null; this.emit({ e: 'inv', p }); }
+    this.emit({ e: 'mobname', id: e.id, name: e.cname });
+    return true;
+  }
+
+  namedMobs(): { id: number; name: string }[] {
+    const out: { id: number; name: string }[] = [];
+    for (const e of this.entities.values()) if (e.cname) out.push({ id: e.id, name: e.cname });
+    return out;
+  }
+
   openTrade(p: SimPlayer, e: Entity): boolean {
     if (e.health <= 0 || e.baby) return false;
     for (const o of this.players.values()) if (o !== p && o.screen.type === 'trade' && e.tradeWith === o.id) { this.emit({ e: 'msg', text: 'That villager is busy trading.', kind: 'info', to: p.id }); return false; }
     this.restock(e);
+    if (e.tseed === undefined) e.tseed = this.rng.int(0x7fffffff);
     e.tradeWith = p.id;
     this.openScreen(p, 'trade', Math.floor(e.x), Math.floor(e.y), Math.floor(e.z));
     this.emit({ e: 'trade', p, v: e });
@@ -588,9 +695,10 @@ export class WorldSim {
     const e = this.entities.get(entityId);
     if (!e || p.dead || p.screen.type !== 'trade' || e.tradeWith !== p.id || !Number.isInteger(index)) return false;
     if (Math.hypot(e.x - p.x, e.z - p.z) > 8) return false;
-    const prof = PROFESSIONS[e.prof ?? 0] as Profession;
-    if (!unlocked(prof, e.vxp ?? 0).includes(index)) return false;
-    const of = OFFERS[prof][index];
+    if (e.prof === undefined || e.prof < 0) return false;
+    const prof = PROFESSIONS[e.prof] as Profession;
+    if (!unlocked(prof, e.vxp ?? 0, e.tseed ?? 0).includes(index)) return false;
+    const of = villagerOffers(prof, e.tseed ?? 0)[index];
     this.restock(e);
     const uses = e.uses!;
     let done = 0;
@@ -690,6 +798,13 @@ export class WorldSim {
         e.vid = v.id; e.home = [home.x + 0.5, home.z + 0.5]; e.vc = [v.x + 0.5, v.z + 0.5];
         if (home.ix !== undefined && home.iz !== undefined) { e.bed = [home.ix + 0.5, home.iz + 0.5]; e.work = e.bed; }
         e.vxp = 0; e.uses = []; e.persistent = true;
+        const taken = new Set<string>();
+        for (const o of this.entities.values()) if (o.job) taken.add(posKey(o.job[0], o.job[1], o.job[2]));
+        for (let dy = -2; dy <= 3 && !e.job; dy++) for (let dz = -4; dz <= 4 && !e.job; dz++) for (let dx = -4; dx <= 4 && !e.job; dx++) {
+          const jx = sx + dx, jy = y + dy, jz = sz + dz;
+          const jp = JOB_SITES[blockId(this.get(jx, jy, jz))];
+          if (jp !== undefined && !taken.has(posKey(jx, jy, jz))) { e.job = [jx, jy, jz]; e.prof = jp; }
+        }
         e.flags = (e.prof + 1) << 9;
       }
     }
@@ -742,6 +857,7 @@ export class WorldSim {
       case 'soil': return below === B.GRASS || below === B.DIRT || below === B.FARMLAND || below === B.SNOWY_GRASS || below === B.MUD || (id >= B.OAK_SAPLING && id <= B.JUNGLE_SAPLING ? false : below === B.SAND && id === B.DEAD_BUSH);
       case 'sand': return below === B.SAND || below === B.DIRT || below === B.GRASS;
       case 'farmland': return below === B.FARMLAND;
+      case 'soulsand': return this.get(x, y - 1, z) === X(XV.SOUL_SAND);
       case 'solid': return isSolid(this.get(x, y - 1, z));
       case 'cactus': {
         if (below !== B.SAND && below !== B.CACTUS) return false;
@@ -796,6 +912,15 @@ export class WorldSim {
       if (stage >= 7) return [{ id: I.WHEAT, count: 1 }, { id: I.SEEDS, count: 1 + this.rng.int(3) }];
       return [{ id: I.SEEDS, count: 1 }];
     }
+    if (id === B.CARROTS || id === B.POTATOES) {
+      const ripe = (blockMeta(v) & 7) >= 7, item = id === B.CARROTS ? I.CARROT : I.POTATO;
+      const out: ItemStack[] = [{ id: item, count: ripe ? 2 + this.rng.int(3 + fortune) : 1 }];
+      if (ripe && id === B.POTATOES && this.rng.chance(0.02)) out.push({ id: I.BEETROOT_SEEDS, count: 1 });
+      return out;
+    }
+    if (id === B.BEETROOTS) return (blockMeta(v) & 3) >= 3 ? [{ id: I.BEETROOT, count: 1 }, { id: I.BEETROOT_SEEDS, count: 1 + this.rng.int(3) }] : [{ id: I.BEETROOT_SEEDS, count: 1 }];
+    if (v === X(XV.GILDED_BLACKSTONE) && this.rng.chance([0.1, 0.14, 0.25, 1][Math.min(3, fortune)])) return [{ id: I.GOLD_NUGGET, count: 2 + this.rng.int(4) }];
+    if (id === B.NETHER_WART) return [{ id: I.NETHER_WART, count: (blockMeta(v) & 3) >= 3 ? 2 + this.rng.int(3 + fortune) : 1 }];
     if (id === B.GRAVEL) return [{ id: this.rng.chance([0.1, 1 / 7, 0.25, 1][Math.min(3, fortune)]) ? I.FLINT : B.GRAVEL, count: 1 }];
     const out: ItemStack[] = [];
     for (const dr of d.drops) {
@@ -838,8 +963,8 @@ export class WorldSim {
     let be = this.blockEntities.get(k);
     if (be) return be;
     const id = blockId(this.get(x, y, z));
-    if (id === B.CHEST) be = { type: 'chest', items: new Array(CHEST_SIZE).fill(null) };
-    else if (id === B.FURNACE || id === B.FURNACE_LIT) be = { type: 'furnace', items: new Array(FURNACE_SIZE).fill(null), burn: 0, burnMax: 0, cook: 0, xp: 0 };
+    if (id === B.CHEST || id === B.BARREL) be = { type: 'chest', items: new Array(CHEST_SIZE).fill(null) };
+    else if (id === B.FURNACE || id === B.FURNACE_LIT || id === B.BLAST_FURNACE || id === B.SMOKER) be = { type: 'furnace', items: new Array(FURNACE_SIZE).fill(null), burn: 0, burnMax: 0, cook: 0, xp: 0 };
     else if (id === B.HOPPER) be = { type: 'chest', items: new Array(5).fill(null) };
     else if (id === B.DROPPER || id === B.DISPENSER) be = { type: 'chest', items: new Array(9).fill(null) };
     else return null;
@@ -860,7 +985,13 @@ export class WorldSim {
     this.emit({ e: 'container', key: k });
   }
 
-  addGeneratedChest(x: number, y: number, z: number, items: (ItemStack | null)[], type: 'chest' | 'spawner' | 'trial' | 'vault' = 'chest', mob = 'hollowed'): void {
+  addGeneratedChest(x: number, y: number, z: number, items: (ItemStack | null)[], type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob' = 'chest', mob = 'hollowed'): void {
+    if (type === 'mob') {
+      if (!this.authoritative || !MOBS[mob as MobType]) return;
+      const e = this.spawnMob(mob as MobType, x + 0.5, y, z + 0.5);
+      e.persistent = true;
+      return;
+    }
     const k = posKey(x, y, z);
     if (this.blockEntities.has(k)) return;
     if (type === 'spawner') this.blockEntities.set(k, { type: 'spawner', items: [], mob, delay: 200 });
@@ -1150,7 +1281,7 @@ export class WorldSim {
       if (!cart || flags & MF.CROUCH) { this.dismount(p); return true; }
       p.vel = { x: cart.vx, y: cart.vy, z: cart.vz };
       p.speed = Math.hypot(cart.vx, cart.vz);
-      p.x = cart.x; p.y = cart.y + 0.35; p.z = cart.z; p.peakY = p.y;
+      p.x = cart.x; p.y = cart.y + rideOffset(cart); p.z = cart.z; p.peakY = p.y;
       return true;
     }
     if (this.validateMoves) {
@@ -1284,7 +1415,7 @@ export class WorldSim {
     p.back = { x: p.x, y: p.y, z: p.z };
     p.dig = null;
     const msgs: Record<string, string> = {
-      fall: 'hit the ground too hard', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death',
+      fall: 'hit the ground too hard', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death', wither: 'withered away', small_fireball: 'was fireballed by a Blaze',
       void: 'fell out of the world', starve: 'starved to death', fire: 'burned to a crisp', arrow: 'was shot by a Skeleton',
       kill: 'gave up on this life', player: `was struck down by ${killer ?? 'a rival'}`,
     };
@@ -1317,7 +1448,7 @@ export class WorldSim {
     if (!p.dead) return;
     if (this.game && !this.game.allowRespawn(p)) return;
     p.dead = false;
-    p.health = 20; p.food = 20; p.sat = 5; p.exh = 0; p.air = 300; p.fireT = 0;
+    p.health = 20; p.food = 20; p.sat = 5; p.exh = 0; p.air = 300; p.fireT = 0; p.witherT = 0;
     p.x = p.spawn.x; p.y = p.spawn.y; p.z = p.spawn.z; p.peakY = p.y;
     p.hurtCd = 40;
     if (!this.game) this.makeSafe(p);
@@ -1328,9 +1459,9 @@ export class WorldSim {
 
   invCtx(p: SimPlayer) {
     let container: (ItemStack | null)[] | null = null;
-    let kind: 'chest' | 'furnace' | 'enchant' | 'anvil' | null = null;
+    let kind: 'chest' | 'furnace' | 'enchant' | 'anvil' | 'smith' | null = null;
     let split: ((joined: (ItemStack | null)[]) => void) | null = null;
-    if (p.screen.type === 'enchant' || p.screen.type === 'anvil') { container = this.workSlots(p); kind = p.screen.type; }
+    if (p.screen.type === 'enchant' || p.screen.type === 'anvil' || p.screen.type === 'smith') { container = this.workSlots(p); kind = p.screen.type; }
     if (p.screen.type === 'chest' || p.screen.type === 'furnace') {
       const be = this.getBlockEntity(p.screen.x, p.screen.y, p.screen.z);
       if (be && be.type === p.screen.type) { container = be.items; kind = be.type; }
@@ -1359,9 +1490,9 @@ export class WorldSim {
     const wasFurnaceOut = op.t === 'click' && op.s.c === 'cont' && op.s.i === 2 && ctx.containerKind === 'furnace' || op.t === 'quick' && op.s.c === 'cont' && op.s.i === 2 && ctx.containerKind === 'furnace';
     const ok = applyInvOp(ctx, op);
     if (ctx.split && ctx.container) ctx.split(ctx.container);
-    if (ok && (ctx.containerKind === 'enchant' || ctx.containerKind === 'anvil') && op.t !== 'close') this.emitWork(p);
+    if (ok && (ctx.containerKind === 'enchant' || ctx.containerKind === 'anvil' || ctx.containerKind === 'smith') && op.t !== 'close') this.emitWork(p);
     if (ok) {
-      if (ctx.container && ctx.containerKind !== 'enchant' && ctx.containerKind !== 'anvil') {
+      if (ctx.container && ctx.containerKind !== 'enchant' && ctx.containerKind !== 'anvil' && ctx.containerKind !== 'smith') {
         const k = posKey(p.screen.x, p.screen.y, p.screen.z);
         this.emit({ e: 'container', key: k });
         const pr = ctx.split ? chestPartner(this.store, p.screen.x, p.screen.y, p.screen.z) : null;
@@ -1483,21 +1614,22 @@ export class WorldSim {
     p.inv.craftSize = type === 'workbench' ? 3 : 2;
     if (prev) this.emit({ e: 'chestLid', x: prev.x, y: prev.y, z: prev.z, n: this.chestViewers(prev.x, prev.y, prev.z) });
     if (type === 'chest' || type === 'furnace') this.ensureBlockEntity(x, y, z);
+    if (type === 'chest') this.angerPiglins(p, x, y, z);
     if (type === 'chest') { const pr = chestPartner(this.store, x, y, z); if (pr) this.ensureBlockEntity(pr[0], pr[1], pr[2]); this.emit({ e: 'chestLid', x, y, z, n: this.chestViewers(x, y, z) }); }
     this.emit({ e: 'screen', p });
     this.emit({ e: 'inv', p });
-    if (type === 'enchant' || type === 'anvil') this.emitWork(p);
+    if (type === 'enchant' || type === 'anvil' || type === 'smith') this.emitWork(p);
   }
 
   private work = new Map<string, (ItemStack | null)[]>();
 
   workSlots(p: SimPlayer): (ItemStack | null)[] {
     let w = this.work.get(p.id);
-    if (!w) this.work.set(p.id, (w = [null, null]));
+    if (!w) this.work.set(p.id, (w = [null, null, null]));
     return w;
   }
 
-  setWork(p: SimPlayer, items: (ItemStack | null)[]): void { this.work.set(p.id, [items[0] ?? null, items[1] ?? null]); }
+  setWork(p: SimPlayer, items: (ItemStack | null)[]): void { this.work.set(p.id, [items[0] ?? null, items[1] ?? null, items[2] ?? null]); }
 
   private returnWork(p: SimPlayer): void {
     const w = this.work.get(p.id);
@@ -1570,7 +1702,23 @@ export class WorldSim {
     return true;
   }
 
+  smith(p: SimPlayer): boolean {
+    if (p.dead || p.screen.type !== 'smith' || p.inv.cursor) return false;
+    if (blockId(this.get(p.screen.x, p.screen.y, p.screen.z)) !== B.SMITHING_TABLE) return false;
+    const w = this.workSlots(p);
+    const out = smithResult(w[0], w[1], w[2]);
+    if (!out) return false;
+    p.inv.cursor = out;
+    for (const i of [0, 2]) { w[i]!.count--; if (w[i]!.count <= 0) w[i] = null; }
+    w[1] = null;
+    this.emit({ e: 'sound', s: 'anvil.use', x: p.screen.x + 0.5, y: p.screen.y + 1, z: p.screen.z + 0.5 });
+    this.emit({ e: 'inv', p });
+    this.emitWork(p);
+    return true;
+  }
+
   anvil(p: SimPlayer, name: string | null): boolean {
+    if (p.screen.type === 'smith') return this.smith(p);
     if (p.dead || p.screen.type !== 'anvil') return false;
     if (blockId(this.get(p.screen.x, p.screen.y, p.screen.z)) !== B.ANVIL) return false;
     const w = this.workSlots(p);
@@ -1669,6 +1817,21 @@ export class WorldSim {
       if (id === B.WORKBENCH) { this.openScreen(p, 'workbench', x, y, z); return true; }
       if (id === B.ENCHANTING_TABLE) { this.openScreen(p, 'enchant', x, y, z); return true; }
       if (id === B.ANVIL) { this.openScreen(p, 'anvil', x, y, z); return true; }
+      if (id === B.SMITHING_TABLE) { this.openScreen(p, 'smith', x, y, z); return true; }
+      if (id === B.BARREL) { this.openScreen(p, 'chest', x, y, z); return true; }
+      if (id === B.BLAST_FURNACE || id === B.SMOKER) { this.openScreen(p, 'furnace', x, y, z); return true; }
+      if (id === B.BELL) { this.emit({ e: 'sound', s: 'bell.ring', x: x + 0.5, y: y + 0.5, z: z + 0.5 }); return true; }
+      if (id === B.CAKE) {
+        if (p.food >= 20 && p.mode === 'survival' && this.difficulty !== 'peaceful') return false;
+        p.food = Math.min(20, p.food + 2); p.sat = Math.min(p.food, p.sat + 0.4);
+        const bites = (blockMeta(v) & 7) + 1;
+        this.setBlock(x, y, z, bites >= 7 ? 0 : makeBlock(B.CAKE, bites), p.id);
+        this.emit({ e: 'sound', s: 'player.eat', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+        this.emit({ e: 'vitals', p });
+        return true;
+      }
+      if (id === B.COMPOSTER) return this.useComposter(p, x, y, z, v);
+      if (JOB_SITES[id] !== undefined) return false;
       if (id === B.CHEST) { this.openScreen(p, 'chest', x, y, z); return true; }
       if (id === B.VAULT) return this.openVault(p, x, y, z);
       if (id === B.FURNACE || id === B.FURNACE_LIT) { this.openScreen(p, 'furnace', x, y, z); return true; }
@@ -1715,8 +1878,8 @@ export class WorldSim {
       }
     }
     if (!this.canBuild(p)) { this.emit({ e: 'reject', p, x: x + nx, y: y + ny, z: z + nz }); return false; }
-    if (item?.tool?.type === 'hoe' && (id === B.GRASS || id === B.DIRT || id === B.SNOWY_GRASS) && blockId(this.get(x, y + 1, z)) === 0) {
-      this.setBlock(x, y, z, B.FARMLAND, p.id);
+    if (item?.tool?.type === 'hoe' && (id === B.GRASS || id === B.DIRT || id === B.SNOWY_GRASS) && blockId(this.get(x, y + 1, z)) === 0 && tix(v) !== SB.PODZOL) {
+      this.setBlock(x, y, z, tix(v) === SB.COARSE_DIRT ? B.DIRT : B.FARMLAND, p.id);
       this.emit({ e: 'sound', s: 'place.dirt', x: x + 0.5, y: y + 1, z: z + 0.5, src: p.id });
       if (p.mode === 'survival') { damageHeld(p.inv); this.emit({ e: 'inv', p }); }
       return true;
@@ -1740,11 +1903,12 @@ export class WorldSim {
   applyBoneMeal(x: number, y: number, z: number, src?: string): boolean {
     const v = this.get(x, y, z), id = blockId(v);
     let used = false;
-    if (id === B.WHEAT && (blockMeta(v) & 7) < 7) {
-      this.setBlock(x, y, z, makeBlock(B.WHEAT, Math.min(7, (blockMeta(v) & 7) + 2 + this.rng.int(4))), src);
+    if (CROPS[id] && (blockMeta(v) & 7) < CROPS[id].max) {
+      const mx = CROPS[id].max;
+      this.setBlock(x, y, z, makeBlock(id, Math.min(mx, (blockMeta(v) & 7) + (mx === 3 ? (this.rng.chance(0.75) ? 1 : 0) : 2 + this.rng.int(4)))), src);
       used = true;
     } else if (id === B.OAK_SAPLING || id === B.BIRCH_SAPLING || id === B.SPRUCE_SAPLING || id === B.JUNGLE_SAPLING) {
-      if (this.rng.chance(0.45)) this.growTree(x, y, z, id);
+      if (this.rng.chance(0.45)) this.growTree(x, y, z, id, speciesOf(v));
       used = true;
     } else if ((id === B.GRASS || id === B.SNOWY_GRASS) && blockId(this.get(x, y + 1, z)) === 0) {
       for (let i = 0; i < 24; i++) {
@@ -1881,6 +2045,7 @@ export class WorldSim {
       meta = FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz);
     }
     if (def.render === 'leaves') meta = 1;
+    if (item.placeMeta && bid !== B.EXT && bid !== B.SLAB && bid !== B.STAIRS) meta = (meta & 15) | item.placeMeta;
     if (bid === B.ANVIL) meta = look === 1 || look === 3 ? 0 : 1;
     if (isRail(bid)) meta = shapeFor((a, b, c) => this.get(a, b, c), tx, ty, tz, bid, look === 1 || look === 3 ? 1 : 0);
     let v = combine >= 0 ? makeBlock(combine, 0) : makeBlock(bid, meta);
@@ -2101,6 +2266,7 @@ export class WorldSim {
       return true;
     }
     if (e?.kind === 'fireball') {
+      if (e.flags & 1) return false;
       if (Math.hypot(e.x - p.x, e.y - p.y - 1.6, e.z - p.z) > 6) return false;
       const cp = Math.cos(p.pitch), sp = Math.hypot(e.vx, e.vy, e.vz) * 1.1 + 2;
       e.vx = -Math.sin(p.yaw) * cp * sp; e.vy = Math.sin(p.pitch) * sp; e.vz = -Math.cos(p.yaw) * cp * sp;
@@ -2199,6 +2365,7 @@ export class WorldSim {
         e.target = by; e.provoked = 400 + this.rng.int(400);
         for (const o of this.entities.values()) if (o.type === e.type && o !== e && Math.abs(o.x - e.x) < 20 && Math.abs(o.z - e.z) < 20 && Math.abs(o.y - e.y) < 10) { o.target = by; o.provoked = 400 + this.rng.int(400); }
       } else if (!def.hostile) e.panic = 80; else e.target = by;
+      if (e.type === 'flarewisp' && this.players.has(by)) for (const o of this.entities.values()) if (o.type === 'flarewisp' && o !== e && !o.target && Math.hypot(o.x - e.x, o.y - e.y, o.z - e.z) < 24) o.target = by;
     }
     this.emit({ e: 'sound', s: `mob.${e.type}.hurt`, x: e.x, y: e.y + 0.5, z: e.z });
     this.emit({ e: 'particles', k: 'hurt', x: e.x, y: e.y + e.h * 0.6, z: e.z });
@@ -2218,7 +2385,11 @@ export class WorldSim {
           if (n > 0) this.spawnItem(e.x, e.y + 0.5, e.z, { id: item, count: n });
         }
       }
+      if (e.rider) { const r = this.players.get(e.rider); if (r) this.dismount(r); }
+      if (e.saddled) this.spawnItem(e.x, e.y + 0.5, e.z, { id: I.SADDLE, count: 1 });
       if (killer && killer.mode === 'survival') this.giveXp(killer, def.xp);
+      const wpn = e.type === 'piglin' ? (e.wield === 1 ? I.CROSSBOW : toolId(3, 3)) : e.type === 'piglin_brute' ? toolId(3, 1) : e.type === 'cinderhusk' ? toolId(3, 3) : 0;
+      if (wpn && killer && this.rng.chance(0.085)) this.spawnItem(e.x, e.y + 0.5, e.z, { id: wpn, count: 1, dmg: Math.floor(this.rng.next() * maxDurability(wpn) * 0.8) });
       if (e.type === 'emberslime' && (e.size ?? 1) > 1) {
         const n = 2 + this.rng.int(3), half = (e.size ?? 2) / 2;
         for (let i = 0; i < n; i++) { const c = this.spawnMob('emberslime', e.x + (this.rng.next() - 0.5) * half * 0.5, e.y + 0.5, e.z + (this.rng.next() - 0.5) * half * 0.5, half); c.target = e.target; c.persistent = e.persistent; }
@@ -2240,6 +2411,8 @@ export class WorldSim {
       target: null, path: null, pathT: 0, wanderT: this.rng.int(100), panic: 0, attackCd: 0, provoked: 0,
     };
     if (type === 'emberslime') this.sizeCube(e, size ?? [1, 2, 4][this.rng.int(3)]);
+    if (type === 'piglin') { e.wield = this.rng.chance(0.5) ? 1 : 0; if (e.wield) e.flags = 32; }
+    if (type === 'piglin_brute') { e.wield = 2; e.persistent = true; }
     this.entities.set(e.id, e);
     this.emit({ e: 'spawn', ent: e });
     return e;
@@ -2337,6 +2510,7 @@ export class WorldSim {
       if ((p.fireT > 0) !== !!p.wasFire) { p.wasFire = p.fireT > 0; changed = true; }
       if (p.fireT > 0) { p.fireT--; if (--p.t.fire <= 0) { p.t.fire = 20; if (!med.lava) this.damage(p, 1, 'fire', p.x, p.z, false); } }
       if (p.absorbT && --p.absorbT <= 0) { p.absorb = 0; changed = true; }
+      if (p.witherT && p.witherT > 0) { if (p.witherT-- % 40 === 0) this.damage(p, 1, 'wither', p.x, p.z, false, true); }
       if (p.regenT && p.regenT > 0) { if (p.regenT-- % 25 === 0 && p.health < 20) { p.health = Math.min(20, p.health + 1); changed = true; } }
       if (f & MF.EYE_WATER) {
         const resp = lvl(p.inv.armor[0], 'respiration');
@@ -2411,10 +2585,11 @@ export class WorldSim {
     }
   }
 
-  private moveEntities(cells: { x: number; y: number; z: number; sticky: boolean }[], dir: number, from: number, to: number): void {
+  private moveEntities(cells: { x: number; y: number; z: number; sticky: boolean; slime?: boolean }[], dir: number, from: number, to: number): void {
     const [dx, dy, dz] = DIR6[dir];
     const axis = dx ? 0 : dy ? 1 : 2, sgn = dx + dy + dz;
     const shift = new Map<Entity | SimPlayer, number>();
+    const launch = new Set<Entity | SimPlayer>();
     const bodies: { o: Entity | SimPlayer; hw: number; h: number }[] = [];
     for (const e of this.entities.values()) if (e.kind !== 'mob' || e.health > 0) bodies.push({ o: e, hw: e.hw, h: e.h });
     for (const p of this.players.values()) if (!p.dead && !(p.flags & MF.FLY && p.mode === 'creative' && false)) bodies.push({ o: p, hw: 0.3, h: p.flags & MF.CROUCH ? 1.5 : 1.8 });
@@ -2434,12 +2609,16 @@ export class WorldSim {
           const over = lo[0] < box[3] && hi[0] > box[0] && lo[2] < box[5] && hi[2] > box[2];
           if (over && Math.abs(o.y - prevTop) < 0.1) need = to - from;
         }
-        if (need > 0) shift.set(o, Math.max(shift.get(o) ?? 0, Math.min(1.01, need)));
+        if (need > 0) { shift.set(o, Math.max(shift.get(o) ?? 0, Math.min(1.01, need))); if (c.slime && hits && to >= 1) launch.add(o); }
       }
     }
     for (const [o, n] of shift) {
       o.x += dx * n; o.y += dy * n; o.z += dz * n;
       if ('inv' in o) { (o as SimPlayer).peakY = o.y; this.emit({ e: 'tp', p: o as SimPlayer }); }
+    }
+    for (const o of launch) {
+      if ('inv' in o) this.emit({ e: 'knock', p: o as SimPlayer, x: dx, y: dy > 0 ? 1 : dy < 0 ? -1 : 0.01, z: dz, set: dy !== 0 });
+      else { const e = o as Entity; if (dx) e.vx = dx * 20; if (dy) e.vy = dy * 20; if (dz) e.vz = dz * 20; }
     }
   }
 
@@ -2491,10 +2670,11 @@ export class WorldSim {
   }
 
   mount(p: SimPlayer, e: Entity): boolean {
-    if (e.kind !== 'cart' || e.type !== 'cart' || e.rider || p.riding || p.dead) return false;
+    const strider = e.type === 'lavastrider' && !!e.saddled;
+    if ((!strider && (e.kind !== 'cart' || e.type !== 'cart')) || e.rider || p.riding !== undefined || p.dead) return false;
     e.rider = p.id;
     p.riding = e.id;
-    p.x = e.x; p.y = e.y + 0.35; p.z = e.z; p.peakY = p.y;
+    p.x = e.x; p.y = e.y + rideOffset(e); p.z = e.z; p.peakY = p.y;
     this.emit({ e: 'ride', p, id: e.id });
     return true;
   }
@@ -2668,9 +2848,10 @@ export class WorldSim {
 
   private runBlasts(): void {
     let n = 0;
-    while (this.blasts.length && n < 512) {
+    while (this.blasts.length && n < 24) {
       const b = this.blasts.shift()!;
-      n++;
+      const lb = this.lastBlast;
+      n += lb && lb.broke === 0 && lb.power === b.power && Math.abs(lb.x - b.x) < 0.01 && Math.abs(lb.y - b.y) < 0.01 && Math.abs(lb.z - b.z) < 0.01 ? 0.05 : 1;
       this.explode(b.x, b.y, b.z, b.power);
     }
     this.exposureCache.clear();
@@ -2678,6 +2859,8 @@ export class WorldSim {
   }
 
   private exposureCache = new Map<string, number>();
+  private blastSeen = new Int32Array(0);
+  private blastStamp = 0;
   private lastBlast: { x: number; y: number; z: number; power: number; broke: number } | null = null;
 
   private resAt(v: number): number {
@@ -2693,26 +2876,34 @@ export class WorldSim {
     const repeat = !!lb && lb.broke === 0 && lb.power === power && Math.abs(lb.x - x) < 0.01 && Math.abs(lb.y - y) < 0.01 && Math.abs(lb.z - z) < 0.01;
     const hit: number[] = [];
     if (!wet && !repeat) {
-      const seen = new Set<number>();
+      const span = Math.ceil(power * 1.85) + 2, G = span * 2 + 1, G3 = G * G * G;
+      if (this.blastSeen.length < G3) this.blastSeen = new Int32Array(G3);
+      const seen = this.blastSeen;
+      const st = ++this.blastStamp;
+      const ox = Math.floor(x) - span, oy = Math.floor(y) - span, oz = Math.floor(z) - span;
+      const raw = this.store.raw ? (cx: number, cz: number) => this.store.raw!(cx, cz) : null;
+      let ccx = 0x7fffffff, ccz = 0x7fffffff, arr: Uint16Array | null = null, loaded = false;
       const R = RAYS;
       for (let r = 0; r < R.length; r += 3) {
         const rx = R[r] * 0.3, ry = R[r + 1] * 0.3, rz = R[r + 2] * 0.3;
         let f = power * (0.7 + this.rng.next() * 0.6);
-        let px = x, py = y, pz = z, lastK = -1, lastV = 0;
+        let px = x, py = y, pz = z;
         while (f > 0) {
           const bx = Math.floor(px), by = Math.floor(py), bz = Math.floor(pz);
           if (by < 0 || by >= WORLD_HEIGHT) break;
-          const k = ((bx + 1048576) * 512 + by) * 2097152 + (bz + 1048576);
-          let v: number;
-          if (k === lastK) v = lastV;
-          else {
-            if (!this.store.isLoaded(bx, bz)) break;
-            v = this.get(bx, by, bz);
-            lastK = k; lastV = v;
-          }
+          const kx = bx >> 4, kz = bz >> 4;
+          if (kx !== ccx || kz !== ccz) { ccx = kx; ccz = kz; loaded = this.store.isLoaded(bx, bz); arr = loaded && raw ? raw(kx, kz) : null; }
+          if (!loaded) break;
+          const v = arr ? arr[(by * 16 + (bz & 15)) * 16 + (bx & 15)] : this.get(bx, by, bz);
           if (v) {
             f -= (this.resAt(v) + 0.3) * 0.3;
-            if (f > 0 && !seen.has(k) && !getBlock(v).fluid) { seen.add(k); hit.push(bx, by, bz); }
+            if (f > 0) {
+              const gx = bx - ox, gy = by - oy, gz = bz - oz;
+              if (gx >= 0 && gy >= 0 && gz >= 0 && gx < G && gy < G && gz < G) {
+                const gi = (gx * G + gy) * G + gz;
+                if (seen[gi] !== st && !FLUID_ID[v & 255]) { seen[gi] = st; hit.push(bx, by, bz); }
+              }
+            }
           }
           px += rx; py += ry; pz += rz;
           f -= 0.22500001;
@@ -2720,18 +2911,22 @@ export class WorldSim {
       }
     }
     const r = power * 2;
+    const rayMemo = new Map<number, boolean>();
     const exposure = (id: string | number, bx: number, by: number, bz: number, hw: number, h: number): number => {
       const ck = `${id}|${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`;
       const c = this.exposureCache.get(ck);
       if (c !== undefined) return c;
       let seen = 0, n = 0;
-      for (const sy of [0.1, 0.5, 0.9]) for (const sx of [-0.8, 0.8]) {
+      const few = typeof id === 'number' && this.entities.get(id)?.kind === 'tnt';
+      for (const sy of few ? EXP_Y_FEW : EXP_Y) for (const sx of few ? EXP_X_FEW : EXP_X) {
         const tx = bx + sx * hw, ty = by + sy * h, tz = bz;
         const ddx = tx - x, ddy = ty - y, ddz = tz - z, len = Math.hypot(ddx, ddy, ddz);
         n++;
         if (len < 0.01) { seen++; continue; }
-        const rh = raycast(this.store, x, y, z, ddx / len, ddy / len, ddz / len, len);
-        if (!rh || !isSolid(rh.value)) seen++;
+        const qk = (Math.floor(tx * 4) + 4194304) * 8388608 + (Math.floor(ty * 4) + 1024) * 8192 + (Math.floor(tz * 4) & 8191);
+        let open = rayMemo.get(qk);
+        if (open === undefined) { const rh = raycast(this.store, x, y, z, ddx / len, ddy / len, ddz / len, len); open = !rh || !isSolid(rh.value); rayMemo.set(qk, open); }
+        if (open) seen++;
       }
       const out = seen / n;
       this.exposureCache.set(ck, out);
@@ -2798,7 +2993,7 @@ export class WorldSim {
       if (surface) { this.noLeafDecay = true; this.afterChange(x, y, z, old, this.get(x, y, z)); this.noLeafDecay = false; }
       else {
         this.info.changed(x, y, z, old, 0);
-        if (oid === B.CHEST || oid === B.FURNACE || oid === B.FURNACE_LIT || oid === B.HOPPER || oid === B.DROPPER || oid === B.DISPENSER) this.removeBlockEntity(x, y, z, true);
+        if (oid === B.CHEST || oid === B.BARREL || oid === B.FURNACE || oid === B.FURNACE_LIT || oid === B.BLAST_FURNACE || oid === B.SMOKER || oid === B.HOPPER || oid === B.DROPPER || oid === B.DISPENSER) this.removeBlockEntity(x, y, z, true);
       }
     }
     const cells = new Set<string>();
@@ -2814,7 +3009,7 @@ export class WorldSim {
 
   private containerSlots(x: number, y: number, z: number): (ItemStack | null)[][] | null {
     const id = blockId(this.get(x, y, z));
-    if (id !== B.CHEST && id !== B.HOPPER && id !== B.DROPPER && id !== B.DISPENSER && id !== B.FURNACE && id !== B.FURNACE_LIT) return null;
+    if (id !== B.CHEST && id !== B.BARREL && id !== B.HOPPER && id !== B.DROPPER && id !== B.DISPENSER && id !== B.FURNACE && id !== B.FURNACE_LIT && id !== B.BLAST_FURNACE && id !== B.SMOKER) return null;
     const be = this.ensureBlockEntity(x, y, z);
     if (!be) return null;
     if (id !== B.CHEST) return [be.items];
@@ -2852,7 +3047,7 @@ export class WorldSim {
     const k = posKey(x, y, z);
     this.emit({ e: 'container', key: k });
     const id = blockId(this.get(x, y, z));
-    if ((id === B.FURNACE || id === B.FURNACE_LIT) && !this.activeFurnaces.has(k)) this.activeFurnaces.add(k);
+    if ((id === B.FURNACE || id === B.FURNACE_LIT || id === B.BLAST_FURNACE || id === B.SMOKER) && !this.activeFurnaces.has(k)) this.activeFurnaces.add(k);
   }
 
   private tickHoppers(): void {
@@ -3033,7 +3228,11 @@ export class WorldSim {
       if (!be || be.type !== 'furnace') { this.activeFurnaces.delete(k); continue; }
       const [x, y, z] = parsePosKey(k);
       const input = be.items[0], fuel = be.items[1], out = be.items[2];
-      const smelt = input ? findSmelt(input.id, this.book) : null;
+      const fid = blockId(this.get(x, y, z));
+      let smelt = input ? findSmelt(input.id, this.book) : null;
+      if (smelt && fid === B.BLAST_FURNACE && !BLAST_OUT.has(smelt.result)) smelt = null;
+      if (smelt && fid === B.SMOKER && !getItem(smelt.result)?.food) smelt = null;
+      const cookTime = fid === B.BLAST_FURNACE || fid === B.SMOKER ? 100 : 200;
       const canCook = !!smelt && (!out || (out.id === smelt.result && out.count < (getItem(out.id)?.maxStack ?? 64)));
       let changed = false;
       if (be.burn <= 0 && canCook && fuel && fuelSeconds(fuel.id) > 0) {
@@ -3046,7 +3245,7 @@ export class WorldSim {
         be.burn--;
         if (canCook) {
           be.cook++;
-          if (be.cook >= 200) {
+          if (be.cook >= cookTime) {
             be.cook = 0;
             input!.count--;
             if (input!.count <= 0) be.items[0] = null;
@@ -3211,16 +3410,21 @@ export class WorldSim {
         if (below !== X(XV.NETHERRACK) && below !== B.MAGMA_BLOCK && this.rng.chance(0.6)) this.setBlock(x, y, z, 0);
         break;
       }
-      case B.WHEAT: {
+      case B.WHEAT: case B.CARROTS: case B.POTATOES: case B.BEETROOTS: {
         const st = blockMeta(v) & 7;
-        if (st >= 7 || !this.brightAtLeast(x, y + 1, z, 9)) break;
+        if (st >= CROPS[id].max || !this.brightAtLeast(x, y + 1, z, 9)) break;
         const f = this.cropSpeed(x, y, z, id);
-        if (this.rng.int(Math.floor(25 / f) + 1) === 0) this.setBlock(x, y, z, makeBlock(B.WHEAT, st + 1));
+        if (this.rng.int(Math.floor(25 / f) + 1) === 0) this.setBlock(x, y, z, makeBlock(id, st + 1));
+        break;
+      }
+      case B.NETHER_WART: {
+        const st = blockMeta(v) & 3;
+        if (st < 3 && this.rng.int(10) === 0) this.setBlock(x, y, z, makeBlock(B.NETHER_WART, st + 1));
         break;
       }
       case B.OAK_SAPLING: case B.BIRCH_SAPLING: case B.SPRUCE_SAPLING: case B.JUNGLE_SAPLING:
         if (this.rng.int(7) !== 0 || this.rng.int(2) !== 0 || !this.brightAtLeast(x, y + 1, z, 9)) break;
-        this.growTree(x, y, z, id);
+        this.growTree(x, y, z, id, speciesOf(v));
         break;
       case B.SUGAR_CANE: case B.CACTUS: {
         if (blockId(this.get(x, y + 1, z)) !== 0) break;
@@ -3235,7 +3439,7 @@ export class WorldSim {
         if (!this.brightAtLeast(x, y + 1, z, 9)) break;
         for (let i = 0; i < 4; i++) {
           const tx = x + this.rng.int(3) - 1, ty = y + this.rng.int(5) - 3, tz = z + this.rng.int(3) - 1;
-          if (blockId(this.get(tx, ty, tz)) !== B.DIRT) continue;
+          if (this.get(tx, ty, tz) !== B.DIRT) continue;
           const up = this.get(tx, ty + 1, tz);
           if (getBlock(up).opaque || blockId(up) === B.WATER || isSolid(up)) continue;
           if (!this.brightAtLeast(tx, ty + 1, tz, 4)) continue;
@@ -3264,7 +3468,8 @@ export class WorldSim {
     }
   }
 
-  growTree(x: number, y: number, z: number, sapling: number): boolean {
+  growTree(x: number, y: number, z: number, sapling: number, spc = 0): boolean {
+    if (spc) return this.growSpeciesTree(x, y, z, spc);
     const kind = sapling - B.OAK_SAPLING;
     if (kind >= 2) {
       for (const [ox, oz] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) {
@@ -3497,7 +3702,9 @@ export class WorldSim {
     const med = sampleMedium(this.store, e.x, e.y, e.z, e.hw, e.h, 0.1);
     if (med.water) { e.vy = Math.min(e.vy + 22 * DT, 1.5); e.vx *= 0.9; e.vz *= 0.9; }
     else e.vy -= 18 * DT;
-    if (med.lava) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y, z: e.z }); return; }
+    const fp = !!e.item && fireproof(e.item.id);
+    if (med.lava && fp) { e.vy = Math.min(e.vy + 40 * DT, 1.5); e.vx *= 0.9; e.vz *= 0.9; }
+    else if (med.lava) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y, z: e.z }); return; }
     moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
     const fr = e.onGround ? 0.6 : 0.98;
     e.vx *= fr; e.vz *= fr;
@@ -3612,7 +3819,7 @@ export class WorldSim {
     const def = MOBS[e.type as MobType];
     const med = sampleMedium(this.store, e.x, e.y, e.z, e.hw, e.h, e.h * 0.8);
     e.inWater = med.water;
-    if (def.fireImmune) { e.fire = 0; if (e.type === 'wailer') return this.tickGhast(e, def); if (e.type === 'emberslime') return this.tickCube(e, def, med); if (e.type === 'lavastrider') return this.tickStrider(e, def, med); }
+    if (def.fireImmune) { e.fire = 0; if (e.type === 'wailer') return this.tickGhast(e, def); if (e.type === 'emberslime') return this.tickCube(e, def, med); if (e.type === 'lavastrider') return this.tickStrider(e, def, med); if (e.type === 'flarewisp') return this.tickBlaze(e, def, med); }
     if (med.lava && !def.fireImmune) { e.fire = 160; if (e.age % 10 === 0) this.hurtMob(e, 4, null, 0, 0); }
     if (def.burnsInDay && this.dayFactor() > 0.6 && this.weather === 'clear' && !med.water && e.age % 20 === 0 && this.skyExposed(e.x, e.y + e.h, e.z)) e.fire = 100;
     if (med.water) e.fire = 0;
@@ -3623,7 +3830,20 @@ export class WorldSim {
     if (e.provoked! > 0) e.provoked!--;
     let goalX: number | null = null, goalZ: number | null = null, speed = def.speed;
     let flags = 0;
-    const angry = def.hostile || (def.neutral && e.provoked! > 0 && !!e.target);
+    if ((e.type === 'piglin' || e.type === 'piglin_brute') && !isNether(e.x)) {
+      e.zomb = (e.zomb ?? 0) + 1;
+      if (e.zomb > 300) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); const z = this.spawnMob('cinderhusk', e.x, e.y, e.z); z.persistent = e.persistent; this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y + 1, z: e.z }); return; }
+    }
+    if (e.type === 'piglin' && !e.admire && !e.target && e.age % 10 === 3 && this.difficulty !== 'peaceful') {
+      const near = this.nearestPlayer(e, 16, true);
+      if (near && !wearsGold(near) && this.lineOfSight(e, near)) { e.target = near.id; e.provoked = 300; }
+    }
+    if (e.type === 'hoglin' && e.age % 20 === 5) e.scared = this.findNear(e, B.WARPED_FUNGUS, 7);
+    if (e.admire && e.admire > 0) {
+      e.admire--; e.path = null; flags |= 64;
+      if (e.admire === 0) this.barter(e);
+    }
+    const angry = !e.admire && (def.hostile || (def.neutral && e.provoked! > 0 && !!e.target));
     if (def.neutral && !angry) e.target = null;
     if (angry) {
       if (e.type === 'duskweaver' && e.age % 20 === 1) e.dim = !this.brightAtLeast(Math.floor(e.x), Math.floor(e.y + 0.5), Math.floor(e.z), 12);
@@ -3640,7 +3860,8 @@ export class WorldSim {
         const dist = Math.hypot(dx, dz);
         const dy = target.y - e.y;
         e.yaw = Math.atan2(-dx, -dz);
-        if (def.ranged) {
+        if (e.scared) { goalX = e.x + (e.x - e.scared[0]) * 3; goalZ = e.z + (e.z - e.scared[1]) * 3; speed *= 1.3; }
+        else if (def.ranged || (e.type === 'piglin' && e.wield === 1)) {
           if (e.age % 5 === 0 || e.los === undefined) e.los = this.lineOfSight(e, target);
           const los = e.los;
           if (dist > 10 || !los) { goalX = target.x; goalZ = target.z; }
@@ -3660,12 +3881,35 @@ export class WorldSim {
             e.attackCd = 20;
             flags |= 4;
             this.hitBy = { mob: e, breach: 0 };
-            this.damage(target, Math.max(1, Math.round(def.damage * DIFF_DMG[this.difficulty] * 2) / 2), e.type, e.x, e.z);
+            this.damage(target, Math.max(1, Math.round(def.damage * DIFF_DMG[this.difficulty] * 2) / 2), e.type, e.x, e.z, true, false, undefined, e.type === 'hoglin' ? 1.2 : 0.4);
             this.hitBy = null;
+            if (e.type === 'witherbone' && !target.dead) target.witherT = 200;
           }
         }
       }
     } else {
+      if (e.type === 'piglin' && !e.admire && e.age % 10 === 0) {
+        let best: Entity | null = null, bd = 64;
+        for (const o of this.entities.values()) {
+          if (o.kind !== 'item' || o.item?.id !== I.GOLD_INGOT) continue;
+          const d = (o.x - e.x) ** 2 + (o.y - e.y) ** 2 + (o.z - e.z) ** 2;
+          if (d < bd) { bd = d; best = o; }
+        }
+        if (best && bd < 2.2) {
+          best.item!.count--;
+          if (best.item!.count <= 0) { this.entities.delete(best.id); this.emit({ e: 'remove', id: best.id, why: 'pickup' }); }
+          e.admire = 120;
+          this.emit({ e: 'sound', s: 'mob.piglin.ambient', x: e.x, y: e.y + 1.5, z: e.z });
+        } else if (best) e.goal = [best.x, best.y, best.z];
+        else e.goal = undefined;
+      }
+      if (e.type === 'piglin' && e.goal && !e.admire) { goalX = e.goal[0]; goalZ = e.goal[2]; }
+      if (e.type === 'hoglin' && e.scared) { goalX = e.x + (e.x - e.scared[0]) * 3; goalZ = e.z + (e.z - e.scared[1]) * 3; }
+      if (def.trader && !e.baby && (this.tickCount + e.id) % 100 === 0) this.tickJob(e);
+      if (def.trader && e.job && e.prof !== undefined && e.prof >= 0 && !e.tradeWith && !e.panic && !this.isNight() && (this.tickCount + e.id) % 600 < 120) {
+        const dj = Math.hypot(e.job[0] + 0.5 - e.x, e.job[2] + 0.5 - e.z);
+        if (dj > 1.8 && dj < 48) { goalX = e.job[0] + 0.5; goalZ = e.job[2] + 0.5; }
+      }
       if (def.trader) {
         const tp = e.tradeWith ? this.players.get(e.tradeWith) : undefined;
         if (tp && tp.screen.type === 'trade' && !tp.dead) {
@@ -3782,13 +4026,21 @@ export class WorldSim {
     if (e.hurt > 0) flags |= 1;
     if (e.baby) flags |= 128;
     if (e.fire > 0) flags |= 2;
-    if (e.prof !== undefined) flags |= (e.prof + 1) << 9;
+    if (e.prof !== undefined && e.prof >= 0) flags |= (e.prof + 1) << 9;
+    if (e.wield === 1) flags |= 32;
     e.flags = flags;
   }
 
   private spawnNether(hostile: boolean, cx: number, cz: number): number {
     const sx = cx * 16 + this.rng.int(16), sz = cz * 16 + this.rng.int(16);
     if (!this.store.isLoaded(sx, sz) || !this.isTicking(sx, sz)) return 0;
+    if (hostile && this.difficulty !== 'peaceful') {
+      const fort = fortressAt(this.gen.seed, sx, sz, (x, z) => this.gen.netherBiome(x, z));
+      if (fort && sx >= fort.x0 && sx <= fort.x1 && sz >= fort.z0 && sz <= fort.z1) {
+        const n = this.spawnFortress(fort.y, sx, sz);
+        if (n >= 0) return n;
+      }
+    }
     const biome = this.gen.netherBiome(sx, sz);
     const list = Object.values(MOBS).filter((d) => d.nether?.[biome] && (hostile ? d.hostile || d.neutral : !d.hostile && !d.neutral) && (!hostile || this.difficulty !== 'peaceful'));
     let total = 0;
@@ -3816,6 +4068,109 @@ export class WorldSim {
       const x = sx + (i ? this.rng.int(5) - 2 : 0), z = sz + (i ? this.rng.int(5) - 2 : 0);
       if (!def.flying && !def.lavaWalker && (!this.spawnRoom(def, x, y, z))) continue;
       const e = this.spawnMob(def.type, x + 0.5, y, z + 0.5);
+      if (def.flying) e.goal = [e.x, e.y, e.z];
+      spawned++;
+    }
+    return spawned;
+  }
+
+  private findNear(e: Entity, id: number, r: number): [number, number] | null {
+    const bx = Math.floor(e.x), by = Math.floor(e.y), bz = Math.floor(e.z);
+    for (let dy = -1; dy <= 1; dy++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) if (blockId(this.get(bx + dx, by + dy, bz + dz)) === id) return [bx + dx + 0.5, bz + dz + 0.5];
+    return null;
+  }
+
+  private barter(e: Entity): void {
+    const r = this.rng;
+    const table: [number, () => ItemStack][] = [
+      [8, () => ({ id: armorId(1, 3), count: 1 })], [10, () => ({ id: I.IRON_NUGGET, count: 10 + r.int(27) })], [20, () => ({ id: I.STRING, count: 3 + r.int(7) })],
+      [20, () => ({ id: I.QUARTZ, count: 5 + r.int(8) })], [40, () => ({ id: B.OBSIDIAN, count: 1 })], [40, () => ({ id: B.CRYING_OBSIDIAN, count: 1 + r.int(3) })],
+      [40, () => ({ id: I.LEATHER, count: 2 + r.int(3) })], [40, () => ({ id: 600 + XV.SOUL_SAND, count: 2 + r.int(7) })], [40, () => ({ id: 600 + XV.NETHER_BRICKS, count: 1 + r.int(2) })],
+      [40, () => ({ id: I.ARROW, count: 6 + r.int(7) })], [40, () => ({ id: B.GRAVEL, count: 8 + r.int(9) })], [40, () => ({ id: 600 + XV.BLACKSTONE, count: 8 + r.int(9) })],
+    ];
+    let q = r.int(table.reduce((n, t) => n + t[0], 0));
+    for (const [w, mk] of table) if ((q -= w) < 0) {
+      const near = this.nearestPlayer(e, 8, false);
+      const dx = near ? near.x - e.x : -Math.sin(e.yaw), dz = near ? near.z - e.z : -Math.cos(e.yaw), l = Math.hypot(dx, dz) || 1;
+      this.spawnItem(e.x, e.y + 1.2, e.z, mk(), (dx / l) * 3, 3, (dz / l) * 3, 10);
+      break;
+    }
+    this.emit({ e: 'sound', s: 'mob.piglin.ambient', x: e.x, y: e.y + 1.5, z: e.z });
+  }
+
+  private tickJob(e: Entity): void {
+    if (e.job) {
+      const [jx, jy, jz] = e.job;
+      if (!this.store.isLoaded(jx, jz)) return;
+      const ok = JOB_SITES[blockId(this.get(jx, jy, jz))] === e.prof;
+      if (ok) return;
+      e.job = undefined;
+      if (!e.vxp) { e.prof = -1; e.uses = []; e.tseed = undefined; this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y + 2, z: e.z }); }
+      return;
+    }
+    const legacy = e.prof !== undefined && e.prof >= 0 && e.job === undefined && !e.vxp && e.jobless === undefined;
+    if (legacy) { e.jobless = 1; return; }
+    const want = e.prof !== undefined && e.prof >= 0 && e.vxp ? JOB_BLOCK[e.prof] : -1;
+    if (e.prof !== undefined && e.prof >= 0 && !e.vxp && e.jobless) return;
+    const bx = Math.floor(e.x), by = Math.floor(e.y), bz = Math.floor(e.z);
+    const taken = new Set<string>();
+    for (const o of this.entities.values()) if (o.job && o !== e) taken.add(posKey(o.job[0], o.job[1], o.job[2]));
+    let best: [number, number, number] | null = null, bd = Infinity;
+    for (let dy = -4; dy <= 4; dy++) for (let dz = -16; dz <= 16; dz++) for (let dx = -16; dx <= 16; dx++) {
+      const id = blockId(this.get(bx + dx, by + dy, bz + dz));
+      if (JOB_SITES[id] === undefined || (want >= 0 && id !== want)) continue;
+      const d = dx * dx + dy * dy + dz * dz;
+      if (d >= bd || taken.has(posKey(bx + dx, by + dy, bz + dz))) continue;
+      best = [bx + dx, by + dy, bz + dz]; bd = d;
+    }
+    if (!best) return;
+    e.job = best;
+    const np = JOB_SITES[blockId(this.get(best[0], best[1], best[2]))];
+    if (np !== e.prof) { e.prof = np; e.uses = []; e.tseed = undefined; }
+    this.emit({ e: 'particles', k: 'xp', x: best[0] + 0.5, y: best[1] + 1.2, z: best[2] + 0.5 });
+    this.emit({ e: 'sound', s: 'villager.yes', x: e.x, y: e.y + 1.5, z: e.z });
+  }
+
+  private useComposter(p: SimPlayer, x: number, y: number, z: number, v: number): boolean {
+    const lv = blockMeta(v) & 15;
+    if (lv >= 8) {
+      this.setBlock(x, y, z, makeBlock(B.COMPOSTER, 0), p.id);
+      this.spawnItem(x + 0.5, y + 1.1, z + 0.5, { id: I.BONE_MEAL, count: 1 }, 0, 2, 0, 5);
+      this.emit({ e: 'sound', s: 'composter.empty', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+      return true;
+    }
+    const held = heldStack(p.inv);
+    const chance = held ? COMPOST[held.id] : undefined;
+    if (chance === undefined || lv >= 7) return false;
+    if (p.mode === 'survival') { held!.count--; if (held!.count <= 0) p.inv.slots[p.inv.selected] = null; this.emit({ e: 'inv', p }); }
+    const up = lv === 0 || this.rng.next() < chance;
+    if (up) this.setBlock(x, y, z, makeBlock(B.COMPOSTER, lv + 1 === 7 ? 8 : lv + 1), p.id);
+    this.emit({ e: 'particles', k: 'heart', x: x + 0.5, y: y + 1, z: z + 0.5 });
+    this.emit({ e: 'sound', s: up ? 'composter.fill_success' : 'composter.fill', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+    return true;
+  }
+
+  angerPiglins(p: SimPlayer, x: number, y: number, z: number): void {
+    if (!isNether(x) || p.mode !== 'survival') return;
+    for (const o of this.entities.values()) if (o.type === 'piglin' && Math.hypot(o.x - x, o.y - y, o.z - z) < 16 && this.lineOfSight(o, p)) { o.target = p.id; o.provoked = 600; o.admire = 0; }
+  }
+
+  private spawnFortress(fy: number, sx: number, sz: number): number {
+    const NBV = X(XV.NETHER_BRICKS);
+    let y = -1;
+    for (let yy = fy + 6; yy >= fy; yy--) if (this.get(sx, yy - 1, sz) === NBV && this.get(sx, yy, sz) === 0 && this.get(sx, yy + 1, sz) === 0 && this.get(sx, yy + 2, sz) === 0) { y = yy; break; }
+    if (y < 0) return -1;
+    for (const p of this.players.values()) if ((p.x - sx) ** 2 + (p.y - y) ** 2 + (p.z - sz) ** 2 < 576) return 0;
+    const list = Object.values(MOBS).filter((d) => d.fortress);
+    let r = this.rng.int(list.reduce((n, d) => n + d.fortress!.weight, 0)), def: MobDef = list[0];
+    for (const d of list) { r -= d.fortress!.weight; if (r < 0) { def = d; break; } }
+    const sp = def.fortress!;
+    const n = sp.min + this.rng.int(sp.max - sp.min + 1);
+    let spawned = 0;
+    for (let i = 0; i < n; i++) {
+      const x = sx + (i ? this.rng.int(5) - 2 : 0), z = sz + (i ? this.rng.int(5) - 2 : 0);
+      if (this.get(x, y - 1, z) !== NBV || this.get(x, y, z) !== 0 || this.get(x, y + 1, z) !== 0 || (def.h > 2 && this.get(x, y + 2, z) !== 0)) continue;
+      const e = this.spawnMob(def.type, x + 0.5, y, z + 0.5, def.type === 'emberslime' ? [1, 2, 4][this.rng.int(3)] : undefined);
       if (def.flying) e.goal = [e.x, e.y, e.z];
       spawned++;
     }
@@ -3875,13 +4230,31 @@ export class WorldSim {
     let hit = false;
     const wall = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
     if (wall && isSolid(wall.value)) hit = true;
+    const small = (e.flags & 1) !== 0;
     if (!hit) for (const p of this.players.values()) {
       if (p.dead) continue;
-      if (Math.abs(p.x - e.x) < 0.9 && Math.abs(p.z - e.z) < 0.9 && e.y > p.y - 0.5 && e.y < p.y + 2.2) { hit = true; this.damage(p, 6 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal, 'fireball', e.x, e.z); break; }
+      const r = small ? 0.5 : 0.9;
+      if (Math.abs(p.x - e.x) < r && Math.abs(p.z - e.z) < r && e.y > p.y - (small ? 0.2 : 0.5) && e.y < p.y + (small ? 1.9 : 2.2)) {
+        hit = true;
+        if (small) { this.damage(p, 5 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal, 'small_fireball', e.x, e.z); if (p.mode === 'survival' && !p.dead) p.fireT = Math.max(p.fireT, 100); }
+        else this.damage(p, 6 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal, 'fireball', e.x, e.z);
+        break;
+      }
     }
     if (!hit) for (const m of this.entities.values()) {
       if (m.kind !== 'mob' || m.id === e.shooter || m.health <= 0) continue;
-      if (Math.abs(m.x - e.x) < m.hw + 0.5 && Math.abs(m.z - e.z) < m.hw + 0.5 && e.y > m.y - 0.5 && e.y < m.y + m.h + 0.5) { hit = true; this.hurtMob(m, m.type === 'wailer' && e.shooterP ? 1000 : 6, e.shooterP ?? null, dx, dz); break; }
+      if (small && MOBS[m.type as MobType]?.fireImmune) continue;
+      if (Math.abs(m.x - e.x) < m.hw + 0.5 && Math.abs(m.z - e.z) < m.hw + 0.5 && e.y > m.y - 0.5 && e.y < m.y + m.h + 0.5) { hit = true; if (small) { this.hurtMob(m, 5, null, dx, dz); m.fire = 100; } else this.hurtMob(m, m.type === 'wailer' && e.shooterP ? 1000 : 6, e.shooterP ?? null, dx, dz); break; }
+    }
+    if (hit && small) {
+      this.entities.delete(e.id);
+      this.emit({ e: 'remove', id: e.id, why: 'hit' });
+      if (wall && !this.game) {
+        const fx = wall.x + wall.nx, fy = wall.y + wall.ny, fz = wall.z + wall.nz;
+        if (this.get(fx, fy, fz) === 0 && isSolid(this.get(fx, fy - 1, fz))) this.setBlock(fx, fy, fz, B.FIRE);
+      }
+      this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y, z: e.z });
+      return;
     }
     if (hit) {
       this.entities.delete(e.id);
@@ -3929,6 +4302,69 @@ export class WorldSim {
     e.flags = flags;
   }
 
+  private tickBlaze(e: Entity, def: MobDef, med: { lava: boolean; water: boolean }): void {
+    if (e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    if (med.water && e.age % 10 === 0) { this.hurtMob(e, 1, null, 0, 0); if (!this.entities.has(e.id)) return; }
+    if (e.attackCd! > 0) e.attackCd!--;
+    let target = e.target ? this.players.get(e.target) : undefined;
+    if (target && (target.dead || target.mode !== 'survival' || Math.hypot(target.x - e.x, target.y - e.y, target.z - e.z) > 48)) { target = undefined; e.target = null; }
+    if (!target && e.age % 10 === 0 && this.difficulty !== 'peaceful') {
+      const near = this.nearestPlayer(e, 24, true);
+      if (near && this.lineOfSight(e, near)) { e.target = near.id; target = near; }
+    }
+    let flags = 0, wx = 0, wz = 0, wy = -2.28;
+    if (target && this.difficulty !== 'peaceful') {
+      flags |= 16;
+      const dx = target.x - e.x, dz = target.z - e.z, dist = Math.hypot(dx, dz) || 1;
+      e.yaw = Math.atan2(-dx, -dz);
+      if (e.age % 5 === 0 || e.los === undefined) e.los = this.lineOfSight(e, target);
+      if (e.y < target.y + 1.6 + (e.id % 3) * 0.5) wy = 2.4;
+      if (dist < 2 && Math.abs(target.y - e.y) < 2.5) {
+        wx = (dx / dist) * def.speed; wz = (dz / dist) * def.speed;
+        if (e.attackCd! <= 0) {
+          e.attackCd = 20; flags |= 4;
+          this.hitBy = { mob: e, breach: 0 };
+          this.damage(target, Math.max(1, Math.round(def.damage * DIFF_DMG[this.difficulty] * 2) / 2), e.type, e.x, e.z);
+          this.hitBy = null;
+        }
+      } else if (!e.los || dist > 12) { wx = (dx / dist) * def.speed; wz = (dz / dist) * def.speed; }
+      else if (dist < 5) { wx = -(dx / dist) * def.speed * 0.5; wz = -(dz / dist) * def.speed * 0.5; }
+      if (e.los && dist < 24) {
+        e.charge = (e.charge ?? 0) + 1;
+        const c = e.charge;
+        if (c === 1) this.emit({ e: 'sound', s: 'mob.flarewisp.warn', x: e.x, y: e.y + 1, z: e.z });
+        if (c > 60 && c <= 72 && (c - 60) % 6 === 0 || c === 61) {
+          const ox = e.x, oy = e.y + 1.3, oz = e.z;
+          const spread = Math.sqrt(Math.hypot(target.x - ox, target.z - oz)) * 0.25;
+          const tx = target.x - ox + (this.rng.next() - 0.5) * spread, ty = target.y + 1 - oy, tz = target.z - oz + (this.rng.next() - 0.5) * spread;
+          const tl = Math.hypot(tx, ty, tz) || 1, sp = 14;
+          const f: Entity = { id: this.allocId(), kind: 'fireball', type: 'fireball', x: ox - Math.sin(e.yaw) * 0.6, y: oy, z: oz - Math.cos(e.yaw) * 0.6, vx: (tx / tl) * sp, vy: (ty / tl) * sp, vz: (tz / tl) * sp, hw: 0.2, h: 0.4, onGround: false, hitH: false, hitCeil: false, yaw: e.yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 1, shooter: e.id };
+          this.entities.set(f.id, f);
+          this.emit({ e: 'spawn', ent: f });
+          this.emit({ e: 'sound', s: 'mob.flarewisp.shoot', x: ox, y: oy, z: oz });
+        }
+        if (c > 72) e.charge = -100;
+      } else if ((e.charge ?? 0) > 0) e.charge = 0;
+      if ((e.charge ?? 0) > 0) flags |= 2;
+    } else {
+      if (--e.wanderT! <= 0) { e.wanderT = 40 + this.rng.int(80); e.yaw += (this.rng.next() - 0.5) * 2.5; e.panic = this.rng.chance(0.5) ? 1 : 0; }
+      if (e.panic) { wx = -Math.sin(e.yaw) * def.speed * 0.4; wz = -Math.cos(e.yaw) * def.speed * 0.4; }
+      let ground = 0;
+      for (let k = 1; k <= 3 && !ground; k++) if (isSolid(this.get(Math.floor(e.x), Math.floor(e.y) - k, Math.floor(e.z)))) ground = k;
+      wy = ground && ground < 2 ? 1.2 : -1.2;
+      if ((e.charge ?? 0) > 0) e.charge = 0;
+    }
+    if ((e.charge ?? 0) < 0) e.charge!++;
+    e.vx += (wx - e.vx) * 0.12; e.vz += (wz - e.vz) * 0.12;
+    e.vy += (wy - e.vy) * 0.12;
+    moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
+    if (e.hitH && (wx || wz)) e.vy = 3;
+    if (e.hurt > 0) flags |= 1;
+    e.flags = flags;
+    if (e.age % 160 === 0 && this.rng.chance(0.5)) this.emit({ e: 'sound', s: 'mob.flarewisp.ambient', x: e.x, y: e.y + 1, z: e.z });
+    if (e.age % 6 === 0) this.emit({ e: 'particles', k: 'smoke', x: e.x + (this.rng.next() - 0.5) * 0.6, y: e.y + 0.6 + this.rng.next(), z: e.z + (this.rng.next() - 0.5) * 0.6 });
+  }
+
   private tickStrider(e: Entity, def: MobDef, med: { lava: boolean; water: boolean }): void {
     if (e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
     let flags = 0;
@@ -3937,7 +4373,19 @@ export class WorldSim {
     if (--e.wanderT! <= 0) { e.wanderT = 60 + this.rng.int(120); e.yaw += (this.rng.next() - 0.5) * 2.4; e.panic = this.rng.chance(0.75) ? 1 : 0; }
     const sp = e.panic ? def.speed : 0;
     let wx = -Math.sin(e.yaw) * sp, wz = -Math.cos(e.yaw) * sp;
-    if (onLava) {
+    const rider = e.rider ? this.players.get(e.rider) : undefined;
+    if (e.rider && (!rider || rider.dead || rider.riding !== e.id)) e.rider = undefined;
+    if (rider) {
+      e.panic = 0;
+      if (heldStack(rider.inv)?.id === I.FUNGUS_STICK || (rider.inv.off[0]?.id === I.FUNGUS_STICK)) {
+        const boost = (e.boost ?? 0) > 0 ? 1.8 : 1;
+        const rs = (onLava ? 3.4 : 1.6) * boost * (onLava ? 1 : 0.8);
+        e.yaw = rider.yaw;
+        wx = -Math.sin(rider.yaw) * rs; wz = -Math.cos(rider.yaw) * rs;
+      } else { wx = 0; wz = 0; }
+    }
+    if ((e.boost ?? 0) > 0) e.boost!--;
+    if (onLava && !rider) {
       const ax = Math.floor(e.x + wx * 0.6), az = Math.floor(e.z + wz * 0.6), ay = Math.floor(e.y - 0.5);
       const ahead = blockId(this.get(ax, ay, az));
       if (ahead !== B.LAVA && !isSolid(this.get(ax, ay, az)) && !isSolid(this.get(ax, ay + 1, az))) { e.yaw += Math.PI * 0.7; wx = 0; wz = 0; }
@@ -3952,8 +4400,9 @@ export class WorldSim {
     if (e.hitH && e.onGround) e.vy = 8.2;
     moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
     if (below === B.LAVA && e.y - Math.floor(e.y) < 0.05) { e.onGround = true; }
-    if (Math.hypot(e.vx, e.vz) > 0.1) e.yaw = Math.atan2(-e.vx, -e.vz);
+    if (!rider && Math.hypot(e.vx, e.vz) > 0.1) e.yaw = Math.atan2(-e.vx, -e.vz);
     if (!onLava) flags |= 32;
+    if (e.saddled) flags |= 64;
     if (e.hurt > 0) flags |= 1;
     e.flags = flags;
   }
@@ -4106,8 +4555,9 @@ export class WorldSim {
   }
 
   private homeCommand(p: SimPlayer, cmd: string, parts: string[]): string {
-    const max = this.settings.maxHomes ?? 2;
-    if (max <= 0) return 'Homes are turned off in this world.';
+    const base = this.settings.maxHomes ?? 2;
+    if (base <= 0) return 'Homes are turned off in this world.';
+    const max = base + (p.supporter ? 2 : 0);
     const homes = (p.homes ??= {});
     const name = (parts[1] ?? 'home').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 16) || 'home';
     const list = Object.keys(homes);
@@ -4308,7 +4758,7 @@ export class WorldSim {
       case 'summon': {
         if (!allowed) return need();
         const raw = (parts[1] ?? '').toLowerCase().replace(/^minecraft:/, '');
-        const ALIAS: Record<string, MobType> = { sheep: 'woolhorn', pig: 'mudsnout', chicken: 'fernhen', zombie: 'hollowed', skeleton: 'rattlebone', spider: 'duskweaver', zombified_piglin: 'cinderhusk', zombified_hogman: 'cinderhusk', ghast: 'wailer', magma_cube: 'emberslime', strider: 'lavastrider' };
+        const ALIAS: Record<string, MobType> = { sheep: 'woolhorn', pig: 'mudsnout', chicken: 'fernhen', zombie: 'hollowed', skeleton: 'rattlebone', spider: 'duskweaver', zombified_piglin: 'cinderhusk', zombified_hogman: 'cinderhusk', ghast: 'wailer', magma_cube: 'emberslime', strider: 'lavastrider', blaze: 'flarewisp', wither_skeleton: 'witherbone', piglin: 'piglin', piglin_brute: 'piglin_brute', hoglin: 'hoglin' };
         const t = (ALIAS[raw] ?? raw) as MobType;
         if (!MOBS[t] || MOBS[t].npc) return `Unknown creature. Try: ${[...Object.keys(ALIAS), 'villager'].join(', ')}`;
         if (!this.authoritative) return '';

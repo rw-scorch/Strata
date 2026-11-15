@@ -1,7 +1,7 @@
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import * as THREE from 'three';
 import { raycast, RayHit } from '../core/physics';
-import { getBlock, selectionBox, blockId } from '../core/blocks';
+import { getBlock, selectionBox, blockId, B, tix } from '../core/blocks';
 import { getItem, I, spearIndex } from '../core/items';
 import { attackStats, attackRange, attackCharge, SPEAR_MIN } from '../core/sim/combat';
 import { breakTime, canHarvest } from '../core/sim/WorldSim';
@@ -76,7 +76,8 @@ export class BlockInteraction {
     this.target = entityFirst ? null : hit;
 
     const tdef = this.entityTarget?.kind === 'mob' ? MOB_BY_CODE[this.entityTarget.type] : undefined;
-    const lure = this.entityTarget?.kind === 'cart' || !!tdef?.trader || (held ? !!tdef?.lure?.includes(held.id) : false);
+    const strider = tdef?.type === 'lavastrider' && !!this.entityTarget && (held?.id === I.SADDLE || (this.entityTarget.flags & 64) !== 0);
+    const lure = strider || (held?.id === I.NAME_TAG && !!held.nm) || this.entityTarget?.kind === 'cart' || !!tdef?.trader || (held ? !!tdef?.lure?.includes(held.id) : false);
     if (this.entityTarget && lure && input.usePressed && this.useCd <= 0) {
       session.useEntity(this.entityTarget.id);
       this.useCd = 0.3;
@@ -164,7 +165,8 @@ export class BlockInteraction {
         this.drawing = 0;
       }
     } else this.drawing = 0;
-    const food = item?.food && !creative;
+    const plantable = !!item?.places && !!t && blockId(world.getBlock(t.x, t.y, t.z)) === B.FARMLAND && t.ny === 1;
+    const food = item?.food && !creative && !plantable;
     const wantsUse = input.usePressed || (input.using && this.useCd <= 0 && !food);
     if (food && input.using && !(t && getBlock(world.getBlock(t.x, t.y, t.z)).interactive)) {
       if (me.food < 20 || session.info.difficulty === 'peaceful') {
@@ -194,7 +196,7 @@ export class BlockInteraction {
     const t = this.target;
     if (!t) return;
     const v = world.getBlock(t.x, t.y, t.z);
-    let id = blockId(v);
+    let id = tix(v);
     if (id === 36) id = 35;
     if (id === 42) id = 280;
     if (id === 54) id = 276;

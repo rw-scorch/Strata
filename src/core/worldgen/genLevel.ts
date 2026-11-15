@@ -1,4 +1,7 @@
-export const GEN_LEVEL = 5;
+export const GEN_LEVEL = 11;
+export const LANDFORM_LEVEL = 9;
+export const RIVER_LEVEL = 10;
+export const BIOME_LEVEL = 11;
 export const LEGACY_LEVEL = 2;
 export const LEGACY_RADIUS = 10;
 const CELL = 8;
@@ -57,6 +60,16 @@ export class GenRegistry {
     }
     this.recorded.set(k, v);
     return v;
+  }
+
+  oldMask(cx: number, cz: number): Uint8Array | null {
+    let m: Uint8Array | null = null;
+    for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
+      if (!dx && !dz) continue;
+      const lv = this.level(cx + dx, cz + dz, false);
+      if (lv < GEN_LEVEL) (m ??= new Uint8Array(49))[(dz + 3) * 7 + dx + 3] = Math.max(1, lv);
+    }
+    return m;
   }
 
   encode(): Record<string, string> {

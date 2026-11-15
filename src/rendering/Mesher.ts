@@ -1,5 +1,5 @@
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -19,7 +19,7 @@ export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_G
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20 };
 const CULLSELF = new Uint8Array(256);
 for (const b of BLOCKS) if (b && b.id < 256) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(256);
@@ -120,7 +120,7 @@ for (let d = 0; d < 6; d++) {
   FLIPWIND[d] = cx * n[0] + cy * n[1] + cz * n[2] < 0;
 }
 
-export interface MesherContext { atlas: AtlasData; gen: WorldGenerator; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' } }
+export interface MesherContext { atlas: AtlasData; gen: WorldGenerator; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' }; lv?: number }
 
 function ridx(x: number, y: number, z: number): number { return (y * R + z) * R + x; }
 
@@ -242,7 +242,7 @@ const biomeGrid = new Float32Array(5 * 5 * 9);
 
 function computeBiomeGrid(ctx: MesherContext, cx: number, cz: number): void {
   for (let gz = 0; gz < 5; gz++) for (let gx = 0; gx < 5; gx++) {
-    const bi = ctx.gen.biomeIndex(cx * 16 + gx * 4, cz * 16 + gz * 4);
+    const bi = ctx.gen.biomeIndex(cx * 16 + gx * 4, cz * 16 + gz * 4, ctx.lv);
     const col = ctx.atlas.biomeColors[bi];
     for (let k = 0; k < 9; k++) biomeGrid[(gz * 5 + gx) * 9 + k] = col[k];
   }
@@ -277,7 +277,23 @@ function faceVisible(id: number, code: number, nv: number, ny: number): boolean 
   return true;
 }
 
+let curCX = 0, curCZ = 0, curReady = false;
+const curGrid = new Float32Array(50);
+function currentAt(ctx: MesherContext, lx: number, lz: number): number {
+  if (!curReady) {
+    curReady = true;
+    for (let gz = 0; gz < 5; gz++) for (let gx = 0; gx < 5; gx++) {
+      const c = ctx.gen.riverCurrent?.(curCX * 16 + gx * 4, curCZ * 16 + gz * 4) ?? null;
+      const i = (gz * 5 + gx) * 2;
+      curGrid[i] = c ? c[0] : NaN; curGrid[i + 1] = c ? c[1] : NaN;
+    }
+  }
+  const gx = Math.max(0, Math.min(4, Math.round(lx / 4))), gz = Math.max(0, Math.min(4, Math.round(lz / 4)));
+  return (gz * 5 + gx) * 2;
+}
+
 export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (Uint16Array | null)[], smooth: boolean): MeshResult {
+  curCX = cx; curCZ = cz; curReady = false;
   const maxY = buildRegion(chunks);
   computeLight(maxY);
   computeBiomeGrid(ctx, cx, cz);
@@ -310,7 +326,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
         const ny = y + n[1];
         const nv = ny >= 0 && ny < H ? region[ridx(rx + n[0], ny, rz + n[2])] : 0;
         if (!faceVisible(id, code, nv, ny)) continue;
-        const ti = id === 218 ? 600 + (bv >>> 8) : id;
+        const ti = tix(bv);
         let tile = tiles[ti * FS + d];
         if (ORIENT[id]) {
           const f = (bv >>> 8) & 3;
@@ -543,12 +559,23 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
           else if (hh === -1 && neigh(dx, -1, dz) === id) { fx += dx * 0.6; fz += dz * 0.6; }
         }
       }
-      const fl = Math.hypot(fx, fz);
-      const flowing = fl > 0.02;
+      let fl = Math.hypot(fx, fz);
+      let flowing = fl > 0.02;
+      if (water && !flowing && ((v >>> 8) & 15) === 0 && neigh(0, 1, 0) !== id) {
+        const ci = currentAt(ctx, x, z);
+        if (curGrid[ci] === curGrid[ci]) { fx = curGrid[ci] * 0.35; fz = curGrid[ci + 1] * 0.35; fl = 0.35; flowing = true; }
+      }
       const flowTile = water ? sp.waterFlow ?? tile : sp.lavaFlow ?? tile;
       let wdep = 0;
       if (water) { for (let k = 1; k <= 12 && y - k >= 0; k++) { if (wmap(region[ridx(rx, y - k, rz)] & 255) !== id) break; wdep = k; } }
-      const ovw = water ? -(100 + Math.min(15, wdep)) : 0;
+      let splash = 0;
+      if (water) {
+        const fallAt = (dx: number, dy: number, dz: number) => { const nv = region[ridx(rx + dx, y + dy, rz + dz)]; return (nv & 255) === id && ((nv >>> 8) & 8) !== 0; };
+        if ((v >>> 8) & 8) splash = 1;
+        if (y + 1 < H) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { if (fallAt(dx, 1, dz) || (dx | dz) !== 0 && fallAt(dx, 0, dz)) splash = Math.max(splash, dx === 0 && dz === 0 ? 3 : Math.abs(dx) + Math.abs(dz) === 1 ? 3 : 2); }
+        if (!splash && y + 2 < H) for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (fallAt(dx, 1, dz)) splash = 1;
+      }
+      const ovw = water ? -(100 + Math.min(15, wdep) + splash * 16) : 0;
       const hOf = (px: number, pz: number) => (px > x ? (pz > z ? h11 : h10) : (pz > z ? h01 : h00));
       for (let d = 0; d < 6; d++) {
         const nn = NORMALS[d];
@@ -573,8 +600,8 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         let ft = tile;
         if (d === 2 && flowing) {
           ft = flowTile;
-          const ux = fx / fl, uz = fz / fl;
-          uvs = pts.map((p) => { const ax = p[0] - x - 0.5, az = p[2] - z - 0.5; return [0.5 + (ax * uz - az * ux), 0.5 - (ax * ux + az * uz)]; });
+          const ux = fx / fl, uz = fz / fl, k = 1 / (Math.abs(ux) + Math.abs(uz));
+          uvs = pts.map((p) => { const ax = p[0] - x - 0.5, az = p[2] - z - 0.5; return [0.5 + (ax * uz - az * ux) * k, 0.5 - (ax * ux + az * uz) * k]; });
         } else if (d !== 2 && d !== 3) {
           ft = flowTile;
           uvs = pts.map((p) => [d < 2 ? p[2] - z : p[0] - x, y + 1 - p[1]]);
@@ -596,7 +623,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         const hh = hash2(x + 7919 * 0, z, y * 31 + 17);
         ox = ((hh & 15) / 15 - 0.5) * 0.35; oz = (((hh >> 4) & 15) / 15 - 0.5) * 0.35;
       }
-      const tile = code === 7 ? sp[`wheat${meta & 7}`] : tiles[id * FS + 4];
+      const tile = code === 7 ? (id === B.NETHER_WART ? sp[`wart${meta & 3}`] : CROPS[id] ? sp[`${CROPS[id].tex}${CROPS[id].stages[meta & 7] ?? 0}`] : sp[`wheat${meta & 7}`]) : tiles[tix(v) * FS + 4];
       const flags = (id === B.TALL_GRASS || id === B.FERN || code === 7 || isWaterPlant(id) ? 4 : 0) | (tcode ? 1 : 0);
       if (isWaterPlant(id)) special(ctx, 5, B.WATER, B.WATER, x, y, z, rx, rz, smooth);
       const bx = x + ox, bz = z + oz;
@@ -633,6 +660,12 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       q([[x, y, z + 1 - t], [x + 1, y, z + 1 - t], [x + 1, y + H, z + t], [x, y + H, z + t]]);
       q([[x + t, y, z], [x + t, y, z + 1], [x + 1 - t, y + H, z + 1], [x + 1 - t, y + H, z]]);
       q([[x + 1 - t, y, z], [x + 1 - t, y, z + 1], [x + t, y + H, z + 1], [x + t, y + H, z]]);
+      return;
+    }
+    case 20: {
+      const link = (dx: number, dz: number) => { const n = region[ridx(rx + dx, y, rz + dz)] & 255; return n === id || n === B.IRON_BARS || OPAQUE[n] === 1; };
+      const tl = ctx.atlas.blockTiles;
+      for (const bx of fenceBoxes([link(1, 0), link(0, 1), link(-1, 0), link(0, -1)])) boxFaces(builders[0], x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5], (d) => tl[id * FS + d], sk, bl, 255, 255, 255);
       return;
     }
     case 19: {

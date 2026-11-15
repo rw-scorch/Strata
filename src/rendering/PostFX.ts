@@ -114,6 +114,13 @@ export class PostFX {
   private raysRT: THREE.WebGLRenderTarget;
   private aoRT: THREE.WebGLRenderTarget;
   private cloudRT: THREE.WebGLRenderTarget;
+  private cloudHist: THREE.WebGLRenderTarget;
+  private cloudPrevVP = new THREE.Matrix4();
+  private cloudValid = false;
+  private cloudOrigin = new THREE.Vector3();
+  private lodRT: THREE.WebGLRenderTarget;
+  private lodOn = false;
+  private mLodCap: THREE.ShaderMaterial;
   private mCloud: THREE.ShaderMaterial;
   private noise3: THREE.Data3DTexture | null = null;
   private expRT: THREE.WebGLRenderTarget[];
@@ -151,6 +158,8 @@ export class PostFX {
     this.raysRT = rt(1, 1);
     this.aoRT = rt(1, 1, { type: THREE.UnsignedByteType });
     this.cloudRT = rt(1, 1, { type: THREE.HalfFloatType });
+    this.cloudHist = rt(1, 1, { type: THREE.HalfFloatType });
+    this.lodRT = rt(1, 1, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
     this.expRT = [rt(1, 1, { type: THREE.HalfFloatType }), rt(1, 1, { type: THREE.HalfFloatType })];
     if (!this.hdr) this.expRT = [rt(1, 1, { type: THREE.UnsignedByteType }), rt(1, 1, { type: THREE.UnsignedByteType })];
     this.ldrRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.UnsignedByteType, depthBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
@@ -197,6 +206,7 @@ export class PostFX {
         gl_FragColor = vec4(vec3(mix(prev, target, uRate) / 2.0), 1.0); }`, { uSrc: { value: null }, uPrev: { value: null }, uRate: { value: 0.05 } });
     this.mCloud = pass(`precision highp sampler3D; ${LIN}
       uniform sampler3D uNoise; uniform sampler2D uDepth; uniform mat4 uInvVP; uniform vec3 uCam; uniform vec2 uOrigin;
+      uniform vec2 uDTexel; uniform sampler2D uLod; uniform float uLodOn; uniform sampler2D uHist; uniform mat4 uPrevVP; uniform float uHistOn;
       uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uSky; uniform vec3 uFogColor; uniform float uTime; uniform float uRain; uniform float uDay; uniform float uFrame;
       varying vec2 vUv;
       const float CB = 200.0, CT = 330.0;
@@ -216,11 +226,13 @@ export class PostFX {
       }
       float hg(float c, float g){ float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
       void main(){
-        float sd = texture2D(uDepth, vUv).r;
+        vec2 fo = uDTexel * 0.75;
+        float sd = max(max(texture2D(uDepth, vUv + vec2(-fo.x, -fo.y)).r, texture2D(uDepth, vUv + vec2(fo.x, -fo.y)).r), max(texture2D(uDepth, vUv + vec2(-fo.x, fo.y)).r, texture2D(uDepth, vUv + vec2(fo.x, fo.y)).r));
         vec3 ro = uCam;
         vec3 far = worldAt(vUv, sd < 0.99999 ? sd : 1.0);
         vec3 rd = normalize(far - ro);
         float tMax = sd < 0.99999 ? length(far - ro) : 1e9;
+        if (uLodOn > 0.5 && sd >= 0.99999) { float lg = texture2D(uLod, vUv).g; if (lg < 59000.0) tMax = lg; }
         if (abs(rd.y) < 1e-4) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
         float ta = (CB - ro.y) / rd.y, tb = (CT - ro.y) / rd.y;
         float t0 = max(min(ta, tb), 0.0), t1 = min(max(ta, tb), min(tMax, 9000.0));
@@ -259,12 +271,28 @@ export class PostFX {
         float fade = exp(-max(t0 - 600.0, 0.0) / 3500.0);
         acc = mix(uFogColor * (1.0 - T), acc, fade);
         T = mix(1.0, T, fade * 0.98 + 0.02);
-        gl_FragColor = vec4(acc, T);
+        vec4 cur = vec4(acc, T);
+        if (uHistOn > 0.5) {
+          vec4 pc = uPrevVP * vec4(ro + rd * (t0 + min(len, 400.0) * 0.5), 1.0);
+          vec2 puv = pc.xy / pc.w * 0.5 + 0.5;
+          if (pc.w > 0.0 && puv.x > 0.0 && puv.y > 0.0 && puv.x < 1.0 && puv.y < 1.0) {
+            vec4 h = texture2D(uHist, puv);
+            h = clamp(h, cur - vec4(0.25), cur + vec4(0.25));
+            cur = mix(cur, h, 0.82);
+          }
+        }
+        gl_FragColor = cur;
       }`, { uNoise: { value: null }, uDepth: { value: null }, uInvVP: { value: new THREE.Matrix4() }, uCam: { value: new THREE.Vector3() }, uOrigin: { value: new THREE.Vector2() },
+      uDTexel: { value: new THREE.Vector2() }, uLod: { value: null }, uLodOn: { value: 0 }, uHist: { value: null }, uPrevVP: { value: new THREE.Matrix4() }, uHistOn: { value: 0 },
       uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() }, uSky: { value: new THREE.Color() }, uFogColor: { value: new THREE.Color() },
       uTime: { value: 0 }, uRain: { value: 0 }, uDay: { value: 1 }, uFrame: { value: 0 }, uNear: { value: 0.08 }, uFar: { value: 1000 } });
+    this.mLodCap = pass(`uniform sampler2D uSrc; uniform mat4 uInvP; uniform vec2 uTexel; varying vec2 vUv;
+      float dist(vec2 uv){ float d = texture2D(uSrc, uv).r; if (d >= 0.99999) return 60000.0; vec4 v = uInvP * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); return min(length(v.xyz / v.w), 59000.0); }
+      void main(){ vec2 o = uTexel * 0.75;
+        float a = dist(vUv + vec2(-o.x, -o.y)), b = dist(vUv + vec2(o.x, -o.y)), c = dist(vUv + vec2(-o.x, o.y)), d = dist(vUv + vec2(o.x, o.y));
+        gl_FragColor = vec4(min(min(a, b), min(c, d)), max(max(a, b), max(c, d)), 0.0, 1.0); }`, { uSrc: { value: null }, uInvP: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() } });
     this.mComp = pass(`${LIN}
-      uniform sampler2D uScene; uniform sampler2D uDepth; uniform sampler2D uHalf; uniform sampler2D uBloom; uniform sampler2D uRays; uniform sampler2D uAO; uniform sampler2D uExp; uniform sampler2D uClouds; uniform float uCloudsOn;
+      uniform sampler2D uScene; uniform sampler2D uDepth; uniform sampler2D uHalf; uniform sampler2D uBloom; uniform sampler2D uRays; uniform sampler2D uAO; uniform sampler2D uExp; uniform sampler2D uClouds; uniform float uCloudsOn; uniform sampler2D uLodD; uniform float uLodOn;
       uniform float uBloomAmt; uniform float uRaysOn; uniform float uAOOn; uniform float uExpOn; uniform float uDof; uniform float uMotion;
       uniform mat4 uInvVP; uniform mat4 uPrevVP; uniform vec3 uCam; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uFogColor; uniform float uDay; uniform float uNight; uniform float uRain;
       uniform float uUnder; uniform float uLava; uniform float uFlash; uniform float uTime; uniform float uCave; uniform float uLensRain;
@@ -304,7 +332,16 @@ export class PostFX {
           float a = texture2D(uAO, uv).r * 0.4 + (texture2D(uAO, uv + vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv - vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv + vec2(0.0, uTexel.y * 2.0)).r + texture2D(uAO, uv - vec2(0.0, uTexel.y * 2.0)).r) * 0.15;
           col *= mix(a, 1.0, smoothstep(40.0, 90.0, vz));
         }
-        if (uCloudsOn > 0.5) { vec4 cl = texture2D(uClouds, uv); col = col * cl.a + cl.rgb; }
+        if (uCloudsOn > 0.5) {
+          vec4 wp = uInvVP * vec4(uv * 2.0 - 1.0, (sky ? 1.0 : d) * 2.0 - 1.0, 1.0); wp /= wp.w;
+          vec3 rdv = wp.xyz - uCam; float gd = sky ? 1e9 : length(rdv); rdv = normalize(rdv);
+          if (sky && uLodOn > 0.5) gd = texture2D(uLodD, uv).r;
+          float t0c = 1e9;
+          if (uCam.y < 200.0) { if (rdv.y > 1e-4) t0c = (200.0 - uCam.y) / rdv.y; }
+          else if (uCam.y > 330.0) { if (rdv.y < -1e-4) t0c = (330.0 - uCam.y) / rdv.y; }
+          else t0c = 0.0;
+          if (gd > t0c) { vec4 cl = texture2D(uClouds, uv); col = col * cl.a + cl.rgb; }
+        }
         if (uRaysOn > 0.5) col += texture2D(uRays, uv).rgb;
         col += texture2D(uBloom, uv).rgb * uBloomAmt;
         float sunOcc = 0.0;
@@ -327,7 +364,7 @@ export class PostFX {
         if (uGrain > 0.0) col += (hash(uv * 913.0 + fract(uTime) * 71.0) - 0.5) * 0.035 * uGrain;
         gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }`, {
-      uScene: { value: null }, uDepth: { value: null }, uHalf: { value: null }, uBloom: { value: null }, uRays: { value: null }, uAO: { value: null }, uExp: { value: null }, uClouds: { value: null }, uCloudsOn: { value: 0 },
+      uScene: { value: null }, uDepth: { value: null }, uHalf: { value: null }, uBloom: { value: null }, uRays: { value: null }, uAO: { value: null }, uExp: { value: null }, uClouds: { value: null }, uCloudsOn: { value: 0 }, uLodD: { value: null }, uLodOn: { value: 0 },
       uBloomAmt: { value: 0 }, uRaysOn: { value: 0 }, uAOOn: { value: 0 }, uExpOn: { value: 0 }, uDof: { value: 0 }, uMotion: { value: 0 },
       uInvVP: { value: new THREE.Matrix4() }, uPrevVP: { value: new THREE.Matrix4() }, uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() }, uFogColor: { value: new THREE.Color() },
       uDay: { value: 1 }, uNight: { value: 0 }, uRain: { value: 0 }, uUnder: { value: 0 }, uLava: { value: 0 }, uFlash: { value: 0 }, uTime: { value: 0 }, uCave: { value: 0 }, uLensRain: { value: 0 },
@@ -378,6 +415,19 @@ export class PostFX {
     this.raysRT.setSize(Math.max(1, w >> 2), Math.max(1, h >> 2));
     this.aoRT.setSize(hw, hh);
     this.cloudRT.setSize(Math.max(1, Math.round(w / 2.5)), Math.max(1, Math.round(h / 2.5)));
+    this.cloudHist.setSize(this.cloudRT.width, this.cloudRT.height);
+    this.lodRT.setSize(this.cloudRT.width, this.cloudRT.height);
+    this.cloudValid = false;
+  }
+
+  captureLod(cam: THREE.PerspectiveCamera, back: THREE.WebGLRenderTarget): void {
+    if (!this.cfg.volClouds) return;
+    const u = this.mLodCap.uniforms;
+    u.uSrc.value = this.sceneRT.depthTexture; u.uInvP.value.copy(cam.projectionMatrixInverse);
+    u.uTexel.value.set(1 / Math.max(1, this.size.x), 1 / Math.max(1, this.size.y));
+    this.draw(this.mLodCap, this.lodRT);
+    this.gl.setRenderTarget(back);
+    this.lodOn = true;
   }
 
   get width(): number { return this.size.x; }
@@ -469,10 +519,18 @@ export class PostFX {
       u.uCam.value.setFromMatrixPosition(cam.matrixWorld); u.uOrigin.value.set(f.origin.x, f.origin.z);
       u.uSunDir.value.copy(f.sunDir); u.uSunColor.value.copy(f.sunColor); u.uSky.value.copy(f.skyTop); u.uFogColor.value.copy(f.fogColor);
       u.uTime.value = f.time; u.uRain.value = f.rain; u.uDay.value = f.day; u.uFrame.value = (u.uFrame.value + 1) % 64;
+      u.uDTexel.value.set(1 / Math.max(1, this.size.x), 1 / Math.max(1, this.size.y));
+      u.uLod.value = this.lodRT.texture; u.uLodOn.value = this.lodOn ? 1 : 0;
+      if (!this.cloudOrigin.equals(f.origin)) { this.cloudOrigin.copy(f.origin); this.cloudValid = false; }
+      u.uHist.value = this.cloudHist.texture; u.uPrevVP.value.copy(this.cloudPrevVP); u.uHistOn.value = this.cloudValid ? 1 : 0;
       this.draw(this.mCloud, this.cloudRT);
-      comp.uClouds.value = this.cloudRT.texture;
+      const t = this.cloudRT; this.cloudRT = this.cloudHist; this.cloudHist = t;
+      this.cloudPrevVP.copy(vp); this.cloudValid = true;
+      comp.uClouds.value = this.cloudHist.texture;
       comp.uCloudsOn.value = 1;
-    } else comp.uCloudsOn.value = 0;
+      comp.uLodD.value = this.lodRT.texture; comp.uLodOn.value = this.lodOn ? 1 : 0;
+    } else { comp.uCloudsOn.value = 0; this.cloudValid = false; }
+    this.lodOn = false;
     comp.uScene.value = this.sceneRT.texture;
     comp.uDepth.value = depth;
     comp.uHalf.value = this.halfRT.texture;
@@ -505,8 +563,8 @@ export class PostFX {
   }
 
   dispose(): void {
-    this.noise3?.dispose(); this.mCloud.dispose();
-    for (const rt of [this.sceneRT, this.halfRT, this.raysRT, this.aoRT, this.cloudRT, this.ldrRT, ...this.down, ...this.up, ...this.expRT]) rt.dispose();
+    this.noise3?.dispose(); this.mCloud.dispose(); this.mLodCap.dispose();
+    for (const rt of [this.sceneRT, this.halfRT, this.raysRT, this.aoRT, this.cloudRT, this.cloudHist, this.lodRT, this.ldrRT, ...this.down, ...this.up, ...this.expRT]) rt.dispose();
     for (const m of [this.mDown, this.mBloomDown, this.mBloomUp, this.mRays, this.mAO, this.mExp, this.mComp, this.mFinal]) m.dispose();
     this.quad.geometry.dispose();
   }

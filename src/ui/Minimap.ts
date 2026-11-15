@@ -67,6 +67,14 @@ export class Minimap {
   waypoints: Waypoint[] = [];
   private big: HTMLElement | null = null;
   private radius = 40;
+  private supporter = false;
+
+  setSupporter(on: boolean): void {
+    if (on === this.supporter) return;
+    this.supporter = on;
+    this.radius = on ? 64 : 40;
+    this.root.classList.toggle('sup', on);
+  }
 
   constructor(hudRoot: HTMLElement, host: MapHost, worldKey: string) {
     this.host = host;
@@ -356,7 +364,7 @@ export class Minimap {
         h('div', { class: 'card-body' },
           mapOk ? h('div', { class: 'map-wrap' }, cv, h('div', { class: 'map-zoom' },
             h('button', { class: 'btn small', onclick: () => { zoom = Math.max(32, zoom / 1.5); redraw(); } }, '+'),
-            h('button', { class: 'btn small', onclick: () => { zoom = Math.min(256, zoom * 1.5); redraw(); } }, '-'))) : h('div', { class: 'small muted' }, 'The map is turned off in this world.'),
+            h('button', { class: 'btn small', onclick: () => { zoom = Math.min(this.supporter ? 768 : 256, zoom * 1.5); redraw(); } }, '-'))) : h('div', { class: 'small muted' }, 'The map is turned off in this world.'),
           coordsOk ? h('div', { class: 'small muted' }, (() => { const p = this.host.pos(); return `You are at ${Math.floor(localX(p.x))}, ${Math.floor(p.y)}, ${Math.floor(p.z)}`; })()) : null,
           h('div', { class: 'row wp-tools' },
             h('button', { class: 'btn primary', onclick: addHere }, 'New here'),

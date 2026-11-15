@@ -229,6 +229,36 @@ export async function accountRequest(kind: 'login' | 'register' | 'password', bo
   return { ok: true, account: { name: data.name, id: data.id, secret: data.secret } };
 }
 
+export interface SupporterStatus { enabled?: boolean; price?: string; active: boolean; until: number; color: string | null; status?: string | null; canManage?: boolean }
+const SUP_KEY = 'strata.supporter.v1';
+
+export function supporterCache(): SupporterStatus | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(SUP_KEY) ?? 'null') as (SupporterStatus & { id?: string }) | null;
+    const acc = getAccount();
+    return v && acc && v.id === acc.id ? v : null;
+  } catch { return null; }
+}
+
+export function localSupporterColor(): string | undefined {
+  const v = supporterCache();
+  return v?.active && v.until > Date.now() - 3 * 86400_000 ? v.color ?? '#ffcc33' : undefined;
+}
+
+export async function supporterRequest(kind: 'status' | 'checkout' | 'portal' | 'color', extra: Record<string, string> = {}): Promise<{ ok: true; data: SupporterStatus & { url?: string } } | { ok: false; error: string }> {
+  const acc = getAccount();
+  if (!acc) return { ok: false, error: 'Sign in to an account first.' };
+  let res: Response;
+  try {
+    const base = ((import.meta.env.VITE_SERVER_URL as string | undefined) ?? '').replace(/\/$/, '');
+    res = await fetch(`${base}/api/supporter/${kind}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: acc.id, secret: acc.secret, ...extra }) });
+  } catch { return { ok: false, error: 'Could not reach the server.' }; }
+  const data = await res.json().catch(() => null) as (SupporterStatus & { url?: string; error?: string }) | null;
+  if (!data || !res.ok || data.error) return { ok: false, error: data?.error ?? `Request failed (${res.status}).` };
+  if (kind === 'status') { try { localStorage.setItem(SUP_KEY, JSON.stringify({ ...data, id: acc.id })); } catch { /* storage full */ } }
+  return { ok: true, data };
+}
+
 export function getIdentity(): Identity {
   const acc = getAccount();
   if (acc) return { id: acc.id, secret: acc.secret };
