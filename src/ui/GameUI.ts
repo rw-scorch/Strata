@@ -8,6 +8,7 @@ import type { RoomMeta, PublicPlayer } from '../core/protocol';
 import { DIFFICULTIES, Difficulty, MAX_PLAYERS_LIMIT, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH } from '../core/constants';
 import { BLOCKS } from '../core/blocks';
 import { getItem } from '../core/items';
+import { PRANKS } from '../core/sim/mischief';
 
 export class ChatUI {
   onWaypoint: ((w: { name: string; x: number; y: number; z: number }) => void) | null = null;
@@ -135,6 +136,7 @@ export interface PauseActions {
   invite?(): void;
   room?(): void;
   shaper?(): void;
+  mischief?(): void;
   packs(): void;
   datapacks?(): void;
   economy?(cmd: string): void;
@@ -154,6 +156,7 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
       mcButton('Back to Game', () => { close(); a.resume(); }, 204),
       row(a.invite ? mcButton('Invite Friends', () => a.invite!(), 98) : null, a.players ? mcButton('Players', () => a.players!(), 98) : null),
       row(a.room ? mcButton('World Settings', () => a.room!(), 98) : null, a.shaper ? mcButton('World Shaper', () => a.shaper!(), 98) : null),
+      a.mischief ? mcButton('Mischief Console', () => a.mischief!(), 204) : null,
       a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
       row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
       a.datapacks ? mcButton('Data Packs...', () => a.datapacks!(), 204) : null,
@@ -312,4 +315,36 @@ export function showDeath(root: HTMLElement, msg: string, onRespawn: () => void,
   );
   root.appendChild(el);
   return () => el.remove();
+}
+
+export function showMischief(names: () => string[], me: string, run: (cmd: string) => void, aim?: () => [number, number, number] | null): void {
+  let target = '@o';
+  const pick = h('div', { class: 'segmented mischief-targets' });
+  const renderPick = () => {
+    clear(pick);
+    const opts: [string, string][] = [...(aim ? [['@aim', 'Where I am looking'] as [string, string]] : []), ['@o', 'Everyone else'], ['@a', 'Everyone'], ['@r', 'Random'], ...names().map((n) => [n, n === me ? `${n} (you)` : n] as [string, string])];
+    if (!opts.some(([v]) => v === target)) target = '@o';
+    for (const [v, label] of opts) pick.appendChild(h('button', { class: v === target ? 'on' : '', onclick: () => { target = v; renderPick(); } }, label));
+  };
+  renderPick();
+  const grid = h('div', { class: 'mischief-grid' }, ...PRANKS.map((pr) => h('button', {
+    class: `mischief-card${pr.razes ? ' razes' : ''}`,
+    onclick: () => {
+      if (target === '@aim') {
+        if (!pr.aim) { toast(`${pr.name} needs a player target`, 'error'); return; }
+        const t = aim?.();
+        if (!t) { toast('Look at a block first', 'error'); return; }
+        run(`/troll ${pr.id} at ${t[0]} ${t[1]} ${t[2]}`);
+      } else run(`/troll ${pr.id} ${target}`);
+      toast(`${pr.name} sent`, 'success');
+    },
+  }, h('span', { class: 'mischief-name' }, pr.name), h('span', { class: 'mischief-blurb' }, pr.blurb), h('span', { class: 'mischief-tags' }, pr.razes ? h('span', { class: 'badge red' }, 'Breaks blocks') : null, pr.aim ? h('span', { class: 'badge teal' }, 'Can aim') : null))));
+  const body = h('div', { class: 'stack' },
+    h('div', { class: 'small muted' }, 'Admin-only pranks. Pick a target, then tap a prank. Also works as /troll <prank> <player>.'),
+    h('div', { class: 'section-title' }, 'Target'),
+    pick,
+    h('div', { class: 'section-title' }, 'Pranks'),
+    grid,
+  );
+  modal('Mischief Console', body, [{ label: 'Close', kind: 'primary' }]);
 }

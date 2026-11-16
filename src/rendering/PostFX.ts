@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ATMO_GLSL, type AtmoUniforms } from './Atmosphere';
 
 export interface PostConfig {
   msaa: number;
@@ -292,6 +293,8 @@ export class PostFX {
         float a = dist(vUv + vec2(-o.x, -o.y)), b = dist(vUv + vec2(o.x, -o.y)), c = dist(vUv + vec2(-o.x, o.y)), d = dist(vUv + vec2(o.x, o.y));
         gl_FragColor = vec4(min(min(a, b), min(c, d)), max(max(a, b), max(c, d)), 0.0, 1.0); }`, { uSrc: { value: null }, uInvP: { value: new THREE.Matrix4() }, uTexel: { value: new THREE.Vector2() } });
     this.mComp = pass(`${LIN}
+      ${ATMO_GLSL}
+      uniform float uHeat;
       uniform sampler2D uScene; uniform sampler2D uDepth; uniform sampler2D uHalf; uniform sampler2D uBloom; uniform sampler2D uRays; uniform sampler2D uAO; uniform sampler2D uExp; uniform sampler2D uClouds; uniform float uCloudsOn; uniform sampler2D uLodD; uniform float uLodOn;
       uniform float uBloomAmt; uniform float uRaysOn; uniform float uAOOn; uniform float uExpOn; uniform float uDof; uniform float uMotion;
       uniform mat4 uInvVP; uniform mat4 uPrevVP; uniform vec3 uCam; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uFogColor; uniform float uDay; uniform float uNight; uniform float uRain;
@@ -309,6 +312,13 @@ export class PostFX {
         vec2 uv = vUv;
         if (uUnder > 0.5) uv += vec2(sin(uv.y * 24.0 + uTime * 2.2), cos(uv.x * 20.0 + uTime * 1.8)) * 0.0025;
         if (uLensRain > 0.0) uv += drops(uv) * uLensRain;
+        if (uHeat > 0.0) {
+          float d0 = texture2D(uDepth, uv).r;
+          if (d0 < 0.99999) {
+            float k = smoothstep(18.0, 70.0, linZ(d0)) * uHeat;
+            uv += vec2(sin(uv.y * 260.0 + uTime * 5.0 + sin(uv.x * 40.0 + uTime) * 2.0), cos(uv.y * 190.0 - uTime * 3.7)) * vec2(0.0011, 0.0016) * k;
+          }
+        }
         float d = texture2D(uDepth, uv).r;
         bool sky = d >= 0.99999;
         vec3 col;
@@ -332,6 +342,7 @@ export class PostFX {
           float a = texture2D(uAO, uv).r * 0.4 + (texture2D(uAO, uv + vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv - vec2(uTexel.x * 2.0, 0.0)).r + texture2D(uAO, uv + vec2(0.0, uTexel.y * 2.0)).r + texture2D(uAO, uv - vec2(0.0, uTexel.y * 2.0)).r) * 0.15;
           col *= mix(a, 1.0, smoothstep(40.0, 90.0, vz));
         }
+        if (!sky && uUnder < 0.5 && uLava < 0.5) col = atmoApply(col, wp, uCam);
         if (uCloudsOn > 0.5) {
           vec4 wp = uInvVP * vec4(uv * 2.0 - 1.0, (sky ? 1.0 : d) * 2.0 - 1.0, 1.0); wp /= wp.w;
           vec3 rdv = wp.xyz - uCam; float gd = sky ? 1e9 : length(rdv); rdv = normalize(rdv);
@@ -364,6 +375,7 @@ export class PostFX {
         if (uGrain > 0.0) col += (hash(uv * 913.0 + fract(uTime) * 71.0) - 0.5) * 0.035 * uGrain;
         gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
       }`, {
+      uAtmo: { value: new THREE.Vector4() }, uAtmoColor: { value: new THREE.Color() }, uMistColor: { value: new THREE.Color() }, uHeat: { value: 0 },
       uScene: { value: null }, uDepth: { value: null }, uHalf: { value: null }, uBloom: { value: null }, uRays: { value: null }, uAO: { value: null }, uExp: { value: null }, uClouds: { value: null }, uCloudsOn: { value: 0 }, uLodD: { value: null }, uLodOn: { value: 0 },
       uBloomAmt: { value: 0 }, uRaysOn: { value: 0 }, uAOOn: { value: 0 }, uExpOn: { value: 0 }, uDof: { value: 0 }, uMotion: { value: 0 },
       uInvVP: { value: new THREE.Matrix4() }, uPrevVP: { value: new THREE.Matrix4() }, uCam: { value: new THREE.Vector3() }, uSunDir: { value: new THREE.Vector3() }, uSunColor: { value: new THREE.Color() }, uFogColor: { value: new THREE.Color() },
@@ -418,6 +430,11 @@ export class PostFX {
     this.cloudHist.setSize(this.cloudRT.width, this.cloudRT.height);
     this.lodRT.setSize(this.cloudRT.width, this.cloudRT.height);
     this.cloudValid = false;
+  }
+
+  bindAtmo(u: AtmoUniforms, heat: { value: number }): void {
+    const c = this.mComp.uniforms;
+    c.uAtmo = u.uAtmo; c.uAtmoColor = u.uAtmoColor; c.uMistColor = u.uMistColor; c.uHeat = heat;
   }
 
   captureLod(cam: THREE.PerspectiveCamera, back: THREE.WebGLRenderTarget): void {

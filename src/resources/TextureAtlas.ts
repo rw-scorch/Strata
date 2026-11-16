@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX } from '../core/blocks';
+import { BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX, ID_LIMIT, isBaseId, CAVE_TEX } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
 import { BIOMES } from '../core/worldgen/biomes';
 import { defaultBlockTexture, defaultItemTexture, cloudTexture, hudIcon, Px } from './DefaultTextures';
@@ -90,8 +90,8 @@ export class TextureAtlas {
     this.packHash = pack?.hash ?? 'default';
     this.packNames = pack?.names ?? [];
     const special: Record<string, number> = {};
-    const blockTiles = new Int16Array(1024 * FACE_SLOTS).fill(-1);
-    const tintTable = new Uint8Array(1024 * 2);
+    const blockTiles = new Int16Array(ID_LIMIT * FACE_SLOTS).fill(-1);
+    const tintTable = new Uint8Array(ID_LIMIT * 2);
     const sources = new Map<string, { canvas: HTMLCanvasElement; anim?: AnimInfo; fromPack: boolean }>();
 
     const resolveKey = (key: string): string => key;
@@ -144,6 +144,7 @@ export class TextureAtlas {
     for (const c of ['carrots', 'potatoes', 'beetroots']) for (let i = 0; i < 4; i++) special[`${c}${i}`] = get(`${c}_stage${i}`);
     for (let i = 0; i < 10; i++) special[`destroy${i}`] = get(`destroy_stage_${i}`);
     for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top']) special[k] = get(k);
+    for (const k of CAVE_TEX) special[k] = get(k);
     special.doorTop = get('oak_door_top');
     special.doorBottom = get('oak_door_bottom');
     special.water = get('water_still');
@@ -356,6 +357,7 @@ export class TextureAtlas {
       ocean: [0.5, 0.5], deep_ocean: [0.5, 0.5], beach: [0.8, 0.4], river: [0.5, 0.5], plains: [0.8, 0.4], forest: [0.7, 0.8], birch_forest: [0.6, 0.6],
       desert: [1, 0], mountains: [0.2, 0.3], snowy_mountains: [0, 0.5], snowy_tundra: [0, 0.5], taiga: [0.25, 0.8], swamp: [0.8, 0.9], jungle: [0.95, 0.9], island: [0.8, 0.4],
       savanna: [1, 0], dark_forest: [0.7, 0.8], meadow: [0.5, 0.8], old_growth_taiga: [0.3, 0.8],
+      mushroom_fields: [0.9, 1], ice_spikes: [0, 0.5], warm_ocean: [0.5, 0.5],
     };
     const sample = (key: string): ((t: number, d: number) => number[] | null) => {
       const p = this.pack?.special.get(key);
@@ -376,6 +378,8 @@ export class TextureAtlas {
       let foliage = f(t, d) ?? b.foliage;
       if (b.id === 'swamp') { grass = [106, 112, 57]; foliage = [106, 112, 57]; }
       if (b.id === 'badlands') { grass = [144, 129, 77]; foliage = [158, 129, 77]; }
+      if (b.id === 'cherry_grove') { grass = [182, 219, 97]; foliage = [182, 219, 97]; }
+      if (b.id === 'mangrove_swamp') { grass = [106, 112, 57]; foliage = [141, 177, 39]; }
       if (b.id === 'dark_forest') grass = grass.map((c, i) => ((c & 0xfe) + [0x28, 0x34, 0x0a][i]) >> 1);
       out.push([...grass, ...foliage, ...b.water]);
     }
@@ -453,7 +457,8 @@ export class TextureAtlas {
       if (it.places === B.SLAB) return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }];
       return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }, { b: [0, 0.5, 0, 1, 1, 0.5], ...tl }];
     }
-    if (id < 256 && CUSTOM_BOX[id]) return customBoxes(id).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
+    if (BLOCKS[id]?.render === 'trapdoor') return [{ b: [0, 0, 0, 1, 3 / 16, 1], top: t[o + 2], left: t[o + 4], right: t[o] }];
+    if (isBaseId(id) && CUSTOM_BOX[id]) return customBoxes(id).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
     if (id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) return [{ b: px([1, 7, 1, 15, 8, 15]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.STONE_BUTTON || id === B.OAK_BUTTON) return [{ b: px([5, 6, 6, 11, 10, 10]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.PISTON || id === B.STICKY_PISTON) return [{ b: [0, 0, 0, 1, 1, 1], top: id === B.PISTON ? sp.piston_top : sp.piston_top_sticky, left: sp.piston_side, right: sp.piston_side }];
@@ -601,11 +606,11 @@ export class TextureAtlas {
 
   lodColors(): Uint8Array {
     if (this.lodTable) return this.lodTable;
-    const out = new Uint8Array(1024 * 4);
+    const out = new Uint8Array(ID_LIMIT * 4);
     const c = document.createElement('canvas');
     c.width = c.height = 4;
     const g = c.getContext('2d', { willReadFrequently: true })!;
-    for (let id = 0; id < 1024; id++) {
+    for (let id = 0; id < ID_LIMIT; id++) {
       if (id >= 256 && !BLOCKS[id]) continue;
       const tile = this.blockTileCanvas(id, 2) ?? this.blockTileCanvas(id, 0);
       if (!tile) continue;

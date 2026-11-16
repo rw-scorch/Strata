@@ -1,3 +1,4 @@
+import type { BlockArray } from '../core/chunk';
 import type { RuleSet } from '../core/sim/WorldSim';
 export interface TradeInfo { id: string; prof: number; xp: number; uses: number[]; seed?: number; }
 import type { GameMode, Difficulty } from '../core/constants';
@@ -40,6 +41,7 @@ export interface SessionEvents {
   pistonMove?(list: number[]): void;
   ride?(id: number): void;
   knock?(x: number, y: number, z: number, set?: boolean): void;
+  dark?(ticks: number): void;
   equipment?(id: string, eq: number[]): void;
   enchantOffers?(o: { cost: number; clue: string | null; clueLvl: number }[]): void;
   boom?(x: number, y: number, z: number, r: number): void;
@@ -50,7 +52,7 @@ export interface SessionEvents {
   mode(mode: GameMode): void;
   crafted(recipeId: string, times: number): void;
   connection(state: 'connecting' | 'online' | 'reconnecting' | 'offline', detail?: string): void;
-  chunkData(cx: number, cz: number, data: Uint16Array | null): void;
+  chunkData(cx: number, cz: number, data: BlockArray | null): void;
   rules?(r: RuleSet): void;
   rtc?(from: string, d: unknown): void;
   recipes?(d: DataRecipes[]): void;

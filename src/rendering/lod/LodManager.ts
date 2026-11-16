@@ -1,15 +1,17 @@
+import type { BlockArray } from '../../core/chunk';
 import * as THREE from 'three';
+import { ATMO_GLSL, type AtmoUniforms } from '../Atmosphere';
 import type { ArenaKind } from '../../core/labs/minigames/arena';
 import type { LodTileMesh } from './LodMesher';
-import { BLOCKS } from '../../core/blocks';
+import { BLOCKS, bid, tix, isBaseId, ID_LIMIT } from '../../core/blocks';
 
 interface Tile { key: string; x0: number; z0: number; size: number; mesh: THREE.Mesh | null; pending: boolean }
 
 const ROOT = 4096;
 
-const SURF = new Map<number, Map<string, { h: Uint8Array; id: Uint8Array }>>();
-const SKIP_TOP = new Uint8Array(256);
-for (const b of BLOCKS) if (b && (b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'redstone' || b.render === 'none' || b.render === 'ladder')) SKIP_TOP[b.id] = 1;
+const SURF = new Map<number, Map<string, { h: Uint8Array; id: Uint16Array }>>();
+const SKIP_TOP = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id) && (b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'redstone' || b.render === 'none' || b.render === 'ladder')) SKIP_TOP[b.id] = 1;
 
 export const LOD_SAMPLES: Record<'low' | 'medium' | 'high', number> = { low: 32, medium: 64, high: 64 };
 export const LOD_SPLIT: Record<'low' | 'medium' | 'high', number> = { low: 1.3, medium: 2.2, high: 4 };
@@ -32,7 +34,7 @@ export class LodManager {
   readonly mask: THREE.DataTexture;
   private maskData = new Uint8Array(1);
 
-  constructor(seed: number, arena: ArenaKind | null, colors: Uint8Array, uniforms: { uDay: { value: number }; uFogColor: { value: THREE.Color }; uSkyColor: { value: THREE.Color } }) {
+  constructor(seed: number, arena: ArenaKind | null, colors: Uint8Array, uniforms: { uDay: { value: number }; uFogColor: { value: THREE.Color }; uSkyColor: { value: THREE.Color } } & AtmoUniforms) {
     this.surfaces = LodManager.pending(seed);
     this.seed = seed;
     this.mask = new THREE.DataTexture(this.maskData, 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
@@ -42,6 +44,7 @@ export class LodManager {
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         uDay: uniforms.uDay, uFogColor: uniforms.uFogColor, uSkyColor: uniforms.uSkyColor,
+        uAtmo: uniforms.uAtmo, uAtmoColor: uniforms.uAtmoColor, uMistColor: uniforms.uMistColor,
         uFogNear: { value: 1000 }, uFogFar: { value: 2000 },
         uMask: { value: this.mask }, uMaskOrigin: { value: new THREE.Vector2() }, uOrigin: { value: new THREE.Vector2() }, uMaskSize: { value: 1 },
       },
@@ -56,6 +59,7 @@ export class LodManager {
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */ `
+        ${ATMO_GLSL}
         uniform float uDay; uniform vec3 uFogColor; uniform vec3 uSkyColor; uniform float uFogNear; uniform float uFogFar;
         uniform sampler2D uMask; uniform vec2 uMaskOrigin; uniform vec2 uOrigin; uniform float uMaskSize;
         varying vec4 vColor; varying vec3 vWorld; varying float vDist;
@@ -70,6 +74,7 @@ export class LodManager {
           float tex = 1.0 + nb * 0.11 * (1.0 - smoothstep(350.0, 900.0, vDist)) + ns * 0.12 * (1.0 - smoothstep(90.0, 260.0, vDist));
           if (vColor.a > 0.96 && vColor.a < 0.98) tex = 1.0 + nb * 0.03;
           vec3 col = vColor.rgb * tex * light * mix(vec3(0.75, 0.8, 1.0), vec3(1.0), uDay);
+          col = atmoApply(col, vWorld, cameraPosition);
           float fog = smoothstep(uFogNear, uFogFar, vDist);
           gl_FragColor = vec4(mix(col, uFogColor, fog), 1.0);
         }`,
@@ -132,20 +137,20 @@ export class LodManager {
     this.material.uniforms.uMaskSize.value = size;
   }
 
-  private surfaces: Map<string, { h: Uint8Array; id: Uint8Array }>;
+  private surfaces: Map<string, { h: Uint8Array; id: Uint16Array }>;
 
-  static pending(seed: number): Map<string, { h: Uint8Array; id: Uint8Array }> {
+  static pending(seed: number): Map<string, { h: Uint8Array; id: Uint16Array }> {
     let m = SURF.get(seed);
     if (!m) { SURF.clear(); m = new Map(); SURF.set(seed, m); }
     return m;
   }
 
-  static record(seed: number, cx: number, cz: number, blocks: Uint16Array): { h: Uint8Array; id: Uint8Array } | null {
-    const h = new Uint8Array(256), id = new Uint8Array(256);
+  static record(seed: number, cx: number, cz: number, blocks: BlockArray): { h: Uint8Array; id: Uint16Array } | null {
+    const h = new Uint8Array(256), id = new Uint16Array(256);
     for (let i = 0; i < 256; i++) {
       for (let y = 255; y >= 0; y--) {
-        const b = blocks[(y * 16 + (i >> 4)) * 16 + (i & 15)] & 0xff;
-        if (b && SKIP_TOP[b] !== 1) { h[i] = y; id[i] = b; break; }
+        const v = blocks[(y * 16 + (i >> 4)) * 16 + (i & 15)], b = bid(v);
+        if (b && SKIP_TOP[b] !== 1) { h[i] = y; id[i] = tix(v); break; }
       }
     }
     const k = `${cx},${cz}`;
@@ -159,7 +164,7 @@ export class LodManager {
 
   private seed = 0;
 
-  addSurface(cx: number, cz: number, blocks: Uint16Array): void {
+  addSurface(cx: number, cz: number, blocks: BlockArray): void {
     const s = LodManager.record(this.seed, cx, cz, blocks);
     if (!s) return;
     const { h, id } = s;

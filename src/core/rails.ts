@@ -1,4 +1,4 @@
-import { B } from './blocks';
+import { B, bid } from './blocks';
 
 export const RAIL_POWERED = 16;
 
@@ -31,12 +31,12 @@ function exitsOf(shape: number): [number, number][] {
 
 function points(get: Get, x: number, y: number, z: number, tx: number, tz: number): boolean {
   const v = get(x, y, z);
-  if (!isRail(v & 0xff)) return false;
+  if (!isRail(bid(v))) return false;
   return exitsOf(railShape(v)).some(([dx, dz]) => x + dx === tx && z + dz === tz);
 }
 
 function railAround(get: Get, x: number, y: number, z: number, dx: number, dz: number): number | null {
-  for (const dy of [0, 1, -1]) if (isRail(get(x + dx, y + dy, z + dz) & 0xff)) return dy;
+  for (const dy of [0, 1, -1]) if (isRail(bid(get(x + dx, y + dy, z + dz)))) return dy;
   return null;
 }
 
@@ -95,7 +95,7 @@ export function neighborRails(get: Get, x: number, y: number, z: number): [numbe
 }
 
 export function reshapeNeighbor(get: Get, nx: number, ny: number, nz: number, x: number, y: number, z: number): number | null {
-  const v = get(nx, ny, nz), id = v & 0xff;
+  const v = get(nx, ny, nz), id = bid(v);
   if (!isRail(id)) return null;
   if (points(get, nx, ny, nz, x, z) && !isAscending(railShape(v))) {
     const dy = railAround(get, nx, ny, nz, x - nx, z - nz);

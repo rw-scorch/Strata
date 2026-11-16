@@ -5,7 +5,7 @@ import { LodMesher, LodTileReq } from '../rendering/lod/LodMesher';
 type InMsg =
   | { t: 'init'; seed: number; arena?: ArenaKind | null; colors: Uint8Array }
   | { t: 'colors'; colors: Uint8Array }
-  | { t: 'surf'; cx: number; cz: number; h: Uint8Array; id: Uint8Array }
+  | { t: 'surf'; cx: number; cz: number; h: Uint8Array; id: Uint16Array }
   | ({ t: 'tile'; id: number } & LodTileReq);
 
 const scope = self as unknown as { postMessage(m: unknown, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<InMsg>) => void) | null };

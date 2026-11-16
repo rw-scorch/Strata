@@ -5,7 +5,7 @@ import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { sanitizeInv, InvOp, invHash, validStack, cloneStack } from '../core/inventory';
 import { cleanPackList } from '../core/datapack';
 import type { DataRecipes } from '../core/crafting';
-import { decodeRLE, base64ToU16 } from '../core/chunk';
+import { decodeRLE, base64ToU16, type BlockArray } from '../core/chunk';
 import type { C2S, S2C, RoomMeta, PublicPlayer } from '../core/protocol';
 import type { GameSession, SessionEvents, SessionInfo } from '../game/Session';
 import type { ChunkManager } from '../game/ChunkManager';
@@ -110,7 +110,7 @@ export class RemoteSession implements GameSession {
       this.attempts++;
       this.state = 'reconnecting';
       this.ev?.connection('reconnecting', `Reconnecting (attempt ${this.attempts})...`);
-      setTimeout(() => { if (!this.closed) this.open(); }, Math.min(10000, 800 * 2 ** (this.attempts - 1)));
+      setTimeout(() => { if (!this.closed) this.open(); }, Math.min(10000, 800 * 2 ** (this.attempts - 1)) * (0.75 + Math.random() * 0.5));
     };
     ws.onerror = () => { /* close handler follows */ };
   }
@@ -209,9 +209,10 @@ export class RemoteSession implements GameSession {
     if (!ev || !this.sim) return;
     switch (m.t) {
       case 'chunk': {
-        let data: Uint16Array | null = null;
+        let data: BlockArray | null = null;
         if (m.d) { try { data = decodeRLE(base64ToU16(m.d)); } catch { data = null; } }
         this.chunks!.setLevel(m.cx, m.cz, m.lv);
+        if (!m.d) this.chunks!.remoteSpec(m.cx, m.cz, m.lv, Array.isArray(m.om) && m.om.length === 49 ? m.om : undefined);
         if (this.chunks!.chunkReady(m.cx, m.cz)) { ev.chunkData(m.cx, m.cz, data); if (m.o) this.chunks!.applyOres(m.cx, m.cz, m.o); }
         else this.chunks!.receiveRemote(m.cx, m.cz, data, m.o);
         return;
@@ -286,6 +287,7 @@ export class RemoteSession implements GameSession {
       case 'pmove': ev.pistonMove?.(m.l); return;
       case 'ride': ev.ride?.(m.id); return;
       case 'knock': ev.knock?.(m.x, m.y, m.z, m.s === 1); return;
+      case 'dark': ev.dark?.(m.d); return;
       case 'eo': if (Array.isArray(m.o) && m.o.length === 3) ev.enchantOffers?.(m.o); return;
       case 'boom': ev.boom?.(m.x, m.y, m.z, m.r); return;
       case 'room':

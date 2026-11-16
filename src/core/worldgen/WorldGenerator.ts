@@ -1,17 +1,17 @@
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, CHUNK_VOLUME } from '../constants';
 import { Simplex, smoothstep, lerp } from '../noise';
-import { Rng, hash2, hashFloat2, mix32 } from '../rng';
-import { B, makeBlock, X, XV, sp, SPECIES, terracottaId } from '../blocks';
+import { Rng, hash2, hash3, hashFloat2, mix32 } from '../rng';
+import { B, CB, makeBlock, X, XV, sp, SPECIES, terracottaId, bid, VINE_BODY, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, SHRIEK_SUMMON, FACING_DIRS } from '../blocks';
 import { I, toolId } from '../items';
 import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
-import { GEN_LEVEL, LANDFORM_LEVEL, RIVER_LEVEL, BIOME_LEVEL } from './genLevel';
+import { GEN_LEVEL, LANDFORM_LEVEL, RIVER_LEVEL, BIOME_LEVEL, BIOME2_LEVEL, CAVE_LEVEL } from './genLevel';
 import { NetherGen, type NetherBiome } from './nether';
 import { isNether } from '../dimension';
 import { PortalPlan, PORTAL_GRID, planRuinedPortal, stampRuinedPortal } from './ruinedPortal';
-import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines, acacia, darkOak } from './trees';
+import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines, acacia, darkOak, cherry, mangrove, hugeMushroom, iceSpike } from './trees';
 import { StructurePlan, STRONGHOLD_REGION, TRIAL_REGION, planStronghold, planTrial, stampStructure } from './structures';
 
 export interface Column {
@@ -26,7 +26,7 @@ export interface Column {
 }
 
 export interface GenBlockEntity { x: number; y: number; z: number; type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob'; items: (ItemStack | null)[]; mob?: string; }
-export interface GeneratedChunk { blocks: Uint16Array; entities: GenBlockEntity[]; special?: boolean; }
+export interface GeneratedChunk { blocks: Uint32Array; entities: GenBlockEntity[]; special?: boolean; }
 export interface GenOptions { secret?: number | null; }
 
 const S = CHUNK_SIZE;
@@ -42,7 +42,7 @@ export class WorldGenerator {
   private nPatch: Simplex;
   private nRidge: Simplex; private nWarp: Simplex; private nValley: Simplex; private nPlateau: Simplex; private nPlatH: Simplex;
   private nHilly: Simplex; private nRoll: Simplex; private nCrag: Simplex;
-  private nVariety: Simplex; private nBand: Simplex;
+  private nVariety: Simplex; private nBand: Simplex; private nLush: Simplex; private nDrip: Simplex; private nDeep: Simplex;
 
   readonly arena: ArenaKind | null;
   private flatCol: Column | null = null;
@@ -160,6 +160,7 @@ export class WorldGenerator {
     this.nRidge = mk(); this.nWarp = mk(); this.nValley = mk(); this.nPlateau = mk(); this.nPlatH = mk();
     this.nHilly = mk(); this.nRoll = mk(); this.nCrag = mk();
     this.nVariety = mk(); this.nBand = mk();
+    this.nLush = mk(); this.nDrip = mk(); this.nDeep = mk();
   }
 
   private raw = { h: 0, land: 0, swamp: 0, lake: 0, d: 0, hills: 0, h2: 0 };
@@ -190,9 +191,9 @@ export class WorldGenerator {
   private landform(x: number, z: number, col: Column, h1: number, land: number, swampW: number, lakeW: number, d: number, hills: number): number {
     if (h1 < SEA_LEVEL - 0.5 && col.mountain < 0.05) return h1;
     const b = col.biome.id;
-    if (b === 'ocean' || b === 'deep_ocean' || b === 'river') return h1;
+    if (b === 'ocean' || b === 'deep_ocean' || b === 'river' || b === 'warm_ocean') return h1;
     const mw = col.mountain, riverW = col.river;
-    const coast = b === 'beach' || b === 'island' ? 0 : smoothstep(SEA_LEVEL + 1, SEA_LEVEL + 5, h1);
+    const coast = b === 'beach' || b === 'island' || b === 'mushroom_fields' ? 0 : smoothstep(SEA_LEVEL + 1, SEA_LEVEL + 5, h1);
     let h = h1;
     const wx = x + this.nWarp.fbm2(x / 160, z / 160, 2) * 38, wz = z + this.nWarp.fbm2(z / 160 + 31.7, x / 160 - 12.3, 2) * 38;
     if (mw > 0.01) {
@@ -222,7 +223,7 @@ export class WorldGenerator {
       const dale = (1 - smoothstep(0.03, 0.2, rv)) * flat;
       h = lerp(h, Math.max(SEA_LEVEL + 2.2, SEA_LEVEL + 2 + (h - SEA_LEVEL - 2) * 0.3), dale * 0.75);
       const pm = this.nPlateau.fbm2(x / 640, z / 640, 3);
-      const mask = smoothstep(0.2, 0.3, pm) * flat * (b === 'swamp' || b === 'jungle' ? 0.3 : 1);
+      const mask = smoothstep(0.2, 0.3, pm) * flat * (b === 'swamp' || b === 'jungle' || b === 'mangrove_swamp' ? 0.3 : 1);
       if (mask > 0.01) {
         const top = SEA_LEVEL + 20 + this.nPlatH.fbm2(x / 280, z / 280, 2) * 14 + d * 1.5;
         const edge = smoothstep(0.24, 0.27, pm + this.nCrag.fbm2(x / 23, z / 23, 2) * 0.025);
@@ -413,6 +414,7 @@ export class WorldGenerator {
     else if (humid > 0.08) id = d > 0.25 ? 'birch_forest' : 'forest';
     else id = 'plains';
     if (this.lv >= BIOME_LEVEL) id = this.refineBiome(id, x, z, temp, humid, height);
+    if (this.lv >= BIOME2_LEVEL) id = this.refineBiome2(id, x, z, temp, height);
 
     return { height, biome: biome(id), temp, humid, mountain: mw, river: riverW };
   }
@@ -429,6 +431,18 @@ export class WorldGenerator {
     if ((id === 'forest' || id === 'birch_forest') && humid > 0.34) return 'dark_forest';
     if ((id === 'plains' || id === 'forest') && this.nVariety.fbm2(x / 420, z / 420, 2) > 0.42) return 'meadow';
     return id;
+  }
+
+  private refineBiome2(id: BiomeId, x: number, z: number, temp: number, height: number): BiomeId {
+    switch (id) {
+      case 'ocean': return temp > 0.42 ? 'warm_ocean' : id;
+      case 'island': return this.nVariety.fbm2(x / 260 - 300, z / 260 + 170, 2) > 0.18 ? 'mushroom_fields' : id;
+      case 'snowy_tundra': return this.nVariety.fbm2(x / 300 + 400, z / 300, 2) > 0.22 ? 'ice_spikes' : id;
+      case 'swamp': return temp > 0.25 ? 'mangrove_swamp' : id;
+      case 'forest': case 'meadow': case 'plains': case 'birch_forest':
+        return height > SEA_LEVEL + 13 && this.nVariety.fbm2(x / 380 + 200, z / 380 - 90, 2) > 0.24 ? 'cherry_grove' : id;
+      default: return id;
+    }
   }
 
   private bandAt(y: number, x: number, z: number): number {
@@ -463,9 +477,15 @@ export class WorldGenerator {
     else if (b === 'savanna' && patch > 0.42) top = sp(B.DIRT, SPECIES.ACACIA);
     else if (b === 'badlands') { top = sp(B.SAND, 1); filler = B.TERRACOTTA; depth = 2; }
     else if (b === 'old_growth_taiga') { if (patch > -0.15) top = patch > 0.55 ? sp(B.DIRT, 1) : sp(B.DIRT, 2); }
+    else if (b === 'mushroom_fields') top = X(XV.MYCELIUM);
+    else if (b === 'ice_spikes') { top = B.SNOW; filler = B.DIRT; }
+    else if (b === 'mangrove_swamp') { top = patch > -0.2 ? B.MUD : B.GRASS; filler = B.MUD; depth = 4; }
     if (this.lv >= LANDFORM_LEVEL && slope >= 5 && !underwater && b !== 'desert' && b !== 'beach') { top = B.STONE; filler = B.STONE; }
     if (underwater) {
       if (b === 'ocean' || b === 'deep_ocean') { top = h < SEA_LEVEL - 16 ? B.GRAVEL : patch > 0.4 ? B.CLAY : B.SAND; filler = B.SAND; }
+      else if (b === 'warm_ocean') { top = B.SAND; filler = B.SAND; }
+      else if (b === 'mangrove_swamp') { top = B.MUD; filler = B.MUD; }
+      else if (b === 'mushroom_fields') { top = B.SAND; filler = B.SAND; }
       else if (b === 'river' || b === 'swamp') { top = patch > 0.35 ? B.CLAY : patch < -0.4 ? B.GRAVEL : B.SAND; filler = B.DIRT; if (b === 'swamp') top = patch > 0 ? B.MUD : B.DIRT; }
       else if (top === B.GRASS || top === B.SNOWY_GRASS) { top = patch > 0.2 ? B.SAND : patch < -0.3 ? B.CLAY : B.DIRT; }
       else if (top === B.SNOW) top = B.STONE;
@@ -490,7 +510,7 @@ export class WorldGenerator {
   }
 
   private generateOverworld(cx: number, cz: number): GeneratedChunk {
-    const blocks = new Uint16Array(CHUNK_VOLUME);
+    const blocks = new Uint32Array(CHUNK_VOLUME);
     const entities: GenBlockEntity[] = [];
     const bx = cx * S, bz = cz * S;
     const cols: Column[] = new Array(W * W);
@@ -541,6 +561,7 @@ export class WorldGenerator {
     if (this.lv >= RIVER_LEVEL) this.shapeRiverBanks(cols, colAt, set, get);
 
     this.carveCaves(cx, cz, blocks, colAt);
+    if (this.lv >= CAVE_LEVEL) this.decorateCaves(cx, cz, blocks, colAt);
     this.placeOres(rng, blocks, colAt, cx, cz);
     this.placeFeatures(cx, cz, cols, set, get, entities);
     const structs = this.structuresNear(bx, bz, bx + S - 1, bz + S - 1);
@@ -553,7 +574,7 @@ export class WorldGenerator {
     return structs.length ? { blocks, entities, special: true } : { blocks, entities };
   }
 
-  private carveCaves(cx: number, cz: number, blocks: Uint16Array, colAt: (x: number, z: number) => Column): void {
+  private carveCaves(cx: number, cz: number, blocks: Uint32Array, colAt: (x: number, z: number) => Column): void {
     const GX = 5, GY = Math.ceil(WORLD_HEIGHT / 4) + 1;
     const f1 = new Float32Array(GX * GX * GY), f2 = new Float32Array(GX * GX * GY), f3 = new Float32Array(GX * GX * GY);
     const bx = cx * S, bz = cz * S;
@@ -589,7 +610,7 @@ export class WorldGenerator {
       const ravBottom = Math.max(6, h - 46 + Math.floor(this.nDetail.noise2(wx / 20, wz / 20) * 6));
       for (let y = 4; y <= topLimit && y < WORLD_HEIGHT - 1; y++) {
         const idx = (y * S + z) * S + x;
-        const cur = blocks[idx] & 0xff;
+        const cur = bid(blocks[idx]);
         if (cur === B.BEDROCK || cur === B.WATER || cur === 0) continue;
         let carve = false;
         if (ravine && y >= ravBottom) carve = true;
@@ -604,7 +625,7 @@ export class WorldGenerator {
         }
         if (carve) {
           if (y <= h && y > 0) {
-            const above = y + 1 < WORLD_HEIGHT ? blocks[idx + S * S] & 0xff : 0;
+            const above = y + 1 < WORLD_HEIGHT ? bid(blocks[idx + S * S]) : 0;
             if (above === B.WATER || above === B.SAND || above === B.GRAVEL && y > h - 3) continue;
           }
           blocks[idx] = y <= 10 ? B.LAVA : 0;
@@ -612,9 +633,9 @@ export class WorldGenerator {
       }
       for (let y = h; y > 1; y--) {
         const idx = (y * S + z) * S + x;
-        const id = blocks[idx] & 0xff;
+        const id = bid(blocks[idx]);
         if (id === 0) continue;
-        if (id === B.DIRT && y < h && (blocks[idx + S * S] & 0xff) === 0) {
+        if (id === B.DIRT && y < h && (bid(blocks[idx + S * S])) === 0) {
           const top = col.biome.cold ? B.SNOWY_GRASS : B.GRASS;
           if (y > SEA_LEVEL) blocks[idx] = top;
         }
@@ -623,7 +644,114 @@ export class WorldGenerator {
     }
   }
 
-  private placeOres(pub: Rng, blocks: Uint16Array, colAt: (x: number, z: number) => Column, cx: number, cz: number): void {
+  caveKind(wx: number, wy: number, wz: number, h: number): number {
+    if (this.arena) return 0;
+    if (wy <= 26 && h > 70 && this.nDeep.noise2(wx / 230, wz / 230) > 0.4) return 3;
+    if (wy > h - 7 || wy < 6) return 0;
+    if (this.nLush.noise2(wx / 190, wz / 190) > 0.42) return 1;
+    if (this.nDrip.noise2(wx / 170 + 300, wz / 170 - 200) > 0.42) return 2;
+    return 0;
+  }
+
+  caveBiomeName(x: number, y: number, z: number, lv?: number): string | null {
+    const prev = this.lv;
+    this.lv = lv ?? GEN_LEVEL;
+    try {
+      if (this.lv < CAVE_LEVEL) return null;
+      const h = this.column(Math.floor(x), Math.floor(z)).height;
+      if (y > h - 4) return null;
+      const k = this.caveKind(Math.floor(x), Math.floor(y), Math.floor(z), h);
+      return k === 1 ? 'Verdant Hollow' : k === 2 ? 'Fangspire Caverns' : k === 3 ? 'The Hushdeep' : null;
+    } finally { this.lv = prev; }
+  }
+
+  private decorateCaves(cx: number, cz: number, blocks: Uint32Array, colAt: (x: number, z: number) => Column): void {
+    const bx = cx * S, bz = cz * S;
+    const G = X(XV.GRANITE), D = X(XV.DIORITE), A = X(XV.ANDESITE), DRIP = X(XV.DRIPSTONE_BLOCK);
+    const DS = makeBlock(CB.DEEPSLATE), MOSS = makeBlock(CB.MOSS_BLOCK);
+    const host = (v: number) => v === B.STONE || v === B.DIRT || v === B.GRAVEL || v === B.TUFF || v === G || v === D || v === A || v === DS || v === B.CLAY;
+    const at = (x: number, y: number, z: number) => (x < 0 || x >= S || z < 0 || z >= S || y < 0 || y >= WORLD_HEIGHT ? -1 : blocks[(y * S + z) * S + x]);
+    const put = (x: number, y: number, z: number, v: number) => { if (x >= 0 && x < S && z >= 0 && z < S && y > 0 && y < WORLD_HEIGHT) blocks[(y * S + z) * S + x] = v; };
+    const drip = (down: boolean, t: number) => makeBlock(CB.POINTED_DRIPSTONE, (down ? DRIP_DOWN : 0) | t);
+    const thick = (k: number, len: number) => (k === len - 1 ? 1 : k === len - 2 ? 2 : k === 0 ? 4 : 3);
+    for (let z = 0; z < S; z++) for (let x = 0; x < S; x++) {
+      const h = colAt(x, z).height, wx = bx + x, wz = bz + z;
+      const top = Math.min(h - 5, WORLD_HEIGHT - 3);
+      if (this.caveKind(wx, 20, wz, h) === 3) for (let y = 4; y <= 26; y++) { const i = (y * S + z) * S + x; if (host(blocks[i]) && blocks[i] !== B.CLAY) blocks[i] = DS; }
+      for (let y = 5; y <= top; y++) {
+        if (blocks[(y * S + z) * S + x] !== 0) continue;
+        const kind = this.caveKind(wx, y, wz, h);
+        if (!kind) continue;
+        const hh = hash3(wx, y, wz, this.seed ^ 0x3c6ef372);
+        const r = (hh & 0xffff) / 65536, r2 = ((hh >>> 16) & 0xffff) / 65536;
+        const below = at(x, y - 1, z), above = at(x, y + 1, z);
+        const floor = host(below), ceil = host(above);
+        if (kind === 1) {
+          if (floor) {
+            const pool = this.nLush.noise2(wx / 9 + 50, wz / 9 - 80) > 0.45;
+            let ground: number = MOSS;
+            if (pool) {
+              let closed = host(at(x, y - 2, z));
+              for (const [dx, dz] of FACING_DIRS) { const n = at(x + dx, y - 1, z + dz); if (n !== B.WATER && !host(n)) closed = false; }
+              if (closed) { put(x, y - 1, z, B.WATER); put(x, y - 2, z, B.CLAY); continue; }
+              ground = B.CLAY;
+            }
+            if (ground === B.CLAY || r2 < 0.9) put(x, y - 1, z, ground);
+            if (r < 0.28) put(x, y, z, makeBlock(CB.MOSS_CARPET));
+            else if (r < 0.38) put(x, y, z, B.TALL_GRASS);
+            else if (r < 0.41) put(x, y, z, makeBlock(CB.AZALEA));
+            else if (r < 0.425) put(x, y, z, makeBlock(CB.FLOWERING_AZALEA));
+            else if (r < 0.46 && at(x, y + 1, z) === 0) { const f = hh & 3; put(x, y, z, makeBlock(CB.SMALL_DRIPLEAF, f << 1)); put(x, y + 1, z, makeBlock(CB.SMALL_DRIPLEAF, SMALL_UPPER | (f << 1))); }
+            else if (r < 0.5) {
+              const f = (hh >>> 3) & 3; let n = 1 + Math.floor(r2 * 3);
+              while (n > 1 && at(x, y + n - 1, z) !== 0) n--;
+              for (let k = 0; k < n - 1; k++) put(x, y + k, z, makeBlock(CB.BIG_DRIPLEAF_STEM, f));
+              put(x, y + n - 1, z, makeBlock(CB.BIG_DRIPLEAF, f));
+            }
+          } else if (ceil) {
+            if (r2 < 0.7) put(x, y + 1, z, MOSS);
+            if (r < 0.11) {
+              const len = 1 + Math.floor(r2 * 6);
+              for (let k = 0; k < len && at(x, y - k, z) === 0; k++) {
+                const lit = ((hh >>> (k + 4)) & 7) === 0;
+                put(x, y - k, z, makeBlock(lit ? CB.CAVE_VINES_LIT : CB.CAVE_VINES, k ? VINE_BODY : 0));
+              }
+            } else if (r < 0.122) put(x, y, z, makeBlock(CB.SPORE_BLOSSOM));
+          } else if (r < 0.03) {
+            for (let f = 0; f < 4; f++) { const [dx, dz] = FACING_DIRS[f]; if (host(at(x + dx, y, z + dz))) { put(x, y, z, makeBlock(CB.GLOW_LICHEN, f)); break; } }
+          }
+        } else if (kind === 2) {
+          if (floor && r2 < 0.75) put(x, y - 1, z, DRIP);
+          if (ceil && r2 < 0.75) put(x, y + 1, z, DRIP);
+          if (ceil && r < 0.1) {
+            let len = 1 + Math.floor(r2 * 5);
+            let gap = 0;
+            while (gap < 10 && at(x, y - gap, z) === 0) gap++;
+            len = Math.min(len, gap);
+            const mite = host(at(x, y - gap, z)) || at(x, y - gap, z) === DRIP;
+            const up = mite && (hh >>> 20) % 10 < 6 ? Math.min(1 + ((hh >>> 24) & 3), gap - len) : 0;
+            const merge = mite && up > 0 && len + up === gap;
+            for (let k = 0; k < len; k++) put(x, y - k, z, drip(true, merge && k === len - 1 ? 0 : thick(k, len)));
+            for (let k = 0; k < up; k++) put(x, y - gap + 1 + k, z, drip(false, merge && k === up - 1 ? 0 : thick(k, up)));
+          } else if (floor && r < 0.14 && at(x, y, z) === 0) {
+            let len = 1 + Math.floor(r2 * 3);
+            while (len > 1 && at(x, y + len - 1, z) !== 0) len--;
+            for (let k = 0; k < len; k++) put(x, y + k, z, drip(false, thick(k, len)));
+          }
+        } else {
+          if (floor) {
+            const patch = this.nDeep.noise2(wx / 7, wz / 7 + y) > -0.25;
+            if (patch) put(x, y - 1, z, r2 < 0.004 ? makeBlock(CB.SCULK_CATALYST) : makeBlock(CB.SCULK));
+            if (patch && r < 0.1) put(x, y, z, makeBlock(CB.SCULK_VEIN));
+            else if (patch && r < 0.118) put(x, y, z, makeBlock(CB.SCULK_SENSOR));
+            else if (patch && r < 0.124) put(x, y, z, makeBlock(CB.SCULK_SHRIEKER, SHRIEK_SUMMON));
+          } else if (ceil && r2 < 0.35) put(x, y + 1, z, makeBlock(CB.SCULK));
+        }
+      }
+    }
+  }
+
+  private placeOres(pub: Rng, blocks: Uint32Array, colAt: (x: number, z: number) => Column, cx: number, cz: number): void {
     let rng = pub;
     let write = false;
     const vein = (ore: number, count: number, size: number, minY: number, maxY: number) => {
@@ -632,7 +760,7 @@ export class WorldGenerator {
         for (let k = 0; k < size; k++) {
           if (write && x >= 0 && x < S && z >= 0 && z < S && y > 0 && y < WORLD_HEIGHT) {
             const i = (y * S + z) * S + x;
-            if ((blocks[i] & 0xff) === B.STONE) blocks[i] = ore;
+            if ((bid(blocks[i])) === B.STONE) blocks[i] = ore;
           }
           const d = rng.int(6);
           if (d === 0) x++; else if (d === 1) x--; else if (d === 2) y++; else if (d === 3) y--; else if (d === 4) z++; else z--;
@@ -668,12 +796,13 @@ export class WorldGenerator {
     write = true;
     ores();
     if (mountain) vein(B.IRON_ORE, 4, 6, 70, 120);
+    if (this.lv >= CAVE_LEVEL && this.caveKind(cx * S + 8, 40, cz * S + 8, colAt(8, 8).height) === 2) vein(B.COPPER_ORE, 12, 10, 10, 90);
     if (this.lv >= 4) { vein(B.REDSTONE_ORE, 7, 7, 2, 18); vein(B.LAPIS_ORE, 2, 7, 3, 34); }
   }
 
   private treeAt(wx: number, wz: number, col: Column): { kind: number; height: number } | null {
     const b = col.biome.id;
-    const cell = b === 'jungle' ? 4 : b === 'forest' || b === 'birch_forest' || b === 'taiga' || b === 'dark_forest' || b === 'old_growth_taiga' ? 4 : b === 'savanna' ? 7 : 6;
+    const cell = b === 'jungle' ? 4 : b === 'forest' || b === 'birch_forest' || b === 'taiga' || b === 'dark_forest' || b === 'old_growth_taiga' ? 4 : b === 'savanna' || b === 'cherry_grove' ? 7 : b === 'mangrove_swamp' ? 5 : b === 'mushroom_fields' || b === 'ice_spikes' ? 9 : 6;
     const gx = Math.floor(wx / cell), gz = Math.floor(wz / cell);
     const hh = hash2(gx, gz, this.seed ^ 0x7ee5);
     const jx = gx * cell + (hh % cell), jz = gz * cell + ((hh >>> 8) % cell);
@@ -682,11 +811,13 @@ export class WorldGenerator {
       forest: 0.8, birch_forest: 0.8, taiga: 0.7, jungle: 0.95, plains: 0.07, swamp: 0.45, mountains: 0.12,
       snowy_tundra: 0.05, snowy_mountains: 0.04, island: 0.25, river: 0, beach: 0,
       savanna: 0.16, badlands: 0, dark_forest: 0.9, meadow: 0.05, old_growth_taiga: 0.85,
+      cherry_grove: 0.5, mangrove_swamp: 0.75, mushroom_fields: 0.08, ice_spikes: 0.3, warm_ocean: 0,
     };
     const p = density[b] ?? 0;
     const roll = ((hh >>> 16) & 0xffff) / 65536;
     if (roll >= p) return null;
-    if (col.height <= SEA_LEVEL || col.height > 125 || (col.water !== undefined && col.height < col.water)) return null;
+    if (b === 'mangrove_swamp') { if (col.height < SEA_LEVEL - 3 || col.height > 100) return null; }
+    else if (col.height <= SEA_LEVEL || col.height > 125 || (col.water !== undefined && col.height < col.water)) return null;
     const r2 = hash2(wx, wz, this.seed ^ 0xa11);
     let kind = 0;
     if (b === 'birch_forest') kind = (r2 & 7) < 6 ? 1 : 0;
@@ -698,10 +829,16 @@ export class WorldGenerator {
     else if (b === 'dark_forest') kind = (r2 & 15) < 11 ? 9 : (r2 & 15) < 14 ? 0 : 1;
     else if (b === 'meadow') kind = (r2 & 3) === 0 ? 1 : 0;
     else if (b === 'old_growth_taiga') kind = ((r2 >>> 4) & 7) < 3 ? 7 : 2;
+    else if (b === 'cherry_grove') kind = 10;
+    else if (b === 'mangrove_swamp') kind = 11;
+    else if (b === 'mushroom_fields') kind = 12;
+    else if (b === 'ice_spikes') kind = 13;
     if (b === 'jungle' && this.lv >= BIOME_LEVEL && kind !== 6 && ((r2 >>> 4) & 7) === 2) kind = 6;
-    const base = [4, 5, 6, 9, 1, 4, 14, 16, 5, 6][kind];
-    const varr = [3, 3, 4, 6, 1, 2, 10, 9, 3, 3][kind];
-    return { kind, height: base + ((r2 >>> 8) % varr) };
+    const base = [4, 5, 6, 9, 1, 4, 14, 16, 5, 6, 5, 5, 5, 6][kind];
+    const varr = [3, 3, 4, 6, 1, 2, 10, 9, 3, 3, 3, 4, 3, 9][kind];
+    let height = base + ((r2 >>> 8) % varr);
+    if (kind === 13 && ((r2 >>> 20) & 15) === 0) height = 18 + ((r2 >>> 12) & 15);
+    return { kind, height };
   }
 
   private placeFeatures(cx: number, cz: number, cols: Column[], set: (x: number, y: number, z: number, v: number) => void, get: (x: number, y: number, z: number) => number, entities: GenBlockEntity[]): void {
@@ -723,6 +860,10 @@ export class WorldGenerator {
             let hs = hr;
             const rnd = (n: number) => { hs = Math.imul(hs ^ (hs >>> 15), 0x2c1b3c6d) ^ 0x297a2d39; return ((hs >>> 8) & 0xffff) % n; };
             const tset: TreeSet = (x, y, z, v, isLeaf) => { if (isLeaf) leaf(x, y, z, v); else set(x, y, z, v); };
+            if (t.kind === 13) { iceSpike(tset, lx, y0, lz, t.height, rnd); continue; }
+            if (t.kind === 12) { hugeMushroom(tset, lx, y0, lz, t.height, (hr & 1) === 0); continue; }
+            if (t.kind === 10) { cherry(tset, lx, y0, lz, t.height, rnd); continue; }
+            if (t.kind === 11) { const ys = Math.max(y0, SEA_LEVEL + 1); mangrove(tset, lx, ys - 2, lz, t.height, rnd, ys - 2 - y0); continue; }
             if (t.kind === 8) acacia(tset, lx, y0, lz, t.height, rnd);
             else { for (const [ox, oz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) if (lx + ox >= 0 && lx + ox < S && lz + oz >= 0 && lz + oz < S) set(lx + ox, y0 - 1, lz + oz, B.DIRT); darkOak(tset, lx, y0, lz, t.height, rnd); }
             continue;
@@ -801,19 +942,32 @@ export class WorldGenerator {
       const col = cols[(lz + M) * W + (lx + M)];
       const fy = col.height;
       if (fy >= SEA_LEVEL - 1) continue;
-      if ((get(lx, fy + 1, lz) & 0xff) !== B.WATER || (get(lx, fy + 1, lz) >>> 8) !== 0) continue;
-      const floor = get(lx, fy, lz) & 0xff;
+      if ((bid(get(lx, fy + 1, lz))) !== B.WATER || (get(lx, fy + 1, lz) >>> 8) !== 0) continue;
+      const floor = bid(get(lx, fy, lz));
       if (floor !== B.SAND && floor !== B.GRAVEL && floor !== B.DIRT && floor !== B.CLAY && floor !== B.MUD) continue;
       const h = hash2(cx * S + lx, cz * S + lz, this.seed ^ 0x5ea9);
       const b = col.biome.id;
       const depth = SEA_LEVEL - fy;
-      const ocean = b === 'ocean' || b === 'deep_ocean' || b === 'island';
+      const ocean = b === 'ocean' || b === 'deep_ocean' || b === 'island' || b === 'warm_ocean';
+      if (b === 'warm_ocean' && depth > 2) {
+        const reef = this.nVariety.noise2((cx * S + lx) / 14, (cz * S + lz) / 14);
+        const kind = (h >>> 6) % 5;
+        if (reef > 0.15) {
+          const tall = depth > 5 && reef > 0.4 ? 1 + ((h >>> 9) % 3) : 0;
+          for (let k = 0; k < tall; k++) set(lx, fy + 1 + k, lz, X(XV.TUBE_CORAL_BLOCK + ((kind + k) % 5)));
+          set(lx, fy, lz, X(XV.TUBE_CORAL_BLOCK + kind));
+          if ((h & 3) !== 0) set(lx, fy + 1 + tall, lz, sp(B.SEAGRASS, 1 + ((h >>> 12) % 5)));
+          continue;
+        }
+        if ((h & 15) < 4) { set(lx, fy + 1, lz, (h & 1) ? B.SEAGRASS : sp(B.SEAGRASS, 1 + ((h >>> 12) % 5))); continue; }
+        continue;
+      }
       if (ocean && depth > 4 && (h & 15) < 2) {
         const len = Math.min(depth - 2, 2 + ((h >>> 4) % 14));
         let y = fy + 1;
         for (let k = 0; k < len; k++, y++) {
           const w = get(lx, y + 1, lz);
-          if ((w & 0xff) !== B.WATER || (w >>> 8) !== 0 || k === len - 1) { set(lx, y, lz, makeBlock(B.KELP, Math.min(25, 10 + ((h >>> 9) & 7)))); break; }
+          if ((bid(w)) !== B.WATER || (w >>> 8) !== 0 || k === len - 1) { set(lx, y, lz, makeBlock(B.KELP, Math.min(25, 10 + ((h >>> 9) & 7)))); break; }
           set(lx, y, lz, B.KELP_PLANT);
         }
       } else if ((h & 15) < (ocean ? 6 : 3)) set(lx, fy + 1, lz, B.SEAGRASS);
@@ -938,7 +1092,7 @@ export class WorldGenerator {
   }
 
   private newVegetation(b: BiomeId, ground: number, x: number, y: number, z: number, r: number, rng: Rng, set: (x: number, y: number, z: number, v: number) => void): boolean {
-    const grassy = ground === B.GRASS || (ground & 255) === B.DIRT;
+    const grassy = ground === B.GRASS || (bid(ground)) === B.DIRT;
     switch (b) {
       case 'savanna':
         if (!grassy) return true;
@@ -946,7 +1100,7 @@ export class WorldGenerator {
         else if (r < 0.345) set(x, y + 1, z, rng.chance(0.5) ? B.DANDELION : B.ORANGE_TULIP);
         return true;
       case 'badlands':
-        if ((ground & 255) !== B.SAND) return true;
+        if ((bid(ground)) !== B.SAND) return true;
         if (r < 0.005 && x > 0 && x < S - 1 && z > 0 && z < S - 1) { const hgt = 1 + rng.int(3); for (let k = 1; k <= hgt; k++) set(x, y + k, z, B.CACTUS); }
         else if (r < 0.03) set(x, y + 1, z, B.DEAD_BUSH);
         return true;
@@ -964,6 +1118,19 @@ export class WorldGenerator {
         if (r < 0.1) set(x, y + 1, z, B.TALL_GRASS);
         else if (r < 0.125) set(x, y + 1, z, rng.chance(0.5) ? B.RED_MUSHROOM : B.BROWN_MUSHROOM);
         else if (r < 0.13) set(x, y + 1, z, B.LILY_OF_THE_VALLEY);
+        return true;
+      case 'cherry_grove':
+        if (!grassy) return true;
+        if (r < 0.22) set(x, y + 1, z, B.TALL_GRASS);
+        else if (r < 0.26) set(x, y + 1, z, rng.chance(0.6) ? B.PINK_TULIP : B.ALLIUM);
+        return true;
+      case 'mangrove_swamp':
+        if (ground === B.GRASS && r < 0.2) set(x, y + 1, z, B.TALL_GRASS);
+        return true;
+      case 'mushroom_fields':
+        if (r < 0.04) set(x, y + 1, z, rng.chance(0.5) ? B.RED_MUSHROOM : B.BROWN_MUSHROOM);
+        return true;
+      case 'ice_spikes':
         return true;
       case 'old_growth_taiga':
         if (!grassy) return true;

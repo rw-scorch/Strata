@@ -1,3 +1,4 @@
+import type { BlockArray } from '../core/chunk';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { meshChunk, MeshBuffers } from '../rendering/Mesher';
@@ -10,7 +11,7 @@ type InMsg =
   | { t: 'init'; seed: number; arena?: ArenaKind | null; atlas: AtlasData; client?: boolean }
   | { t: 'atlas'; atlas: AtlasData }
   | { t: 'gen'; id: number; cx: number; cz: number; level?: number; old?: Uint8Array | null }
-  | { t: 'mesh'; id: number; cx: number; cz: number; chunks: (Uint16Array | null)[]; smooth: boolean; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' }; lv?: number };
+  | { t: 'mesh'; id: number; cx: number; cz: number; chunks: (BlockArray | null)[]; smooth: boolean; opts?: { glass: boolean; grass: 'off' | 'fast' | 'fancy' }; lv?: number };
 
 const scope = self as unknown as { postMessage(m: unknown, transfer?: Transferable[]): void; onmessage: ((e: MessageEvent<InMsg>) => void) | null };
 

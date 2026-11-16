@@ -1,13 +1,16 @@
-export const GEN_LEVEL = 11;
+export const GEN_LEVEL = 13;
 export const LANDFORM_LEVEL = 9;
 export const RIVER_LEVEL = 10;
 export const BIOME_LEVEL = 11;
+export const BIOME2_LEVEL = 12;
+export const CAVE_LEVEL = 13;
 export const LEGACY_LEVEL = 2;
 export const LEGACY_RADIUS = 10;
 const CELL = 8;
 
 export class GenRegistry {
   private recorded = new Map<string, number>();
+  private peeked = new Map<string, number>();
   private cells = new Map<string, [number, number][]>();
   readonly points: [number, number][] = [];
 
@@ -52,12 +55,21 @@ export class GenRegistry {
     const k = `${cx},${cz}`;
     let v = this.recorded.get(k);
     if (v !== undefined) return v;
+    if (!record) {
+      v = this.peeked.get(k);
+      if (v !== undefined) return v;
+    }
     v = this.lookup?.(k);
     if (v === undefined) {
       v = this.defaultLevel(cx, cz);
-      if (!record) return v;
+      if (!record) {
+        if (this.peeked.size > 20000) this.peeked.clear();
+        this.peeked.set(k, v);
+        return v;
+      }
       this.onRecord?.(k, v);
     }
+    this.peeked.delete(k);
     this.recorded.set(k, v);
     return v;
   }

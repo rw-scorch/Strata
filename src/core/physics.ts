@@ -1,4 +1,4 @@
-import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant } from './blocks';
+import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid } from './blocks';
 
 export interface BlockReader {
   getBlock(x: number, y: number, z: number): number;
@@ -119,19 +119,19 @@ export function sampleMedium(world: BlockReader, x: number, y: number, z: number
   const y0 = Math.floor(y + 0.1), y1 = Math.floor(y + h - 0.1);
   for (let by = Math.floor(y + e); by <= y1; by++) for (let bz = z0; bz <= z1; bz++) for (let bx = x0; bx <= x1; bx++) {
     const v = world.getBlock(bx, by, bz);
-    const id = v & 0xff;
+    const id = bid(v);
     if (id === B.WATER || id === B.LAVA || isWaterPlant(id)) {
-      const top = by + (id === B.WATER || id === B.LAVA ? liquidTop(v, world.getBlock(bx, by + 1, bz) & 0xff, id) : 1);
+      const top = by + (id === B.WATER || id === B.LAVA ? liquidTop(v, bid(world.getBlock(bx, by + 1, bz)), id) : 1);
       if (y + e >= top) continue;
       if (id === B.LAVA) m.lava = true; else m.water = true;
     } else if (by >= y0 && id === B.LADDER) m.ladder = true;
   }
   for (let bz = Math.floor(z - hw - 0.05); bz <= Math.floor(z + hw + 0.05); bz++) for (let bx = Math.floor(x - hw - 0.05); bx <= Math.floor(x + hw + 0.05); bx++) {
-    for (let by = y0; by <= y1; by++) if ((world.getBlock(bx, by, bz) & 0xff) === B.CACTUS) m.cactus = true;
+    for (let by = y0; by <= y1; by++) if ((bid(world.getBlock(bx, by, bz))) === B.CACTUS) m.cactus = true;
   }
   const ev = world.getBlock(Math.floor(x), Math.floor(y + eye), Math.floor(z));
-  const eid = ev & 0xff;
-  m.eyeWater = (eid === B.WATER && Math.floor(y + eye) + liquidTop(ev, world.getBlock(Math.floor(x), Math.floor(y + eye) + 1, Math.floor(z)) & 0xff, eid) > y + eye) || isWaterPlant(eid);
+  const eid = bid(ev);
+  m.eyeWater = (eid === B.WATER && Math.floor(y + eye) + liquidTop(ev, bid(world.getBlock(Math.floor(x), Math.floor(y + eye) + 1, Math.floor(z))), eid) > y + eye) || isWaterPlant(eid);
   return m;
 }
 
@@ -197,4 +197,29 @@ export function raycast(world: BlockReader, ox: number, oy: number, oz: number, 
 
 export function isClimbable(v: number): boolean {
   return getBlock(v).climbable;
+}
+
+const fluidH = (w: number): number => ((w >>> 8) & 8 ? 1 : (8 - ((w >>> 8) & 7)) / 9);
+
+export function fluidFlow(world: BlockReader, px: number, py: number, pz: number): { x: number; z: number; lava: boolean } | null {
+  const x = Math.floor(px), z = Math.floor(pz);
+  for (const y of [Math.floor(py + 0.05), Math.floor(py + 0.5)]) {
+    const v = world.getBlock(x, y, z);
+    const fl = bid(v);
+    if (fl !== B.WATER && fl !== B.LAVA) continue;
+    if (!((v >>> 8) & 15)) continue;
+    const me = fluidH(v);
+    let fx = 0, fz = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = world.getBlock(x + dx, y, z + dz);
+      if (bid(n) === fl) { const d = me - fluidH(n); fx += dx * d; fz += dz * d; }
+      else if (n === 0) {
+        const below = world.getBlock(x + dx, y - 1, z + dz);
+        if (below === 0 || bid(below) === fl) { fx += dx * me; fz += dz * me; }
+      }
+    }
+    const l = Math.hypot(fx, fz);
+    return l > 1e-4 ? { x: fx / l, z: fz / l, lava: fl === B.LAVA } : null;
+  }
+  return null;
 }

@@ -1,7 +1,8 @@
+import type { BlockArray } from '../core/chunk';
 import * as THREE from 'three';
 import { meshChunk, POS_SCALE, type MesherContext } from './Mesher';
 import { chunkGeometry } from './ChunkMaterial';
-import { B } from '../core/blocks';
+import { B, bid } from '../core/blocks';
 
 type Mats = { opaque: THREE.ShaderMaterial; cutout: THREE.ShaderMaterial; trans: THREE.ShaderMaterial };
 
@@ -14,7 +15,7 @@ export class MovingBlocks {
   readonly group = new THREE.Group();
   private cache = new Map<number, THREE.BufferGeometry[]>();
   private anims: Anim[] = [];
-  private scratch = new Uint16Array(SIZE);
+  private scratch = new Uint32Array(SIZE);
   ctx: MesherContext | null = null;
 
   constructor(private mats: Mats) {}
@@ -26,7 +27,7 @@ export class MovingBlocks {
     if (this.ctx) {
       this.scratch.fill(0);
       this.scratch[0] = v;
-      const chunks: (Uint16Array | null)[] = [null, null, null, null, this.scratch, null, null, null, null];
+      const chunks: (BlockArray | null)[] = [null, null, null, null, this.scratch, null, null, null, null];
       const r = meshChunk(this.ctx, 0, 0, chunks, false);
       for (const [b, m] of [[r.opaque, 0], [r.cutout, 1], [r.trans, 2]] as const) {
         if (!b || !b.idx.length) continue;
@@ -63,7 +64,7 @@ export class MovingBlocks {
     this.anims = this.anims.filter((a) => {
       const p = Math.min(1, (now - a.t0) / DURATION);
       a.obj.position.set(a.from[0] + (a.to[0] - a.from[0]) * p, a.from[1] + (a.to[1] - a.from[1]) * p, a.from[2] + (a.to[2] - a.from[2]) * p);
-      const settled = p >= 1 && (getBlock(a.to[0], a.to[1], a.to[2]) & 0xff) !== B.MOVING_PISTON;
+      const settled = p >= 1 && (bid(getBlock(a.to[0], a.to[1], a.to[2]))) !== B.MOVING_PISTON;
       if (settled || now - a.t0 > 700) { this.group.remove(a.obj); return false; }
       return true;
     });

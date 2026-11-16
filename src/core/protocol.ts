@@ -97,7 +97,7 @@ export type S2C =
   | { t: 'rtc'; from: string; d: unknown }
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
   | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
-  | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[]; lv?: number }
+  | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[]; lv?: number; om?: number[] }
   | { t: 'ores'; cx: number; cz: number; o: number[] }
   | { t: 'blk'; u: number[][] }
   | { t: 'pl'; u: (string | number | number[])[][] }
@@ -116,6 +116,7 @@ export type S2C =
   | { t: 'pmove'; l: number[] }
   | { t: 'ride'; id: number }
   | { t: 'knock'; x: number; y: number; z: number; s?: number }
+  | { t: 'dark'; d: number }
   | { t: 'eo'; o: { cost: number; clue: string | null; clueLvl: number }[] }
   | { t: 'boom'; x: number; y: number; z: number; r: number }
   | { t: 'death'; msg: string }

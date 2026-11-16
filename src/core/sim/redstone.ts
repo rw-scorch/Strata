@@ -1,5 +1,6 @@
+import type { BlockArray } from '../chunk';
 import { RAIL_EXITS, RAIL_POWERED, isAscending } from '../rails';
-import { B, BLOCKS, FACING_DIRS, blockId, blockMeta, makeBlock, DOOR_UPPER, DOOR_OPEN } from '../blocks';
+import { B, BLOCKS, FACING_DIRS, blockId, blockMeta, makeBlock, DOOR_UPPER, DOOR_OPEN, isTrapdoor, isDoorBlock, TD_OPEN, bid, ID_LIMIT, isBaseId, CB, SENSOR_ACTIVE, SENSOR_COOL } from '../blocks';
 import { getItem } from '../items';
 import type { ItemStack } from '../inventory';
 
@@ -18,7 +19,7 @@ export const CMP_SUB = 4, CMP_POWERED = 8;
 
 export interface RsHost {
   get(x: number, y: number, z: number): number;
-  raw(cx: number, cz: number): Uint16Array | null;
+  raw(cx: number, cz: number): BlockArray | null;
   setState(x: number, y: number, z: number, v: number): void;
   loaded(x: number, z: number): boolean;
   tick(): number;
@@ -37,9 +38,9 @@ export interface RsHost {
 
 export interface MoveCell { x: number; y: number; z: number; sticky: boolean; slime?: boolean }
 
-export function isSticky(v: number): boolean { const id = v & 0xff; return id === B.SLIME_BLOCK || id === B.HONEY_BLOCK; }
+export function isSticky(v: number): boolean { const id = bid(v); return id === B.SLIME_BLOCK || id === B.HONEY_BLOCK; }
 export function stickTogether(a: number, b: number): boolean {
-  const ia = a & 0xff, ib = b & 0xff;
+  const ia = bid(a), ib = bid(b);
   if ((ia === B.SLIME_BLOCK && ib === B.HONEY_BLOCK) || (ia === B.HONEY_BLOCK && ib === B.SLIME_BLOCK)) return false;
   return isSticky(a) || isSticky(b);
 }
@@ -48,13 +49,13 @@ interface Sched { x: number; y: number; z: number; due: number; prio: number; se
 
 const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
 
-const conductorTable = new Uint8Array(256);
-for (const b of BLOCKS) if (b && b.solid && b.opaque && b.render === 'cube' && b.id !== B.REDSTONE_BLOCK && b.id !== B.GLOWSTONE) conductorTable[b.id] = 1;
+const conductorTable = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id) && b.solid && b.opaque && b.render === 'cube' && b.id !== B.REDSTONE_BLOCK && b.id !== B.GLOWSTONE) conductorTable[b.id] = 1;
 conductorTable[B.DROPPER] = conductorTable[B.DISPENSER] = conductorTable[B.SLIME_BLOCK] = 1;
 
-export function isConductor(v: number): boolean { return conductorTable[v & 0xff] === 1; }
+export function isConductor(v: number): boolean { return conductorTable[bid(v)] === 1; }
 
-export function isWire(v: number): boolean { return (v & 0xff) === B.REDSTONE_WIRE; }
+export function isWire(v: number): boolean { return (bid(v)) === B.REDSTONE_WIRE; }
 export function isTorch(id: number): boolean { return id === B.REDSTONE_TORCH || id === B.UNLIT_REDSTONE_TORCH; }
 export function isDiode(id: number): boolean { return id === B.REPEATER || id === B.COMPARATOR; }
 export function isButton(id: number): boolean { return id === B.STONE_BUTTON || id === B.OAK_BUTTON; }
@@ -62,7 +63,7 @@ export function isPlate(id: number): boolean { return id === B.STONE_PRESSURE_PL
 export function isLamp(id: number): boolean { return id === B.REDSTONE_LAMP || id === B.REDSTONE_LAMP_LIT; }
 
 export function isSignalSource(id: number): boolean {
-  return id === B.REDSTONE_WIRE || isTorch(id) || id === B.LEVER || isButton(id) || isPlate(id) || id === B.REDSTONE_BLOCK || isDiode(id) || id === B.OBSERVER || id === B.DETECTOR_RAIL;
+  return id === B.REDSTONE_WIRE || isTorch(id) || id === B.LEVER || isButton(id) || isPlate(id) || id === B.REDSTONE_BLOCK || isDiode(id) || id === B.OBSERVER || id === B.DETECTOR_RAIL || id === CB.SCULK_SENSOR;
 }
 
 export function isPiston(id: number): boolean { return id === B.PISTON || id === B.STICKY_PISTON; }
@@ -71,7 +72,7 @@ export const PISTON_EXT = 8, OBS_ON = 8, HOPPER_OFF = 8, DISP_TRIG = 8;
 
 export type PushReaction = 'empty' | 'destroy' | 'block' | 'normal';
 export function pushReaction(v: number): PushReaction {
-  const id = v & 0xff;
+  const id = bid(v);
   if (id === 0) return 'empty';
   const d = BLOCKS[id];
   if (!d) return 'block';
@@ -85,7 +86,7 @@ export function pushReaction(v: number): PushReaction {
 }
 
 export function riderSupport(v: number): [number, number, number] | null {
-  const id = v & 0xff;
+  const id = bid(v);
   if (id === B.LADDER) { const [dx, dz] = FACING_DIRS[blockMeta(v) & 3]; return [dx, 0, dz]; }
   if (id === B.TORCH) { const m = blockMeta(v) & 7; if (m === 0) return [0, -1, 0]; const [dx, dz] = FACING_DIRS[(m - 1) & 3]; return [dx, 0, dz]; }
   return null;
@@ -121,7 +122,7 @@ export function wireLinks(get: Getter, x: number, y: number, z: number, out: [nu
 }
 
 function connectsTo(v: number, side: number): boolean {
-  const id = v & 0xff;
+  const id = bid(v);
   if (id === B.REDSTONE_WIRE) return true;
   if (id === B.REPEATER) { const o = diodeOut(v); return o === side || o === opp(side); }
   if (id === B.OBSERVER) return side === opp((v >>> 8) & 7);
@@ -260,7 +261,7 @@ export class Redstone {
       else if (!lit && p) this.h.setState(x, y, z, B.REDSTONE_LAMP_LIT);
       return;
     }
-    if (id === B.OAK_DOOR) { this.doorCheck(x, y, z, v); return; }
+    if (id === B.OAK_DOOR) { if (isTrapdoor(v)) this.trapdoorCheck(x, y, z, v); else this.doorCheck(x, y, z, v); return; }
     if (id === B.TNT) { if (this.hasNeighborSignal(x, y, z)) this.h.primeTnt(x, y, z, 80); return; }
     if (id === B.POWERED_RAIL || id === B.ACTIVATOR_RAIL) { this.railPower(x, y, z, v); return; }
     if (isPiston(id)) { this.pistonCheck(x, y, z, v); return; }
@@ -279,6 +280,10 @@ export class Redstone {
 
   blockChanged(x: number, y: number, z: number, old: number, v: number): void {
     const oid = blockId(old), nid = blockId(v);
+    if (nid !== oid) {
+      if (nid === CB.SCULK_SENSOR || nid === CB.SCULK_SHRIEKER) this.sculk.set(key(x, y, z), [x, y, z, nid]);
+      else if (oid === CB.SCULK_SENSOR || oid === CB.SCULK_SHRIEKER) this.sculk.delete(key(x, y, z));
+    }
     if (oid === nid && oid !== B.REDSTONE_WIRE && !isRedstoneId(oid)) { this.updateNeighbors(x, y, z); return; }
     if (oid === B.REDSTONE_WIRE || nid === B.REDSTONE_WIRE) {
       this.updateNeighbors(x, y, z);
@@ -301,7 +306,8 @@ export class Redstone {
     if (isDiode(nid)) { this.frontUpdates(x, y, z, diodeOut(v)); this.diodeCheck(x, y, z, v); }
     if (isTorch(nid)) this.neighborChanged(x, y, z);
     if (isLamp(nid)) this.neighborChanged(x, y, z);
-    if (nid === B.OAK_DOOR) this.doorCheck(x, y, z, v);
+    if (oid === B.OAK_DOOR && isTrapdoor(old) && !isTrapdoor(v)) this.tdPow.delete(key(x, y, z));
+    if (nid === B.OAK_DOOR) { if (isTrapdoor(v)) this.trapdoorCheck(x, y, z, v); else this.doorCheck(x, y, z, v); }
     if (nid === B.TNT && oid !== B.TNT) this.neighborChanged(x, y, z);
     if ((nid === B.POWERED_RAIL || nid === B.ACTIVATOR_RAIL) && oid !== nid) this.railPower(x, y, z, v);
     if (isPiston(nid) || nid === B.HOPPER || nid === B.DROPPER || nid === B.DISPENSER) this.neighborChanged(x, y, z);
@@ -362,6 +368,7 @@ export class Redstone {
       case B.COMPARATOR: return d === opp(diodeOut(v)) ? this.compOut.get(key(x, y, z)) ?? 0 : 0;
       case B.OBSERVER: return m & OBS_ON && d === (m & 7) ? 15 : 0;
       case B.DETECTOR_RAIL: return m & RAIL_POWERED ? 15 : 0;
+      case CB.SCULK_SENSOR: return m & SENSOR_ACTIVE ? 15 : 0;
       default: return 0;
     }
   }
@@ -374,6 +381,7 @@ export class Redstone {
       case B.DETECTOR_RAIL: return m & RAIL_POWERED && d === U ? 15 : 0;
       case B.LEVER: case B.STONE_BUTTON: case B.OAK_BUTTON: return m & LEVER_ON && attachOut(m & 7) === d ? 15 : 0;
       case B.STONE_PRESSURE_PLATE: case B.OAK_PRESSURE_PLATE: return m & PLATE_ON && d === U ? 15 : 0;
+      case CB.SCULK_SENSOR: return m & SENSOR_ACTIVE && d === U ? 15 : 0;
       default: return 0;
     }
   }
@@ -472,6 +480,11 @@ export class Redstone {
         this.h.setState(x, y, z, makeBlock(B.REDSTONE_TORCH, m));
         this.torchUpdates(x, y, z);
       }
+      return;
+    }
+    if (id === CB.SCULK_SENSOR) {
+      if (m & SENSOR_ACTIVE) { this.h.setState(x, y, z, makeBlock(id, (m & ~SENSOR_ACTIVE) | SENSOR_COOL)); this.updateNeighbors(x, y, z); this.updateNeighbors(x, y - 1, z); this.schedule(x, y, z, 10); }
+      else if (m & SENSOR_COOL) this.h.setState(x, y, z, makeBlock(id, m & ~SENSOR_COOL));
       return;
     }
     if (isButton(id)) {
@@ -844,11 +857,23 @@ export class Redstone {
     }
   }
 
+  private tdPow = new Map<string, boolean>();
+  private trapdoorCheck(x: number, y: number, z: number, v: number): void {
+    const powered = this.hasNeighborSignal(x, y, z);
+    const k = key(x, y, z), prev = this.tdPow.get(k);
+    this.tdPow.set(k, powered);
+    if (prev === undefined ? !powered : prev === powered) return;
+    const m = blockMeta(v), open = !!(m & TD_OPEN);
+    if (open === powered) return;
+    this.h.setState(x, y, z, makeBlock(B.OAK_DOOR, powered ? m | TD_OPEN : m & ~TD_OPEN));
+    this.h.sound(powered ? 'door.open' : 'door.close', x, y, z);
+  }
+
   private doorCheck(x: number, y: number, z: number, v: number): void {
     const m = blockMeta(v);
     const by = m & DOOR_UPPER ? y - 1 : y;
     const lower = this.g(x, by, z), upper = this.g(x, by + 1, z);
-    if (blockId(lower) !== B.OAK_DOOR || blockId(upper) !== B.OAK_DOOR) return;
+    if (!isDoorBlock(lower) || !isDoorBlock(upper)) return;
     const powered = this.hasNeighborSignal(x, by, z) || this.hasNeighborSignal(x, by + 1, z);
     if (powered === !!(blockMeta(lower) & DOOR_POWERED)) return;
     const open = !!(blockMeta(lower) & DOOR_OPEN);
@@ -966,10 +991,37 @@ export class Redstone {
     this.schedule(x, y, z, 20);
   }
 
-  revalidateChunk(blocks: Uint16Array, cx: number, cz: number): void {
+  readonly sculk = new Map<string, [number, number, number, number]>();
+
+  sculkNear(x: number, y: number, z: number, r: number, kind: number): [number, number, number][] {
+    const out: [number, number, number][] = [];
+    for (const [k, [sx, sy, sz, id]] of this.sculk) {
+      if (id !== kind || (sx - x) ** 2 + (sy - y) ** 2 + (sz - z) ** 2 > r * r) continue;
+      if (blockId(this.g(sx, sy, sz)) !== id) { this.sculk.delete(k); continue; }
+      out.push([sx, sy, sz]);
+    }
+    return out;
+  }
+
+  vibrate(x: number, y: number, z: number): [number, number, number][] {
+    if (!this.sculk.size) return [];
+    const hit: [number, number, number][] = [];
+    for (const [sx, sy, sz] of this.sculkNear(x, y, z, 8, CB.SCULK_SENSOR)) {
+      const v = this.g(sx, sy, sz), m = blockMeta(v);
+      if (m & (SENSOR_ACTIVE | SENSOR_COOL) || (sx === x && sy === y && sz === z)) continue;
+      this.h.setState(sx, sy, sz, makeBlock(CB.SCULK_SENSOR, m | SENSOR_ACTIVE));
+      this.updateNeighbors(sx, sy, sz); this.updateNeighbors(sx, sy - 1, sz);
+      this.schedule(sx, sy, sz, 30);
+      this.h.sound('sculk.click', sx, sy, sz);
+      hit.push([sx, sy, sz]);
+    }
+    return hit;
+  }
+
+  revalidateChunk(blocks: BlockArray, cx: number, cz: number): void {
     const wires: [number, number, number][] = [];
     for (let i = 0; i < blocks.length; i++) {
-      const id = blocks[i] & 0xff;
+      const id = bid(blocks[i]);
       if (id === B.MOVING_PISTON && !this.moving.some((mv) => mv.x === cx * 16 + (i & 15) && mv.y === Math.floor(i / 256) && mv.z === cz * 16 + ((i >> 4) & 15))) { this.h.setState(cx * 16 + (i & 15), Math.floor(i / 256), cz * 16 + ((i >> 4) & 15), 0); continue; }
       if (!isRedstoneId(id) && id !== B.OAK_DOOR) continue;
       const y = Math.floor(i / 256), z = cz * 16 + ((i >> 4) & 15), x = cx * 16 + (i & 15);
@@ -978,6 +1030,12 @@ export class Redstone {
       else if ((isButton(id) && m & LEVER_ON) || (isPlate(id) && m & PLATE_ON) || (id === B.OBSERVER && m & OBS_ON)) this.schedule(x, y, z, 1);
       else if (isTorch(id) || isDiode(id) || isLamp(id) || isPiston(id) || id === B.DROPPER || id === B.DISPENSER || id === B.HOPPER) this.neighborChanged(x, y, z);
       if (id === B.HOPPER) this.onHopper(x, y, z);
+      if (id === CB.SCULK_SENSOR) { this.sculk.set(key(x, y, z), [x, y, z, id]); if (m & (SENSOR_ACTIVE | SENSOR_COOL)) this.schedule(x, y, z, 1); }
+    }
+    for (let i = 0; i < blocks.length; i++) {
+      if (bid(blocks[i]) !== CB.SCULK_SHRIEKER) continue;
+      const y = Math.floor(i / 256), z = cz * 16 + ((i >> 4) & 15), x = cx * 16 + (i & 15);
+      this.sculk.set(key(x, y, z), [x, y, z, CB.SCULK_SHRIEKER]);
     }
     if (wires.length) this.solveWires(wires);
   }

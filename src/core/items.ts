@@ -1,4 +1,4 @@
-import { BLOCKS, B, ToolType, COLORS, COLOR_NAMES, DyeColor, SHAPE_MATS, SLAB_ITEM, STAIRS_ITEM } from './blocks';
+import { BLOCKS, B, CB, ToolType, COLORS, COLOR_NAMES, DyeColor, SHAPE_MATS, slabItem, stairsItem } from './blocks';
 
 export type ItemKind = 'block' | 'tool' | 'food' | 'armor' | 'material' | 'bucket' | 'placer';
 export type CreativeTab = 'building' | 'nature' | 'functional' | 'tools' | 'combat' | 'food' | 'materials';
@@ -28,6 +28,7 @@ export interface ItemDef {
 }
 
 export const I = {
+  GLOW_BERRIES: 4096,
   STICK: 256, APPLE: 258, COAL: 260, CHARCOAL: 261, IRON_INGOT: 262, FLINT: 263, AETHERITE: 264,
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
@@ -61,7 +62,7 @@ const TAB_FOR_CATEGORY: Record<string, CreativeTab> = {
 
 for (const b of BLOCKS) {
   if (!b || b.id === 0) continue;
-  const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door' || b.render === 'redstone' || b.render === 'rail' || b.render === 'fire' || b.render === 'portal' || b.render === 'bars';
+  const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door' || b.render === 'redstone' || b.render === 'rail' || b.render === 'fire' || b.render === 'portal' || b.render === 'bars' || b.render === 'cave';
   if (b.render === 'fence') { add({ id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.id, texture: 'nether_brick_fence_item', blockIcon: false, tab: 'building' }); continue; }
   add({
     id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.ext !== undefined ? 218 : b.species ? b.species.base : b.id, placeMeta: b.ext ?? (b.species ? b.species.s << 4 : undefined),
@@ -77,8 +78,8 @@ export const SPEAR_MATS = [
 export function spearIndex(id: number): number { return id >= I.SPEAR && id < I.SPEAR + SPEAR_MATS.length ? id - I.SPEAR : -1; }
 
 SHAPE_MATS.forEach((m, i) => {
-  add({ id: SLAB_ITEM + i, key: `${m.key}_slab`, name: `${m.name} Slab`, desc: 'Half a block. Place two of the same together for a full block.', kind: 'block', places: B.SLAB, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
-  add({ id: STAIRS_ITEM + i, key: `${m.key}_stairs`, name: `${m.name} Stairs`, desc: 'Climb without jumping. Place on the underside of a block to turn them upside down.', kind: 'block', places: B.STAIRS, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
+  add({ id: slabItem(i), key: `${m.key}_slab`, name: `${m.name} Slab`, desc: 'Half a block. Place two of the same together for a full block.', kind: 'block', places: B.SLAB, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
+  add({ id: stairsItem(i), key: `${m.key}_stairs`, name: `${m.name} Stairs`, desc: 'Climb without jumping. Place on the underside of a block to turn them upside down.', kind: 'block', places: B.STAIRS, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
 });
 
 const mat = (id: number, key: string, name: string, desc: string, extra: Partial<ItemDef> = {}) =>
@@ -149,6 +150,7 @@ add({ id: I.LAVA_BUCKET, key: 'lava_bucket', name: 'Lava Bucket', desc: 'Pour ou
 const food = (id: number, key: string, name: string, desc: string, hunger: number, saturation: number) =>
   add({ id, key, name, desc, kind: 'food', texture: key, food: { hunger, saturation }, tab: 'food' });
 add({ id: I.POTATO, key: 'potato', name: 'Potato', desc: 'Plant it on farmland, or bake it for a proper meal.', kind: 'placer', places: B.POTATOES, texture: 'potato', food: { hunger: 1, saturation: 0.6 }, tab: 'food' });
+add({ id: I.GLOW_BERRIES, key: 'glow_berries', name: 'Glow Berries', desc: 'Sweet berries that shine. Eat them, or plant them under a ceiling to grow cave vines.', kind: 'placer', places: CB.CAVE_VINES, texture: 'glow_berries', food: { hunger: 2, saturation: 0.4 }, tab: 'food' });
 add({ id: I.CARROT, key: 'carrot', name: 'Carrot', desc: 'Crunchy and orange. Plant it on farmland.', kind: 'placer', places: B.CARROTS, texture: 'carrot', food: { hunger: 3, saturation: 3.6 }, tab: 'food' });
 add({ id: I.BEETROOT_SEEDS, key: 'beetroot_seeds', name: 'Beetroot Seeds', desc: 'Plant on farmland to grow beetroots.', kind: 'placer', places: B.BEETROOTS, texture: 'beetroot_seeds', tab: 'food' });
 food(I.BAKED_POTATO, 'baked_potato', 'Baked Potato', 'Hot, fluffy and filling.', 5, 6);

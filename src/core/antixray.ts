@@ -1,13 +1,14 @@
-import { B, OPAQUE, blockId } from './blocks';
+import type { BlockArray } from './chunk';
+import { B, OPAQUE, blockId, bid, ID_LIMIT } from './blocks';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './constants';
 
 export const ORE_REVEAL_RADIUS = 5;
 
-const HIDDEN = new Uint8Array(256);
+const HIDDEN = new Uint8Array(ID_LIMIT);
 for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.AETHERITE_ORE, B.COPPER_ORE, B.REDSTONE_ORE, B.LAPIS_ORE]) HIDDEN[id] = 1;
 
 const RACK = 218;
-function cover(v: number): number { const id = v & 0xff; if (HIDDEN[id]) return B.STONE; if (id === 218 && ((v >>> 8) === 1 || (v >>> 8) === 2 || (v >>> 8) === 21)) return RACK; return 0; }
+function cover(v: number): number { const id = bid(v); if (HIDDEN[id]) return B.STONE; if (id === 218 && ((v >>> 8) === 1 || (v >>> 8) === 2 || (v >>> 8) === 21)) return RACK; return 0; }
 export function isHiddenOre(v: number): boolean { return cover(v) !== 0; }
 
 export type BlockGetter = (x: number, y: number, z: number) => number | null;
@@ -25,7 +26,7 @@ export function exposed(get: BlockGetter, x: number, y: number, z: number): bool
   return false;
 }
 
-function chunkGetter(blocks: Uint16Array, cx: number, cz: number, world: BlockGetter): BlockGetter {
+function chunkGetter(blocks: BlockArray, cx: number, cz: number, world: BlockGetter): BlockGetter {
   const bx = cx * CHUNK_SIZE, bz = cz * CHUNK_SIZE;
   return (x, y, z) => {
     const lx = x - bx, lz = z - bz;
@@ -34,7 +35,7 @@ function chunkGetter(blocks: Uint16Array, cx: number, cz: number, world: BlockGe
   };
 }
 
-export function maskChunk(blocks: Uint16Array, cx: number, cz: number, world: BlockGetter): Uint16Array {
+export function maskChunk(blocks: BlockArray, cx: number, cz: number, world: BlockGetter): BlockArray {
   const out = blocks.slice();
   const get = chunkGetter(blocks, cx, cz, world);
   const bx = cx * CHUNK_SIZE, bz = cz * CHUNK_SIZE;
@@ -47,7 +48,7 @@ export function maskChunk(blocks: Uint16Array, cx: number, cz: number, world: Bl
   return out;
 }
 
-export function exposedOres(blocks: Uint16Array, cx: number, cz: number, world: BlockGetter): number[] {
+export function exposedOres(blocks: BlockArray, cx: number, cz: number, world: BlockGetter): number[] {
   const out: number[] = [];
   const get = chunkGetter(blocks, cx, cz, world);
   const bx = cx * CHUNK_SIZE, bz = cz * CHUNK_SIZE;

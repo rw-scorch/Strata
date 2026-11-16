@@ -1,12 +1,12 @@
-import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, SLAB_ITEM, STAIRS_ITEM } from './blocks';
+import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB } from './blocks';
 import { I, toolId, armorId, dyeId, SPEAR_MATS } from './items';
 import type { ItemStack } from './inventory';
 
 export type Ingredient = number | string | number[];
 
 export const TAGS: Record<string, number[]> = {
-  planks: [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS, SB.ACACIA_PLANKS, SB.DARK_OAK_PLANKS, XB + XV.CRIMSON_PLANKS, XB + XV.WARPED_PLANKS],
-  logs: [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, SB.ACACIA_LOG, SB.DARK_OAK_LOG],
+  planks: [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS, SB.ACACIA_PLANKS, SB.DARK_OAK_PLANKS, SB.CHERRY_PLANKS, SB.MANGROVE_PLANKS, XB + XV.CRIMSON_PLANKS, XB + XV.WARPED_PLANKS],
+  logs: [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, SB.ACACIA_LOG, SB.DARK_OAK_LOG, SB.CHERRY_LOG, SB.MANGROVE_LOG],
   coals: [I.COAL, I.CHARCOAL],
   stones: [B.COBBLESTONE, B.MOSSY_COBBLESTONE],
   wool: COLORS.map(woolId),
@@ -35,6 +35,8 @@ shapeless('spruce_planks', 'basics', B.SPRUCE_PLANKS, 4, [B.SPRUCE_LOG]);
 shapeless('jungle_planks', 'basics', B.JUNGLE_PLANKS, 4, [B.JUNGLE_LOG]);
 shapeless('acacia_planks', 'basics', SB.ACACIA_PLANKS, 4, [SB.ACACIA_LOG]);
 shapeless('dark_oak_planks', 'basics', SB.DARK_OAK_PLANKS, 4, [SB.DARK_OAK_LOG]);
+shapeless('cherry_planks', 'basics', SB.CHERRY_PLANKS, 4, [SB.CHERRY_LOG]);
+shapeless('mangrove_planks', 'basics', SB.MANGROVE_PLANKS, 4, [SB.MANGROVE_LOG]);
 shaped('stick', 'basics', I.STICK, 4, ['P', 'P'], { P: 'planks' });
 shaped('crafting_table', 'basics', B.WORKBENCH, 1, ['PP', 'PP'], { P: 'planks' });
 shaped('torch', 'basics', B.TORCH, 4, ['C', 'S'], { C: 'coals', S: I.STICK });
@@ -42,6 +44,9 @@ shaped('furnace', 'basics', B.FURNACE, 1, ['CCC', 'C C', 'CCC'], { C: 'stones' }
 shaped('chest', 'basics', B.CHEST, 1, ['PPP', 'P P', 'PPP'], { P: 'planks' });
 shaped('ladder', 'basics', B.LADDER, 3, ['S S', 'SSS', 'S S'], { S: I.STICK });
 shaped('door', 'basics', I.DOOR, 3, ['PP', 'PP', 'PP'], { P: 'planks' });
+[B.OAK_PLANKS, B.SPRUCE_PLANKS, B.BIRCH_PLANKS, B.JUNGLE_PLANKS, SB.ACACIA_PLANKS, SB.DARK_OAK_PLANKS, SB.CHERRY_PLANKS, SB.MANGROVE_PLANKS].forEach((pl, i) => shaped(`${TRAPDOOR_WOODS[i]}_trapdoor`, 'basics', SB.OAK_TRAPDOOR + i, 2, ['PPP', 'PPP'], { P: pl }));
+shaped('iron_trapdoor', 'basics', SB.IRON_TRAPDOOR, 1, ['II', 'II'], { I: I.IRON_INGOT });
+shaped('moss_carpet', 'decor', CB.MOSS_CARPET, 3, ['MM'], { M: CB.MOSS_BLOCK });
 shaped('bucket', 'basics', I.BUCKET, 1, ['I I', ' I '], { I: I.IRON_INGOT });
 shaped('bread', 'food', I.BREAD, 1, ['WWW'], { W: I.WHEAT });
 shaped('paper', 'basics', I.PAPER, 3, ['SSS'], { S: B.SUGAR_CANE });
@@ -100,8 +105,8 @@ shaped('redstone_lamp', 'decor', B.REDSTONE_LAMP, 1, [' R ', 'RGR', ' R '], { R:
 shaped('repeater', 'decor', B.REPEATER, 1, ['TRT', 'SSS'], { T: B.REDSTONE_TORCH, R: I.REDSTONE, S: B.STONE });
 shaped('comparator', 'decor', B.COMPARATOR, 1, [' T ', 'TCT', 'SSS'], { T: B.REDSTONE_TORCH, C: I.COPPER_INGOT, S: B.STONE });
 SHAPE_MATS.forEach((m, i) => {
-  shaped(`${m.key}_slab`, 'building', SLAB_ITEM + i, 6, ['XXX'], { X: m.id });
-  shaped(`${m.key}_stairs`, 'building', STAIRS_ITEM + i, 4, ['X  ', 'XX ', 'XXX'], { X: m.id });
+  shaped(`${m.key}_slab`, 'building', slabItem(i), 6, ['XXX'], { X: m.id });
+  shaped(`${m.key}_stairs`, 'building', stairsItem(i), 4, ['X  ', 'XX ', 'XXX'], { X: m.id });
 });
 shaped('rail', 'decor', B.RAIL, 16, ['I I', 'ISI', 'I I'], { I: I.IRON_INGOT, S: I.STICK });
 shaped('powered_rail', 'decor', B.POWERED_RAIL, 6, ['G G', 'GSG', 'GRG'], { G: I.GOLD_INGOT, S: I.STICK, R: I.REDSTONE });
@@ -135,11 +140,11 @@ shaped('cinderite_block', 'building', XB + XV.CINDERITE_BLOCK, 1, ['III', 'III',
 shapeless('cinderite_from_block', 'basics', I.CINDERITE_INGOT, 9, [XB + XV.CINDERITE_BLOCK]);
 shaped('smithing_table', 'decor', B.SMITHING_TABLE, 1, ['II', 'PP', 'PP'], { I: I.IRON_INGOT, P: 'planks' });
 shaped('cinderite_upgrade_copy', 'basics', I.UPGRADE_TEMPLATE, 2, ['DTD', 'DND', 'DDD'], { D: I.AETHERITE, T: I.UPGRADE_TEMPLATE, N: XB + XV.NETHERRACK });
-shaped('chiseled_polished_blackstone', 'building', XB + XV.CHISELED_POLISHED_BLACKSTONE, 1, ['S', 'S'], { S: SLAB_ITEM + 19 });
+shaped('chiseled_polished_blackstone', 'building', XB + XV.CHISELED_POLISHED_BLACKSTONE, 1, ['S', 'S'], { S: slabItem(19) });
 shaped('saddle', 'tools', I.SADDLE, 1, [' L ', 'LIL'], { L: I.LEATHER, I: I.IRON_INGOT });
 shaped('warped_fungus_on_a_stick', 'tools', I.FUNGUS_STICK, 1, ['  S', ' SX', 'S F'], { S: 4, X: I.STRING, F: B.WARPED_FUNGUS });
-const OAK_SLAB = SLAB_ITEM + SHAPE_MATS.findIndex((m) => m.id === B.OAK_PLANKS);
-const STONE_SLAB = SLAB_ITEM + SHAPE_MATS.findIndex((m) => m.id === B.SMOOTH_STONE);
+const OAK_SLAB = slabItem(SHAPE_MATS.findIndex((m) => m.id === B.OAK_PLANKS));
+const STONE_SLAB = slabItem(SHAPE_MATS.findIndex((m) => m.id === B.SMOOTH_STONE));
 shaped('composter', 'decor', B.COMPOSTER, 1, ['S S', 'S S', 'SSS'], { S: OAK_SLAB });
 shaped('lectern', 'decor', B.LECTERN, 1, ['SSS', ' B ', ' S '], { S: OAK_SLAB, B: B.BOOKSHELF });
 shaped('blast_furnace', 'decor', B.BLAST_FURNACE, 1, ['III', 'IFI', 'SSS'], { I: I.IRON_INGOT, F: B.FURNACE, S: B.SMOOTH_STONE });
@@ -327,6 +332,7 @@ export function findRecipe(grid: (ItemStack | null)[], size: number, book: Recip
 
 export interface SmeltRecipe { input: Ingredient; result: number; xp: number; }
 export const SMELTING: SmeltRecipe[] = [
+  { input: CB.COBBLED_DEEPSLATE, result: CB.DEEPSLATE, xp: 0.1 },
   { input: B.IRON_ORE, result: I.IRON_INGOT, xp: 0.7 },
   { input: B.GOLD_ORE, result: I.GOLD_INGOT, xp: 1 },
   { input: B.LAPIS_ORE, result: I.LAPIS, xp: 0.2 },

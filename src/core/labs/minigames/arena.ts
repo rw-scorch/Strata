@@ -124,8 +124,8 @@ export function arenaBlockAt(kind: ArenaKind, x: number, y: number, z: number): 
   return v;
 }
 
-export function generateArenaChunk(kind: ArenaKind, cx: number, cz: number): Uint16Array {
-  const out = new Uint16Array(CHUNK_VOLUME);
+export function generateArenaChunk(kind: ArenaKind, cx: number, cz: number): Uint32Array {
+  const out = new Uint32Array(CHUNK_VOLUME);
   const S = CHUNK_SIZE, bx = cx * S, bz = cz * S;
   for (const b of arenaLayout(kind).boxes) {
     const x0 = Math.max(Math.min(b.a[0], b.b[0]), bx), x1 = Math.min(Math.max(b.a[0], b.b[0]), bx + S - 1);

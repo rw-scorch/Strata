@@ -152,6 +152,7 @@ export class LocalSession implements GameSession {
       case 'ride': if (e.p === this.me) ev.ride?.(e.id); return;
       case 'work': if (e.p === this.me) { ev.container('work', 'chest', e.items.map((s) => s ? cloneStack(s) : null)); if (e.offers) ev.enchantOffers?.(e.offers); } return;
       case 'knock': if (e.p === this.me) ev.knock?.(e.x, e.y, e.z, !!e.set); return;
+      case 'dark': if (e.p === this.me) ev.dark?.(e.t); return;
       case 'boom': ev.boom?.(e.x, e.y, e.z, e.r); return;
       case 'weather': ev.weather(e.w); return;
       case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;

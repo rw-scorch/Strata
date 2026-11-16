@@ -1,12 +1,13 @@
+import type { BlockArray } from '../chunk';
 import { fortressAt } from '../worldgen/fortress';
 import { smithResult } from '../smithing';
-import { CROPS, sp, SPECIES, speciesOf, tix, SB } from '../blocks';
+import { CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON } from '../blocks';
 import { isRail, railShape, railPowered, railHeight, railLine, RAIL_EXITS, shapeFor, reshapeNeighbor, neighborRails } from '../rails';
 import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
   B, BLOCKS, isPowder, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE, isWaterPlant, isWaterLike,
-  SHAPE_MATS, SLAB_TOP, STAIRS_UP, SLAB_ITEM, STAIRS_ITEM, BLAST_RES, X, XV,
+  SHAPE_MATS, SLAB_TOP, STAIRS_UP, slabItem, stairsItem, BLAST_RES, X, XV,
 } from '../blocks';
 import { getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorId, toolId } from '../items';
 import { lvl, tableOffers, tableList, anvilResult, JavaRandom, ENCH, ENCHANTS, supports, compatible, enchantLabel, type TableOffer } from '../enchants';
@@ -18,30 +19,31 @@ import { findSmelt, Recipe, RecipeBook, BASE_BOOK, DataRecipes, makeBook, ingred
 import { mergeData } from '../datapack';
 import { trialLoot, vaultLoot } from '../worldgen/structures';
 import { Redstone, isButton, isPlate, isTorch, isDiode, attachOut, DIR6, LEVER_ON, isPiston, HOPPER_OFF } from './redstone';
-import { TreeSet, megaJungle, megaSpruce, jungleVines, acacia, darkOak } from '../worldgen/trees';
+import { TreeSet, megaJungle, megaSpruce, jungleVines, acacia, darkOak, cherry, mangrove } from '../worldgen/trees';
 import { enchantBonus, WIND_BURST, attackStats, attackCharge, scaledDamage, armorReduce, armorToughness, maceBonus, arrowDamage, attackRange, SPEAR_STATS, SPEAR_MIN, SPEAR_MARGIN, CHARGE_HURT_SPEED, CHARGE_KNOCK_SPEED, chargeDamage, SMASH_RANGE, SMASH_PUSH, SMASH_HEAVY, type AttackStats } from './combat';
 import { JOB_SITES, JOB_BLOCK, PROFESSIONS, villagerOffers, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
-import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium } from '../physics';
+import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium, fluidFlow } from '../physics';
 import { Rng } from '../rng';
 import { WorldGenerator } from '../worldgen/WorldGenerator';
 import { MOBS, MobType, MobDef, PASSIVE_TYPES, HOSTILE_TYPES } from './mobs';
 import { findPath, standable, PathNode } from './pathfind';
 import { tickFluid, fluidDelay, FluidWorld } from './fluids';
 import { ChunkInfo, chunkNum } from './light';
-import { isNether, toNether, toOverworld, NETHER_HEIGHT, NETHER_LAVA } from '../dimension';
+import { Mischief } from './mischief';
+import { isNether, toNether, toOverworld, NETHER_HEIGHT, NETHER_LAVA, localX, cmdXYZ } from '../dimension';
 
 export interface WorldStore extends BlockReader {
   setBlock(x: number, y: number, z: number, v: number): void;
   isLoaded(x: number, z: number): boolean;
   ensure?(x: number, z: number): void;
-  raw?(cx: number, cz: number): Uint16Array | null;
+  raw?(cx: number, cz: number): BlockArray | null;
 }
 
 function getItemByName(key: string): ReturnType<typeof getItem> | undefined {
   const k = key.toLowerCase();
   const hit = ITEM_BY_KEY.get(k);
   if (hit) return hit;
-  for (let i = 1; i < 1024; i++) { const d = getItem(i); if (d && (d.key === k || d.name.toLowerCase() === k)) return d; }
+  for (let i = 1; i < 8192; i++) { const d = getItem(i); if (d && (d.key === k || d.name.toLowerCase() === k)) return d; }
   return undefined;
 }
 
@@ -57,7 +59,7 @@ export function entTypeCode(e: Entity): number {
 
 const SIX = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const;
 const EXP_Y = [0.1, 0.5, 0.9], EXP_X = [-0.8, 0.8], EXP_Y_FEW = [0.25, 0.75], EXP_X_FEW = [0];
-const FLUID_ID = (() => { const t = new Uint8Array(256); for (let i = 0; i < 256; i++) if (BLOCKS[i]?.fluid) t[i] = 1; return t; })();
+const FLUID_ID = (() => { const t = new Uint8Array(ID_LIMIT); for (let i = 0; i < 256; i++) if (BLOCKS[i]?.fluid) t[i] = 1; return t; })();
 const RAYS: Float32Array = (() => {
   const out: number[] = [];
   for (let i = 0; i < 16; i++) for (let j = 0; j < 16; j++) for (let k = 0; k < 16; k++) {
@@ -107,6 +109,7 @@ export interface SimPlayer {
   skin?: { png: string; slim: boolean } | null;
   kills?: number; deaths?: number; playtime?: number;
   screenTitle?: string;
+  stepAcc?: number; warn?: number; warnT?: number; shriekCd?: number;
 }
 
 export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball';
@@ -220,7 +223,7 @@ export type Weather = 'clear' | 'rain' | 'thunder';
 export type SimEvent =
   | { e: 'block'; x: number; y: number; z: number; v: number; old: number; src?: string }
   | { e: 'sound'; s: string; x: number; y: number; z: number; vol?: number; pitch?: number; src?: string; to?: string }
-  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit' | 'heart' | 'sweep'; x: number; y: number; z: number; d?: number; src?: string }
+  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit' | 'heart' | 'sweep' | 'shriek'; x: number; y: number; z: number; d?: number; src?: string }
   | { e: 'spawn'; ent: Entity }
   | { e: 'remove'; id: number; why: 'death' | 'pickup' | 'despawn' | 'hit'; by?: string }
   | { e: 'vitals'; p: SimPlayer }
@@ -236,6 +239,7 @@ export type SimEvent =
   | { e: 'pmove'; l: number[] }
   | { e: 'ride'; p: SimPlayer; id: number }
   | { e: 'knock'; p: SimPlayer; x: number; y: number; z: number; set?: boolean }
+  | { e: 'dark'; p: SimPlayer; t: number }
   | { e: 'work'; p: SimPlayer; items: (ItemStack | null)[]; offers?: TableOffer[] }
   | { e: 'boom'; x: number; y: number; z: number; r: number }
   | { e: 'reject'; p: SimPlayer; x: number; y: number; z: number }
@@ -292,9 +296,11 @@ export function villagerPhase(time: number): 'idle' | 'work' | 'meet' | 'rest' {
 const MONSTER_CAP = 70;
 const CREATURE_CAP = 10;
 const SPAWN_RANGE = 128;
+const V_SCALE = 384 / WORLD_HEIGHT;
+const mobDist2 = (dx: number, dy: number, dz: number): number => dx * dx + (dy * V_SCALE) ** 2 + dz * dz;
 const MAX_NATURAL = 480;
-const TICKABLE = new Uint8Array(256);
-for (const id of [B.KELP, B.VINE, B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE, B.FIRE, B.NETHER_WART, B.CARROTS, B.POTATOES, B.BEETROOTS]) TICKABLE[id] = 1;
+const TICKABLE = new Uint8Array(ID_LIMIT);
+for (const id of [B.KELP, B.VINE, B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE, B.FIRE, B.NETHER_WART, B.CARROTS, B.POTATOES, B.BEETROOTS, CB.CAVE_VINES, CB.CAVE_VINES_LIT]) TICKABLE[id] = 1;
 const PLAYER_HW = 0.3, PLAYER_H = 1.8;
 
 export function posKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
@@ -399,6 +405,7 @@ export class WorldSim {
   game: GameHooks | null = null;
 
   players = new Map<string, SimPlayer>();
+  readonly mischief = new Mischief(this);
   entities = new Map<number, Entity>();
   blockEntities = new Map<string, BlockEntity>();
   activeFurnaces = new Set<string>();
@@ -510,10 +517,12 @@ export class WorldSim {
     this.scheduleFluidAround(x, y, z);
     this.fluidContact(x, y, z, isWaterPlant(nid) ? B.WATER : nid);
     this.checkSupport(x, y + 1, z);
+    this.checkSupport(x, y - 1, z);
     for (let f = 0; f < 4; f++) {
       const [dx, dz] = FACING_DIRS[f];
       this.checkSupport(x - dx, y, z - dz);
     }
+    if (this.authoritative && (oid === CB.POINTED_DRIPSTONE || nid === CB.POINTED_DRIPSTONE)) { this.fixDripstone(x, y + 1, z); this.fixDripstone(x, y - 1, z); if (nid === CB.POINTED_DRIPSTONE) this.fixDripstone(x, y, z); }
     if (!this.noLeafDecay && (oid === B.OAK_LOG || oid === B.BIRCH_LOG || oid === B.SPRUCE_LOG || oid === B.JUNGLE_LOG)) this.scheduleLeafDecay(x, y, z);
     if (nid === B.SAND || nid === B.GRAVEL || isPowder(nid)) this.fallQueue.push([x, y, z, this.tickCount + 2]);
     const up = blockId(this.get(x, y + 1, z));
@@ -576,7 +585,9 @@ export class WorldSim {
     }
     if (!clear(x, z, 1, 7)) return false;
     this.setBlock(x, y, z, 0);
-    acacia(set, x, y, z, 5 + rnd(3), rnd);
+    if (spc === SPECIES.CHERRY) cherry(set, x, y, z, 5 + rnd(3), rnd);
+    else if (spc === SPECIES.MANGROVE) mangrove(set, x, y, z, 4 + rnd(3), rnd, 0);
+    else acacia(set, x, y, z, 5 + rnd(3), rnd);
     return true;
   }
 
@@ -732,17 +743,17 @@ export class WorldSim {
 
   private doorReader = { getBlock: (x: number, y: number, z: number): number => {
     const v = this.store.getBlock(x, y, z);
-    return (v & 0xff) === B.OAK_DOOR ? 0 : v;
+    return isDoorBlock(v) ? 0 : v;
   } };
 
   private setDoor(x: number, y: number, z: number, open: boolean): boolean {
     let v = this.get(x, y, z);
-    if (blockId(v) !== B.OAK_DOOR) return false;
-    if (blockMeta(v) & DOOR_UPPER) { y--; v = this.get(x, y, z); if (blockId(v) !== B.OAK_DOOR) return false; }
+    if (!isDoorBlock(v)) return false;
+    if (blockMeta(v) & DOOR_UPPER) { y--; v = this.get(x, y, z); if (!isDoorBlock(v)) return false; }
     if (!!(blockMeta(v) & DOOR_OPEN) === open) return false;
     for (let yy = y; yy <= y + 1; yy++) {
       const dv = this.get(x, yy, z);
-      if (blockId(dv) === B.OAK_DOOR) this.setBlock(x, yy, z, makeBlock(B.OAK_DOOR, blockMeta(dv) ^ DOOR_OPEN));
+      if (isDoorBlock(dv)) this.setBlock(x, yy, z, makeBlock(B.OAK_DOOR, blockMeta(dv) ^ DOOR_OPEN));
     }
     this.emit({ e: 'sound', s: open ? 'door.open' : 'door.close', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
     return true;
@@ -750,7 +761,7 @@ export class WorldSim {
 
   private openDoorFor(e: Entity, x: number, y: number, z: number): void {
     for (let yy = y; yy <= y + 1; yy++) {
-      if (blockId(this.get(x, yy, z)) !== B.OAK_DOOR) continue;
+      if (!isDoorBlock(this.get(x, yy, z))) continue;
       const by = blockMeta(this.get(x, yy, z)) & DOOR_UPPER ? yy - 1 : yy;
       if (this.setDoor(x, by, z, true)) (e.doors ??= []).push([x, by, z, this.tickCount + 30]);
       else if (e.doors) for (const d of e.doors) if (d[0] === x && d[1] === by && d[2] === z) d[3] = this.tickCount + 30;
@@ -830,8 +841,8 @@ export class WorldSim {
     const id = d.id;
     if (id === B.OAK_DOOR) {
       const m = blockMeta(v);
-      if (m & DOOR_UPPER) return blockId(this.get(x, y - 1, z)) === B.OAK_DOOR;
-      return isSolid(this.get(x, y - 1, z)) && blockId(this.get(x, y + 1, z)) === B.OAK_DOOR;
+      if (m & DOOR_UPPER) return isDoorBlock(this.get(x, y - 1, z));
+      return isSolid(this.get(x, y - 1, z)) && isDoorBlock(this.get(x, y + 1, z));
     }
     if (id === B.LEVER || isButton(id)) {
       const o = attachOut(blockMeta(v) & 7);
@@ -849,12 +860,23 @@ export class WorldSim {
       return isSolid(this.get(x + dx, y, z + dz)) || (id === B.VINE && blockId(this.get(x, y + 1, z)) === B.VINE);
     }
     if (id === B.LILY_PAD) return blockId(this.get(x, y - 1, z)) === B.WATER;
+    if (id >= CB.MOSS_BLOCK && id <= CB.COBBLED_DEEPSLATE) {
+      if (id === CB.GLOW_LICHEN) { const [dx, dz] = FACING_DIRS[blockMeta(v) & 3]; return isSolid(this.get(x + dx, y, z + dz)); }
+      if (id === CB.CAVE_VINES || id === CB.CAVE_VINES_LIT) { const a = this.get(x, y + 1, z), ai = blockId(a); return ai === CB.CAVE_VINES || ai === CB.CAVE_VINES_LIT || isSolid(a); }
+      if (id === CB.POINTED_DRIPSTONE) return isSolid(this.get(x, blockMeta(v) & DRIP_DOWN ? y + 1 : y - 1, z));
+      if (id === CB.SMALL_DRIPLEAF && blockMeta(v) & SMALL_UPPER) return blockId(this.get(x, y - 1, z)) === CB.SMALL_DRIPLEAF;
+      if (id === CB.BIG_DRIPLEAF || id === CB.BIG_DRIPLEAF_STEM) {
+        const b = blockId(this.get(x, y - 1, z)), a = blockId(this.get(x, y + 1, z));
+        if (id === CB.BIG_DRIPLEAF_STEM && a !== CB.BIG_DRIPLEAF && a !== CB.BIG_DRIPLEAF_STEM) return false;
+        return b === CB.BIG_DRIPLEAF_STEM || b === B.GRASS || b === B.DIRT || b === B.CLAY || b === CB.MOSS_BLOCK || b === CB.ROOTED_DIRT || b === B.MUD || b === B.FARMLAND;
+      }
+    }
     const below = blockId(this.get(x, y - 1, z));
     if (d.needsSupport === 'nylium') { const bv = this.get(x, y - 1, z); return bv === X(XV.CRIMSON_NYLIUM) || bv === X(XV.WARPED_NYLIUM) || bv === X(XV.SOUL_SOIL) || below === B.GRASS || below === B.DIRT || below === B.FARMLAND || below === B.MUD; }
     if (d.needsSupport === 'hang') { const a = this.get(x, y + 1, z); return blockId(a) === id || isSolid(a); }
     if (id === B.TWISTING_VINES && below === id) return true;
     switch (d.needsSupport) {
-      case 'soil': return below === B.GRASS || below === B.DIRT || below === B.FARMLAND || below === B.SNOWY_GRASS || below === B.MUD || (id >= B.OAK_SAPLING && id <= B.JUNGLE_SAPLING ? false : below === B.SAND && id === B.DEAD_BUSH);
+      case 'soil': return below === B.GRASS || below === B.DIRT || below === B.FARMLAND || below === B.SNOWY_GRASS || below === B.MUD || below === CB.MOSS_BLOCK || below === CB.ROOTED_DIRT || (below === B.CLAY && id >= CB.MOSS_BLOCK) || (id >= B.OAK_SAPLING && id <= B.JUNGLE_SAPLING ? false : below === B.SAND && id === B.DEAD_BUSH);
       case 'sand': return below === B.SAND || below === B.DIRT || below === B.GRASS;
       case 'farmland': return below === B.FARMLAND;
       case 'soulsand': return this.get(x, y - 1, z) === X(XV.SOUL_SAND);
@@ -889,18 +911,18 @@ export class WorldSim {
     this.emit({ e: 'block', x, y, z, v: rest, old: v });
     this.info.changed(x, y, z, v, rest);
     if (this.authoritative) { this.rs.blockChanged(x, y, z, v, rest); this.rs.observe(x, y, z); }
-    if (!(id === B.OAK_DOOR && blockMeta(v) & DOOR_UPPER)) this.spawnDrops(x, y, z, v, null, true);
+    if (!(isDoorBlock(v) && blockMeta(v) & DOOR_UPPER)) this.spawnDrops(x, y, z, v, null, true);
     this.emit({ e: 'particles', k: 'break', x: x + 0.5, y: y + 0.5, z: z + 0.5, d: v });
     this.checkSupport(x, y + 1, z, depth + 1);
-    if (id === B.OAK_DOOR) { this.checkSupport(x, y - 1, z, depth + 1); }
+    this.checkSupport(x, y - 1, z, depth + 1);
     this.scheduleFluidAround(x, y, z);
   }
 
   blockDrops(v: number, stack: ItemStack | null, natural: boolean): ItemStack[] {
     const d = getBlock(v);
     const id = d.id;
-    if (id === B.SLAB) return [{ id: SLAB_ITEM + (blockMeta(v) & 31), count: 1 }];
-    if (id === B.STAIRS) return [{ id: STAIRS_ITEM + (blockMeta(v) & 31), count: 1 }];
+    if (id === B.SLAB) return [{ id: slabItem(blockMeta(v) & 31), count: 1 }];
+    if (id === B.STAIRS) return [{ id: stairsItem(blockMeta(v) & 31), count: 1 }];
     if (!natural && stack?.id === I.SHEARS && (d.render === 'leaves' || id === B.VINE || id === B.SEAGRASS || id === B.TALL_GRASS || id === B.FERN || id === B.DEAD_BUSH)) return [{ id, count: 1 }];
     const silk = !natural && lvl(stack, 'silk_touch') > 0;
     if (silk && canHarvest(v, stack) && d.category !== 'hidden' && d.render !== 'crop' && d.render !== 'door' && !d.fluid && getItem(id)) return [{ id, count: 1 }];
@@ -1086,7 +1108,7 @@ export class WorldSim {
     this.players.delete(id);
   }
 
-  private portalEmpty(v: number): boolean { const id = v & 255; return id === 0 || id === B.FIRE || id === B.NETHER_PORTAL; }
+  private portalEmpty(v: number): boolean { const id = blockId(v); return id === 0 || id === B.FIRE || id === B.NETHER_PORTAL; }
 
   portalShape(x: number, y: number, z: number, axis: number): { x: number; y: number; z: number; w: number; h: number } | null {
     const dx = axis === 0 ? 1 : 0, dz = 1 - dx;
@@ -1313,15 +1335,121 @@ export class WorldSim {
       let fall = p.peakY - y;
       if (under === B.SLIME_BLOCK && !(flags & MF.CROUCH)) fall = 0;
       if (under === B.HONEY_BLOCK) fall = 3 + (fall - 3) * 0.2;
-      if (fall > 3.0001) this.damage(p, Math.ceil(fall - 3), 'fall', p.x, p.z, false);
+      const uv = this.get(Math.floor(x), Math.floor(y - 0.2), Math.floor(z));
+      if (under === CB.POINTED_DRIPSTONE && !(blockMeta(uv) & DRIP_DOWN) && (blockMeta(uv) & 7) <= 1 && fall > 1) this.damage(p, Math.max(1, Math.ceil((fall - 2) * 2)), 'stalagmite', p.x, p.z, false);
+      else if (fall > 3.0001) this.damage(p, Math.ceil(fall - 3), 'fall', p.x, p.z, false);
       p.peakY = y;
     } else p.peakY = Math.max(p.peakY, y);
     if (p.screen.type && p.screen.y >= 0 && !this.inReach(p, p.screen.x, p.screen.y, p.screen.z, 3)) this.closeScreen(p);
+    if (this.authoritative && flags & MF.GROUND && !(flags & (MF.CROUCH | MF.FLY))) {
+      p.stepAcc = (p.stepAcc ?? 0) + horiz;
+      if (p.stepAcc > 1.4) { p.stepAcc = 0; this.vibrate(Math.floor(x), Math.floor(y), Math.floor(z), p.id); }
+      const fv = this.get(Math.floor(x), Math.floor(y - 0.1), Math.floor(z));
+      if (blockId(fv) === CB.SCULK_SHRIEKER) this.shriek(Math.floor(x), Math.floor(y - 0.1), Math.floor(z), p);
+      else if (blockId(fv) === CB.BIG_DRIPLEAF) this.tiltDripleaf(Math.floor(x), Math.floor(y - 0.1), Math.floor(z));
+    }
     return true;
   }
 
+  private sculkTimers: { x: number; y: number; z: number; t: number; k: 'shriek' | 'leaf'; pid?: string }[] = [];
+
+  vibrate(x: number, y: number, z: number, pid: string | null): void {
+    const hit = this.rs.vibrate(x, y, z);
+    if (!pid || !hit.length) return;
+    const p = this.players.get(pid);
+    if (!p) return;
+    for (const [sx, sy, sz] of hit) for (const [kx, ky, kz] of this.rs.sculkNear(sx, sy, sz, 8, CB.SCULK_SHRIEKER)) this.shriek(kx, ky, kz, p);
+  }
+
+  private shriek(x: number, y: number, z: number, p: SimPlayer): void {
+    const v = this.get(x, y, z);
+    if (blockId(v) !== CB.SCULK_SHRIEKER || blockMeta(v) & SHRIEK_ON || p.mode !== 'survival' || (p.shriekCd ?? 0) > this.tickCount) return;
+    p.shriekCd = this.tickCount + 200;
+    this.setBlock(x, y, z, makeBlock(CB.SCULK_SHRIEKER, blockMeta(v) | SHRIEK_ON));
+    this.emit({ e: 'sound', s: 'sculk.shriek', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+    this.emit({ e: 'particles', k: 'shriek', x: x + 0.5, y: y + 0.6, z: z + 0.5 });
+    this.sculkTimers.push({ x, y, z, t: this.tickCount + 90, k: 'shriek', pid: p.id });
+  }
+
+  private tiltDripleaf(x: number, y: number, z: number): void {
+    const v = this.get(x, y, z), m = blockMeta(v);
+    if ((m >> DL_TILT_SHIFT) & 3 || this.rs.hasNeighborSignal(x, y, z)) return;
+    this.setBlock(x, y, z, makeBlock(CB.BIG_DRIPLEAF, (m & 3) | (1 << DL_TILT_SHIFT)));
+    this.sculkTimers.push({ x, y, z, t: this.tickCount + 10, k: 'leaf' });
+  }
+
+  private tickSculk(): void {
+    if (!this.sculkTimers.length) return;
+    const due = this.sculkTimers.filter((t) => t.t <= this.tickCount);
+    if (!due.length) return;
+    this.sculkTimers = this.sculkTimers.filter((t) => t.t > this.tickCount);
+    for (const t of due) {
+      const v = this.get(t.x, t.y, t.z), m = blockMeta(v);
+      if (t.k === 'leaf') {
+        if (blockId(v) !== CB.BIG_DRIPLEAF) continue;
+        const tilt = (m >> DL_TILT_SHIFT) & 3, next = tilt === 3 ? 0 : tilt + 1;
+        this.setBlock(t.x, t.y, t.z, makeBlock(CB.BIG_DRIPLEAF, (m & 3) | (next << DL_TILT_SHIFT)));
+        if (next === 2) this.emit({ e: 'sound', s: 'dripleaf.tilt', x: t.x + 0.5, y: t.y + 0.5, z: t.z + 0.5 });
+        if (next) this.sculkTimers.push({ ...t, t: this.tickCount + (next === 3 ? 100 : 10) });
+        continue;
+      }
+      if (blockId(v) !== CB.SCULK_SHRIEKER) continue;
+      this.setBlock(t.x, t.y, t.z, makeBlock(CB.SCULK_SHRIEKER, m & ~SHRIEK_ON));
+      if (!(m & SHRIEK_SUMMON)) continue;
+      const src = t.pid ? this.players.get(t.pid) : undefined;
+      if (src) { src.warn = Math.min(4, (src.warn ?? 0) + 1); src.warnT = this.tickCount + 12000; }
+      for (const o of this.players.values()) {
+        if (o.dead || o.mode !== 'survival') continue;
+        if ((o.x - t.x) ** 2 + (o.y - t.y) ** 2 + (o.z - t.z) ** 2 > 40 * 40) continue;
+        this.emit({ e: 'dark', p: o, t: 240 });
+      }
+      if (src && (src.warn ?? 0) >= 4) this.emit({ e: 'msg', text: 'Something stirs far below...', kind: 'info', to: src.id });
+    }
+  }
+
+  private catalystBloom(x: number, y: number, z: number, xp: number): void {
+    if (!this.authoritative || xp <= 0) return;
+    const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
+    let found = false;
+    for (let dy = -8; dy <= 8 && !found; dy++) for (let dz = -8; dz <= 8 && !found; dz++) for (let dx = -8; dx <= 8; dx++) if (blockId(this.get(bx + dx, by + dy, bz + dz)) === CB.SCULK_CATALYST) { found = true; this.emit({ e: 'particles', k: 'shriek', x: bx + dx + 0.5, y: by + dy + 1.1, z: bz + dz + 0.5 }); break; }
+    if (!found) return;
+    const SK = makeBlock(CB.SCULK), host = (v: number) => v === B.STONE || v === B.DIRT || v === B.GRASS || v === B.GRAVEL || v === B.SAND || v === makeBlock(CB.DEEPSLATE) || v === B.TUFF || v === X(XV.GRANITE) || v === X(XV.DIORITE) || v === X(XV.ANDESITE);
+    let charge = Math.min(24, xp * 2);
+    for (let i = 0; i < 80 && charge > 0; i++) {
+      const tx = bx + this.rng.int(9) - 4, tz = bz + this.rng.int(9) - 4;
+      for (let ty = by + 2; ty >= by - 3; ty--) {
+        const v = this.get(tx, ty, tz);
+        if (!host(v) || blockId(this.get(tx, ty + 1, tz)) !== 0) continue;
+        this.setBlock(tx, ty, tz, SK);
+        charge--;
+        const r = this.rng.next();
+        if (r < 0.06) this.setBlock(tx, ty + 1, tz, makeBlock(CB.SCULK_SENSOR));
+        else if (r < 0.08) this.setBlock(tx, ty + 1, tz, makeBlock(CB.SCULK_SHRIEKER));
+        else if (r < 0.3) this.setBlock(tx, ty + 1, tz, makeBlock(CB.SCULK_VEIN));
+        break;
+      }
+    }
+  }
+
+  fixDripstone(x: number, y: number, z: number): void {
+    const v = this.get(x, y, z);
+    if (blockId(v) !== CB.POINTED_DRIPSTONE) return;
+    const dn = blockMeta(v) & DRIP_DOWN, step = dn ? 1 : -1, same = (yy: number) => { const w = this.get(x, yy, z); return blockId(w) === CB.POINTED_DRIPSTONE && (blockMeta(w) & DRIP_DOWN) === dn; };
+    let root = y;
+    while (same(root + step)) root += step;
+    const cells: number[] = [];
+    for (let yy = root; same(yy) && cells.length < 32; yy -= step) cells.push(yy);
+    const n = cells.length, tipY = cells[n - 1], beyond = this.get(x, tipY - step, z);
+    const merge = blockId(beyond) === CB.POINTED_DRIPSTONE && (blockMeta(beyond) & DRIP_DOWN) !== dn;
+    cells.forEach((yy, k) => {
+      const t = k === n - 1 ? (merge ? 0 : 1) : k === n - 2 ? 2 : k === 0 ? 4 : 3;
+      const nv = makeBlock(CB.POINTED_DRIPSTONE, dn | t);
+      if (this.get(x, yy, z) !== nv) this.store.setBlock(x, yy, z, nv), this.emit({ e: 'block', x, y: yy, z, v: nv, old: this.get(x, yy, z) });
+    });
+  }
+
   private protectionPoints(p: SimPlayer, cause: string): number {
-    const fire = cause === 'fire' || cause === 'lava', blast = cause === 'explosion', proj = cause === 'arrow' || this.projectileHit, fall = cause === 'fall';
+    const fire = cause === 'fire' || cause === 'lava', blast = cause === 'explosion', proj = cause === 'arrow' || this.projectileHit, fall = cause === 'fall' || cause === 'stalagmite';
     let n = 0;
     for (const a of p.inv.armor) {
       if (!a?.en) continue;
@@ -1415,7 +1543,7 @@ export class WorldSim {
     p.back = { x: p.x, y: p.y, z: p.z };
     p.dig = null;
     const msgs: Record<string, string> = {
-      fall: 'hit the ground too hard', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death', wither: 'withered away', small_fireball: 'was fireballed by a Blaze',
+      fall: 'hit the ground too hard', stalagmite: 'was impaled on a stalagmite', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death', wither: 'withered away', small_fireball: 'was fireballed by a Blaze',
       void: 'fell out of the world', starve: 'starved to death', fire: 'burned to a crisp', arrow: 'was shot by a Skeleton',
       kill: 'gave up on this life', player: `was struck down by ${killer ?? 'a rival'}`,
     };
@@ -1778,15 +1906,16 @@ export class WorldSim {
     const id = blockId(v);
     const d = getBlock(v);
     const stack = p ? heldStack(p.inv) : null;
-    if (id === B.OAK_DOOR) {
+    if (isDoorBlock(v)) {
       const upper = blockMeta(v) & DOOR_UPPER;
       const oy = upper ? y - 1 : y + 1;
-      if (blockId(this.get(x, oy, z)) === B.OAK_DOOR) { this.store.setBlock(x, oy, z, 0); this.emit({ e: 'block', x, y: oy, z, v: 0, old: this.get(x, oy, z) }); }
+      if (isDoorBlock(this.get(x, oy, z))) { this.store.setBlock(x, oy, z, 0); this.emit({ e: 'block', x, y: oy, z, v: 0, old: this.get(x, oy, z) }); }
     }
     const be = this.getBlockEntity(x, y, z);
     let replacement = 0;
     if (id === B.ICE && p?.mode === 'survival' && isSolid(this.get(x, y - 1, z))) replacement = B.WATER;
     this.setBlock(x, y, z, replacement, p?.id);
+    if (this.authoritative && p) this.vibrate(x, y, z, p.id);
     if (be) this.removeBlockEntity(x, y, z, true);
     this.emit({ e: 'particles', k: 'break', x: x + 0.5, y: y + 0.5, z: z + 0.5, d: v, src: p?.id });
     this.emit({ e: 'sound', s: `break.${d.sound}`, x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p?.id });
@@ -1821,6 +1950,12 @@ export class WorldSim {
       if (id === B.BARREL) { this.openScreen(p, 'chest', x, y, z); return true; }
       if (id === B.BLAST_FURNACE || id === B.SMOKER) { this.openScreen(p, 'furnace', x, y, z); return true; }
       if (id === B.BELL) { this.emit({ e: 'sound', s: 'bell.ring', x: x + 0.5, y: y + 0.5, z: z + 0.5 }); return true; }
+      if (id === CB.CAVE_VINES_LIT) {
+        this.setBlock(x, y, z, makeBlock(CB.CAVE_VINES, blockMeta(v)), p.id);
+        this.spawnItem(x + 0.5, y + 0.3, z + 0.5, { id: I.GLOW_BERRIES, count: 1 });
+        this.emit({ e: 'sound', s: 'place.grass', x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
+        return true;
+      }
       if (id === B.CAKE) {
         if (p.food >= 20 && p.mode === 'survival' && this.difficulty !== 'peaceful') return false;
         p.food = Math.min(20, p.food + 2); p.sat = Math.min(p.food, p.sat + 0.4);
@@ -1865,13 +2000,20 @@ export class WorldSim {
     }
     if (d.interactive && !(crouch && stack) && !(forcePlace && stack && getItem(stack.id)?.places !== undefined)) {
       if (id === B.LEVER || isButton(id) || isDiode(id)) { if (!this.canBuild(p)) return false; return this.authoritative ? this.rs.use(x, y, z, v) : true; }
+      if (isTrapdoor(v)) {
+        if (!this.canBuild(p)) return false;
+        const m = blockMeta(v);
+        this.setBlock(x, y, z, makeBlock(B.OAK_DOOR, m ^ TD_OPEN), p.id);
+        this.emit({ e: 'sound', s: m & TD_OPEN ? 'door.close' : 'door.open', x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
+        return true;
+      }
       if (id === B.OAK_DOOR) {
         if (!this.canBuild(p)) return false;
         const m = blockMeta(v);
         const by = m & DOOR_UPPER ? y - 1 : y;
         for (const yy of [by, by + 1]) {
           const dv = this.get(x, yy, z);
-          if (blockId(dv) === B.OAK_DOOR) this.setBlock(x, yy, z, makeBlock(B.OAK_DOOR, blockMeta(dv) ^ DOOR_OPEN), p.id);
+          if (isDoorBlock(dv)) this.setBlock(x, yy, z, makeBlock(B.OAK_DOOR, blockMeta(dv) ^ DOOR_OPEN), p.id);
         }
         this.emit({ e: 'sound', s: m & DOOR_OPEN ? 'door.close' : 'door.open', x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
         return true;
@@ -1923,10 +2065,68 @@ export class WorldSim {
       }
       used = true;
     }
+    if (!used) used = this.caveBoneMeal(x, y, z, v, id, src);
     if (!used) return false;
     this.emit({ e: 'particles', k: 'heart', x: x + 0.5, y: y + 1, z: z + 0.5 });
     this.emit({ e: 'sound', s: 'place.grass', x: x + 0.5, y: y + 0.5, z: z + 0.5, src });
     return true;
+  }
+
+  private caveBoneMeal(x: number, y: number, z: number, v: number, id: number, src?: string): boolean {
+    if (id === CB.CAVE_VINES) { this.setBlock(x, y, z, makeBlock(CB.CAVE_VINES_LIT, blockMeta(v)), src); return true; }
+    if (id === CB.MOSS_BLOCK && blockId(this.get(x, y + 1, z)) === 0) {
+      const MOSS = makeBlock(CB.MOSS_BLOCK), ok = (w: number) => w === B.STONE || w === B.DIRT || w === B.GRASS || w === B.GRAVEL || w === B.TUFF || w === makeBlock(CB.DEEPSLATE) || w === X(XV.GRANITE) || w === X(XV.DIORITE) || w === X(XV.ANDESITE);
+      for (let i = 0; i < 40; i++) {
+        const tx = x + this.rng.int(7) - 3, tz = z + this.rng.int(7) - 3;
+        for (let ty = y + 1; ty >= y - 1; ty--) {
+          const w = this.get(tx, ty, tz);
+          if ((!ok(w) && w !== MOSS) || blockId(this.get(tx, ty + 1, tz)) !== 0) continue;
+          this.setBlock(tx, ty, tz, MOSS, src);
+          const r = this.rng.next();
+          if (r < 0.25) this.setBlock(tx, ty + 1, tz, makeBlock(CB.MOSS_CARPET), src);
+          else if (r < 0.5) this.setBlock(tx, ty + 1, tz, B.TALL_GRASS, src);
+          else if (r < 0.54) this.setBlock(tx, ty + 1, tz, makeBlock(CB.AZALEA), src);
+          else if (r < 0.56) this.setBlock(tx, ty + 1, tz, makeBlock(CB.FLOWERING_AZALEA), src);
+          break;
+        }
+      }
+      return true;
+    }
+    if (id === CB.AZALEA || id === CB.FLOWERING_AZALEA) { if (this.rng.chance(0.45)) this.growAzalea(x, y, z); return true; }
+    if (id === CB.BIG_DRIPLEAF) {
+      let top = y;
+      while (blockId(this.get(x, top + 1, z)) === CB.BIG_DRIPLEAF) top++;
+      if (blockId(this.get(x, top + 1, z)) !== 0) return false;
+      const m = blockMeta(this.get(x, top, z)) & 3;
+      this.setBlock(x, top, z, makeBlock(CB.BIG_DRIPLEAF_STEM, m), src);
+      this.setBlock(x, top + 1, z, makeBlock(CB.BIG_DRIPLEAF, m), src);
+      return true;
+    }
+    if (id === CB.SMALL_DRIPLEAF) {
+      const by = blockMeta(v) & SMALL_UPPER ? y - 1 : y;
+      let h = 2 + this.rng.int(4);
+      while (h > 2 && blockId(this.get(x, by + h - 1, z)) !== 0) h--;
+      const f = this.rng.int(4);
+      for (let k = 0; k < h - 1; k++) this.store.setBlock(x, by + k, z, makeBlock(CB.BIG_DRIPLEAF_STEM, f));
+      for (let k = 0; k < h - 1; k++) this.emit({ e: 'block', x, y: by + k, z, v: makeBlock(CB.BIG_DRIPLEAF_STEM, f), old: 0 });
+      this.setBlock(x, by + h - 1, z, makeBlock(CB.BIG_DRIPLEAF, f), src);
+      return true;
+    }
+    return false;
+  }
+
+  private growAzalea(x: number, y: number, z: number): void {
+    const h = 4 + this.rng.int(2);
+    for (let k = 1; k <= h + 1; k++) if (k > 0 && !isReplaceable(this.get(x, y + k, z)) && blockId(this.get(x, y + k, z)) !== CB.AZALEA_LEAVES) return;
+    const below = blockId(this.get(x, y - 1, z));
+    if (below === B.DIRT || below === B.GRASS || below === CB.MOSS_BLOCK) this.setBlock(x, y - 1, z, makeBlock(CB.ROOTED_DIRT));
+    for (let k = 0; k < h; k++) this.setBlock(x, y + k, z, B.OAK_LOG);
+    for (let dy = -1; dy <= 1; dy++) for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      if (Math.abs(dx) + Math.abs(dz) + Math.abs(dy) > 3 || (dy === 1 && Math.abs(dx) + Math.abs(dz) > 1)) continue;
+      const tx = x + dx, ty = y + h - 1 + dy, tz = z + dz;
+      if (!isReplaceable(this.get(tx, ty, tz))) continue;
+      this.setBlock(tx, ty, tz, makeBlock(this.rng.chance(0.25) ? CB.FLOWERING_AZALEA_LEAVES : CB.AZALEA_LEAVES));
+    }
   }
 
   private boneMeal(p: SimPlayer, x: number, y: number, z: number): boolean {
@@ -2040,16 +2240,24 @@ export class WorldSim {
         meta = f + 1;
       }
     }
-    if (bid === B.LADDER) {
+    if (bid === B.LADDER || bid === CB.GLOW_LICHEN) {
       if (ny !== 0) return fail();
       meta = FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz);
     }
+    if (bid === CB.POINTED_DRIPSTONE) meta = (ny === -1 ? DRIP_DOWN : ny === 1 ? 0 : isSolid(this.get(tx, ty + 1, tz)) && !isSolid(this.get(tx, ty - 1, tz)) ? DRIP_DOWN : 0) | 1;
+    if (bid === CB.BIG_DRIPLEAF) meta = (look + 2) & 3;
+    if (bid === CB.SMALL_DRIPLEAF && !isReplaceable(this.get(tx, ty + 1, tz))) return fail();
     if (def.render === 'leaves') meta = 1;
     if (item.placeMeta && bid !== B.EXT && bid !== B.SLAB && bid !== B.STAIRS) meta = (meta & 15) | item.placeMeta;
+    const td = bid === B.OAK_DOOR && (item.placeMeta ?? 0) >= TD_SPECIES_MIN << 4;
+    if (td) {
+      const hinge = ny === 0 ? FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz) : look;
+      meta = trapdoorMeta((item.placeMeta ?? 0) >> 4, hinge, ny === -1 || (ny === 0 && hy > 0.5), false);
+    }
     if (bid === B.ANVIL) meta = look === 1 || look === 3 ? 0 : 1;
     if (isRail(bid)) meta = shapeFor((a, b, c) => this.get(a, b, c), tx, ty, tz, bid, look === 1 || look === 3 ? 1 : 0);
     let v = combine >= 0 ? makeBlock(combine, 0) : makeBlock(bid, meta);
-    if (bid === B.OAK_DOOR) {
+    if (bid === B.OAK_DOOR && !td) {
       const above = this.get(tx, ty + 1, tz);
       if (!isReplaceable(above) || !isSolid(this.get(tx, ty - 1, tz))) return fail();
       v = makeBlock(B.OAK_DOOR, doorMeta(look, false, false));
@@ -2066,7 +2274,7 @@ export class WorldSim {
       }
     }
     if (bid !== B.LILY_PAD && !this.supported(tx, ty, tz, v)) {
-      if (!(bid === B.OAK_DOOR)) return fail();
+      if (!(bid === B.OAK_DOOR && !td)) return fail();
     }
     if (blockId(target) !== 0 && !getBlock(target).fluid) this.spawnDrops(tx, ty, tz, target, null, true);
     this.setBlock(tx, ty, tz, v, p.id);
@@ -2074,7 +2282,9 @@ export class WorldSim {
       const g = (a: number, b: number, c: number) => this.get(a, b, c);
       for (const [nx, ny, nz] of neighborRails(g, tx, ty, tz)) { const nv = reshapeNeighbor(g, nx, ny, nz, tx, ty, tz); if (nv !== null) this.setBlock(nx, ny, nz, nv, p.id); }
     }
-    if (bid === B.OAK_DOOR) this.setBlock(tx, ty + 1, tz, makeBlock(B.OAK_DOOR, doorMeta(look, true, false)), p.id);
+    if (bid === B.OAK_DOOR && !td) this.setBlock(tx, ty + 1, tz, makeBlock(B.OAK_DOOR, doorMeta(look, true, false)), p.id);
+    if (bid === CB.SMALL_DRIPLEAF) this.setBlock(tx, ty + 1, tz, makeBlock(CB.SMALL_DRIPLEAF, SMALL_UPPER), p.id);
+    if (this.authoritative) this.vibrate(tx, ty, tz, p.id);
     this.emit({ e: 'sound', s: `place.${def.sound}`, x: tx + 0.5, y: ty + 0.5, z: tz + 0.5, src: p.id });
     if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
     return true;
@@ -2395,6 +2605,7 @@ export class WorldSim {
         for (let i = 0; i < n; i++) { const c = this.spawnMob('emberslime', e.x + (this.rng.next() - 0.5) * half * 0.5, e.y + 0.5, e.z + (this.rng.next() - 0.5) * half * 0.5, half); c.target = e.target; c.persistent = e.persistent; }
       }
       this.game?.onMobDeath(e, by);
+      this.catalystBloom(e.x, e.y, e.z, def.xp);
     }
   }
 
@@ -2427,6 +2638,8 @@ export class WorldSim {
       if (step > 0) { this.time += step; this.timeAcc -= step; }
     }
     if (this.tickCount % 200 === 0) this.emit({ e: 'time' });
+    this.tickSculk();
+    if (this.tickCount % 200 === 0) for (const p of this.players.values()) if (p.warn && (p.warnT ?? 0) <= this.tickCount) { p.warn--; p.warnT = this.tickCount + 12000; }
     this.tickWeather();
     this.tickSpawners();
     for (const p of this.players.values()) this.tickPlayer(p);
@@ -2448,6 +2661,7 @@ export class WorldSim {
     this.rs.tickMoving();
     this.tickHoppers();
     this.tickFurnaces();
+    this.mischief.tick();
     if (this.game) this.game.tick();
     else {
       this.naturalSpawn();
@@ -2864,7 +3078,7 @@ export class WorldSim {
   private lastBlast: { x: number; y: number; z: number; power: number; broke: number } | null = null;
 
   private resAt(v: number): number {
-    const id = v & 0xff;
+    const id = blockId(v);
     if (id === B.SLAB || id === B.STAIRS) return BLAST_RES[SHAPE_MATS[(v >>> 8) & 31]?.id ?? 1];
     return BLAST_RES[id];
   }
@@ -2882,7 +3096,7 @@ export class WorldSim {
       const st = ++this.blastStamp;
       const ox = Math.floor(x) - span, oy = Math.floor(y) - span, oz = Math.floor(z) - span;
       const raw = this.store.raw ? (cx: number, cz: number) => this.store.raw!(cx, cz) : null;
-      let ccx = 0x7fffffff, ccz = 0x7fffffff, arr: Uint16Array | null = null, loaded = false;
+      let ccx = 0x7fffffff, ccz = 0x7fffffff, arr: BlockArray | null = null, loaded = false;
       const R = RAYS;
       for (let r = 0; r < R.length; r += 3) {
         const rx = R[r] * 0.3, ry = R[r + 1] * 0.3, rz = R[r + 2] * 0.3;
@@ -2901,7 +3115,7 @@ export class WorldSim {
               const gx = bx - ox, gy = by - oy, gz = bz - oz;
               if (gx >= 0 && gy >= 0 && gz >= 0 && gx < G && gy < G && gz < G) {
                 const gi = (gx * G + gy) * G + gz;
-                if (seen[gi] !== st && !FLUID_ID[v & 255]) { seen[gi] = st; hit.push(bx, by, bz); }
+                if (seen[gi] !== st && !FLUID_ID[blockId(v)]) { seen[gi] = st; hit.push(bx, by, bz); }
               }
             }
           }
@@ -3354,11 +3568,11 @@ export class WorldSim {
 
   private darkEnoughForMonsters(x: number, y: number, z: number): boolean {
     const r1 = this.rng.int(32);
-    if (r1 < 15 && this.info.skyLight(x, y, z, r1 + 1) > r1) return false;
+    if (r1 < 15 && this.info.skyAbove(x, y, z, r1) !== false) return false;
     if (this.info.blockLight(x, y, z) > 0) return false;
     const need = this.rng.int(8) + this.skyDarken() + 1;
     if (need > 15) return true;
-    return this.info.skyLight(x, y, z, need) < need;
+    return this.info.skyAbove(x, y, z, need - 1) === false;
   }
 
   private tickRandom(): void {
@@ -3405,6 +3619,14 @@ export class WorldSim {
 
   private randomTick(x: number, y: number, z: number, v: number, id: number): void {
     switch (id) {
+      case CB.CAVE_VINES: case CB.CAVE_VINES_LIT: {
+        if (blockId(this.get(x, y - 1, z)) === 0 && this.rng.chance(0.1)) {
+          let len = 0;
+          for (let k = 1; k <= 25; k++) { const a = blockId(this.get(x, y + k, z)); if (a !== CB.CAVE_VINES && a !== CB.CAVE_VINES_LIT) break; len++; }
+          if (len < 24) this.setBlock(x, y - 1, z, makeBlock(this.rng.chance(0.11) ? CB.CAVE_VINES_LIT : CB.CAVE_VINES));
+        }
+        break;
+      }
       case B.FIRE: {
         const below = this.get(x, y - 1, z);
         if (below !== X(XV.NETHERRACK) && below !== B.MAGMA_BLOCK && this.rng.chance(0.6)) this.setBlock(x, y, z, 0);
@@ -3550,10 +3772,8 @@ export class WorldSim {
       const def = MOBS[e.type as MobType];
       if (def.npc || def.trader) continue;
       total++;
-      const ccx = (Math.floor(e.x) >> 4) * 16 + 8, ccz = (Math.floor(e.z) >> 4) * 16 + 8;
       for (let i = 0; i < ps.length; i++) {
-        const dx = ccx - ps[i].x, dz = ccz - ps[i].z;
-        if (dx * dx + dz * dz > SPAWN_RANGE * SPAWN_RANGE) continue;
+        if (mobDist2(e.x - ps[i].x, e.y - ps[i].y, e.z - ps[i].z) > SPAWN_RANGE * SPAWN_RANGE) continue;
         if (def.hostile || def.neutral) mon[i]++; else cre[i]++;
       }
     }
@@ -3623,9 +3843,12 @@ export class WorldSim {
         x += this.rng.int(6) - this.rng.int(6);
         z += this.rng.int(6) - this.rng.int(6);
         if (!this.store.isLoaded(x, z) || !this.isTicking(x, z)) continue;
-        let nearest = Infinity;
-        for (const p of this.players.values()) nearest = Math.min(nearest, (p.x - x - 0.5) ** 2 + (p.y - y) ** 2 + (p.z - z - 0.5) ** 2);
-        if (nearest <= 576) continue;
+        let nearest = Infinity, reach = Infinity;
+        for (const p of this.players.values()) {
+          nearest = Math.min(nearest, (p.x - x - 0.5) ** 2 + (p.y - y) ** 2 + (p.z - z - 0.5) ** 2);
+          reach = Math.min(reach, mobDist2(p.x - x - 0.5, p.y - y, p.z - z - 0.5));
+        }
+        if (nearest <= 576 || reach > SPAWN_RANGE * SPAWN_RANGE) continue;
         if (!def) {
           def = this.pickSpawn(hostile);
           if (!def) break;
@@ -3654,7 +3877,7 @@ export class WorldSim {
     if (def.hostile && this.difficulty === 'peaceful') return true;
     if ((!def.hostile && !def.neutral && !def.nether) || e.persistent || def.npc || def.trader) return false;
     let d = Infinity;
-    for (const p of this.players.values()) d = Math.min(d, (p.x - e.x) ** 2 + (p.y - e.y) ** 2 + (p.z - e.z) ** 2);
+    for (const p of this.players.values()) d = Math.min(d, mobDist2(p.x - e.x, p.y - e.y, p.z - e.z));
     if (d === Infinity) return false;
     if (d > 128 * 128) return true;
     e.noAct = (e.noAct ?? 0) + 20;
@@ -3697,12 +3920,20 @@ export class WorldSim {
     this.tickMob(e);
   }
 
+  private pushByFluid(e: Entity, k: number): void {
+    const f = fluidFlow(this.store, e.x, e.y, e.z);
+    if (!f) return;
+    const m = f.lava ? (isNether(e.x) ? 0.5 : 0.17) : 1;
+    e.vx += f.x * k * m; e.vz += f.z * k * m;
+  }
+
   private tickItem(e: Entity): void {
     if (e.age > 6000) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
     const med = sampleMedium(this.store, e.x, e.y, e.z, e.hw, e.h, 0.1);
     if (med.water) { e.vy = Math.min(e.vy + 22 * DT, 1.5); e.vx *= 0.9; e.vz *= 0.9; }
     else e.vy -= 18 * DT;
     const fp = !!e.item && fireproof(e.item.id);
+    if (med.water || (med.lava && fp)) this.pushByFluid(e, 0.3);
     if (med.lava && fp) { e.vy = Math.min(e.vy + 40 * DT, 1.5); e.vx *= 0.9; e.vz *= 0.9; }
     else if (med.lava) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y, z: e.z }); return; }
     moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
@@ -4018,6 +4249,7 @@ export class WorldSim {
       e.vx *= 0.9; e.vz *= 0.9;
       flags |= 8;
     } else e.vy = Math.max(e.vy - 28 * DT, -40);
+    if (med.water || med.lava) this.pushByFluid(e, 0.5);
     if (e.hitH && (wantX || wantZ)) {
       if (def.climbs) e.vy = 3.5;
       else if (e.onGround) e.vy = 8.2;
@@ -4622,7 +4854,7 @@ export class WorldSim {
         return 'Returned to your previous location.';
       }
       case 'help':
-        return 'Teleports: /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /enchant <enchantment> [level], /tp <x> <y> <z>, /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /locate village, /gamerule <rule> [value], /kill';
+        return 'Teleports: /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Commands: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /gamemode survival|creative, /give <item> [n], /enchant <enchantment> [level], /tp <x> <y> <z> [overworld|nether] (~ for relative), /spawn, /setspawn, /summon <creature> [n], /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /clearsel, /seed, /locate village, /gamerule <rule> [value], /kill';
       case 'seed': if (this.serverMode && !p.op) return 'Only operators can see the seed on a server.'; return `Seed: ${this.seed}`;
       case 'gamerule': {
         const rules: Record<string, [() => string, (v: string) => string | null]> = {
@@ -4738,11 +4970,12 @@ export class WorldSim {
           this.emit({ e: 'tp', p: who });
           return `Teleported ${who === p ? 'to' : `${who.name} to`} ${to.name}.`;
         }
-        const [x, y, z] = parts.slice(1, 4).map(Number);
-        if (![x, y, z].every(Number.isFinite)) return 'Usage: /tp <x> <y> <z> or /tp <player> or /tp <player> <player>';
-        p.x = x; p.y = y; p.z = z; p.peakY = y;
+        const xyz = cmdXYZ(p, parts.slice(1, 4), parts[4]);
+        if (!xyz) return 'Usage: /tp <x> <y> <z> [overworld|nether] (use ~ for relative) or /tp <player> or /tp <player> <player>';
+        p.back = { x: p.x, y: p.y, z: p.z };
+        [p.x, p.y, p.z] = xyz; p.peakY = p.y;
         this.emit({ e: 'tp', p });
-        return `Teleported to ${x} ${y} ${z}.`;
+        return `Teleported to ${+localX(p.x).toFixed(2)} ${+p.y.toFixed(2)} ${+p.z.toFixed(2)}${isNether(p.x) ? ' in the Nether' : ''}.`;
       }
       case 'spawn': {
         if (p.mode === 'survival' && !p.op && !this.settings.cheats) return need();
@@ -4773,13 +5006,18 @@ export class WorldSim {
         return `Summoned ${n} ${MOBS[t].name}.`;
       }
       case 'kill': this.damage(p, 1000, 'kill', p.x, p.z, false, true); return '';
+      case 'troll': case 'mischief': {
+        if (!p.op) return need();
+        if (!this.authoritative) return '';
+        return this.mischief.run(p, parts);
+      }
       case 'pos1': case 'pos2': {
         if (!allowed) return need();
         const i = cmd === 'pos1' ? 0 : 1;
-        const xyz = parts.length >= 4 ? parts.slice(1, 4).map(Number) : [Math.floor(p.x), Math.floor(p.y) - 1, Math.floor(p.z)];
-        if (!xyz.every(Number.isFinite)) return 'Usage: /pos1 [x y z]';
+        const xyz = parts.length >= 4 ? cmdXYZ(p, parts.slice(1, 4)) : [p.x, p.y - 1, p.z];
+        if (!xyz) return 'Usage: /pos1 [x y z] (use ~ for relative)';
         p.sel[i] = xyz.map(Math.floor);
-        return `Corner ${i + 1} set to ${p.sel[i]!.join(' ')}.`;
+        return `Corner ${i + 1} set to ${localX(p.sel[i]![0])} ${p.sel[i]![1]} ${p.sel[i]![2]}.`;
       }
       case 'clearsel': p.sel = [null, null]; return 'Selection cleared.';
       case 'fill': case 'replace': {
@@ -4818,3 +5056,5 @@ export class WorldSim {
     }
   }
 }
+
+export { cmdXYZ } from '../dimension';

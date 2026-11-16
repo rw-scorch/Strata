@@ -50,8 +50,8 @@ export class NetherGen {
     return n + bias - 0.02 + open;
   }
 
-  generate(cx: number, cz: number, level = 6): { blocks: Uint16Array; entities: GenBlockEntity[] } {
-    const blocks = new Uint16Array(CHUNK_VOLUME);
+  generate(cx: number, cz: number, level = 6): { blocks: Uint32Array; entities: GenBlockEntity[] } {
+    const blocks = new Uint32Array(CHUNK_VOLUME);
     const entities: GenBlockEntity[] = [];
     const bx = cx * S, bz = cz * S;
     const NX = 5, NY = 17, SXZ = 4, SY = 8;

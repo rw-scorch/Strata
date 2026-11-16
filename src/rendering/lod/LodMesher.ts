@@ -1,5 +1,5 @@
 import { SEA_LEVEL } from '../../core/constants';
-import { B, tix, sp, SPECIES } from '../../core/blocks';
+import { B, tix, sp, SPECIES, X, XV } from '../../core/blocks';
 import type { WorldGenerator, Column } from '../../core/worldgen/WorldGenerator';
 import { hash2 } from '../../core/rng';
 
@@ -7,10 +7,10 @@ export interface LodTileReq { x0: number; z0: number; size: number; n: number }
 export interface LodTileMesh { pos: Float32Array; col: Uint8Array; idx: Uint32Array | Uint16Array; quads: number }
 
 const LEAF_TINT: Record<number, [number, number, number] | null> = { 0: null, 1: [128, 167, 85], 2: [97, 153, 97], 3: null, 4: null, 5: null };
-const TREE_CELL = (b: string) => (b === 'jungle' || b === 'forest' || b === 'birch_forest' || b === 'taiga' || b === 'dark_forest' || b === 'old_growth_taiga' ? 4 : b === 'savanna' ? 7 : 6);
+const TREE_CELL = (b: string) => (b === 'jungle' || b === 'forest' || b === 'birch_forest' || b === 'taiga' || b === 'dark_forest' || b === 'old_growth_taiga' ? 4 : b === 'savanna' || b === 'cherry_grove' ? 7 : b === 'mangrove_swamp' ? 5 : b === 'mushroom_fields' || b === 'ice_spikes' ? 9 : 6);
 
 export class LodMesher {
-  surf = new Map<string, { h: Uint8Array; id: Uint8Array }>();
+  surf = new Map<string, { h: Uint8Array; id: Uint16Array }>();
 
   constructor(private gen: WorldGenerator, private colors: Uint8Array) {}
 
@@ -100,7 +100,7 @@ export class LodMesher {
         const t = this.tree(wx, wz, col);
         if (t) {
           top = t.top;
-          const lid = t.kind === 1 ? B.BIRCH_LEAVES : t.kind === 2 || t.kind === 7 ? B.SPRUCE_LEAVES : t.kind === 3 || t.kind === 6 ? B.JUNGLE_LEAVES : t.kind === 8 ? sp(B.OAK_LEAVES, SPECIES.ACACIA) : t.kind === 9 ? sp(B.OAK_LEAVES, SPECIES.DARK_OAK) : B.OAK_LEAVES;
+          const lid = t.kind === 1 ? B.BIRCH_LEAVES : t.kind === 2 || t.kind === 7 ? B.SPRUCE_LEAVES : t.kind === 3 || t.kind === 6 ? B.JUNGLE_LEAVES : t.kind === 8 ? sp(B.OAK_LEAVES, SPECIES.ACACIA) : t.kind === 9 ? sp(B.OAK_LEAVES, SPECIES.DARK_OAK) : t.kind === 10 ? sp(B.OAK_LEAVES, SPECIES.CHERRY) : t.kind === 11 ? sp(B.OAK_LEAVES, SPECIES.MANGROVE) : t.kind === 12 ? X(XV.RED_MUSHROOM_BLOCK) : t.kind === 13 ? B.PACKED_ICE : B.OAK_LEAVES;
           this.blockColor(lid, col, rgb);
           const lt = LEAF_TINT[t.kind];
           if (lt && this.colors[lid * 4 + 3] === 0) { rgb[0] = rgb[0] * lt[0] / 255; rgb[1] = rgb[1] * lt[1] / 255; rgb[2] = rgb[2] * lt[2] / 255; }

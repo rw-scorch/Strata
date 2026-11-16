@@ -1,8 +1,9 @@
+import type { BlockArray } from '../../src/core/chunk';
 import { cleanKey, keyHint } from '../adminKey';
 import { DurableObject } from 'cloudflare:workers';
 import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
-import { WorldGenerator } from '../../src/core/worldgen/WorldGenerator';
+import { WorldGenerator, type GeneratedChunk } from '../../src/core/worldgen/WorldGenerator';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
 import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot, entTypeCode } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
@@ -61,6 +62,7 @@ interface Session {
   dpT?: number;
   oreSent?: Set<string>;
   oreQueue?: string[];
+  chunkReq?: string[];
 }
 
 interface Attachment { pid: string | null; name: string; op: boolean; }
@@ -112,12 +114,7 @@ export class WorldRoom extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS chunks (k TEXT PRIMARY KEY, d BLOB)`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, secret TEXT, data TEXT)`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS be (k TEXT PRIMARY KEY, data TEXT)`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS genbe (k TEXT PRIMARY KEY)`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
-    this.sql.exec(`CREATE TABLE IF NOT EXISTS genlv (k TEXT PRIMARY KEY, v INTEGER)`);
+    this.tables();
     this.eco = new Economy(this.sql, {
       sim: () => this.ensureSim(),
       send: (pid, msg) => { const ss = this.sessionFor(pid); if (ss) this.send(ss, msg as S2C); },
@@ -129,6 +126,30 @@ export class WorldRoom extends DurableObject<Env> {
       const a = ws.deserializeAttachment() as Attachment | null;
       this.sessions.set(ws, this.newSession(ws, a));
     }
+  }
+
+  private tables(): void {
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS chunks (k TEXT PRIMARY KEY, d BLOB)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, secret TEXT, data TEXT)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS be (k TEXT PRIMARY KEY, data TEXT)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS genbe (k TEXT PRIMARY KEY)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS genlv (k TEXT PRIMARY KEY, v INTEGER)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS gcache (k TEXT PRIMARY KEY, lv INTEGER, d BLOB)`);
+  }
+
+  private async wipe(): Promise<void> {
+    if (this.loop) clearInterval(this.loop);
+    if (this.pumpT !== null) clearTimeout(this.pumpT);
+    this.loop = null; this.pumpT = null;
+    this.sessions.clear();
+    this.cache.clear();
+    this.loadQueue = [];
+    this.sim = null;
+    this.meta = null;
+    this.levels = null;
+    await this.ctx.storage.deleteAll();
+    this.tables();
   }
 
   private newSession(ws: WebSocket, a: Attachment | null): Session {
@@ -265,11 +286,21 @@ export class WorldRoom extends DurableObject<Env> {
 
   private forceGet = (x: number, y: number, z: number): number | null => this.getChunk(x >> 4, z >> 4).get(x & 15, y, z & 15);
 
-  private sendChunk(s: Session, p: SimPlayer, cx: number, cz: number): void {
+  private stepNeighbours(cx: number, cz: number): boolean {
+    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (this.cache.has(chunkKey(cx + dx, cz + dz))) continue;
+      this.getChunk(cx + dx, cz + dz);
+      return false;
+    }
+    return true;
+  }
+
+  private sendChunk(s: Session, p: SimPlayer, cx: number, cz: number): boolean {
     const k = chunkKey(cx, cz);
     const near = Math.max(Math.abs(cx - Math.floor(p.x / 16)), Math.abs(cz - Math.floor(p.z / 16))) <= ORE_REVEAL_RADIUS;
+    if (near && !this.stepNeighbours(cx, cz)) return false;
     const world = near ? this.forceGet : this.peekGet;
-    let blocks: Uint16Array | null = null;
+    let blocks: BlockArray | null = null;
     let modified = false;
     const e = this.cache.get(k);
     if (e) { blocks = e.c.blocks; modified = e.c.modified; e.used = this.ticks; }
@@ -279,27 +310,97 @@ export class WorldRoom extends DurableObject<Env> {
         const bytes = new Uint8Array(row.d as ArrayBuffer);
         blocks = decodeRLE(new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)));
         modified = true;
+        this.cost += 0.15;
       } else if (near) blocks = this.getChunk(cx, cz).blocks;
     }
-    if (!modified && (this.gen?.hasStructure(cx, cz) || this.chunkLevel(cx, cz) < GEN_LEVEL || this.levels?.oldMask(cx, cz))) {
+    if (!modified && this.gen?.hasStructure(cx, cz)) {
       blocks ??= this.getChunk(cx, cz).blocks;
       modified = true;
     }
     const so = (s.oreSent ??= new Set());
+    const lv = this.chunkLevel(cx, cz);
+    const lvOut = lv < GEN_LEVEL ? lv : undefined;
     if (modified && blocks) {
-      const lv = this.chunkLevel(cx, cz);
-      this.send(s, { t: 'chunk', cx, cz, d: u16ToBase64(encodeRLE(maskChunk(blocks, cx, cz, world))), lv: lv < GEN_LEVEL ? lv : undefined });
+      this.cost += 0.6;
+      this.send(s, { t: 'chunk', cx, cz, d: u16ToBase64(encodeRLE(maskChunk(blocks, cx, cz, world))), lv: lvOut });
       if (near) so.add(k); else so.delete(k);
-      return;
+      return true;
     }
+    const om = this.levels?.oldMask(cx, cz);
+    const omOut = om ? Array.from(om) : undefined;
     if (near && blocks) {
+      this.cost += 0.05;
       const o = exposedOres(blocks, cx, cz, world);
-      this.send(s, { t: 'chunk', cx, cz, d: null, o: o.length ? o : undefined });
+      this.send(s, { t: 'chunk', cx, cz, d: null, o: o.length ? o : undefined, lv: lvOut, om: omOut });
       so.add(k);
-      return;
+      return true;
     }
     so.delete(k);
-    this.send(s, { t: 'chunk', cx, cz, d: null });
+    this.send(s, { t: 'chunk', cx, cz, d: null, lv: lvOut, om: omOut });
+    return true;
+  }
+
+  private cost = 0;
+  private pumpT: ReturnType<typeof setTimeout> | null = null;
+  private rr = 0;
+
+  private schedulePump(): void {
+    if (this.pumpT !== null || !this.sim) return;
+    this.pumpT = setTimeout(() => { this.pumpT = null; this.pump(); }, 0);
+  }
+
+  private hasWork(): boolean {
+    if (this.loadQueue.length) return true;
+    for (const s of this.sessions.values()) if (s.chunkReq?.length || s.oreQueue?.length) return true;
+    return false;
+  }
+
+  private pump(): void {
+    if (!this.sim) return;
+    this.cost = 0;
+    let n = 0;
+    try {
+      while (this.cost < 1.2 && n++ < 300) if (!this.pumpOnce()) return;
+    } catch (err) { console.error('pump error', err); }
+    if (this.hasWork()) this.schedulePump();
+  }
+
+  private nearPlayer(cx: number, cz: number, r: number): boolean {
+    for (const p of this.sim!.players.values()) if (Math.max(Math.abs(cx - Math.floor(p.x / 16)), Math.abs(cz - Math.floor(p.z / 16))) <= r) return true;
+    return false;
+  }
+
+  private pumpOnce(): boolean {
+    for (let i = 0; i < Math.min(48, this.loadQueue.length); i++) {
+      const k = this.loadQueue[i];
+      if (this.cache.has(k)) { this.loadQueue.splice(i--, 1); continue; }
+      const [cx, cz] = k.split(',').map(Number);
+      if (!this.nearPlayer(cx, cz, 1)) continue;
+      this.loadQueue.splice(i, 1);
+      this.getChunk(cx, cz);
+      return true;
+    }
+    const ss: Session[] = [];
+    for (const s of this.sessions.values()) if (s.pid && s.chunkReq?.length) ss.push(s);
+    if (ss.length) {
+      const s = ss[this.rr++ % ss.length];
+      const k = s.chunkReq!.shift()!;
+      const p = this.sim!.players.get(s.pid!);
+      this.cost += 0.01;
+      if (p) {
+        const [cx, cz] = k.split(',').map(Number);
+        if (Math.max(Math.abs(cx - Math.floor(p.x / 16)), Math.abs(cz - Math.floor(p.z / 16))) <= 20 && !this.sendChunk(s, p, cx, cz)) s.chunkReq!.unshift(k);
+      }
+      return true;
+    }
+    while (this.loadQueue.length) {
+      const k = this.loadQueue.shift()!;
+      if (this.cache.has(k)) continue;
+      const [cx, cz] = k.split(',').map(Number);
+      this.getChunk(cx, cz);
+      return true;
+    }
+    return this.processOres(1) > 0;
   }
 
   private queueOres(s: Session, p: SimPlayer): void {
@@ -317,9 +418,10 @@ export class WorldRoom extends DurableObject<Env> {
       if (!so.has(k) && !q.includes(k)) q.push(k);
     }
     if (q.length > 400) q.splice(0, q.length - 400);
+    this.schedulePump();
   }
 
-  private processOres(budget: number): void {
+  private processOres(budget: number): number {
     let used = 0;
     for (const s of this.sessions.values()) {
       if (!s.pid || !s.oreQueue?.length) continue;
@@ -332,12 +434,14 @@ export class WorldRoom extends DurableObject<Env> {
         if (s.oreSent!.has(k)) continue;
         const [cx, cz] = k.split(',').map(Number);
         if (Math.max(Math.abs(cx - pcx), Math.abs(cz - pcz)) > ORE_REVEAL_RADIUS) continue;
+        if (!this.stepNeighbours(cx, cz)) { s.oreQueue.unshift(k); return used + 1; }
         const o = exposedOres(this.getChunk(cx, cz).blocks, cx, cz, this.forceGet);
         if (o.length) this.send(s, { t: 'ores', cx, cz, o });
         s.oreSent!.add(k);
         n++; used++;
       }
     }
+    return used;
   }
 
   private peekChunk(cx: number, cz: number): ChunkData | null {
@@ -359,7 +463,18 @@ export class WorldRoom extends DurableObject<Env> {
       c = new ChunkData(cx, cz, decodeRLE(rle));
       c.modified = true;
     } else {
-      const g = this.gen!.generate(cx, cz, this.chunkLevel(cx, cz), this.levels?.oldMask(cx, cz) ?? null);
+      const lv = this.chunkLevel(cx, cz), mask = this.levels?.oldMask(cx, cz) ?? null;
+      const hit = mask ? undefined : this.sql.exec(`SELECT d FROM gcache WHERE k = ? AND lv = ?`, k, lv).toArray()[0];
+      let g: { blocks: BlockArray; entities: GeneratedChunk['entities'] };
+      if (hit) {
+        const bytes = new Uint8Array(hit.d as ArrayBuffer);
+        g = { blocks: decodeRLE(new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))), entities: [] };
+        this.cost += 0.15;
+      } else {
+        g = this.gen!.generate(cx, cz, lv, mask);
+        this.cost += 1;
+        if (!mask && !this.meta?.arena && (!g.entities.length || this.sim)) { const rle = encodeRLE(g.blocks); this.sql.exec(`INSERT OR REPLACE INTO gcache (k, lv, d) VALUES (?, ?, ?)`, k, lv, new Uint8Array(rle.buffer, rle.byteOffset, rle.byteLength)); }
+      }
       c = new ChunkData(cx, cz, g.blocks);
       if (g.entities.length && this.sim) {
         const done = this.sql.exec(`SELECT k FROM genbe WHERE k = ?`, k).toArray().length > 0;
@@ -492,13 +607,7 @@ export class WorldRoom extends DurableObject<Env> {
     try { body = await req.json(); } catch { return Response.json({ error: 'bad json' }, { status: 400 }); }
     if (body.ownerId !== m.ownerId || (await sha256(String(body.ownerSecret ?? ''))) !== m.ownerHash) return Response.json({ error: 'forbidden' }, { status: 403 });
     for (const s of this.sessions.values()) this.sendErr(s, 'unavailable', 'This world was deleted by its owner.');
-    if (this.loop) clearInterval(this.loop);
-    this.loop = null;
-    this.sessions.clear();
-    this.cache.clear();
-    this.sim = null;
-    this.meta = null;
-    await this.ctx.storage.deleteAll();
+    await this.wipe();
     const reg = this.env.REGISTRY;
     if (reg) await reg.get(reg.idFromName('global')).fetch('https://registry/remove', { method: 'POST', body: JSON.stringify({ code: m.code }) }).catch(() => undefined);
     return Response.json({ ok: true });
@@ -568,13 +677,7 @@ export class WorldRoom extends DurableObject<Env> {
     }
     if (act === 'delete') {
       for (const s of this.sessions.values()) this.sendErr(s, 'unavailable', 'This world was deleted by a server admin.');
-      if (this.loop) clearInterval(this.loop);
-      this.loop = null;
-      this.sessions.clear();
-      this.cache.clear();
-      this.sim = null;
-      this.meta = null;
-      await this.ctx.storage.deleteAll();
+      await this.wipe();
       const reg = this.env.REGISTRY;
       if (reg) await reg.get(reg.idFromName('global')).fetch('https://registry/remove', { method: 'POST', body: JSON.stringify({ code: m.code }) }).catch(() => undefined);
       return Response.json({ ok: true });
@@ -642,14 +745,14 @@ export class WorldRoom extends DurableObject<Env> {
     if (!msg || typeof msg !== 'object' || typeof (msg as { t?: unknown }).t !== 'string') { s.strikes++; return; }
     if (s.strikes > 60) { this.sendErr(s, 'invalid', 'Too many invalid messages.'); return; }
     this.startLoop();
-    if (msg.t === 'hello') { await this.handleHello(s, msg); return; }
+    if (msg.t === 'hello') { try { await this.handleHello(s, msg); } catch (err) { console.error('hello error', err); this.sendErr(s, 'invalid', 'World is busy, please retry.'); } return; }
     if (msg.t === 'ping') { if (isNum(msg.c)) this.send(s, { t: 'pong', c: msg.c, s: now }); return; }
     if (!s.pid) return;
     const sim = this.ensureSim();
     let p = sim.players.get(s.pid);
     if (!p) { p = this.restorePlayer(s); if (!p) return; }
     sim.setNow(now);
-    this.handleGame(s, p, msg, sim);
+    try { this.handleGame(s, p, msg, sim); } catch (err) { s.strikes++; console.error('msg error', msg.t, err); }
   }
 
   private restorePlayer(s: Session): SimPlayer | undefined {
@@ -780,11 +883,17 @@ export class WorldRoom extends DurableObject<Env> {
     if (cx === s.chunkCX && cz === s.chunkCZ) return;
     s.chunkCX = cx; s.chunkCZ = cz;
     const R = this.simRadius();
+    const add: string[] = [];
     for (let r = 0; r <= R; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
       const k = chunkKey(cx + dx, cz + dz);
-      if (!this.cache.has(k)) this.loadQueue.push(k);
+      if (!this.cache.has(k)) add.push(k);
     }
+    if (add.length) {
+      const seen = new Set(add);
+      this.loadQueue = add.concat(this.loadQueue.filter((k) => !seen.has(k))).slice(0, 2000);
+    }
+    this.schedulePump();
   }
 
   private handleGame(s: Session, p: SimPlayer, msg: C2S, sim: WorldSim): void {
@@ -797,12 +906,16 @@ export class WorldRoom extends DurableObject<Env> {
       }
       case 'chunks': {
         if (!Array.isArray(msg.want) || msg.want.length > 64) { s.strikes++; return; }
+        const q = (s.chunkReq ??= []);
         for (const w of msg.want) {
           if (!Array.isArray(w) || !isInt(w[0], -2e6, 2e6) || !isInt(w[1], -2e6, 2e6)) continue;
           const [cx, cz] = w;
           if (Math.max(Math.abs(cx - Math.floor(p.x / 16)), Math.abs(cz - Math.floor(p.z / 16))) > 20) continue;
-          this.sendChunk(s, p, cx, cz);
+          const k = chunkKey(cx, cz);
+          if (!q.includes(k)) q.push(k);
         }
+        if (q.length > 1500) q.splice(0, q.length - 1500);
+        this.schedulePump();
         return;
       }
       case 'dig': {
@@ -1111,6 +1224,7 @@ export class WorldRoom extends DurableObject<Env> {
         else this.systemChat(ev.text, ev.kind);
         return;
       case 'lightning': this.broadcast({ t: 'bolt', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z) }); return;
+      case 'dark': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'dark', d: ev.t }); return; }
       case 'knock': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'knock', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), ...(ev.set ? { s: 1 } : {}) }); return; }
       case 'ride': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'ride', id: ev.id }); return; }
       case 'work': {
@@ -1159,15 +1273,7 @@ export class WorldRoom extends DurableObject<Env> {
     }
     if (!this.sessions.size) { this.stopLoopIfIdle(); return; }
     const sim = this.ensureSim();
-    let loads = 0;
-    while (this.loadQueue.length && loads < 4) {
-      const k = this.loadQueue.shift()!;
-      if (this.cache.has(k)) continue;
-      const [cx, cz] = k.split(',').map(Number);
-      this.getChunk(cx, cz);
-      loads++;
-    }
-    this.processOres(12);
+    if (this.hasWork()) this.schedulePump();
     if (this.ticks % 200 === 0) this.eco.tick(now);
     if (this.ticks % 1200 === 600) for (const pp of sim.players.values()) if (!pp.vanished) this.eco.stats(pp);
     sim.setNow(now);
@@ -1175,7 +1281,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.flushBlocks();
     this.flushPlayers();
     if (this.ticks % 2 === 0) this.flushEntities();
-    if (now - this.lastFlush > 10000) this.flush();
+    if (now - this.lastFlush > 5000) this.flush();
   }
 
   private flushBlocks(): void {

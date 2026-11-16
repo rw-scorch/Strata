@@ -77,7 +77,7 @@ describe('the Nether region', () => {
     expect(count.stone ?? 0).toBe(0);
     expect(count.water ?? 0).toBe(0);
     const again = new WorldGenerator(9).generate(cx, 0).blocks;
-    expect(Buffer.from(again.buffer).equals(Buffer.from(c.blocks.buffer))).toBe(true);
+    expect(Array.from(again).every((v, i) => v === c.blocks[i])).toBe(true);
   });
   it('boils away water buckets', () => {
     const w = world();

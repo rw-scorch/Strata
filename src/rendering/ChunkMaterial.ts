@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { POS_SCALE } from './Mesher';
+import { ATMO_GLSL, atmoUniforms, type AtmoUniforms } from './Atmosphere';
 
-export interface WorldUniforms {
+export interface WorldUniforms extends AtmoUniforms {
   uAtlas: { value: THREE.Texture | null };
   uAtlasGrid: { value: THREE.Vector2 };
   uTexel: { value: number };
@@ -40,6 +41,7 @@ export interface WorldUniforms {
 
 export function createWorldUniforms(): WorldUniforms {
   return {
+    ...atmoUniforms(),
     uAtlas: { value: null }, uAtlasGrid: { value: new THREE.Vector2(32, 8) }, uTexel: { value: 0.5 / 16 },
     uDay: { value: 1 }, uSkyColor: { value: new THREE.Color(1, 1, 1) }, uSkyTop: { value: new THREE.Color(0.4, 0.6, 1) }, uFogColor: { value: new THREE.Color(0.7, 0.8, 1) },
     uFogNear: { value: 60 }, uFogFar: { value: 96 }, uTime: { value: 0 }, uBrightness: { value: 0.5 }, uAmbient: { value: 0 },
@@ -83,7 +85,9 @@ varying vec4 vShadow;
 varying vec3 vWorld;
 ${COMMON}
 vec3 animate(vec3 world, float flags, vec2 tuv) {
-  if (bitf(flags, 2.0) > 0.5) world.y += (sin(world.x * 1.3 + uTime * 1.7) + cos(world.z * 1.1 + uTime * 1.3)) * 0.03 - 0.06;
+  float wv = (sin(world.x * 1.3 + uTime * 1.7) + cos(world.z * 1.1 + uTime * 1.3)) * 0.03 - 0.06;
+  if (bitf(flags, 2.0) > 0.5) world.y += wv;
+  else if (bitf(flags, 64.0) > 0.5) { float fy = fract(world.y + 0.002); if (fy > 0.014 && fy < 0.996) world.y += wv * clamp(fy * 4.0, 0.0, 1.0); }
   float sway = 0.7 + uWind;
   if (bitf(flags, 4.0) > 0.5) {
     float w = clamp(1.0 - tuv.y, 0.0, 1.0);
@@ -115,6 +119,8 @@ void main() {
 `;
 
 const FRAG = /* glsl */ `
+${ATMO_GLSL}
+uniform float uAtmoOn;
 uniform sampler2D uAtlas;
 uniform vec2 uAtlasGrid;
 uniform float uTexel;
@@ -239,6 +245,24 @@ vec2 flowNoiseGrad(vec2 p, vec2 dir, float t, out float h) {
   float gy = (fbm2(p0 + vec2(0.0, e)) - a0) * w0 + (fbm2(p1 + vec2(0.0, e)) - a1) * w1;
   return vec2(gx, gy) / e;
 }
+vec3 flowWaterNormal(vec3 n, vec2 p, vec2 dir, float slope, float detail, out float hgt) {
+  float spd = 0.9 + slope * 7.0;
+  float t = uTime * spd * 0.45;
+  float ph0 = fract(t), ph1 = fract(t + 0.5);
+  float w0 = 1.0 - abs(1.0 - 2.0 * ph0), w1 = 1.0 - w0;
+  vec2 p0 = p - dir * ph0 * 2.2, p1 = p - dir * ph1 * 2.2 + vec2(0.43, 0.29);
+  vec3 a = waterNormal(p0 * 1.1, uTime * 1.15), b = waterNormal(p1 * 1.1, uTime * 1.15);
+  vec2 gw = (a.xz * w0 + b.xz * w1) / sqrt(w0 * w0 + w1 * w1);
+  vec2 q0 = p0 * 1.7, q1 = p1 * 1.7;
+  float e = 0.08;
+  float h0 = fbm2(q0), h1 = fbm2(q1);
+  hgt = h0 * w0 + h1 * w1;
+  vec2 gt = vec2(fbm2(q0 + vec2(e, 0.0)) - h0, fbm2(q0 + vec2(0.0, e)) - h0) * w0 + vec2(fbm2(q1 + vec2(e, 0.0)) - h1, fbm2(q1 + vec2(0.0, e)) - h1) * w1;
+  gw -= gt / e * (0.012 + slope * 0.05);
+  float chop = (1.25 + slope * 4.0) * detail;
+  vec3 nb = normalize(n + vec3(0.0, 1.6, 0.0));
+  return normalize(nb + vec3(gw.x, 0.0, gw.y) * chop);
+}
 vec2 flowGrad(vec2 p, float t) {
   vec2 g = vec2(0.0);
   g += vec2(cos(p.x * 3.1 + p.y * 0.7) * 0.04, cos((p.y - t * 2.2) * 2.6 + p.x * 0.9) * 0.08);
@@ -328,7 +352,8 @@ void main() {
   float blk = curve(max(vLight.y, dyn)) * flick;
   vec3 light = max(vec3(sky) * uSkyColor, vec3(blk) * vec3(1.0, 0.86, 0.66));
   light = max(light, vec3(0.1 + uBrightness * 0.12) * vec3(0.92, 0.95, 1.0) + uAmbient * vec3(1.0, 0.78, 0.7));
-  light *= (0.42 + 0.58 * vLight.z) * vLight.w;
+  bool flowV = bitf(flags, 128.0) > 0.5;
+  light *= flowV ? 1.0 : (0.42 + 0.58 * vLight.z) * vLight.w;
   light += vec3(uFlash * skyL);
   vec3 albedo = c.rgb;
   float open = smoothstep(0.85, 1.0, skyL);
@@ -384,7 +409,12 @@ void main() {
       float along = dot(vWorld, fdir), across = dot(vWorld, sdir);
       float spd = top ? 1.0 : 2.6;
       vec2 g = flowGrad(vec2(across, along) * vec2(1.0, top ? 1.0 : 0.6), uTime * spd);
-      N = normalize(n + sdir * g.x * (top ? 0.35 : 0.3) + fdir * g.y * (top ? 0.45 : 0.3));
+      if (top && flowV) {
+        vec2 fv = vLight.zw * 2.0 - 1.0; float fs = length(fv); vec2 fdv = fs > 1e-3 ? fv / fs : vec2(1.0, 0.0);
+        float h_; N = flowWaterNormal(normalize(vec3(fdv.x * fs * 0.6, 1.0, fdv.y * fs * 0.6)), vWorld.xz, fdv, 1.0 - inversesqrt(1.0 + fs * fs), 1.0, h_);
+        fdir = vec3(fdv.x, 0.0, fdv.y); sdir = vec3(-fdv.y, 0.0, fdv.x); along = dot(vWorld, fdir); across = dot(vWorld, sdir);
+      } else if (top) { float h_; N = flowWaterNormal(n, vWorld.xz, normalize(fdir.xz + vec2(1e-5)), 1.0 - n.y, 1.0, h_); }
+      else N = normalize(n + sdir * g.x * 0.3 + fdir * g.y * 0.3);
       if (!top) streak = smoothstep(0.6, 0.85, vnoise(vec2(across * 12.0, along * 0.7 - uTime * 4.5))) * 0.45;
       else streak = smoothstep(0.72, 0.95, vnoise(vec2(across * 8.0, along * 1.2 - uTime * 2.4))) * 0.22;
     }
@@ -400,7 +430,7 @@ void main() {
     vec3 shallowC = mix(vec3(0.32, 0.86, 0.82), wtint * 1.25, 0.35);
     vec3 deepC = mix(vec3(0.03, 0.17, 0.34), wtint * 0.35, 0.3);
 #if WATER_Q > 0
-    float white = 0.0;
+    float white = 0.0, flowSlope = 0.0;
     vec2 distort = top ? N.xz * 0.04 : vec2(0.0);
     if (!still || splash > 0.5) {
       vec2 dux2 = dFdx(vUV.xy), duy2 = dFdy(vUV.xy);
@@ -416,14 +446,21 @@ void main() {
       float detail = 1.0 - lod * 0.85;
       if (top) {
         float slope = 1.0 - n.y;
-        float speed = still ? 0.15 : 0.55 + slope * 6.0;
-        vec2 gr = flowNoiseGrad(q * vec2(1.6, 1.2), vec2(0.0, 1.0) * speed * 1.4, uTime * 0.9, hgt);
-        float amp = still ? 0.25 : 0.5 + slope * 2.0;
-        vec3 nb = normalize(n + vec3(0.0, 1.6, 0.0));
-        N = normalize(nb + (sd * gr.x + fd * gr.y) * 0.09 * amp * detail);
-        float churn = still ? 0.0 : smoothstep(0.6, 0.88, hgt) * clamp(slope * 6.0 + 0.15, 0.0, 1.0);
-        float rim = splash > 0.5 ? smoothstep(0.58 - splash * 0.06, 0.82, fbm2(vWorld.xz * 2.6 + vec2(uTime * 0.7, -uTime * 0.5))) * (splash / 3.0) * 0.7 : 0.0;
-        white = max(churn * 0.55, rim);
+        vec3 nbase = n;
+        vec2 fdv = normalize(fd.xz + vec2(1e-5));
+        if (flowV) {
+          vec2 fv = vLight.zw * 2.0 - 1.0; float fs = length(fv);
+          fdv = fs > 1e-3 ? fv / fs : vec2(1.0, 0.0);
+          slope = 1.0 - inversesqrt(1.0 + fs * fs);
+          nbase = normalize(vec3(fdv.x * fs * 0.6, 1.0, fdv.y * fs * 0.6));
+        }
+        flowSlope = slope;
+        hgt = 0.0;
+        if (still) N = waterNormal(vWorld.xz, uTime);
+        else N = flowWaterNormal(nbase, vWorld.xz, fdv, slope, detail, hgt);
+        float churn = still ? 0.0 : smoothstep(0.72, 0.94, hgt) * smoothstep(0.1, 0.28, slope) * 0.7;
+        float rim = splash > 1.5 ? smoothstep(0.66, 0.88, fbm2(vWorld.xz * 3.4 - fdv * uTime * 1.4 + vec2(uTime * 0.3, -uTime * 0.2))) * ((splash - 1.0) * 0.5) * 0.5 : 0.0;
+        white = max(churn * 0.4, rim);
         distort = N.xz * (0.05 + slope * 0.08);
       } else {
         vec2 gr = flowNoiseGrad(q * vec2(3.0, 0.9), vec2(0.0, 1.0) * 3.2, uTime * 1.6, hgt);
@@ -445,30 +482,32 @@ void main() {
     refr = mix(refr, refr * shallowC * 1.6 + shallowC * 0.08 * light, clamp(dz * 0.5, 0.0, 0.8));
     vec3 deep = deepC * light;
     vec3 body = mix(deep, refr, absorb);
-    body = mix(body, col, still ? 0.18 : 0.08);
+    float rough = still ? 0.0 : top ? clamp((flowV ? flowSlope : 1.0 - n.y) * 4.0, 0.0, 1.0) : 1.0;
+    body = mix(body, col, flowV ? 0.04 : mix(0.18, 0.08, rough));
     fres = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
     R = reflect(-V, N);
     skyRefl = mix(uFogColor, uSkyTop, smoothstep(-0.05, 0.6, R.y)) * mix(0.12, 1.0, skyVis);
-    spec = pow(max(dot(R, uSunDir), 0.0), still ? 320.0 : 60.0) * (still ? 5.0 : 1.2 * (1.0 - clamp(length(fwidth(vWorld)) * 4.0, 0.0, 0.9))) * uDay * (1.0 - uRain) * skyVis * sun;
+    spec = pow(max(dot(R, uSunDir), 0.0), mix(320.0, 60.0, rough)) * mix(5.0, 1.2 * (1.0 - clamp(length(fwidth(vWorld)) * 4.0, 0.0, 0.9)), rough) * uDay * (1.0 - uRain) * skyVis * sun;
     vec3 refl = skyRefl;
 #if REFLECT > 0
     if (top) { vec4 ss = ssr(vWorld, N); refl = mix(refl, ss.rgb, ss.a); }
 #endif
-    float foam = top ? (1.0 - smoothstep(0.0, 0.3, dz)) * smoothstep(0.35, 0.8, vnoise(vWorld.xz * 5.0 + uTime * 0.6)) : 0.0;
+    float foam = top ? (1.0 - smoothstep(0.0, still ? 0.3 : 0.18, dz)) * smoothstep(0.35, 0.8, vnoise(vWorld.xz * 5.0 + uTime * 0.6)) : 0.0;
     vec3 foamCol = vec3(0.92, 0.97, 1.0) * light * (0.55 + 0.45 * skyVis * uDay + 0.25);
-    col = mix(body, refl, top ? fres * (still ? 1.0 : 0.6) : fres * 0.35) + spec;
+    col = mix(body, refl, top ? fres * mix(1.0, 0.6, rough) : fres * 0.35) + spec;
     col = mix(col, foamCol, clamp(max(foam * 0.6, white), 0.0, 0.8));
     alpha = 1.0;
 #else
     float shallow = exp(-wdep * 0.2);
     vec3 body = mix(deepC, shallowC, top ? shallow : 0.45) * light;
-    body = mix(body, col, 0.35);
+    body = mix(body, col, flowV ? 0.2 : 0.35);
     float glint = top ? smoothstep(0.62, 0.9, vnoise(vWorld.xz * 1.7 + vec2(uTime * 0.35, -uTime * 0.27))) * 0.12 * shallow * uDay * skyVis : 0.0;
     col = mix(body, skyRefl, fres * 0.65) + spec + (streak * 0.6 + glint) * light;
     alpha = clamp(mix(0.9, 0.42, top ? shallow : 0.3) + fres * 0.25, 0.0, 1.0);
 #endif
   }
 #endif
+  if (uAtmoOn > 0.5 && uUnderwater < 0.5) col = atmoApply(col, vWorld, cameraPosition);
   float fog = smoothstep(uFogNear, uFogFar, vFogDepth);
   gl_FragColor = vec4(mix(col, uFogColor, fog), alpha);
 }
@@ -561,6 +600,7 @@ export function createEntityMaterial(u: WorldUniforms, map: THREE.Texture | null
   return new THREE.ShaderMaterial({
     uniforms: {
       uFogColor: u.uFogColor, uFogNear: u.uFogNear, uFogFar: u.uFogFar, uLight: { value: 1 }, uHurt: { value: 0 },
+      uAtmo: u.uAtmo, uAtmoColor: u.uAtmoColor, uMistColor: u.uMistColor, uAtmoOn: u.uAtmoOn, uUnderwater: u.uUnderwater,
       uMap: { value: map }, uUseMap: { value: map ? 1 : 0 }, uEmissive: { value: 0 }, uOpacity: { value: 1 },
     },
     vertexShader: /* glsl */ `
@@ -569,8 +609,10 @@ export function createEntityMaterial(u: WorldUniforms, map: THREE.Texture | null
       varying vec2 vUv;
       varying float vFog;
       varying float vShade;
+      varying vec3 vWp;
       void main() {
         vColor = color;
+        vWp = (modelMatrix * vec4(position, 1.0)).xyz;
         vUv = uv;
         vec3 n = normalize(mat3(modelMatrix) * normal);
         vShade = 0.62 + 0.38 * max(n.y, 0.0) + 0.16 * abs(n.z) - 0.1 * max(-n.y, 0.0);
@@ -579,15 +621,18 @@ export function createEntityMaterial(u: WorldUniforms, map: THREE.Texture | null
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */ `
+      ${ATMO_GLSL}
+      uniform float uAtmoOn; uniform float uUnderwater;
       uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar; uniform float uLight; uniform float uHurt;
       uniform sampler2D uMap; uniform float uUseMap; uniform float uEmissive; uniform float uOpacity;
-      varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade;
+      varying vec3 vColor; varying vec2 vUv; varying float vFog; varying float vShade; varying vec3 vWp;
       void main() {
         vec4 base = vec4(vColor, 1.0);
         if (uUseMap > 0.5) { base = texture2D(uMap, vUv); if (base.a < 0.5) discard; }
         float l = mix(uLight * vShade, 1.0, uEmissive);
         vec3 c = base.rgb * l;
         c = mix(c, vec3(1.0, 0.15, 0.1), uHurt * 0.55);
+        if (uAtmoOn > 0.5 && uUnderwater < 0.5) c = atmoApply(c, vWp, cameraPosition);
         gl_FragColor = vec4(mix(c, uFogColor, smoothstep(uFogNear, uFogFar, vFog)), uOpacity);
       }`,
   });

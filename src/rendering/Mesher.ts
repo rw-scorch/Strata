@@ -1,5 +1,6 @@
+import type { BlockArray } from '../core/chunk';
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -15,19 +16,19 @@ const FS = 8;
 export interface MeshBuffers { pos: Int16Array; uv: Int16Array; light: Uint8Array; tint: Uint8Array; idx: Uint16Array | Uint32Array; sec?: Uint32Array; }
 export const SECTIONS = Math.ceil(WORLD_HEIGHT / 16);
 export const POS_SCALE = 64;
-export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_GLOW = 32, F_WATER = 64;
+export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_GLOW = 32, F_WATER = 64, F_FLOWV = 128;
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20 };
-const CULLSELF = new Uint8Array(256);
-for (const b of BLOCKS) if (b && b.id < 256) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
-const ORIENT = new Uint8Array(256);
-for (const b of BLOCKS) if (b && b.id < 256 && b.orientable && b.render === 'cube') ORIENT[b.id] = 1;
-const OFFSET_PLANT = new Uint8Array(256);
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20, cave: 21 };
+const CULLSELF = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id)) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
+const ORIENT = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id) && b.orientable && b.render === 'cube') ORIENT[b.id] = 1;
+const OFFSET_PLANT = new Uint8Array(ID_LIMIT);
 for (const id of [B.TALL_GRASS, B.FERN, B.DANDELION, B.POPPY, B.DEAD_BUSH]) OFFSET_PLANT[id] = 1;
-const EXTRA = new Uint8Array(256);
-for (const b of BLOCKS) if (b) {
+const EXTRA = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id)) {
   if (b.render === 'leaves') EXTRA[b.id] |= F_LEAF;
   if (b.lightEmit >= 12 && b.id !== B.FURNACE_LIT) EXTRA[b.id] |= F_EMIT;
 }
@@ -99,7 +100,7 @@ class Builder {
   }
 }
 
-const region = new Uint16Array(VOL);
+const region = new Uint32Array(VOL);
 const sky = new Uint8Array(VOL);
 const blk = new Uint8Array(VOL);
 const queue = new Int32Array(VOL);
@@ -124,7 +125,7 @@ export interface MesherContext { atlas: AtlasData; gen: WorldGenerator; opts?: {
 
 function ridx(x: number, y: number, z: number): number { return (y * R + z) * R + x; }
 
-function buildRegion(chunks: (Uint16Array | null)[]): number {
+function buildRegion(chunks: (BlockArray | null)[]): number {
   let maxY = 0;
   for (let cz = 0; cz < 3; cz++) for (let cx = 0; cx < 3; cx++) {
     const c = chunks[cz * 3 + cx];
@@ -150,7 +151,7 @@ function computeLight(maxY: number): void {
     for (let y = H - 1; y >= 0; y--) {
       const i = ridx(x, y, z);
       if (level > 0) {
-        const f = LIGHT_FILTER[region[i] & 255];
+        const f = LIGHT_FILTER[bid(region[i])];
         if (f >= 15) level = 0; else if (f > 0) level = Math.max(0, level - f);
       }
       sky[i] = level;
@@ -162,9 +163,9 @@ function computeLight(maxY: number): void {
     const L = sky[i];
     if (L <= 1) continue;
     const need = L - 1;
-    if ((x > 0 && sky[i - 1] < need && !OPAQUE[region[i - 1] & 255]) || (x < R - 1 && sky[i + 1] < need && !OPAQUE[region[i + 1] & 255])
-      || (z > 0 && sky[i - R] < need && !OPAQUE[region[i - R] & 255]) || (z < R - 1 && sky[i + R] < need && !OPAQUE[region[i + R] & 255])
-      || (y > 0 && sky[i - RA] < need && !OPAQUE[region[i - RA] & 255])) queue[qt++] = i;
+    if ((x > 0 && sky[i - 1] < need && !OPAQUE[bid(region[i - 1])]) || (x < R - 1 && sky[i + 1] < need && !OPAQUE[bid(region[i + 1])])
+      || (z > 0 && sky[i - R] < need && !OPAQUE[bid(region[i - R])]) || (z < R - 1 && sky[i + R] < need && !OPAQUE[bid(region[i + R])])
+      || (y > 0 && sky[i - RA] < need && !OPAQUE[bid(region[i - RA])])) queue[qt++] = i;
   }
   const spread = (arr: Uint8Array) => {
     while (qh < qt) {
@@ -173,7 +174,7 @@ function computeLight(maxY: number): void {
       if (L <= 1) continue;
       const y = (i / RA) | 0, rem = i - y * RA, z = (rem / R) | 0, x = rem - z * R;
       const tryN = (n: number) => {
-        const id = region[n] & 255;
+        const id = bid(region[n]);
         if (OPAQUE[id]) return;
         const nl = L - Math.max(1, LIGHT_FILTER[id]);
         if (nl > arr[n]) { arr[n] = nl; if (qt < VOL) queue[qt++] = n; }
@@ -190,7 +191,7 @@ function computeLight(maxY: number): void {
   qh = 0; qt = 0;
   for (let y = 0; y <= maxY; y++) for (let z = 0; z < R; z++) for (let x = 0; x < R; x++) {
     const i = ridx(x, y, z);
-    const e = LIGHT_EMIT[region[i] & 255];
+    const e = LIGHT_EMIT[bid(region[i])];
     if (e) { blk[i] = e; queue[qt++] = i; }
   }
   spread(blk);
@@ -199,7 +200,7 @@ function computeLight(maxY: number): void {
 function cellOpaque(x: number, y: number, z: number): number {
   if (y < 0) return 1;
   if (y >= H) return 0;
-  return OPAQUE[region[ridx(x, y, z)] & 255];
+  return OPAQUE[bid(region[ridx(x, y, z)])];
 }
 
 function cellSky(x: number, y: number, z: number): number { return y >= H ? 15 : y < 0 ? 0 : sky[ridx(x, y, z)]; }
@@ -271,7 +272,7 @@ function cubePass(code: number): number {
 function faceVisible(id: number, code: number, nv: number, ny: number): boolean {
   if (ny < 0) return false;
   if (ny >= H) return true;
-  const nid = nv & 255;
+  const nid = bid(nv);
   if (OPAQUE[nid]) return false;
   if (nid === id && CULLSELF[id]) return false;
   return true;
@@ -291,8 +292,25 @@ function currentAt(ctx: MesherContext, lx: number, lz: number): number {
   const gx = Math.max(0, Math.min(4, Math.round(lx / 4))), gz = Math.max(0, Math.min(4, Math.round(lz / 4)));
   return (gz * 5 + gx) * 2;
 }
+const curOut = [0, 0];
+function currentLerp(ctx: MesherContext, lx: number, lz: number): boolean {
+  currentAt(ctx, 0, 0);
+  const gx = Math.max(0, Math.min(4, lx / 4)), gz = Math.max(0, Math.min(4, lz / 4));
+  const ix = Math.min(3, Math.floor(gx)), iz = Math.min(3, Math.floor(gz)), tx = gx - ix, tz = gz - iz;
+  let ax = 0, az = 0, w = 0;
+  for (let k = 0; k < 4; k++) {
+    const ox = k & 1, oz = k >> 1, i = ((iz + oz) * 5 + ix + ox) * 2;
+    const ww = (ox ? tx : 1 - tx) * (oz ? tz : 1 - tz);
+    if (curGrid[i] === curGrid[i] && ww > 0) { ax += curGrid[i] * ww; az += curGrid[i + 1] * ww; w += ww; }
+  }
+  if (w < 0.25) return false;
+  curOut[0] = ax / w; curOut[1] = az / w;
+  return true;
+}
+const D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const flowF = new Float32Array(18), flowT = new Int8Array(9), flowTmp = [0, 0], cornerFv = new Uint8Array(8);
 
-export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (Uint16Array | null)[], smooth: boolean): MeshResult {
+export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (BlockArray | null)[], smooth: boolean): MeshResult {
   curCX = cx; curCZ = cz; curReady = false;
   const maxY = buildRegion(chunks);
   computeLight(maxY);
@@ -320,7 +338,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
         maskTex[mi] = 0;
         const rx = x + 16, rz = z + 16;
         const bv = region[ridx(rx, y, rz)];
-        const id = bv & 255;
+        const id = bid(bv);
         const code = RENDER[id];
         if (code < 1 || code > 4) continue;
         const ny = y + n[1];
@@ -337,7 +355,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
         const tcode = tintT[ti * 2];
         let tintBase = tcode && (!tintT[ti * 2 + 1] || d === 2) ? 1 : 0;
         if (d !== 2 && d !== 3 && (id === B.GRASS || id === B.SNOWY_GRASS) && grassMode !== 'off' && y > 0) {
-          const below = region[ridx(rx + n[0], y - 1, rz + n[2])] & 255;
+          const below = bid(region[ridx(rx + n[0], y - 1, rz + n[2])]);
           if (grassMode === 'fast' || below === id) { tile = tiles[id * FS + 2]; ovTile = -1; tintBase = tcode ? 1 : 0; }
         }
         if (code === 3 && glassOn) {
@@ -346,9 +364,9 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
             const o = [0, 0, 0]; o[ax] = sg;
             const ny2 = y + o[1];
             if (ny2 < 0 || ny2 >= H) return false;
-            if ((region[ridx(rx + o[0], ny2, rz + o[2])] & 255) !== id) return false;
+            if ((bid(region[ridx(rx + o[0], ny2, rz + o[2])])) !== id) return false;
             const fy = ny2 + n[1];
-            const fr = fy >= 0 && fy < H ? region[ridx(rx + o[0] + n[0], fy, rz + o[2] + n[2])] & 255 : 0;
+            const fr = fy >= 0 && fy < H ? bid(region[ridx(rx + o[0] + n[0], fy, rz + o[2] + n[2])]) : 0;
             return fr !== id && !OPAQUE[fr];
           };
           let ctm = 0;
@@ -410,7 +428,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
   for (let y = 0; y < top; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const rx = x + 16, rz = z + 16;
     const v = region[ridx(rx, y, rz)];
-    const id = v & 255;
+    const id = bid(v);
     const code = RENDER[id];
     if (code < 5) continue;
     if (code === 12) { chests.push(x, y, z, (v >>> 8) & 3); continue; }
@@ -421,8 +439,8 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (U
 
 const visSeen = new Uint8Array(4096);
 const visQ = new Int32Array(4096);
-const OCC = new Uint8Array(256);
-for (const b of BLOCKS) if (b && b.id < 256 && b.opaque && b.render === 'cube') OCC[b.id] = 1;
+const OCC = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id) && b.opaque && b.render === 'cube') OCC[b.id] = 1;
 
 export function facePair(a: number, b: number): number {
   if (a > b) { const t = a; a = b; b = t; }
@@ -436,7 +454,7 @@ function visGraph(): Uint16Array {
     let open = 0;
     for (let i = 0; i < 4096; i++) {
       const x = i & 15, z = (i >> 4) & 15, y = y0 + (i >> 8);
-      const solid = y >= H || OCC[region[ridx(x + 16, y, z + 16)] & 255] === 1;
+      const solid = y >= H || OCC[bid(region[ridx(x + 16, y, z + 16)])] === 1;
       visSeen[i] = solid ? 1 : 0;
       if (!solid) open++;
     }
@@ -517,7 +535,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
   const tiles = ctx.atlas.blockTiles;
   const sp = ctx.atlas.special;
   const sk = sky[ridx(rx, y, rz)] * 17, bl = blk[ridx(rx, y, rz)] * 17;
-  const meta = v >>> 8;
+  const meta = (v >>> 8) & 0xff;
   const tcode = ctx.atlas.tintTable[id * 2];
   let r = 255, g = 255, b = 255;
   if (tcode) { tintAt(x, z, tcode); r = tintOut[0]; g = tintOut[1]; b = tintOut[2]; }
@@ -529,25 +547,28 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       const tile = water ? sp.water : sp.lava;
       if (water) { tintAt(x, z, 0); r = tintOut[0]; g = tintOut[1]; b = tintOut[2]; } else { r = g = b = 255; }
       const wmap = (n: number) => (water && isWaterPlant(n) ? B.WATER : n);
-      const above = wmap(y + 1 < H ? region[ridx(rx, y + 1, rz)] & 255 : 0);
-      const ht = above === id ? 1 : fluidHeight(v);
-      const neigh = (dx: number, dy: number, dz: number) => wmap((y + dy < 0 || y + dy >= H) ? (dy < 0 ? B.STONE : 0) : region[ridx(rx + dx, y + dy, rz + dz)] & 255);
+      const above = wmap(y + 1 < H ? bid(region[ridx(rx, y + 1, rz)]) : 0);
+      const neigh = (dx: number, dy: number, dz: number) => wmap((y + dy < 0 || y + dy >= H) ? (dy < 0 ? B.STONE : 0) : bid(region[ridx(rx + dx, y + dy, rz + dz)]));
+      const lipH = (dx: number, dz: number) => (neigh(dx, -1, dz) === id ? 0 : 0.1);
+      const ht = above === id ? 1 : ((v >>> 8) & 8) ? lipH(0, 0) : fluidHeight(v);
       const cellH = (dx: number, dz: number): number => {
         const n = region[ridx(rx + dx, y, rz + dz)];
-        const nid = wmap(n & 255);
+        const nid = wmap(bid(n));
         if (nid !== id) return OPAQUE[nid] ? -2 : -1;
-        if (y + 1 < H && wmap(region[ridx(rx + dx, y + 1, rz + dz)] & 255) === id) return 1;
-        return nid === (n & 255) ? fluidHeight(n) : 0.888;
+        if (y + 1 < H && wmap(bid(region[ridx(rx + dx, y + 1, rz + dz)])) === id) return 1;
+        if (nid !== (bid(n))) return 0.888;
+        return ((n >>> 8) & 8) ? lipH(dx, dz) : fluidHeight(n);
       };
       const corner = (cx: number, cz: number): number => {
         if (ht >= 1) return 1;
-        let sum = 0, cnt = 0;
+        let sum = 0, cnt = 0, drop = false;
         for (let dz = cz - 1; dz <= cz; dz++) for (let dx = cx - 1; dx <= cx; dx++) {
           const hh = dx === 0 && dz === 0 ? ht : cellH(dx, dz);
           if (hh >= 1) return 1;
           if (hh >= 0) { const w = hh >= 0.87 ? 10 : 1; sum += hh * w; cnt += w; }
-          else if (hh === -1) cnt += 1;
+          else if (hh === -1) { cnt += 1; if (neigh(dx, -1, dz) === id) drop = true; }
         }
+        if (drop) return 0;
         return cnt ? sum / cnt : ht;
       };
       const h00 = corner(0, 0), h10 = corner(1, 0), h01 = corner(0, 1), h11 = corner(1, 1);
@@ -566,11 +587,50 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         if (curGrid[ci] === curGrid[ci]) { fx = curGrid[ci] * 0.35; fz = curGrid[ci + 1] * 0.35; fl = 0.35; flowing = true; }
       }
       const flowTile = water ? sp.waterFlow ?? tile : sp.lavaFlow ?? tile;
+      const smoothFlow = water && flowing && ht < 1;
+      if (smoothFlow) {
+        const cellFlow = (ox: number, oz: number): number => {
+          const hc = ox === 0 && oz === 0 ? ht : cellH(ox, oz);
+          if (hc < 0 || hc >= 1) return 0;
+          let a = 0, c = 0;
+          for (const [dx, dz] of D4) {
+            const hh = cellH(ox + dx, oz + dz);
+            if (hh >= 0) { const df = Math.min(hc, 0.89) - Math.min(hh, 0.89); a += dx * df; c += dz * df; }
+            else if (hh === -1 && neigh(ox + dx, -1, oz + dz) === id) { a += dx * 0.6; c += dz * 0.6; }
+          }
+          flowTmp[0] = a; flowTmp[1] = c;
+          if (Math.hypot(a, c) > 0.02) return 1;
+          const nv = ox === 0 && oz === 0 ? v : region[ridx(rx + ox, y, rz + oz)];
+          return ((nv >>> 8) & 15) === 0 ? 2 : 3;
+        };
+        for (let oz = -1; oz <= 1; oz++) for (let ox = -1; ox <= 1; ox++) {
+          const i = (oz + 1) * 3 + ox + 1;
+          flowT[i] = cellFlow(ox, oz);
+          flowF[i * 2] = flowT[i] ? flowTmp[0] : 0; flowF[i * 2 + 1] = flowT[i] ? flowTmp[1] : 0;
+        }
+        for (let k = 0; k < 4; k++) {
+          const ccx = k & 1, ccz = k >> 1;
+          let ax = 0, az = 0, cnt = 0, src = 0;
+          for (let oz = ccz - 1; oz <= ccz; oz++) for (let ox = ccx - 1; ox <= ccx; ox++) {
+            const i = (oz + 1) * 3 + ox + 1;
+            if (!flowT[i]) continue;
+            cnt++; ax += flowF[i * 2]; az += flowF[i * 2 + 1];
+            if (flowT[i] === 2) src++;
+          }
+          if (src && currentLerp(ctx, x + ccx, z + ccz)) { ax += curOut[0] * 0.35 * src; az += curOut[1] * 0.35 * src; }
+          if (cnt) { ax /= cnt; az /= cnt; }
+          let m = Math.hypot(ax, az);
+          if (m < 0.01) { ax = fx / fl * 0.02; az = fz / fl * 0.02; m = 0.02; }
+          if (m > 1) { ax /= m; az /= m; }
+          cornerFv[k * 2] = Math.round((ax * 0.5 + 0.5) * 255); cornerFv[k * 2 + 1] = Math.round((az * 0.5 + 0.5) * 255);
+        }
+      }
+      const fvOf = (px: number, pz: number) => ((pz > z ? 2 : 0) + (px > x ? 1 : 0)) * 2;
       let wdep = 0;
-      if (water) { for (let k = 1; k <= 12 && y - k >= 0; k++) { if (wmap(region[ridx(rx, y - k, rz)] & 255) !== id) break; wdep = k; } }
+      if (water) { for (let k = 1; k <= 12 && y - k >= 0; k++) { if (wmap(bid(region[ridx(rx, y - k, rz)])) !== id) break; wdep = k; } }
       let splash = 0;
       if (water) {
-        const fallAt = (dx: number, dy: number, dz: number) => { const nv = region[ridx(rx + dx, y + dy, rz + dz)]; return (nv & 255) === id && ((nv >>> 8) & 8) !== 0; };
+        const fallAt = (dx: number, dy: number, dz: number) => { const nv = region[ridx(rx + dx, y + dy, rz + dz)]; return (bid(nv)) === id && ((nv >>> 8) & 8) !== 0; };
         if ((v >>> 8) & 8) splash = 1;
         if (y + 1 < H) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { if (fallAt(dx, 1, dz) || (dx | dz) !== 0 && fallAt(dx, 0, dz)) splash = Math.max(splash, dx === 0 && dz === 0 ? 3 : Math.abs(dx) + Math.abs(dz) === 1 ? 3 : 2); }
         if (!splash && y + 2 < H) for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (fallAt(dx, 1, dz)) splash = 1;
@@ -608,7 +668,9 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         }
         const wave = water && ht < 1 && !flowing ? F_WAVE : 0;
         const flags = (d === 2 ? wave : 0) | (water ? F_TINT | F_WATER : F_EMIT);
-        for (let k = 0; k < 4; k++) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], ft, ovw, nsk, nbl, 255, SHADE[d], r, g, b, flags);
+        if (d === 2 && smoothFlow) {
+          for (let k = 0; k < 4; k++) { const fi = fvOf(pts[k][0], pts[k][2]); bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], ft, ovw, nsk, nbl, cornerFv[fi], cornerFv[fi + 1], r, g, b, flags | F_FLOWV); }
+        } else for (let k = 0; k < 4; k++) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], ft, ovw, nsk, nbl, 255, SHADE[d], r, g, b, flags);
         bd.quad(false);
         if (water && d === 2) {
           for (let k = 3; k >= 0; k--) bd.vert(pts[k][0], pts[k][1], pts[k][2], uvs[k][0], uvs[k][1], ft, ovw, nsk, nbl, 255, 128, r, g, b, F_TINT | F_WATER | wave);
@@ -639,6 +701,39 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       }
       return;
     }
+    case 21: {
+      const uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
+      const x2 = (tile: number, y0: number, y1: number, fl = 0, a = 0.15) => {
+        const c = 1 - a;
+        quadRaw(cut, [[x + a, y0, z + a], [x + c, y0, z + c], [x + c, y1, z + c], [x + a, y1, z + a]], uvq, tile, sk, bl, 230, 255, 255, 255, fl, true);
+        quadRaw(cut, [[x + a, y0, z + c], [x + c, y0, z + a], [x + c, y1, z + a], [x + a, y1, z + c]], uvq, tile, sk, bl, 230, 255, 255, 255, fl, true);
+      };
+      const flat = (tile: number, yy: number, i = 0) => quadRaw(cut, [[x + i, yy, z + 1 - i], [x + 1 - i, yy, z + 1 - i], [x + 1 - i, yy, z + i], [x + i, yy, z + i]], uvq, tile, sk, bl, 255, 255, 255, 255, 0, true);
+      if (id === CB.CAVE_VINES || id === CB.CAVE_VINES_LIT) {
+        const lit = id === CB.CAVE_VINES_LIT, nb = y > 0 ? bid(region[ridx(rx, y - 1, rz)]) : 0;
+        const body = nb === CB.CAVE_VINES || nb === CB.CAVE_VINES_LIT;
+        x2(sp[body ? (lit ? 'cave_vines_plant_lit' : 'cave_vines_plant') : (lit ? 'cave_vines_lit' : 'cave_vines')], y, y + 1, lit ? F_EMIT : 0);
+      } else if (id === CB.SPORE_BLOSSOM) {
+        flat(sp.spore_blossom, y + 15 / 16);
+        flat(sp.spore_blossom_base, y + 1 - 1 / 64, 0.25);
+      } else if (id === CB.BIG_DRIPLEAF || id === CB.BIG_DRIPLEAF_STEM) {
+        x2(sp.big_dripleaf_stem, y, id === CB.BIG_DRIPLEAF ? y + 14 / 16 : y + 1, 0, 0.3);
+        if (id === CB.BIG_DRIPLEAF) {
+          const f = meta & 3, tilt = (meta >> DL_TILT_SHIFT) & 3, drop = [0, 0, 0.28, 0.75][tilt];
+          const [fx, fz] = FACING_DIRS[f];
+          const cs = [[0, 1], [1, 1], [1, 0], [0, 0]].map(([cx2, cz2]) => { const d = (cx2 - 0.5) * fx + (cz2 - 0.5) * fz; return [x + cx2, y + 15 / 16 - (d > 0 ? drop : 0), z + cz2]; });
+          quadRaw(cut, cs, uvq, sp.big_dripleaf_top, sk, bl, 255, 255, 255, 255, 0, true);
+        }
+      } else if (id === CB.SMALL_DRIPLEAF) {
+        x2(meta & SMALL_UPPER ? sp.small_dripleaf_side : sp.small_dripleaf_stem_bottom, y, y + 1);
+      } else if (id === CB.POINTED_DRIPSTONE) {
+        const dn = (meta & DRIP_DOWN) !== 0, t = Math.min(4, meta & 7);
+        x2(sp[`pointed_dripstone_${dn ? 'down' : 'up'}_${DRIP_THICK[t]}`], y, y + 1, 0, 0.12);
+      } else if (id === CB.SCULK_VEIN) {
+        flat(sp.sculk_vein, y + 1 / 64);
+      }
+      return;
+    }
     case 13: { redstoneMesh(ctx, id, v, x, y, z, sk, bl); return; }
     case 17: {
       const tile = tiles[id * FS + 4];
@@ -663,7 +758,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       return;
     }
     case 20: {
-      const link = (dx: number, dz: number) => { const n = region[ridx(rx + dx, y, rz + dz)] & 255; return n === id || n === B.IRON_BARS || OPAQUE[n] === 1; };
+      const link = (dx: number, dz: number) => { const n = bid(region[ridx(rx + dx, y, rz + dz)]); return n === id || n === B.IRON_BARS || OPAQUE[n] === 1; };
       const tl = ctx.atlas.blockTiles;
       for (const bx of fenceBoxes([link(1, 0), link(0, 1), link(-1, 0), link(0, -1)])) boxFaces(builders[0], x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5], (d) => tl[id * FS + d], sk, bl, 255, 255, 255);
       return;
@@ -671,7 +766,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
     case 19: {
       const tile = tiles[id * FS + 4];
       const uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
-      const link = (dx: number, dz: number) => { const n = region[ridx(rx + dx, y, rz + dz)] & 255; return n === id || OPAQUE[n] === 1; };
+      const link = (dx: number, dz: number) => { const n = bid(region[ridx(rx + dx, y, rz + dz)]); return n === id || OPAQUE[n] === 1; };
       let ax = link(1, 0) || link(-1, 0), az = link(0, 1) || link(0, -1);
       if (!ax && !az) ax = az = true;
       if (ax) quadRaw(cut, [[x, y, z + 0.5], [x + 1, y, z + 0.5], [x + 1, y + 1, z + 0.5], [x, y + 1, z + 0.5]], uvq, tile, sk, bl, 230, 255, 255, 255, 0, true);
@@ -699,6 +794,13 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         boxFaces(builders[0], x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5], (d) => tl[id * FS + (d === 2 && !top ? 0 : d)], sk, bl, 255, 255, 255, undefined,
           ew ? (d) => (d === 2 && top ? [[b[5], b[0]], [b[5], b[3]], [b[2], b[3]], [b[2], b[0]]] : null) : undefined, TE);
       });
+      if (id === CB.SCULK_SENSOR) {
+        const t = meta & SENSOR_ACTIVE ? ctx.atlas.special.sculk_sensor_tendril_active : ctx.atlas.special.sculk_sensor_tendril_inactive, uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
+        for (const [ax, az] of [[3, 3], [12, 3], [3, 12], [12, 12]]) {
+          const cx2 = x + ax / 16, cz2 = z + az / 16, h = 4 / 16;
+          quadRaw(builders[1], [[cx2 - h, y + 0.5, cz2 - h], [cx2 + h, y + 0.5, cz2 + h], [cx2 + h, y + 1, cz2 + h], [cx2 - h, y + 1, cz2 - h]], uvq, t, sk, bl, 230, 255, 255, 255, meta & SENSOR_ACTIVE ? F_EMIT : 0, true);
+        }
+      }
       return;
     }
     case 14: {
@@ -730,6 +832,12 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       return;
     }
     case 9: {
+      if ((v >>> 12) >= TD_SPECIES_MIN) {
+        const bb = trapdoorBox(meta);
+        const ti = tix(v) * FS;
+        boxFaces(cut, x + bb[0], y + bb[1], z + bb[2], x + bb[3], y + bb[4], z + bb[5], (d) => ctx.atlas.blockTiles[ti + d], sk, bl, 255, 255, 255);
+        return;
+      }
       let f = doorFacing(meta);
       if (meta & DOOR_OPEN) f = (f + 1) & 3;
       const bb = edgeBox(f, 3 / 16);
@@ -760,8 +868,8 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
     }
     case 11: {
       const t = 1 / 16;
-      const above = y + 1 < H ? region[ridx(rx, y + 1, rz)] & 255 : 0;
-      const below = y > 0 ? region[ridx(rx, y - 1, rz)] & 255 : 1;
+      const above = y + 1 < H ? bid(region[ridx(rx, y + 1, rz)]) : 0;
+      const below = y > 0 ? bid(region[ridx(rx, y - 1, rz)]) : 1;
       boxFaces(cut, x + t, y, z + t, x + 1 - t, y + 1, z + 1 - t, (d) => tiles[id * FS + d], sk, bl, 255, 255, 255,
         (d) => (d === 2 && (above === id || OPAQUE[above] === 1)) || (d === 3 && (below === id || OPAQUE[below] === 1)),
         (d) => {
@@ -850,7 +958,7 @@ function rs6Mesh(ctx: MesherContext, id: number, meta: number, x: number, y: num
       const onEdge = (n[0] > 0 && x1 === 1) || (n[0] < 0 && x0 === 0) || (n[1] > 0 && y1 === 1) || (n[1] < 0 && y0 === 0) || (n[2] > 0 && z1 === 1) || (n[2] < 0 && z0 === 0);
       if (cull && onEdge) {
         const ny = y + n[1];
-        if (ny >= 0 && ny < H && OPAQUE[region[ridx(rx + n[0], ny, rz + n[2])] & 255]) continue;
+        if (ny >= 0 && ny < H && OPAQUE[bid(region[ridx(rx + n[0], ny, rz + n[2])])]) continue;
       }
       const along = n[0] * fv[0] + n[1] * fv[1] + n[2] * fv[2];
       const up = upFor(n), right = cross(up, n);

@@ -1,23 +1,24 @@
-import { isSolid, B } from '../blocks';
+import { isSolid, B, isTrapdoor, bid } from '../blocks';
 import type { BlockReader } from '../physics';
 
 export interface PathNode { x: number; y: number; z: number; }
 
 function passable(w: BlockReader, x: number, y: number, z: number): boolean {
   const v = w.getBlock(x, y, z);
+  if (isTrapdoor(v)) return true;
   if (isSolid(v)) return false;
-  return (v & 0xff) !== B.LAVA && (v & 0xff) !== B.CACTUS;
+  return (bid(v)) !== B.LAVA && (bid(v)) !== B.CACTUS;
 }
 
 export function standable(w: BlockReader, x: number, y: number, z: number, tall: boolean): boolean {
   if (!passable(w, x, y, z)) return false;
   if (tall && !passable(w, x, y + 1, z)) return false;
   const below = w.getBlock(x, y - 1, z);
-  const bid = below & 0xff;
-  if (bid === B.LAVA || bid === B.CACTUS) return false;
-  if (isSolid(below)) return true;
-  const here = w.getBlock(x, y, z) & 0xff;
-  return here === B.WATER || bid === B.WATER;
+  const bb = bid(below);
+  if (bb === B.LAVA || bb === B.CACTUS) return false;
+  if (isTrapdoor(below) || isSolid(below)) return true;
+  const here = bid(w.getBlock(x, y, z));
+  return here === B.WATER || bb === B.WATER;
 }
 
 export function findPath(w: BlockReader, sx: number, sy: number, sz: number, tx: number, ty: number, tz: number, tall: boolean, maxNodes = 320): PathNode[] | null {
@@ -58,7 +59,7 @@ export function findPath(w: BlockReader, sx: number, sy: number, sz: number, tx:
       }
       if (ny === -999) continue;
       const nk = key(nx, ny, nz);
-      const water = (w.getBlock(nx, ny, nz) & 0xff) === B.WATER;
+      const water = (bid(w.getBlock(nx, ny, nz))) === B.WATER;
       const g = cur.g + 1 + (ny !== cur.y ? 0.4 : 0) + (water ? 2 : 0);
       const prev = gScore.get(nk);
       if (prev !== undefined && prev <= g) continue;

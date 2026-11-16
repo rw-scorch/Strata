@@ -173,7 +173,8 @@ export class Minimap {
   update(): void {
     const now = performance.now();
     const p = this.host.pos();
-    this.layerY = isNether(p.x) ? Math.floor(p.y) : -1;
+    if (!isNether(p.x)) this.layerY = -1;
+    else { const ny = Math.floor(p.y + 0.05); if (this.layerY < 0 || Math.abs(ny - this.layerY) >= 2) this.layerY = ny; }
     const fx = Math.floor(localX(p.x)), fy = Math.floor(p.y), fz = Math.floor(p.z);
     const dirs = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE'];
     const deg = (((p.yaw * 180) / Math.PI) % 360 + 360) % 360;

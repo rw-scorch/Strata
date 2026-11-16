@@ -1,7 +1,7 @@
 import { SEA_LEVEL } from '../constants';
 import { NETHER_LAVA } from '../dimension';
 import { Rng, hash2 } from '../rng';
-import { B, X, XV, makeBlock, SLAB_TOP } from '../blocks';
+import { B, X, XV, makeBlock, SLAB_TOP, bid } from '../blocks';
 import { I, toolId, armorId } from '../items';
 import { ENCHANTS, supports } from '../enchants';
 import type { ItemStack } from '../inventory';
@@ -154,7 +154,7 @@ export function stampRuinedPortal(p: PortalPlan, bx: number, bz: number, S: numb
     const dist = Math.hypot(dx, dz) / SR;
     for (let dy = -4; dy <= 2; dy++) {
       const cur = get(lx, p.y + dy, lz);
-      if (!NATURAL.has(cur & 255)) continue;
+      if (!NATURAL.has(bid(cur))) continue;
       const hsh = (hash2(p.x + dx, (p.z + dz) * 31 + dy, p.seed) & 1023) / 1023;
       if (hsh < 0.85 - dist * 0.9) set(lx, p.y + dy, lz, !p.cold && hsh < 0.04 ? B.MAGMA_BLOCK : X(XV.NETHERRACK));
     }

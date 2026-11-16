@@ -270,6 +270,11 @@ export class AudioEngine {
         else if (sub === 'error') this.tone(dest, t, 180, 'square', { a: 0.005, d: 0.15, v: 0.08 });
         break;
       case 'chest': this.noiseHit(dest, t, 300, 3, 'bandpass', { a: 0.02, d: 0.35, v: 0.4 }); this.tone(dest, t, 110, 'triangle', { a: 0.01, d: 0.3, v: 0.15 }, 80); break;
+      case 'sculk':
+        if (sub === 'shriek') { this.tone(dest, t, 520, 'sawtooth', { a: 0.25, d: 3.6, v: 0.09 }, 880); this.tone(dest, t + 0.1, 780, 'square', { a: 0.4, d: 3.2, v: 0.03 }, 1240); this.noiseHit(dest, t, 1800, 3, 'bandpass', { a: 0.3, d: 3.2, v: 0.12 }); }
+        else { this.noiseHit(dest, t, 2600, 8, 'bandpass', { a: 0.002, d: 0.05, v: 0.35 }); this.noiseHit(dest, t + 0.07, 2200, 8, 'bandpass', { a: 0.002, d: 0.05, v: 0.25 }); }
+        break;
+      case 'dripleaf': this.noiseHit(dest, t, 380, 3, 'lowpass', { a: 0.01, d: 0.25, v: 0.35 }); break;
       case 'door': this.noiseHit(dest, t, sub === 'open' ? 500 : 350, 4, 'bandpass', { a: 0.01, d: 0.22, v: 0.4 }); this.tone(dest, t, sub === 'open' ? 260 : 200, 'sawtooth', { a: 0.01, d: 0.18, v: 0.06 }, sub === 'open' ? 320 : 150); break;
       case 'lever': case 'button': case 'plate': case 'click': {
         const on = sub === 'on' || cat === 'click';

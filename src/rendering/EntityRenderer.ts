@@ -412,7 +412,7 @@ export class EntityRenderer {
     const b = it?.kind === 'block' && it.blockIcon ? BLOCKS[itemId] : null;
     if (b) {
       const d = this.atlas.data;
-      const custom = CUSTOM_BOX[itemId] ? customBoxes(itemId) : [];
+      const custom = b.render === 'trapdoor' ? [[0, 0, 0, 1, 3 / 16, 1]] : CUSTOM_BOX[itemId] ? customBoxes(itemId) : [];
       const boxes = custom.length ? custom : [[0, 0, 0, 1, 1, 1]];
       const m = this.material(this.atlas.texture);
       m.side = THREE.FrontSide;

@@ -1,7 +1,8 @@
 export type BiomeId =
   | 'ocean' | 'deep_ocean' | 'beach' | 'river' | 'plains' | 'forest' | 'birch_forest' | 'desert'
   | 'mountains' | 'snowy_mountains' | 'snowy_tundra' | 'taiga' | 'swamp' | 'jungle' | 'island'
-  | 'savanna' | 'badlands' | 'dark_forest' | 'meadow' | 'old_growth_taiga';
+  | 'savanna' | 'badlands' | 'dark_forest' | 'meadow' | 'old_growth_taiga'
+  | 'cherry_grove' | 'mangrove_swamp' | 'mushroom_fields' | 'ice_spikes' | 'warm_ocean';
 
 export interface Biome {
   id: BiomeId;
@@ -35,6 +36,11 @@ const list: Omit<Biome, 'index'>[] = [
   { id: 'dark_forest', name: 'Gloomroot Thicket', grass: [80, 122, 50], foliage: [64, 120, 34], water: [59, 107, 210], cold: false, rain: true },
   { id: 'meadow', name: 'Bloomvale Meadow', grass: [131, 187, 109], foliage: [99, 165, 79], water: [14, 78, 207], cold: false, rain: true },
   { id: 'old_growth_taiga', name: 'Elderspire Taiga', grass: [134, 183, 131], foliage: [104, 164, 100], water: [40, 112, 160], cold: false, rain: true },
+  { id: 'cherry_grove', name: 'Petalfall Grove', grass: [182, 219, 97], foliage: [182, 219, 97], water: [93, 183, 239], cold: false, rain: true },
+  { id: 'mangrove_swamp', name: 'Tanglewater Mangroves', grass: [106, 112, 57], foliage: [141, 177, 39], water: [58, 122, 106], cold: false, rain: true },
+  { id: 'mushroom_fields', name: 'Sporecap Isle', grass: [85, 201, 63], foliage: [43, 187, 15], water: [63, 118, 228], cold: false, rain: true },
+  { id: 'ice_spikes', name: 'Frostspire Barrens', grass: [128, 180, 151], foliage: [96, 161, 123], water: [57, 56, 201], cold: true, rain: true },
+  { id: 'warm_ocean', name: 'Coralreach Shallows', grass: [145, 189, 89], foliage: [119, 171, 47], water: [67, 213, 238], cold: false, rain: true },
 ];
 
 export const BIOMES: Biome[] = list.map((b, i) => ({ ...b, index: i }));

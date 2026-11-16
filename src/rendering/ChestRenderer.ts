@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { cubesGeometry, type VCube } from './VanillaModels';
 import { createEntityMaterial, type WorldUniforms } from './ChunkMaterial';
-import { FACING_DIRS } from '../core/blocks';
+import { FACING_DIRS, bid } from '../core/blocks';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 
 type Kind = 'single' | 'left' | 'right';
@@ -100,7 +100,7 @@ export class ChestRenderer {
 
   private kindFor(x: number, y: number, z: number, f: number): Kind {
     const ax = f === 0 || f === 2 ? 1 : 0, az = 1 - ax;
-    const same = (k: number) => { const w = this.getBlock(x + ax * k, y, z + az * k); return (w & 0xff) === 37 && ((w >>> 8) & 3) === f; };
+    const same = (k: number) => { const w = this.getBlock(x + ax * k, y, z + az * k); return (bid(w)) === 37 && ((w >>> 8) & 3) === f; };
     let back = 0;
     while (back < 32 && same(-(back + 1))) back++;
     let dx = 0, dz = 0;

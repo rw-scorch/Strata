@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars' | 'fence';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars' | 'fence' | 'trapdoor' | 'cave';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -109,18 +109,23 @@ export const XV = {
   NETHER_WART_BLOCK: 15, WARPED_WART_BLOCK: 16, BONE_BLOCK: 17, CRIMSON_PLANKS: 18, WARPED_PLANKS: 19, SMOOTH_BASALT: 20,
   ANCIENT_DEBRIS: 21, CINDERITE_BLOCK: 22, GILDED_BLACKSTONE: 23, CRACKED_POLISHED_BLACKSTONE_BRICKS: 24, CHISELED_POLISHED_BLACKSTONE: 25,
   GRANITE: 26, POLISHED_GRANITE: 27, DIORITE: 28, POLISHED_DIORITE: 29, ANDESITE: 30, POLISHED_ANDESITE: 31, DRIPSTONE_BLOCK: 32, QUARTZ_PILLAR: 33, DRIED_KELP_BLOCK: 34, GLAZED_TERRACOTTA: 35,
+  TUBE_CORAL_BLOCK: 51, BRAIN_CORAL_BLOCK: 52, BUBBLE_CORAL_BLOCK: 53, FIRE_CORAL_BLOCK: 54, HORN_CORAL_BLOCK: 55,
+  RED_MUSHROOM_BLOCK: 56, BROWN_MUSHROOM_BLOCK: 57, MUSHROOM_STEM: 58, MYCELIUM: 59,
 } as const;
 export function X(variant: number): number { return 218 | (variant << 8); }
 export const SPB = 880;
-const SPMAP = new Int16Array(256 * 16);
+export const ID_LIMIT = 4096, WIDE_BASE = 1024;
+export function isBaseId(id: number): boolean { return id >= 0 && (id < 256 || (id >= WIDE_BASE && id < ID_LIMIT)); }
+export function bid(v: number): number { return (v & 0xff) | ((v >>> 8) & 0xf00); }
+const SPMAP = new Int16Array(ID_LIMIT * 16);
 export function tix(v: number): number {
-  const id = v & 0xff;
+  const id = (v & 0xff) | ((v >>> 8) & 0xf00);
   if (id === 218) return XB + ((v >>> 8) & 0xff);
   const s = (v >>> 12) & 15;
   return s ? SPMAP[id * 16 + s] || id : id;
 }
-export const SPECIES = { ACACIA: 1, DARK_OAK: 2 } as const;
-export function sp(base: number, s: number, extra = 0): number { return (base & 0xff) | (((s << 4) | (extra & 15)) << 8); }
+export const SPECIES = { ACACIA: 1, DARK_OAK: 2, CHERRY: 3, MANGROVE: 4 } as const;
+export function sp(base: number, s: number, extra = 0): number { return (base & 0xff) | (((s << 4) | (extra & 15)) << 8) | ((base & 0xf00) << 8); }
 export function speciesOf(v: number): number { return (v >>> 12) & 15; }
 function species(id: number, base: number, s: number, key: string, name: string, desc: string, p: Partial2): void {
   const { id: _i, key: _k, name: _n, desc: _d, ...rest } = defs[base];
@@ -379,6 +384,12 @@ ext(31, 'polished_andesite', 'Polished Andesite', 'Andesite ground smooth.', { f
 ext(32, 'dripstone_block', 'Dripstone Block', 'Brown limestone built up by dripping water.', { faces: ALL('dripstone_block'), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' });
 ext(33, 'quartz_pillar', 'Quartz Pillar', 'A tall column of polished quartz.', { faces: { ...ALL('quartz_pillar'), py: 'quartz_pillar_top', ny: 'quartz_pillar_top' }, hardness: 0.8, tool: 'pickaxe', tier: 1 });
 ext(34, 'dried_kelp_block', 'Dried Kelp Block', 'Nine bundles of dried kelp. Burns for a long time.', { faces: { ...ALL('dried_kelp_side'), py: 'dried_kelp_top', ny: 'dried_kelp_bottom' }, hardness: 0.5, tool: 'hoe', sound: 'grass' });
+const CORALS = ['tube', 'brain', 'bubble', 'fire', 'horn'];
+CORALS.forEach((c, i) => ext(51 + i, `${c}_coral_block`, `${c[0].toUpperCase()}${c.slice(1)} Coral Block`, 'Living reef rock from warm seas.', { faces: ALL(`${c}_coral_block`), hardness: 1.5, tool: 'pickaxe', tier: 1, category: 'nature' }));
+ext(56, 'red_mushroom_block', 'Red Mushroom Block', 'The spotted cap of a huge mushroom.', { faces: ALL('red_mushroom_block'), hardness: 0.2, tool: 'axe', sound: 'wood', category: 'nature' });
+ext(57, 'brown_mushroom_block', 'Brown Mushroom Block', 'The flat cap of a huge mushroom.', { faces: ALL('brown_mushroom_block'), hardness: 0.2, tool: 'axe', sound: 'wood', category: 'nature' });
+ext(58, 'mushroom_stem', 'Mushroom Stem', 'The pale stalk of a huge mushroom.', { faces: ALL('mushroom_stem'), hardness: 0.2, tool: 'axe', sound: 'wood', category: 'nature' });
+ext(59, 'mycelium', 'Mycelium', 'Fungal turf. Mushrooms grow here in any light.', { faces: { ...ALL('mycelium_side'), py: 'mycelium_top', ny: 'dirt' }, hardness: 0.6, tool: 'shovel', sound: 'grass', drops: [{ item: 3 }], category: 'nature' });
 COLORS.forEach((c, i) => ext(35 + i, `${c}_glazed_terracotta`, `${COLOR_NAMES[c]} Glazed Terracotta`, 'Fired clay with a bold glazed pattern.', { faces: ALL(`${c}_glazed_terracotta`), hardness: 1.4, tool: 'pickaxe', tier: 1 }));
 ext(20, 'smooth_basalt', 'Smooth Basalt', 'Basalt smoothed by heat.', { faces: ALL('smooth_basalt'), hardness: 1.25, tool: 'pickaxe', tier: 1 });
 def(214, 'enchanting_table', 'Enchanting Table', 'Spend levels and lapis to enchant gear. Bookshelves two blocks away make it stronger.', { faces: { ...ALL('enchanting_table_side'), py: 'enchanting_table_top', ny: 'enchanting_table_bottom' }, render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 7, hardness: 5, tool: 'pickaxe', tier: 1, interactive: true, sound: 'stone', category: 'functional' });
@@ -387,13 +398,29 @@ def(216, 'lapis_block', 'Block of Lapis', 'Nine lapis packed together.', { faces
 def(217, 'anvil', 'Anvil', 'Repair, rename and combine enchanted gear for levels.', { faces: { ...ALL('anvil'), py: 'anvil_top' }, render: 'boxes', opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', tier: 1, interactive: true, sound: 'metal', category: 'functional' });
 
 export function isWaterPlant(id: number): boolean { return id === 179 || id === 180 || id === 181; }
-export function isWaterLike(v: number): boolean { const id = v & 0xff; return id === 12 || id === 179 || id === 180 || id === 181; }
+export function isWaterLike(v: number): boolean { const id = bid(v); return id === 12 || id === 179 || id === 180 || id === 181; }
 
 export const SB = {
   ACACIA_PLANKS: SPB, ACACIA_LOG: SPB + 1, ACACIA_LEAVES: SPB + 2, ACACIA_SAPLING: SPB + 3,
   DARK_OAK_PLANKS: SPB + 4, DARK_OAK_LOG: SPB + 5, DARK_OAK_LEAVES: SPB + 6, DARK_OAK_SAPLING: SPB + 7,
   RED_SAND: SPB + 8, COARSE_DIRT: SPB + 9, PODZOL: SPB + 10, RED_SANDSTONE: SPB + 11,
+  CHERRY_PLANKS: SPB + 12, CHERRY_LOG: SPB + 13, CHERRY_LEAVES: SPB + 14, CHERRY_SAPLING: SPB + 15,
+  MANGROVE_PLANKS: SPB + 16, MANGROVE_LOG: SPB + 17, MANGROVE_LEAVES: SPB + 18, MANGROVE_PROPAGULE: SPB + 19,
+  TUBE_CORAL: SPB + 20, BRAIN_CORAL: SPB + 21, BUBBLE_CORAL: SPB + 22, FIRE_CORAL: SPB + 23, HORN_CORAL: SPB + 24,
+  IRON_TRAPDOOR: SPB + 25, OAK_TRAPDOOR: SPB + 26, SPRUCE_TRAPDOOR: SPB + 27, BIRCH_TRAPDOOR: SPB + 28, JUNGLE_TRAPDOOR: SPB + 29,
+  ACACIA_TRAPDOOR: SPB + 30, DARK_OAK_TRAPDOOR: SPB + 31, CHERRY_TRAPDOOR: SPB + 32, MANGROVE_TRAPDOOR: SPB + 33,
 } as const;
+export const TRAPDOOR_WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'cherry', 'mangrove'] as const;
+export const TD_TOP = 1, TD_OPEN = 2, TD_SPECIES_MIN = 7;
+export function isTrapdoor(v: number): boolean { return bid(v) === 42 && ((v >>> 12) & 15) >= TD_SPECIES_MIN; }
+export function isDoorBlock(v: number): boolean { return bid(v) === 42 && ((v >>> 12) & 15) < TD_SPECIES_MIN; }
+export function trapdoorMeta(species: number, hinge: number, top: boolean, open: boolean): number {
+  return ((species & 15) << 4) | ((hinge & 3) << 2) | (top ? TD_TOP : 0) | (open ? TD_OPEN : 0);
+}
+export function trapdoorBox(meta: number): [number, number, number, number, number, number] {
+  if (meta & TD_OPEN) return edgeBox((meta >> 2) & 3, 3 / 16);
+  return meta & TD_TOP ? [0, 13 / 16, 0, 1, 1, 1] : [0, 0, 0, 1, 3 / 16, 1];
+}
 species(SB.ACACIA_PLANKS, 5, 1, 'acacia_planks', 'Acacia Planks', 'Warm orange timber from the savanna.', { faces: ALL('acacia_planks') });
 species(SB.ACACIA_LOG, 14, 1, 'acacia_log', 'Acacia Log', 'Grey bark around bright orange wood.', { faces: COL('acacia_log', 'acacia_log_top') });
 species(SB.ACACIA_LEAVES, 15, 1, 'acacia_leaves', 'Acacia Leaves', 'Flat-topped canopy of the savanna.', { faces: ALL('acacia_leaves'), drops: [{ item: SPB + 3, chance: 0.05 }, { item: 256, chance: 0.02 }] });
@@ -405,22 +432,77 @@ species(SB.DARK_OAK_SAPLING, 55, 2, 'dark_oak_sapling', 'Dark Oak Sapling', 'Pla
 species(SB.RED_SAND, 7, 1, 'red_sand', 'Red Sand', 'Iron-stained sand from the badlands.', { faces: ALL('red_sand') });
 species(SB.COARSE_DIRT, 3, 1, 'coarse_dirt', 'Coarse Dirt', 'Gravelly soil that grass will not grow over.', { faces: ALL('coarse_dirt') });
 species(SB.PODZOL, 3, 2, 'podzol', 'Podzol', 'Needle-strewn forest floor.', { faces: { ...ALL('podzol_side'), py: 'podzol_top', ny: 'dirt' }, drops: [{ item: 3 }] });
+species(SB.CHERRY_PLANKS, 5, 3, 'cherry_planks', 'Cherry Planks', 'Pale pink timber.', { faces: ALL('cherry_planks') });
+species(SB.CHERRY_LOG, 14, 3, 'cherry_log', 'Cherry Log', 'Dark bark around rosy wood.', { faces: COL('cherry_log', 'cherry_log_top') });
+species(SB.CHERRY_LEAVES, 15, 3, 'cherry_leaves', 'Cherry Leaves', 'Clouds of pink blossom.', { faces: ALL('cherry_leaves'), tint: null, drops: [{ item: SPB + 15, chance: 0.05 }, { item: 256, chance: 0.02 }] });
+species(SB.CHERRY_SAPLING, 55, 3, 'cherry_sapling', 'Cherry Sapling', 'Grows into a spreading cherry tree.', { faces: ALL('cherry_sapling') });
+species(SB.MANGROVE_PLANKS, 5, 4, 'mangrove_planks', 'Mangrove Planks', 'Red timber that shrugs off the damp.', { faces: ALL('mangrove_planks') });
+species(SB.MANGROVE_LOG, 14, 4, 'mangrove_log', 'Mangrove Log', 'Twisting wood from tidal swamps.', { faces: COL('mangrove_log', 'mangrove_log_top') });
+species(SB.MANGROVE_LEAVES, 15, 4, 'mangrove_leaves', 'Mangrove Leaves', 'Waxy leaves that thrive in heat.', { faces: ALL('mangrove_leaves'), drops: [{ item: SPB + 19, chance: 0.05 }, { item: 256, chance: 0.02 }] });
+species(SB.MANGROVE_PROPAGULE, 55, 4, 'mangrove_propagule', 'Mangrove Propagule', 'A seedling that roots even in shallow water.', { faces: ALL('mangrove_propagule') });
+CORALS.forEach((c, i) => species(SB.TUBE_CORAL + i, 181, 1 + i, `${c}_coral`, `${c[0].toUpperCase()}${c.slice(1)} Coral`, 'A bright coral that grows on warm sea floors.', { faces: ALL(`${c}_coral`), drops: [{ item: SB.TUBE_CORAL + i }], category: 'nature' }));
+const TD_BASE: Partial<BlockDef> = { render: 'trapdoor', solid: true, opaque: false, lightFilter: 0, cullSelf: false, interactive: true, category: 'functional', orientable: false };
+species(SB.IRON_TRAPDOOR, 42, 7, 'iron_trapdoor', 'Iron Trapdoor', 'A heavy hatch that only redstone can open.', { faces: ALL('iron_trapdoor'), ...TD_BASE, interactive: false, hardness: 5, tool: 'pickaxe', sound: 'metal', drops: [{ item: SB.IRON_TRAPDOOR }] });
+TRAPDOOR_WOODS.forEach((w, i) => {
+  const nm = w.split('_').map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
+  species(SB.OAK_TRAPDOOR + i, 42, 8 + i, `${w}_trapdoor`, `${nm} Trapdoor`, 'A hatch that flips open with a tap or a redstone signal.', { faces: ALL(`${w}_trapdoor`), ...TD_BASE, hardness: 3, tool: 'axe', sound: 'wood', drops: [{ item: SB.OAK_TRAPDOOR + i }] });
+});
 species(SB.RED_SANDSTONE, 26, 1, 'red_sandstone', 'Red Sandstone', 'Compressed red sand.', { faces: COL('red_sandstone', 'red_sandstone_top', 'red_sandstone_bottom') });
+
+export const CB = {
+  MOSS_BLOCK: 1024, MOSS_CARPET: 1025, AZALEA: 1026, FLOWERING_AZALEA: 1027, AZALEA_LEAVES: 1028, FLOWERING_AZALEA_LEAVES: 1029,
+  ROOTED_DIRT: 1030, HANGING_ROOTS: 1031, CAVE_VINES: 1032, CAVE_VINES_LIT: 1033, SPORE_BLOSSOM: 1034, BIG_DRIPLEAF: 1035,
+  BIG_DRIPLEAF_STEM: 1036, SMALL_DRIPLEAF: 1037, GLOW_LICHEN: 1038, POINTED_DRIPSTONE: 1039, SCULK: 1040, SCULK_VEIN: 1041,
+  SCULK_SENSOR: 1042, SCULK_SHRIEKER: 1043, SCULK_CATALYST: 1044, DEEPSLATE: 1045, COBBLED_DEEPSLATE: 1046,
+} as const;
+export const VINE_BODY = 1, DL_TILT_SHIFT = 2, SMALL_UPPER = 1, DRIP_DOWN = 8, SENSOR_ACTIVE = 1, SENSOR_COOL = 2, SHRIEK_ON = 1, SHRIEK_SUMMON = 2;
+export const DRIP_THICK = ['tip_merge', 'tip', 'frustum', 'middle', 'base'] as const;
+const CAVE_PLANT: Partial<BlockDef> = { render: 'cave', solid: false, opaque: false, lightFilter: 0, hardness: 0, sound: 'grass', category: 'plants' };
+const HALF_SIDES = (side: string, top: string, bottom: string): FaceTextures => ({ px: side, nx: side, pz: side, nz: side, py: top, ny: bottom });
+def(CB.MOSS_BLOCK, 'moss_block', 'Moss Block', 'Soft green moss. Bone meal spreads it, with plants on top.', { faces: ALL('moss_block'), hardness: 0.1, tool: 'hoe', sound: 'grass', category: 'nature' });
+def(CB.MOSS_CARPET, 'moss_carpet', 'Moss Carpet', 'A thin layer of moss.', { faces: ALL('moss_block'), render: 'boxes', solid: false, opaque: false, lightFilter: 0, hardness: 0.1, tool: 'hoe', sound: 'grass', needsSupport: 'solid', category: 'nature' });
+def(CB.AZALEA, 'azalea', 'Azalea', 'A leafy bush from lush caves. Bone meal grows an azalea tree.', { faces: ALL('azalea_side'), ...CAVE_PLANT, render: 'cross', needsSupport: 'soil' });
+def(CB.FLOWERING_AZALEA, 'flowering_azalea', 'Flowering Azalea', 'An azalea bush in bloom.', { faces: ALL('flowering_azalea_side'), ...CAVE_PLANT, render: 'cross', needsSupport: 'soil' });
+def(CB.AZALEA_LEAVES, 'azalea_leaves', 'Azalea Leaves', 'Glossy leaves from an azalea tree.', { faces: ALL('azalea_leaves'), ...LEAVES, drops: [{ item: CB.AZALEA, chance: 0.05 }] });
+def(CB.FLOWERING_AZALEA_LEAVES, 'flowering_azalea_leaves', 'Flowering Azalea Leaves', 'Azalea leaves dotted with pink flowers.', { faces: ALL('flowering_azalea_leaves'), ...LEAVES, drops: [{ item: CB.FLOWERING_AZALEA, chance: 0.05 }] });
+def(CB.ROOTED_DIRT, 'rooted_dirt', 'Rooted Dirt', 'Dirt threaded with roots from the tree above.', { faces: ALL('rooted_dirt'), hardness: 0.5, tool: 'shovel', sound: 'grass', category: 'nature' });
+def(CB.HANGING_ROOTS, 'hanging_roots', 'Hanging Roots', 'Roots dangling from the cave roof.', { faces: ALL('hanging_roots'), ...CAVE_PLANT, render: 'cross', needsSupport: 'hang', replaceable: true });
+def(CB.CAVE_VINES, 'cave_vines', 'Cave Vines', 'Vines that hang from the roof of lush caves.', { faces: ALL('cave_vines'), ...CAVE_PLANT, needsSupport: 'hang', climbable: true, drops: [], category: 'hidden' });
+def(CB.CAVE_VINES_LIT, 'cave_vines_lit', 'Cave Vines with Glow Berries', 'Tap to pick the glowing berries.', { faces: ALL('cave_vines_lit'), ...CAVE_PLANT, needsSupport: 'hang', climbable: true, lightEmit: 14, interactive: true, drops: [{ item: 4096 }], category: 'hidden' });
+def(CB.SPORE_BLOSSOM, 'spore_blossom', 'Spore Blossom', 'A flower that hangs from ceilings and drifts spores.', { faces: ALL('spore_blossom'), ...CAVE_PLANT, needsSupport: 'hang' });
+def(CB.BIG_DRIPLEAF, 'big_dripleaf', 'Big Dripleaf', 'A broad leaf you can stand on, until it tips. Bone meal makes it taller.', { faces: HALF_SIDES('big_dripleaf_side', 'big_dripleaf_top', 'big_dripleaf_top'), ...CAVE_PLANT, solid: true, needsSupport: 'soil' });
+def(CB.BIG_DRIPLEAF_STEM, 'big_dripleaf_stem', 'Big Dripleaf Stem', 'The stalk of a big dripleaf.', { faces: ALL('big_dripleaf_stem'), ...CAVE_PLANT, drops: [{ item: CB.BIG_DRIPLEAF }], category: 'hidden' });
+def(CB.SMALL_DRIPLEAF, 'small_dripleaf', 'Small Dripleaf', 'A two-block-tall leafy plant from lush caves.', { faces: ALL('small_dripleaf_side'), ...CAVE_PLANT, needsSupport: 'soil' });
+def(CB.GLOW_LICHEN, 'glow_lichen', 'Glow Lichen', 'A faintly glowing crust that clings to walls.', { faces: ALL('glow_lichen'), render: 'ladder', solid: false, opaque: false, lightFilter: 0, lightEmit: 7, hardness: 0.2, sound: 'grass', replaceable: true, category: 'nature' });
+def(CB.POINTED_DRIPSTONE, 'pointed_dripstone', 'Pointed Dripstone', 'Stalactites hang from roofs and stalagmites rise from floors. Landing on one hurts.', { faces: ALL('pointed_dripstone_up_tip'), render: 'cave', solid: true, opaque: false, lightFilter: 0, hardness: 1.5, tool: 'pickaxe', sound: 'stone', category: 'nature' });
+def(CB.SCULK, 'sculk', 'Sculk', 'Living blackness that spreads where creatures die.', { faces: ALL('sculk'), hardness: 0.2, tool: 'hoe', sound: 'cloth', drops: [], xp: [1, 1], category: 'nature' });
+def(CB.SCULK_VEIN, 'sculk_vein', 'Sculk Vein', 'A thin creeping layer of sculk.', { faces: ALL('sculk_vein'), render: 'cave', solid: false, opaque: false, lightFilter: 0, hardness: 0.2, tool: 'hoe', sound: 'cloth', replaceable: true, drops: [], category: 'nature' });
+def(CB.SCULK_SENSOR, 'sculk_sensor', 'Sculk Sensor', 'Twitches at nearby footsteps and noises and gives a redstone signal. Sneak to stay quiet.', { faces: HALF_SIDES('sculk_sensor_side', 'sculk_sensor_top', 'sculk_sensor_bottom'), render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 1, hardness: 1.5, tool: 'hoe', sound: 'cloth', xp: [5, 5], category: 'functional' });
+def(CB.SCULK_SHRIEKER, 'sculk_shrieker', 'Sculk Shrieker', 'Shrieks when a player is heard nearby or steps on it. The wild ones bring Darkness.', { faces: HALF_SIDES('sculk_shrieker_side', 'sculk_shrieker_top', 'sculk_shrieker_bottom'), render: 'boxes', opaque: false, lightFilter: 0, hardness: 3, tool: 'hoe', sound: 'cloth', xp: [5, 5], category: 'functional' });
+def(CB.SCULK_CATALYST, 'sculk_catalyst', 'Sculk Catalyst', 'Blooms and spreads sculk when a creature dies close by.', { faces: HALF_SIDES('sculk_catalyst_side', 'sculk_catalyst_top', 'sculk_catalyst_bottom'), lightEmit: 6, hardness: 3, tool: 'hoe', sound: 'cloth', xp: [5, 5], category: 'functional' });
+def(CB.DEEPSLATE, 'deepslate', 'Deepslate', 'Dense dark rock from deep underground.', { faces: COL('deepslate', 'deepslate_top'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: CB.COBBLED_DEEPSLATE }] });
+def(CB.COBBLED_DEEPSLATE, 'cobbled_deepslate', 'Cobbled Deepslate', 'Broken deepslate. Builds like cobblestone.', { faces: ALL('cobbled_deepslate'), hardness: 3.5, tool: 'pickaxe', tier: 1 });
+export const CAVE_TEX = [
+  ...['up', 'down'].flatMap((d) => DRIP_THICK.map((t) => `pointed_dripstone_${d}_${t}`)),
+  'cave_vines', 'cave_vines_lit', 'cave_vines_plant', 'cave_vines_plant_lit', 'spore_blossom', 'spore_blossom_base',
+  'big_dripleaf_top', 'big_dripleaf_side', 'big_dripleaf_stem', 'small_dripleaf_top', 'small_dripleaf_side', 'small_dripleaf_stem_top', 'small_dripleaf_stem_bottom',
+  'sculk_vein', 'sculk_sensor_tendril_inactive', 'sculk_sensor_tendril_active', 'sculk_shrieker_inner_top', 'sculk_shrieker_can_summon_inner_top', 'azalea_top', 'flowering_azalea_top', 'azalea_plant',
+];
 
 export const BLOCKS: BlockDef[] = defs;
 
 export const BLOCK_BY_KEY = new Map<string, BlockDef>(defs.filter(Boolean).map((d) => [d.key, d] as [string, BlockDef]));
 
-export function blockId(v: number): number { return v & 0xff; }
-export function blockMeta(v: number): number { return v >>> 8; }
-export function makeBlock(id: number, meta = 0): number { return (id & 0xff) | ((meta & 0xff) << 8); }
+export function blockId(v: number): number { return (v & 0xff) | ((v >>> 8) & 0xf00); }
+export function blockMeta(v: number): number { return (v >>> 8) & 0xff; }
+export function makeBlock(id: number, meta = 0): number { return (id & 0xff) | ((meta & 0xff) << 8) | ((id & 0xf00) << 8); }
 
-const solidTable = new Uint8Array(256);
-const opaqueTable = new Uint8Array(256);
-const filterTable = new Uint8Array(256);
-const emitTable = new Uint8Array(256);
+const solidTable = new Uint8Array(ID_LIMIT);
+const opaqueTable = new Uint8Array(ID_LIMIT);
+const filterTable = new Uint8Array(ID_LIMIT);
+const emitTable = new Uint8Array(ID_LIMIT);
 for (const d of defs) {
-  if (!d || d.id > 255) continue;
+  if (!d || !isBaseId(d.id)) continue;
   solidTable[d.id] = d.solid ? 1 : 0;
   opaqueTable[d.id] = d.opaque ? 1 : 0;
   filterTable[d.id] = d.lightFilter;
@@ -432,7 +514,7 @@ export const LIGHT_FILTER = filterTable;
 export const LIGHT_EMIT = emitTable;
 
 export function getBlock(id: number): BlockDef {
-  const b = id & 0xff;
+  const b = (id & 0xff) | ((id >>> 8) & 0xf00);
   if (b === 218) return defs[XB + ((id >>> 8) & 0xff)] ?? defs[218];
   const s = (id >>> 12) & 15;
   if (s) { const t = SPMAP[b * 16 + s]; if (t) return defs[t]; }
@@ -440,16 +522,16 @@ export function getBlock(id: number): BlockDef {
 }
 
 export function isSolid(v: number): boolean {
-  return solidTable[v & 0xff] === 1;
+  return solidTable[bid(v)] === 1;
 }
 
 export function isFluid(v: number): boolean {
-  const id = v & 0xff;
+  const id = bid(v);
   return id === B.WATER || id === B.LAVA;
 }
 
 export function isReplaceable(v: number): boolean {
-  return defs[v & 0xff]?.replaceable ?? true;
+  return defs[bid(v)]?.replaceable ?? true;
 }
 
 export const DOOR_UPPER = 1, DOOR_OPEN = 2;
@@ -501,7 +583,7 @@ const BLAST: Record<string, number> = {
   rail: 0.7, powered_rail: 0.7, detector_rail: 0.7, activator_rail: 0.7, white_wool: 0.8, red_wool: 0.8, yellow_wool: 0.8,
 };
 
-export const BLAST_RES = new Float32Array(1024);
+export const BLAST_RES = new Float32Array(ID_LIMIT);
 for (const b of BLOCKS) {
   if (!b) continue;
   const k = b.key;
@@ -531,11 +613,14 @@ export const SHAPE_MATS: { id: number; key: string; name: string }[] = [
   { id: B.TUFF_BRICKS, key: 'tuff_brick', name: 'Tuff Brick' }, { id: B.CUT_COPPER, key: 'cut_copper', name: 'Cut Copper' },
   { id: 600 + 6, key: 'nether_brick', name: 'Nether Brick' },
   { id: 600 + 9, key: 'polished_blackstone_brick', name: 'Polished Blackstone Brick' }, { id: 600 + 3, key: 'blackstone', name: 'Blackstone' },
+  { id: SPB, key: 'acacia', name: 'Acacia' }, { id: SPB + 4, key: 'dark_oak', name: 'Dark Oak' }, { id: SPB + 12, key: 'cherry', name: 'Cherry' }, { id: SPB + 16, key: 'mangrove', name: 'Mangrove' },
 ];
 export const SLAB_ITEM = 400, STAIRS_ITEM = 440, SLAB_TOP = 32, STAIRS_UP = 128;
+export function slabItem(i: number): number { return i < 21 ? SLAB_ITEM + i : 470 + (i - 21); }
+export function stairsItem(i: number): number { return i < 21 ? STAIRS_ITEM + i : 480 + (i - 21); }
 
 export function shapeBoxes(v: number): [number, number, number, number, number, number][] {
-  const id = v & 0xff, m = v >>> 8;
+  const id = bid(v), m = v >>> 8;
   if (id === B.SLAB) return [m & SLAB_TOP ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1]];
   const up = !!(m & STAIRS_UP), [dx, dz] = FACING_DIRS[(m >> 5) & 3];
   const base: [number, number, number, number, number, number] = up ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1];
@@ -557,9 +642,9 @@ export function fenceBoxes(n: [boolean, boolean, boolean, boolean]): Box[] {
   return out;
 }
 
-export const CUSTOM_BOX = new Uint8Array(256);
+export const CUSTOM_BOX = new Uint8Array(ID_LIMIT);
 export function customBoxes(v: number): Box[] {
-  const id = v & 0xff;
+  const id = bid(v);
   if (id === B.ENCHANTING_TABLE) return [[0, 0, 0, 1, 0.75, 1]];
   const p = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Box => [x0 / 16, y0 / 16, z0 / 16, x1 / 16, y1 / 16, z1 / 16];
   switch (id) {
@@ -572,6 +657,10 @@ export function customBoxes(v: number): Box[] {
     case B.BELL: return [p(4, 3, 4, 12, 10, 12), p(5, 10, 5, 11, 12, 11), p(3, 2, 3, 13, 3, 13), p(7, 12, 7, 9, 16, 9)];
     case B.LANTERN: return [p(5, 0, 5, 11, 7, 11), p(6, 7, 6, 10, 9, 10), p(7, 9, 7, 9, 11, 9)];
     case B.CAKE: { const b = Math.min(6, (v >>> 8) & 7); return [p(1 + b * 2, 0, 1, 15, 8, 15)]; }
+    case CB.MOSS_CARPET: return [p(0, 0, 0, 16, 1, 16)];
+    case CB.SCULK_SENSOR: case CB.SCULK_SHRIEKER: return [p(0, 0, 0, 16, 8, 16)];
+    case CB.BIG_DRIPLEAF: return ((v >>> 8) & 15) >> DL_TILT_SHIFT >= 2 ? [] : [p(0, 11, 0, 16, 15, 16)];
+    case CB.POINTED_DRIPSTONE: { const t = (v >>> 8) & 7, dn = ((v >>> 8) & DRIP_DOWN) !== 0, r = t <= 1 ? 3 : t === 2 ? 4 : t === 3 ? 5 : 6; return [p(8 - r, t === 1 && dn ? 5 : 0, 8 - r, 8 + r, t === 1 && !dn ? 11 : 16, 8 + r)]; }
   }
   if (id === B.ANVIL) {
     const ew = ((v >>> 8) & 1) === 1;
@@ -582,7 +671,7 @@ export function customBoxes(v: number): Box[] {
 }
 
 export function blockBoxes(v: number): [number, number, number, number, number, number][] | null {
-  const id = v & 0xff;
+  const id = bid(v);
   if (id === B.SLAB || id === B.STAIRS) return shapeBoxes(v);
   if (CUSTOM_BOX[id]) return customBoxes(v);
   const b = blockBox(v);
@@ -590,9 +679,10 @@ export function blockBoxes(v: number): [number, number, number, number, number, 
 }
 
 export function blockBox(v: number): [number, number, number, number, number, number] | null {
-  const id = v & 0xff;
+  const id = bid(v);
   const d = defs[id];
   if (!d) return null;
+  if (id === B.OAK_DOOR && ((v >>> 12) & 15) >= TD_SPECIES_MIN) return trapdoorBox(v >>> 8);
   if (id === B.OAK_DOOR) {
     const m = v >>> 8;
     let f = doorFacing(m);
@@ -628,10 +718,15 @@ function rsBox(id: number, meta: number): [number, number, number, number, numbe
 }
 
 export function selectionBox(v: number): [number, number, number, number, number, number] | null {
-  const id = v & 0xff;
+  const id = bid(v);
   const d = defs[id];
   if (!d || id === 0 || d.fluid) return null;
   if (id === B.ANVIL) return (v >>> 8) & 1 ? [0, 0, 2 / 16, 1, 1, 14 / 16] : [2 / 16, 0, 0, 14 / 16, 1, 1];
+  if (id >= WIDE_BASE && CUSTOM_BOX[id]) {
+    const bs = id === CB.BIG_DRIPLEAF ? [[0, 11 / 16, 0, 1, 15 / 16, 1]] : customBoxes(v);
+    if (bs.length) return [Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.min(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3])), Math.max(...bs.map((b) => b[4])), Math.max(...bs.map((b) => b[5]))];
+  }
+  if (id === CB.SCULK_VEIN) return [0, 0, 0, 1, 1 / 16, 1];
   const solid = blockBox(v);
   if (solid) return solid;
   switch (d.render) {
@@ -647,7 +742,7 @@ export function selectionBox(v: number): [number, number, number, number, number
   }
 }
 
-for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE]) CUSTOM_BOX[id] = 1;
+for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE]) CUSTOM_BOX[id] = 1;
 export const CROPS: Record<number, { max: number; tex: string; stages: number[] }> = {
   [B.WHEAT]: { max: 7, tex: 'wheat', stages: [0, 1, 2, 3, 4, 5, 6, 7] },
   [B.CARROTS]: { max: 7, tex: 'carrots', stages: [0, 0, 1, 1, 2, 2, 2, 3] },

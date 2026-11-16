@@ -1,7 +1,7 @@
 import type { DataRecipes } from '../core/crafting';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import { dbGet, dbPut, dbDelete, dbKeys, dbAll, dbPutMany, prefixRange } from './db';
-import { encodeRLE, decodeRLE, u16ToBase64, base64ToU16 } from '../core/chunk';
+import { encodeRLE, decodeRLE, u16ToBase64, base64ToU16, type BlockArray } from '../core/chunk';
 import { SAVE_VERSION, GameMode, Difficulty } from '../core/constants';
 import type { PlayerInv } from '../core/inventory';
 import type { BlockEntity, Weather } from '../core/sim/WorldSim';
@@ -124,13 +124,13 @@ export const WorldStorage = {
     return new Set(keys.map((k) => k.slice(id.length + 1)));
   },
 
-  async loadChunk(id: string, cx: number, cz: number): Promise<Uint16Array | null> {
+  async loadChunk(id: string, cx: number, cz: number): Promise<BlockArray | null> {
     const v = await dbGet<Uint16Array>('chunks', `${id}|${cx},${cz}`);
     if (!v) return null;
     try { return decodeRLE(v instanceof Uint16Array ? v : new Uint16Array(v as ArrayBuffer)); } catch { return null; }
   },
 
-  async saveChunks(id: string, chunks: { cx: number; cz: number; data: Uint16Array }[]): Promise<void> {
+  async saveChunks(id: string, chunks: { cx: number; cz: number; data: BlockArray }[]): Promise<void> {
     if (!chunks.length) return;
     await dbPutMany('chunks', chunks.map((c) => [`${id}|${c.cx},${c.cz}`, encodeRLE(c.data)]));
   },

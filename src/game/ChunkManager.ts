@@ -1,6 +1,6 @@
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../core/constants';
-import { ChunkData, chunkKey } from '../core/chunk';
+import { ChunkData, chunkKey, type BlockArray } from '../core/chunk';
 import { OPAQUE, LIGHT_EMIT, blockId } from '../core/blocks';
 import type { WorldStore } from '../core/sim/WorldSim';
 import type { GenBlockEntity } from '../core/worldgen/WorldGenerator';
@@ -8,25 +8,25 @@ import type { MeshResult } from '../rendering/Mesher';
 import type { AtlasData } from '../resources/TextureAtlas';
 
 export interface ChunkSourceHooks {
-  loadStored(cx: number, cz: number): Promise<Uint16Array | null> | null;
+  loadStored(cx: number, cz: number): Promise<BlockArray | null> | null;
   requestRemote?(cx: number, cz: number): void;
   onGenerated?(cx: number, cz: number, entities: GenBlockEntity[]): void;
   onMesh(key: string, cx: number, cz: number, r: MeshResult): void;
   onUnload(key: string): void;
-  saveChunk?(cx: number, cz: number, data: Uint16Array): void;
+  saveChunk?(cx: number, cz: number, data: BlockArray): void;
   genLevel?(cx: number, cz: number): number;
   genOld?(cx: number, cz: number): Uint8Array | null;
   onLoaded?(cx: number, cz: number): void;
-  onSurface?(cx: number, cz: number, blocks: Uint16Array): void;
+  onSurface?(cx: number, cz: number, blocks: BlockArray): void;
 }
 
 interface CChunk {
   cx: number; cz: number; key: string; nkey: number;
   data: ChunkData | null;
-  gen: Uint16Array | null;
+  gen: BlockArray | null;
   genRequested: boolean;
   remote: 'none' | 'waiting' | 'done';
-  remoteData: Uint16Array | null;
+  remoteData: BlockArray | null;
   pending: number[][];
   meshQueued: boolean;
   meshing: boolean;
@@ -40,9 +40,12 @@ interface CChunk {
   fails?: number;
   loadAt?: number;
   lv?: number;
+  spec?: string;
+  rlv?: number;
+  rom?: Uint8Array | null;
 }
 
-type Job = { kind: 'gen' | 'mesh'; c: CChunk; pri: number };
+type Job = { kind: 'gen' | 'mesh'; c: CChunk; pri: number; spec?: string };
 
 function nk(cx: number, cz: number): number { return (cx + 32768) * 65536 + (cz + 32768); }
 
@@ -137,7 +140,7 @@ export class ChunkManager implements WorldStore {
     return c.data.blocks[(y * 16 + (z & 15)) * 16 + (x & 15)];
   }
 
-  raw(cx: number, cz: number): Uint16Array | null {
+  raw(cx: number, cz: number): BlockArray | null {
     const c = this.get_(cx, cz);
     return c?.data?.blocks ?? null;
   }
@@ -196,18 +199,33 @@ export class ChunkManager implements WorldStore {
     if (urgent) { c.urgent = true; c.lazyAt = 0; }
   }
 
-  receiveRemote(cx: number, cz: number, data: Uint16Array | null, ores?: number[]): void {
+  remoteSpec(cx: number, cz: number, lv: number | undefined, om: number[] | undefined): void {
     const c = this.get_(cx, cz);
-    if (!c || c.remote === 'done') return;
+    if (!c) return;
+    const spec = `${lv ?? ''}|${om ? om.join(',') : ''}`;
+    if ((c.spec ?? '|') === spec) return;
+    c.spec = spec;
+    c.rlv = lv;
+    c.rom = om ? Uint8Array.from(om) : null;
+    c.gen = null;
+    if (c.data && !c.data.modified) { c.data = null; c.remote = 'done'; }
+    c.genRequested = true;
+    this.enqueue({ kind: 'gen', c, pri: -5, spec });
+    this.dispatch();
+  }
+
+  receiveRemote(cx: number, cz: number, data: BlockArray | null, ores?: number[]): void {
+    const c = this.get_(cx, cz);
+    if (!c || c.data) return;
     c.remote = 'done';
-    c.remoteData = data;
+    if (data) c.remoteData = data;
     if (ores) for (let i = 0; i + 1 < ores.length; i += 2) { const n = ores[i]; c.pending.push([cx * 16 + (n & 15), n >> 8, cz * 16 + ((n >> 4) & 15), ores[i + 1]]); }
     this.tryFinalize(c);
   }
 
   private tryFinalize(c: CChunk): void {
     if (c.data) return;
-    let blocks: Uint16Array | null = null;
+    let blocks: BlockArray | null = null;
     let fresh = false;
     if (this.remote) {
       if (c.remote !== 'done') return;
@@ -338,11 +356,11 @@ export class ChunkManager implements WorldStore {
       this.jobs.set(id, job);
       this.busy[i] = true;
       this.workJob[i] = id; this.workAt[i] = performance.now();
-      if (job.kind === 'gen') this.workers[i].postMessage({ t: 'gen', id, cx: job.c.cx, cz: job.c.cz, level: this.remote ? undefined : this.hooks.genLevel?.(job.c.cx, job.c.cz), old: this.remote ? null : this.hooks.genOld?.(job.c.cx, job.c.cz) ?? null });
+      if (job.kind === 'gen') { job.spec = job.c.spec ?? '|'; this.workers[i].postMessage({ t: 'gen', id, cx: job.c.cx, cz: job.c.cz, level: this.remote ? job.c.rlv : this.hooks.genLevel?.(job.c.cx, job.c.cz), old: this.remote ? job.c.rom ?? null : this.hooks.genOld?.(job.c.cx, job.c.cz) ?? null }); }
       else {
         job.c.meshQueued = false;
         job.c.meshing = true;
-        const arr: (Uint16Array | null)[] = [];
+        const arr: (BlockArray | null)[] = [];
         for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
           const n = this.get_(job.c.cx + dx, job.c.cz + dz);
           arr.push(n?.data ? n.data.blocks.slice() : null);
@@ -353,7 +371,7 @@ export class ChunkManager implements WorldStore {
     }
   }
 
-  private onWorker(i: number, m: { t: string; id: number; cx: number; cz: number; blocks?: Uint16Array; entities?: GenBlockEntity[]; result?: MeshResult; ms?: number; message?: string }): void {
+  private onWorker(i: number, m: { t: string; id: number; cx: number; cz: number; blocks?: BlockArray; entities?: GenBlockEntity[]; result?: MeshResult; ms?: number; message?: string }): void {
     this.busy[i] = false;
     const job = this.jobs.get(m.id);
     this.jobs.delete(m.id);
@@ -361,7 +379,8 @@ export class ChunkManager implements WorldStore {
     if (!job) { this.dispatch(); return; }
     const c = job.c;
     const alive = this.chunks.get(c.nkey) === c;
-    if (m.t === 'gen' && alive) {
+    const stale = this.remote && job.spec !== (c.spec ?? '|');
+    if (m.t === 'gen' && alive && !stale) {
       c.gen = m.blocks!;
       if (!this.remote && c.fresh && m.entities?.length) this.hooks.onGenerated?.(c.cx, c.cz, m.entities);
       this.tryFinalize(c);
@@ -384,8 +403,8 @@ export class ChunkManager implements WorldStore {
     this.hooks.onUnload(c.key);
   }
 
-  collectDirtySaves(): { cx: number; cz: number; data: Uint16Array }[] {
-    const out: { cx: number; cz: number; data: Uint16Array }[] = [];
+  collectDirtySaves(): { cx: number; cz: number; data: BlockArray }[] {
+    const out: { cx: number; cz: number; data: BlockArray }[] = [];
     for (const c of this.chunks.values()) if (c.saveDirty && c.data) { out.push({ cx: c.cx, cz: c.cz, data: c.data.blocks.slice() }); c.saveDirty = false; }
     return out;
   }

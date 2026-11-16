@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 import type { WorldUniforms } from './ChunkMaterial';
 import type { BlockReader } from '../core/physics';
-import { isSolid, BLOCKS, blockId } from '../core/blocks';
+import { isSolid, BLOCKS, blockId, isBaseId, ID_LIMIT, CB, DRIP_DOWN } from '../core/blocks';
 
 const MAX = 1400;
 
 interface P { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; tile: number; su: number; sv: number; size: number; r: number; g: number; b: number; grav: number; bright: number; wander?: number; glow?: number; leaf?: boolean; }
 
-export interface AmbientEnv { night: number; cave: number; rain: number; underwater: boolean; }
-const LEAVES = new Uint8Array(256);
-for (const b of BLOCKS) if (b && b.render === 'leaves') LEAVES[b.id] = 1;
+export interface AmbientEnv { night: number; cave: number; rain: number; underwater: boolean; fx?: string | null; fxAmt?: number; day?: number; dust?: [number, number, number]; }
+const LEAVES = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id) && b.render === "leaves") LEAVES[b.id] = 1;
 
 export class Particles {
   readonly points: THREE.Points;
@@ -61,6 +61,11 @@ export class Particles {
   private mistScanT = 9;
   private mistPts: number[] = [];
   private mistT = 0;
+  private caveScanT = 9;
+  private spores: number[] = [];
+  private drips: number[] = [];
+  private sporeT = 0;
+  private dripT = 0;
 
   ambient(dt: number, cx: number, cy: number, cz: number, env: AmbientEnv, world: BlockReader): void {
     if (this.level === 'off') return;
@@ -72,7 +77,8 @@ export class Particles {
       const here = world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z));
       if (blockId(here) !== 0) continue;
       const roll = Math.random();
-      if (env.night > 0.6 && env.rain < 0.2 && !env.underwater && env.cave < 0.3 && roll < 0.35) {
+      const ff = env.fx === 'fireflies' ? (env.fxAmt ?? 0) : 0;
+      if (env.night > 0.6 - ff * 0.3 && env.rain < 0.2 && !env.underwater && env.cave < 0.3 && roll < 0.35 + ff * 0.4) {
         let ground = false;
         for (let k = 1; k <= 3 && !ground; k++) ground = isSolid(world.getBlock(Math.floor(x), Math.floor(y) - k, Math.floor(z)));
         if (!ground) continue;
@@ -83,6 +89,35 @@ export class Particles {
         const above = world.getBlock(Math.floor(x), Math.floor(y) + 1, Math.floor(z));
         if (!LEAVES[blockId(above)]) continue;
         this.add({ x, y: Math.floor(y) + 0.95, z, vx: 0, vy: -0.4, vz: 0, life: 0, max: 6, tile: -1, su: 0, sv: 0, size: 0.07, r: 0.32, g: 0.5, b: 0.18, grav: 0, bright: 0.85, wander: 0.6 });
+      }
+    }
+    if (env.fx && env.fx !== 'fireflies' && env.cave < 0.5 && !env.underwater) this.biomeFx(dt, cx, cy, cz, env, world);
+    this.caveScanT += dt;
+    if (this.caveScanT > 1.5) {
+      this.caveScanT = 0;
+      const sp: number[] = [], dr: number[] = [];
+      const bx = Math.floor(cx), by = Math.floor(cy), bz = Math.floor(cz);
+      for (let dz = -10; dz <= 10; dz++) for (let dx = -10; dx <= 10; dx++) for (let dy = -6; dy <= 10; dy++) {
+        const v = world.getBlock(bx + dx, by + dy, bz + dz), id = blockId(v);
+        if (id === CB.SPORE_BLOSSOM && sp.length < 60) sp.push(bx + dx, by + dy, bz + dz);
+        else if (id === CB.POINTED_DRIPSTONE && (v >>> 8 & DRIP_DOWN) && ((v >>> 8) & 7) === 1 && dr.length < 90) dr.push(bx + dx, by + dy, bz + dz);
+      }
+      this.spores = sp; this.drips = dr;
+    }
+    if (this.spores.length && !env.underwater) {
+      this.sporeT += dt * this.spores.length / 3 * (this.level === 'low' ? 1.5 : 5);
+      while (this.sporeT >= 1) {
+        this.sporeT -= 1;
+        const i = Math.floor(Math.random() * this.spores.length / 3) * 3;
+        this.add({ x: this.spores[i] + 0.5 + (Math.random() - 0.5) * 9, y: this.spores[i + 1] + 0.8 - Math.random() * 1.5, z: this.spores[i + 2] + 0.5 + (Math.random() - 0.5) * 9, vx: 0, vy: -0.25, vz: 0, life: 0, max: 7 + Math.random() * 4, tile: -1, su: 1, sv: 0, size: 0.025, r: 0.55, g: 0.9, b: 0.4, grav: 0, bright: 1.2, wander: 0.25 });
+      }
+    }
+    if (this.drips.length && !env.underwater) {
+      this.dripT += dt * this.drips.length / 3 * 0.35;
+      while (this.dripT >= 1) {
+        this.dripT -= 1;
+        const i = Math.floor(Math.random() * this.drips.length / 3) * 3;
+        this.add({ x: this.drips[i] + 0.5, y: this.drips[i + 1] + 0.3, z: this.drips[i + 2] + 0.5, vx: 0, vy: -0.2, vz: 0, life: 0, max: 2.2, tile: -1, su: 1, sv: 0, size: 0.035, r: 0.55, g: 0.7, b: 1, grav: 9, bright: 0.9 });
       }
     }
     this.mistScanT += dt;
@@ -126,6 +161,44 @@ export class Particles {
         if (!leaf || blockId(world.getBlock(x, y - 1, z)) !== 0) continue;
         const look = this.leafLook?.(leaf) ?? { tile: -1, r: 0.36, g: 0.56, b: 0.2 };
         this.add({ x: x + Math.random(), y: y - 0.05, z: z + Math.random(), vx: (Math.random() - 0.5) * 0.4 + (env.rain > 0.3 ? 0.8 : 0.2), vy: -0.5 - Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.4, life: 0, max: 9 + Math.random() * 4, tile: look.tile, su: Math.floor(Math.random() * 3) * 0.25, sv: Math.floor(Math.random() * 3) * 0.25, size: 0.13 + Math.random() * 0.05, r: look.r, g: look.g, b: look.b, grav: 0, bright: 0.9, wander: 0.9, leaf: true });
+      }
+    }
+  }
+
+  private fxT = 0;
+  private biomeFx(dt: number, cx: number, cy: number, cz: number, env: AmbientEnv, world: BlockReader): void {
+    const amt = env.fxAmt ?? 1, day = env.day ?? 1, fx = env.fx;
+    let rate = 0;
+    if (fx === 'petals') rate = 22 * (1 - env.rain * 0.6);
+    else if (fx === 'spores') rate = 16;
+    else if (fx === 'dust') rate = 14 * Math.max(0, day - 0.3) * (1 - env.rain);
+    else if (fx === 'pollen') rate = 8 * Math.max(0, day - 0.4) * (1 - env.rain);
+    else if (fx === 'sparkle') rate = 18 * (1 - env.rain);
+    rate *= amt * (this.level === 'low' ? 0.35 : 1);
+    if (rate <= 0) return;
+    this.fxT += dt * rate;
+    let tries = 0;
+    while (this.fxT >= 1 && tries++ < 24) {
+      this.fxT -= 1;
+      const x = cx + (Math.random() - 0.5) * 30, z = cz + (Math.random() - 0.5) * 30;
+      const y = fx === 'petals' || fx === 'sparkle' ? cy + 2 + Math.random() * 9 : cy - 2 + Math.random() * 7;
+      const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
+      if (blockId(world.getBlock(bx, by, bz)) !== 0) continue;
+      let open = true;
+      for (let k = 1; k < 12 && open; k++) { const id = blockId(world.getBlock(bx, by + k, bz)); if (id !== 0 && !LEAVES[id]) open = false; }
+      if (!open && fx !== 'spores') continue;
+      if (fx === 'petals') {
+        const pk = Math.random();
+        this.add({ x, y, z, vx: 0.35 + Math.random() * 0.3, vy: -0.45 - Math.random() * 0.25, vz: (Math.random() - 0.5) * 0.3, life: 0, max: 10 + Math.random() * 5, tile: -1, su: 0, sv: 0, size: 0.045 + Math.random() * 0.02, r: 1, g: 0.66 + pk * 0.16, b: 0.8 + pk * 0.1, grav: 0, bright: 1.05, wander: 0.7, leaf: true });
+      } else if (fx === 'spores') {
+        this.add({ x, y, z, vx: (Math.random() - 0.5) * 0.1, vy: 0.08 + Math.random() * 0.12, vz: (Math.random() - 0.5) * 0.1, life: 0, max: 6 + Math.random() * 5, tile: -1, su: 1, sv: 0, size: 0.03 + Math.random() * 0.015, r: 0.82, g: 0.72, b: 0.95, grav: -0.01, bright: 0.9 + env.night * 0.6, wander: 0.12, glow: Math.random() * 6 });
+      } else if (fx === 'dust') {
+        const c = env.dust ?? [0.95, 0.8, 0.6];
+        this.add({ x, y, z, vx: 0.9 + Math.random() * 0.8, vy: (Math.random() - 0.5) * 0.15, vz: 0.3 + (Math.random() - 0.5) * 0.4, life: 0, max: 5 + Math.random() * 3, tile: -1, su: 2, sv: 0, size: 0.06 + Math.random() * 0.06, r: c[0], g: c[1], b: c[2], grav: 0, bright: 0.85, wander: 0.25 });
+      } else if (fx === 'pollen') {
+        this.add({ x, y, z, vx: (Math.random() - 0.5) * 0.15, vy: (Math.random() - 0.3) * 0.08, vz: (Math.random() - 0.5) * 0.15, life: 0, max: 6 + Math.random() * 4, tile: -1, su: 1, sv: 0, size: 0.018 + Math.random() * 0.01, r: 1, g: 0.97, b: 0.75, grav: 0, bright: 1.3, wander: 0.18 });
+      } else if (fx === 'sparkle') {
+        this.add({ x, y, z, vx: 0.08, vy: -0.12 - Math.random() * 0.08, vz: 0, life: 0, max: 6 + Math.random() * 4, tile: -1, su: 0, sv: 0, size: 0.02, r: 0.92, g: 0.96, b: 1, grav: 0, bright: 2.2, wander: 0.08, glow: Math.random() * 6 });
       }
     }
   }

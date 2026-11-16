@@ -1,3 +1,4 @@
+import type { BlockArray } from '../core/chunk';
 import { isNether, localX } from '../core/dimension';
 import { NETHER_FOG } from '../core/worldgen/nether';
 import { GEN_LEVEL } from '../core/worldgen/genLevel';
@@ -7,6 +8,7 @@ import { VoiceChat, VoiceState } from '../audio/VoiceChat';
 import type { RuleSet } from '../core/sim/WorldSim';
 import { MF } from '../core/sim/WorldSim';
 import * as THREE from 'three';
+import { raycast } from '../core/physics';
 import { Renderer, FrameEnv } from '../rendering/Renderer';
 import { ChunkManager } from './ChunkManager';
 import { LocalPlayer } from './Player';
@@ -22,7 +24,7 @@ import type { S2C } from '../core/protocol';
 import { money } from '../core/economy';
 import { setTooltipBook } from '../ui/mc/Gui';
 import { BASE_BOOK } from '../core/crafting';
-import { ChatUI, showPause, showInvite, showPlayers, showRoomSettings, showShaper, showDeath } from '../ui/GameUI';
+import { ChatUI, showPause, showInvite, showPlayers, showRoomSettings, showShaper, showDeath, showMischief } from '../ui/GameUI';
 import { h, toast, modal } from '../ui/dom';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
@@ -36,7 +38,7 @@ import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
-import { B, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix } from '../core/blocks';
+import { B, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix, bid, WIDE_BASE, ID_LIMIT } from '../core/blocks';
 import { heldStack, equipmentOf } from '../core/inventory';
 import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
@@ -101,10 +103,11 @@ export class Game {
   zoomHeld = false;
   zoomLevel = 4;
   private dynLights: [number, number, number, number][] = [];
+  private darkT = 0;
 
   private emitOf(id: number): number {
     if (id === I.LAVA_BUCKET) return 15;
-    return id > 0 && id < 256 ? LIGHT_EMIT[id] : 0;
+    return id > 0 && id < 256 ? LIGHT_EMIT[id] : id >= WIDE_BASE && id < ID_LIMIT ? LIGHT_EMIT[id] : 0;
   }
 
   private updateDynLights(): number {
@@ -266,7 +269,8 @@ export class Game {
       const x = Math.floor(px), z = Math.floor(pz);
       for (const y of [Math.floor(py), Math.floor(py + 0.5)]) {
         const v = this.chunks.getBlock(x, y, z);
-        if ((v & 255) !== B.WATER) continue;
+        const fl = bid(v);
+        if (fl !== B.WATER && fl !== B.LAVA) continue;
         const lv = (v >>> 8) & 15;
         const hOf = (w: number) => ((w >>> 8) & 8 ? 1 : (8 - ((w >>> 8) & 7)) / 9);
         if (lv) {
@@ -274,13 +278,13 @@ export class Game {
           const me = hOf(v);
           for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
             const n = this.chunks.getBlock(x + dx, y, z + dz);
-            if ((n & 255) === B.WATER) { const d = me - hOf(n); fx += dx * d; fz += dz * d; }
-            else if (n === 0 && (this.chunks.getBlock(x + dx, y - 1, z + dz) & 255) === B.WATER || n === 0 && this.chunks.getBlock(x + dx, y - 1, z + dz) === 0) { fx += dx * me; fz += dz * me; }
+            if ((bid(n)) === fl) { const d = me - hOf(n); fx += dx * d; fz += dz * d; }
+            else if (n === 0 && (bid(this.chunks.getBlock(x + dx, y - 1, z + dz))) === fl || n === 0 && this.chunks.getBlock(x + dx, y - 1, z + dz) === 0) { fx += dx * me; fz += dz * me; }
           }
           const l = Math.hypot(fx, fz);
           return l > 1e-4 ? [fx / l, fz / l] : null;
         }
-        if ((this.chunks.getBlock(x, y + 1, z) & 255) === B.WATER) return null;
+        if (fl === B.LAVA || (bid(this.chunks.getBlock(x, y + 1, z))) === B.WATER) return null;
         const k = (x + 1048576) * 2097152 + (z + 1048576);
         if (!curCache.has(k)) { if (curCache.size > 512) curCache.clear(); curCache.set(k, this.gen?.riverCurrent(x + 0.5, z + 0.5) ?? null); }
         const c = curCache.get(k);
@@ -333,7 +337,7 @@ export class Game {
     this.arena = new ArenaUI(hudRoot, this.screens, this.atlas);
     this.arena.onShopClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
     this.chatUI = new ChatUI(this.hud.chatBox, hudRoot);
-    this.chatUI.onSend = (t) => this.session.chat(t);
+    this.chatUI.onSend = (t) => this.sendChat(t);
     this.chatUI.onClose = () => { if (this.state === 'chat') this.setState('playing'); };
     this.hud.onSlotTap = (i) => { this.session.invOp({ t: 'select', i }); };
     this.hud.onSlotHold = (i) => { this.session.invOp({ t: 'drop', s: { c: 'inv', i }, all: false }); };
@@ -423,6 +427,7 @@ export class Game {
     ride: (id) => { this.riding = id >= 0 ? String(id) : null; },
     enchantOffers: (o) => { this.inv?.setOffers(o); },
     equipment: (id, eq) => { this.renderer?.entities.setEquipment(`p:${id}`, eq); },
+    dark: (t) => { this.darkT = Math.max(this.darkT, t / 20); },
     knock: (x, y, z, set) => { this.player.body.vx += x; this.player.body.vy = set ? y : Math.max(this.player.body.vy, y); this.player.body.vz += z; },
     boom: (x, y, z, r) => this.onBoom(x, y, z, r),
     player: (p) => this.onPlayer(p),
@@ -492,11 +497,7 @@ export class Game {
       isLoaded: (x, z) => this.chunks.isLoaded(x, z),
       players: () => [...this.renderer.entities.views.values()].filter((v) => v.kind === 'player' && v.id !== this.session.me.id).map((v) => ({ name: v.name ?? '', x: v.obj.position.x, z: v.obj.position.z })),
       camera: this.renderer.camera,
-      sendChat: (t) => {
-        const m = /^\/coords(?:\s+(on|off))?\s*$/i.exec(t.trim());
-        if (m) { const on = m[1] ? m[1].toLowerCase() === 'on' : !getSettings().showCoords; updateSettings({ showCoords: on }); this.chatUI?.add(null, on ? 'Coordinates shown. Type /coords to hide them.' : 'Coordinates hidden. Type /coords to show them.', 'info', Date.now()); return; }
-        this.session.chat(t);
-      },
+      sendChat: (t) => this.sendChat(t),
       toast: (t) => toast(t, 'info'),
       setModal: (open) => { if (open) { this.desktop.unlock(); this.setState('inventory'); } else if (this.state === 'inventory') this.setState('playing'); },
     }, info.kind === 'remote' ? `room:${info.roomCode}` : `local:${info.seed}:${info.name}`);
@@ -574,20 +575,26 @@ export class Game {
   private updateLoading(): boolean {
     if (!this.loadingEl) return true;
     const pcx = Math.floor(this.player.x / 16), pcz = Math.floor(this.player.z / 16);
-    let done = 0, total = 0, gen = 0;
+    let done = 0, total = 0, gen = 0, core = 0;
+    const R = Math.max(2, Math.min(8, getSettings().renderDistance - 1));
     const cv = this.loadingEl.querySelector('.load-grid') as HTMLCanvasElement;
+    const cell = 4, W = (R * 2 + 1) * cell;
+    if (cv.width !== W) cv.width = cv.height = W;
     const g = cv.getContext('2d')!;
     g.clearRect(0, 0, cv.width, cv.height);
-    for (let dz = -5; dz <= 5; dz++) for (let dx = -5; dx <= 5; dx++) {
+    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+      if (dx * dx + dz * dz > (R + 0.5) * (R + 0.5)) continue;
       const m = this.chunks.chunkMeshed(pcx + dx, pcz + dz), r = this.chunks.chunkReady(pcx + dx, pcz + dz);
       g.fillStyle = m ? '#7fcc19' : r ? '#3a7d1e' : '#333333';
-      g.fillRect((dx + 5) * 4, (dz + 5) * 4, 4, 4);
-      if (Math.abs(dx) <= 1 && Math.abs(dz) <= 1) { total++; if (m) done++; if (r) gen++; }
+      g.fillRect((dx + R) * cell, (dz + R) * cell, cell, cell);
+      total++; if (m) done++; if (r) gen++;
+      if (m && Math.abs(dx) <= 1 && Math.abs(dz) <= 1) core++;
     }
     const pct = Math.round(((gen + done) / (total * 2)) * 100);
     (this.loadingEl.querySelector('.load-pct') as HTMLElement).textContent = `${pct}%`;
-    (this.loadingEl.querySelector('.load-step') as HTMLElement).textContent = gen < total ? 'Loading terrain...' : done < total ? 'Building chunks...' : 'Joining world...';
-    const ready = done >= total || (performance.now() - this.loadStart > 15000 && this.chunks.chunkMeshed(pcx, pcz));
+    (this.loadingEl.querySelector('.load-step') as HTMLElement).textContent = gen < total ? `Loading terrain... ${gen}/${total}` : done < total ? `Building chunks... ${done}/${total}` : 'Joining world...';
+    const waited = performance.now() - this.loadStart;
+    const ready = done >= total || (waited > 30000 && core >= 9) || (waited > 45000 && this.chunks.chunkMeshed(pcx, pcz));
     if (ready) {
       this.loadingEl.remove();
       this.loadingEl = null;
@@ -613,6 +620,25 @@ export class Game {
     if (!playing) this.input.reset();
     this.hud.crosshair.style.display = playing ? '' : 'none';
     this.mobile.refreshState();
+  }
+
+  private aimFar(): [number, number, number] | null {
+    const cam = this.renderer.camera;
+    const d = new THREE.Vector3();
+    cam.getWorldDirection(d);
+    const hit = raycast(this.chunks, cam.position.x, cam.position.y, cam.position.z, d.x, d.y, d.z, 320);
+    return hit ? [Math.floor(localX(hit.x)), hit.y, hit.z] : null;
+  }
+
+  private sendChat(t: string): void {
+    const m = /^\/coords(?:\s+(on|off))?\s*$/i.exec(t.trim());
+    if (m) {
+      const on = m[1] ? m[1].toLowerCase() === 'on' : !getSettings().showCoords;
+      updateSettings({ showCoords: on });
+      this.chatUI?.add(null, on ? 'Coordinates shown. Type /coords to hide them.' : 'Coordinates hidden. Type /coords to show them.', 'info', Date.now());
+      return;
+    }
+    this.session.chat(t);
   }
 
   private applySettings(s: Settings): void {
@@ -705,6 +731,7 @@ export class Game {
       economy: !local && this.room?.settings.economy !== false ? (cmd: string) => { this.resume(); this.session.chat(cmd); } : undefined,
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
+      mischief: local || remote.me.op ? () => showMischief(() => (local ? [this.session.me.name] : [...remote.players.values()].map((q) => q.name)), this.session.me.name, (c) => this.session.chat(c), () => this.aimFar()) : undefined,
       shaper: canShape ? () => showShaper((c) => this.session.chat(c), () => { const t = this.interaction.target; return t ? [t.x, t.y, t.z] : null; }, () => heldStack(this.session.me.inv)?.id ?? null) : undefined,
       difficulty: local ? { value: this.session.info.difficulty, set: (d) => (this.session as LocalSession).setDifficulty(d) } : undefined,
       quit: () => void this.quit(),
@@ -808,6 +835,7 @@ export class Game {
       case 'crit': p.puff(x, y, z, 1, 0.85, 0.3, 10, 4, 6, 0.06, 0.5); break;
       case 'sweep': p.puff(x, y, z, 0.95, 0.95, 0.95, 14, 1.5, 1, 0.08, 0.35); break;
       case 'heart': p.puff(x, y, z, 1, 0.25, 0.35, 5, 0.6, -0.6, 0.09, 1.1); break;
+      case 'shriek': p.puff(x, y, z, 0.2, 0.85, 0.85, 18, 1.1, -1.6, 0.08, 1.6); break;
       case 'splash': p.puff(x, y, z, 0.6, 0.75, 1, 10, 3, 9, 0.06, 0.6); break;
       case 'xp': p.puff(x, y, z, 0.7, 1, 0.3, 8, 2, -2, 0.07, 0.8); break;
     }
@@ -1034,7 +1062,7 @@ export class Game {
     }
   }
 
-  onChunkData(cx: number, cz: number, data: Uint16Array | null): void {
+  onChunkData(cx: number, cz: number, data: BlockArray | null): void {
     if (!data) return;
     for (let y = 0; y < WORLD_HEIGHT; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
       const v = data[(y * 16 + z) * 16 + x];
@@ -1177,7 +1205,7 @@ export class Game {
     if (this.shake > 0) { this.shake = Math.max(0, this.shake - dt * 1.2); this.renderer.camera.position.x += (Math.random() - 0.5) * this.shake * 0.3; this.renderer.camera.position.y += (Math.random() - 0.5) * this.shake * 0.3; }
     this.renderer.chests.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(64, st.renderDistance * 16));
     this.renderer.particles.update(dt, this.chunks);
-    if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12 }, this.chunks);
+    if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12, fx: isNether(this.player.x) ? null : this.renderer.atmo.fx, fxAmt: this.renderer.atmo.fxAmt, day: this.renderer.skyState.day, dust: [this.renderer.atmo.dustColor.r, this.renderer.atmo.dustColor.g, this.renderer.atmo.dustColor.b] }, this.chunks);
     const biomeAt = (x: number, z: number) => this.gen!.biomeAt(x, z, this.chunks.levelAt(x, z));
     this.renderer.weather.intensity = isNether(this.player.x) ? 0 : this.rain;
     this.renderer.weather.splash = (x, y, z) => this.renderer.particles.puff(x, y, z, 0.6, 0.7, 0.9, 2, 1.2, 6, 0.04, 0.3);
@@ -1201,13 +1229,15 @@ export class Game {
     const wetSky = precip.rain && !precip.cold && !sheltered && !underwater ? this.rain : 0;
     this.renderer.sky.aurora += ((precip.cold ? 1 : 0) - this.renderer.sky.aurora) * Math.min(1, dt * 0.3);
     const nether = isNether(this.player.x);
+    if (!nether && this.gen && !loading) this.renderer.atmo.update({ dt, x: cam.position.x, y: cam.position.y, z: cam.position.z, time: this.time, rain: this.rain, cave: this.caveFx, active: true, biome: (x, z) => biomeAt(x, z).id, top: (x, z) => this.chunks.topAt(x, z) }, this.renderer.skyState.night);
     if (nether && this.gen) {
       if (performance.now() - this.nfAt > 250) { this.nfAt = performance.now(); this.nfTarget = NETHER_FOG[this.gen.netherBiome(Math.floor(this.player.x), Math.floor(this.player.z))]; }
       const k = Math.min(1, dt * 1.5);
       for (let i = 0; i < 3; i++) this.nfCol[i] += (this.nfTarget[i] - this.nfCol[i]) * k;
     }
     this.updatePortalFx(dt);
-    const env: FrameEnv = { nether, netherFog: this.nfCol, time: this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
+    if (this.darkT > 0) this.darkT = Math.max(0, this.darkT - dt);
+    const env: FrameEnv = { dark: this.darkT > 0 ? Math.min(1, this.darkT / 1.5) * (0.65 + 0.35 * Math.sin(performance.now() / 1000 * Math.PI * 2 / 3)) : 0, nether, netherFog: this.nfCol, time: this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
     const dl = this.updateDynLights();
     const pl = Math.max(this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day), dl);
     if (this.interaction.eating > 0) this.renderer.handEat = this.interaction.eating; else if (this.renderer.handEat > 0 && this.interaction.eating === 0) this.renderer.handEat = 0;
@@ -1252,7 +1282,7 @@ export class Game {
       ...(this.session.sim.settings.allowCoords === false && !this.session.me.op ? [`Facing ${facing}`] : [
         `${isNether(p.x) ? 'Nether ' : ''}XYZ ${localX(p.x).toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`,
         `Chunk ${Math.floor(p.x / 16)}, ${Math.floor(p.z / 16)}  facing ${facing}`]),
-      `Biome ${biomeNameAt(this.gen!, p.x, p.z, this.chunks.levelAt(p.x, p.z))}`,
+      `Biome ${(isNether(p.x) ? null : this.gen!.caveBiomeName(p.x, p.y, p.z, this.chunks.levelAt(p.x, p.z))) ?? biomeNameAt(this.gen!, p.x, p.z, this.chunks.levelAt(p.x, p.z))}`,
       `Chunks ${this.chunks.loadedCount} loaded, ${this.renderer.chunkCount} meshed, ${this.chunks.pendingJobs} jobs, mesh ${avgMesh} ms`,
       `Draw calls ${this.renderer.drawCalls}  triangles ${(this.renderer.triangles / 1000).toFixed(0)}k  sections ${this.renderer.visibleSections}${this.renderer.lod ? `  distant tiles ${this.renderer.lod.tileCount}` : ''}`,
       `Entities ${this.renderer.entities.views.size}  time ${t}  weather ${this.weather}`,

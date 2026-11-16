@@ -1,5 +1,6 @@
+import { NETHER_EDGE } from '../core/dimension';
 import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium } from '../core/physics';
-import { getBlock, blockId, B } from '../core/blocks';
+import { getBlock, blockId, B, isDoorBlock, isTrapdoor, TD_OPEN } from '../core/blocks';
 import { MF } from '../core/sim/WorldSim';
 import type { InputState } from '../controls/InputState';
 import type { GameMode } from '../core/constants';
@@ -205,6 +206,8 @@ export class LocalPlayer {
       if (b.hitH && !boxCollides(world, b.x - HW + b.vx, b.y + 0.6 - (b.y - oy) + b.vy, b.z - HW + b.vz, b.x + HW + b.vx, b.y + b.h + 0.6 - (b.y - oy) + b.vy, b.z + HW + b.vz)) b.vy = 0.3;
       if (input.jump && Math.random() < 0.1) this.swimSound?.();
     } else if (m.lava) {
+      const cur = this.flow?.(b.x, b.y, b.z);
+      if (cur) { const k = b.x >= NETHER_EDGE ? 0.007 : 0.0023333; b.vx += cur[0] * k * 6; b.vz += cur[1] * k * 6; }
       moveRelative(0.02);
       this.move(world, b.vx, b.vy, b.vz);
       b.vx *= 0.5; b.vy *= 0.5; b.vz *= 0.5;
@@ -275,7 +278,7 @@ export class LocalPlayer {
     const ax = b.x + fx / l * 0.45, az = b.z + fz / l * 0.45;
     const by = Math.floor(b.y + 0.01);
     const front = world.getBlock(Math.floor(ax), by, Math.floor(az));
-    if (!getBlock(front).solid || blockId(front) === B.OAK_DOOR) return false;
+    if (!getBlock(front).solid || isDoorBlock(front) || (isTrapdoor(front) && (front >>> 8) & TD_OPEN)) return false;
     const up1 = world.getBlock(Math.floor(ax), by + 1, Math.floor(az));
     const up2 = world.getBlock(Math.floor(ax), by + 2, Math.floor(az));
     const head = world.getBlock(Math.floor(b.x), by + 2, Math.floor(b.z));

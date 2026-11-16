@@ -1,10 +1,11 @@
+import type { BlockArray } from '../chunk';
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../constants';
-import { LIGHT_EMIT, LIGHT_FILTER, OPAQUE } from '../blocks';
+import { LIGHT_EMIT, LIGHT_FILTER, OPAQUE, bid } from '../blocks';
 
 export interface LightWorld {
   getBlock(x: number, y: number, z: number): number;
   isLoaded(x: number, z: number): boolean;
-  raw?(cx: number, cz: number): Uint16Array | null;
+  raw?(cx: number, cz: number): BlockArray | null;
 }
 
 const DIRS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const;
@@ -38,14 +39,14 @@ export class ChunkInfo {
     const bx = cx * CHUNK_SIZE, bz = cz * CHUNK_SIZE;
     const raw = this.w.raw?.(cx, cz);
     if (raw) {
-      for (let i = 0; i < raw.length; i++) if (this.tickable(raw[i] & 0xff)) mask |= 1 << (i >> 12);
+      for (let i = 0; i < raw.length; i++) if (this.tickable(bid(raw[i]))) mask |= 1 << (i >> 12);
       this.masks.set(k, mask);
       return mask;
     }
     for (let s = 0; s * 16 < WORLD_HEIGHT; s++) {
       let hit = false;
       for (let y = s * 16; y < Math.min(WORLD_HEIGHT, s * 16 + 16) && !hit; y++) for (let lz = 0; lz < 16 && !hit; lz++) for (let lx = 0; lx < 16; lx++) {
-        if (this.tickable(this.w.getBlock(bx + lx, y, bz + lz) & 0xff)) { hit = true; break; }
+        if (this.tickable(bid(this.w.getBlock(bx + lx, y, bz + lz)))) { hit = true; break; }
       }
       if (hit) mask |= 1 << s;
     }
@@ -63,7 +64,7 @@ export class ChunkInfo {
     for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       if (raw) {
         let y = WORLD_HEIGHT - 1;
-        while (y >= 0 && LIGHT_FILTER[raw[(y * CHUNK_SIZE + lz) * CHUNK_SIZE + lx] & 0xff] === 0) y--;
+        while (y >= 0 && LIGHT_FILTER[bid(raw[(y * CHUNK_SIZE + lz) * CHUNK_SIZE + lx])] === 0) y--;
         h[lz * CHUNK_SIZE + lx] = y;
       } else h[lz * CHUNK_SIZE + lx] = this.scanColumn(cx * CHUNK_SIZE + lx, WORLD_HEIGHT - 1, cz * CHUNK_SIZE + lz);
     }
@@ -73,7 +74,7 @@ export class ChunkInfo {
   }
 
   private scanColumn(x: number, from: number, z: number): number {
-    for (let y = from; y >= 0; y--) if (LIGHT_FILTER[this.w.getBlock(x, y, z) & 0xff] > 0) return y;
+    for (let y = from; y >= 0; y--) if (LIGHT_FILTER[bid(this.w.getBlock(x, y, z))] > 0) return y;
     return -1;
   }
 
@@ -94,11 +95,11 @@ export class ChunkInfo {
     const raw = this.w.raw?.(cx, cz);
     if (raw) {
       for (let i = 0; i < raw.length; i++) {
-        const em = LIGHT_EMIT[raw[i] & 0xff];
+        const em = LIGHT_EMIT[bid(raw[i])];
         if (em > 1) out.push(bx + (i & 15), i >> 8, bz + ((i >> 4) & 15), em);
       }
     } else for (let y = 0; y < WORLD_HEIGHT; y++) for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-      const em = LIGHT_EMIT[this.w.getBlock(bx + lx, y, bz + lz) & 0xff];
+      const em = LIGHT_EMIT[bid(this.w.getBlock(bx + lx, y, bz + lz))];
       if (em > 1) out.push(bx + lx, y, bz + lz, em);
     }
     e = Int32Array.from(out);
@@ -109,18 +110,18 @@ export class ChunkInfo {
 
   changed(x: number, y: number, z: number, oldV: number, newV: number): void {
     const cx = x >> 4, cz = z >> 4, k = ChunkInfo.key(cx, cz);
-    if ((LIGHT_FILTER[oldV & 0xff] > 0) !== (LIGHT_FILTER[newV & 0xff] > 0) || OPAQUE[oldV & 0xff] !== OPAQUE[newV & 0xff] || LIGHT_EMIT[oldV & 0xff] !== LIGHT_EMIT[newV & 0xff]) {
+    if ((LIGHT_FILTER[bid(oldV)] > 0) !== (LIGHT_FILTER[bid(newV)] > 0) || OPAQUE[bid(oldV)] !== OPAQUE[bid(newV)] || LIGHT_EMIT[bid(oldV)] !== LIGHT_EMIT[bid(newV)]) {
       this.gens.set(k, (this.gens.get(k) ?? 0) + 1);
     }
     const h = this.heights.get(k);
     if (h) {
       const i = (z & 15) * CHUNK_SIZE + (x & 15);
-      if (LIGHT_FILTER[newV & 0xff] > 0) { if (y > h[i]) h[i] = y; }
+      if (LIGHT_FILTER[bid(newV)] > 0) { if (y > h[i]) h[i] = y; }
       else if (y === h[i]) h[i] = this.scanColumn(x, y - 1, z);
     }
-    if (LIGHT_EMIT[oldV & 0xff] > 1 || LIGHT_EMIT[newV & 0xff] > 1) this.emitters.delete(k);
+    if (LIGHT_EMIT[bid(oldV)] > 1 || LIGHT_EMIT[bid(newV)] > 1) this.emitters.delete(k);
     const m = this.masks.get(k);
-    if (m !== undefined && this.tickable(newV & 0xff)) this.masks.set(k, m | (1 << (y >> 4)));
+    if (m !== undefined && this.tickable(bid(newV))) this.masks.set(k, m | (1 << (y >> 4)));
   }
 
   forget(cx: number, cz: number): void {
@@ -140,11 +141,12 @@ export class ChunkInfo {
   private open(x: number, y: number, z: number): boolean {
     if (y < 0) return false;
     if (y >= WORLD_HEIGHT) return true;
-    return OPAQUE[this.w.getBlock(x, y, z) & 0xff] === 0;
+    return OPAQUE[bid(this.w.getBlock(x, y, z))] === 0;
   }
 
   private gens = new Map<number, number>();
   private cache = new Map<number, number>();
+  private dim = new Map<number, number>();
 
   private genSum(cx: number, cz: number): number {
     let g = 0;
@@ -173,6 +175,54 @@ export class ChunkInfo {
   skyLight(x: number, y: number, z: number, _need = 0): number {
     if (this.exposed(x, y, z)) return 15;
     return this.cached(1, x, y, z, () => this.computeSky(x, y, z));
+  }
+
+  skyAbove(x: number, y: number, z: number, t: number): boolean | null {
+    if (t >= 15) return false;
+    if (t < 0) return true;
+    if (this.exposed(x, y, z)) return true;
+    const key = (((x + 1048576) * 2097152 + (z + 1048576)) * 256 + (y & 255)) * 2 + 1;
+    const g = this.genSum(x >> 4, z >> 4);
+    const hit = this.cache.get(key);
+    if (hit !== undefined && Math.floor(hit / 16) === g) return (hit & 15) > t;
+    const lo = this.dim.get(key);
+    if (lo !== undefined && Math.floor(lo / 16) === g && (lo & 15) <= t) return false;
+    const d = this.skyDistance(x, y, z, 14 - t);
+    if (d === null) return null;
+    if (d > 0) {
+      if (this.cache.size > 250000) this.cache.clear();
+      this.cache.set(key, g * 16 + (15 - d));
+      return true;
+    }
+    if (this.dim.size > 250000) this.dim.clear();
+    const prev = lo !== undefined && Math.floor(lo / 16) === g ? lo & 15 : 15;
+    this.dim.set(key, g * 16 + Math.min(prev, t));
+    return false;
+  }
+
+  private skyDistance(x: number, y: number, z: number, maxD: number): number | null {
+    const seen = new Set<number>();
+    const k = (a: number, b: number, c: number) => ((a - x + 32) * 64 + (c - z + 32)) * 512 + (b + 64);
+    let frontier: number[] = [x, y, z];
+    seen.add(k(x, y, z));
+    for (let d = 1; d <= maxD && frontier.length; d++) {
+      const next: number[] = [];
+      for (let i = 0; i < frontier.length; i += 3) {
+        const fx = frontier[i], fy = frontier[i + 1], fz = frontier[i + 2];
+        for (const [ax, ay, az] of DIRS) {
+          const nx = fx + ax, ny = fy + ay, nz = fz + az;
+          const key = k(nx, ny, nz);
+          if (seen.has(key) || !this.open(nx, ny, nz)) continue;
+          seen.add(key);
+          if (this.exposed(nx, ny, nz)) return d;
+          next.push(nx, ny, nz);
+        }
+      }
+      this.budget -= next.length / 3;
+      if (this.budget < 0) return null;
+      frontier = next;
+    }
+    return 0;
   }
 
   private computeBlock(x: number, y: number, z: number): number {

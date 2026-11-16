@@ -1,4 +1,6 @@
+import type { BlockArray } from '../core/chunk';
 import * as THREE from 'three';
+import { Atmosphere } from './Atmosphere';
 import { WORLD_HEIGHT } from '../core/constants';
 import { createWorldUniforms, createChunkMaterial, chunkGeometry, DEPTH_MATERIAL, WorldUniforms, createTerrainDepthMaterial, setChunkFx, FX_LOW } from './ChunkMaterial';
 import { PostFX } from './PostFX';
@@ -20,13 +22,14 @@ import type { TextureAtlas } from '../resources/TextureAtlas';
 import { getItem } from '../core/items';
 import { firstPersonArmMatrix } from './VanillaModels';
 
-interface ChunkMeshes { cx: number; cz: number; meshes: THREE.Mesh[]; secs: (Uint32Array | null)[]; vis: Uint16Array | null; mask: number; }
+interface ChunkMeshes { cx: number; cz: number; meshes: THREE.Mesh[]; secs: (BlockArray | null)[]; vis: Uint16Array | null; mask: number; }
 
 const OPP = [1, 0, 3, 2, 5, 4];
 const DIR = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const cnum = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768);
 
 export interface FrameEnv {
+  dark?: number;
   time: number;
   rain: number;
   thunder: number;
@@ -109,6 +112,8 @@ export class Renderer {
   private frameTimes: number[] = [];
   private lastAdapt = 0;
   skyState: SkyState = computeSky(6000, 0, 0);
+  readonly atmo = new Atmosphere();
+  private heatU = { value: 0 };
   handSwing = 0;
   handEat = 0;
   handBob = 0;
@@ -199,6 +204,7 @@ export class Renderer {
     if (key !== this.postKey) {
       this.post?.dispose();
       this.post = g.post ? new PostFX(this.gl, g.post) : null;
+      this.post?.bindAtmo(this.uniforms, this.heatU);
       this.postKey = key;
     } else if (this.post && g.post) this.post.cfg = g.post;
     this.uniforms.uEmitBoost.value = this.post?.hdr ? 1.6 : 1.0;
@@ -308,7 +314,7 @@ export class Renderer {
 
   private canvasKey = '';
 
-  addSurface(cx: number, cz: number, blocks: Uint16Array): void {
+  addSurface(cx: number, cz: number, blocks: BlockArray): void {
     if (this.lod) this.lod.addSurface(cx, cz, blocks);
     else if (this.lodWorld && !this.lodWorld.arena) LodManager.record(this.lodWorld.seed, cx, cz, blocks);
   }
@@ -342,7 +348,7 @@ export class Renderer {
   setChunkMesh(key: string, cx: number, cz: number, r: MeshResult): void {
     this.removeTerrain(key);
     const meshes: THREE.Mesh[] = [];
-    const secs: (Uint32Array | null)[] = [];
+    const secs: (BlockArray | null)[] = [];
     const add = (b: MeshResult['opaque'], mat: THREE.ShaderMaterial, order: number, castShadow: boolean) => {
       if (!b) return;
       const m = new THREE.Mesh(chunkGeometry(b, WORLD_HEIGHT), mat);
@@ -625,6 +631,7 @@ export class Renderer {
     if (this.lod) this.lod.material.uniforms.uOrigin.value.set(this.origin.x / 16, this.origin.z / 16);
     this.skyState = computeSky(env.time, env.rain, env.thunder);
     const st = this.skyState;
+    if (!env.nether) this.atmo.tintSky(st, env.rain);
     u.uDay.value = st.day;
     u.uSkyColor.value.copy(st.skyLight);
     u.uSkyTop.value.copy(st.skyTop);
@@ -647,12 +654,17 @@ export class Renderer {
     }
     if (env.nether && !env.inLava) { const far = Math.min(fogFar, 112); const nf = env.netherFog ?? [0.2, 0.03, 0.03]; u.uFogColor.value.setRGB(nf[0], nf[1], nf[2]); u.uFogNear.value = far * 0.12; u.uFogFar.value = far; }
     u.uAmbient.value = env.nether ? 0.34 : 0;
+    const atmoActive = !env.nether && !env.underwater && !env.inLava;
+    this.atmo.apply(u, st, env.rain, atmoActive);
+    u.uAtmoOn.value = this.post ? 0 : 1;
+    this.heatU.value = atmoActive ? this.atmo.heat * Math.max(0, Math.min(1, st.sunDir.y * 2.2 - 0.7)) * (1 - env.rain) * (1 - (env.cave ?? 0)) : 0;
     const lodActive = !env.nether && !!this.lod && this.lod.distance > 0 && !env.underwater && !env.inLava && (env.cave ?? 0) < 0.6;
     this.placeSky(lodActive);
     if (lodActive) {
       this.lod!.update(this.camera.position.x, this.camera.position.z, env.renderDistance);
       u.uFogNear.value = 1e7; u.uFogFar.value = 1e7 + 1;
     }
+    if (env.dark && !env.inLava) { const d = env.dark; u.uFogColor.value.lerp(new THREE.Color(0.01, 0.01, 0.015), Math.min(1, d * 1.2)); u.uFogNear.value = Math.min(u.uFogNear.value, 2 + (1 - d) * 30); u.uFogFar.value = Math.min(u.uFogFar.value, 10 + (1 - d) * 60); }
     this.camera.updateMatrixWorld();
     u.uProj.value.copy(this.camera.projectionMatrix);
     u.uCamNear.value = this.camera.near;

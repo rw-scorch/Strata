@@ -28,7 +28,9 @@ This is the plan for adding Java Edition style redstone to Strata, so players ca
    - Entities move with the blocks over the 2 ticks: a piston facing up lifts you, pushed blocks shove you out of the way, and blocks moving sideways carry you only if they are sticky. A Slime Block that is pushed into you launches you in that direction, like Java's slime launchers (v29).
    - Smooth piston animation on the client.
    - Thunder Keg (TNT): 4-second fuse, Java's explosion rays and blast resistance, chain reactions, no block damage in water, and dispensers can place lit kegs.
-5) **Not yet:** daylight detector, target block, items carried by water at Java speeds, shape (PP) updates as a separate pass, and phases 3 and 4.
+5) **v33:** wooden and iron trapdoors open on a rising edge and close on a falling edge, and iron trapdoors only respond to redstone. A trapdoor tapped open by hand stays open until its power changes. Whether a trapdoor was last powered is kept in memory only, so after a restart the first update with power present opens it.
+6) **v34:** sculk sensors. A sensor hears footsteps (not sneaking), mining and block placing within 8 blocks. It then gives power 15 on every side for 30 ticks, strongly powers the block it sits on, and rests for a 10-tick cooldown. A sensor set off by a player also wakes sculk shriekers within 8 blocks. Big dripleaf stays level while powered.
+7) **Not yet:** daylight detector, target block, items carried by water at Java speeds, shape (PP) updates as a separate pass, and phases 3 and 4.
 
 ## Goals
 

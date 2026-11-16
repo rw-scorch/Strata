@@ -324,6 +324,71 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - Crawling: you now go prone in gaps under 1.5 blocks, move at sneak speed, and other players see a crawl animation. Swimming uses a dedicated flag so it shows reliably.
   - Plain names: Diamond, TNT, Flint and Steel, Gunpowder, Slime Block, Observer, Zombie, Skeleton and friends use ordinary English names. Old `/give` keys still work.
   - Piston Head and other technical blocks no longer appear in the creative inventory.
+- **v36 Mischief Console, mob farms and fixes:**
+  - Mischief Console (admins only, in the Game Menu, or `/troll <prank> <player>`). Target one player, everyone else (`@o`), everyone (`@a`), a random player (`@r`) or, for aimable pranks, the block you are looking at (up to 320 blocks away, or `/troll <prank> at x y z`):
+    - **Orbital Strike: Nuke**: an Unstable SMP-style orbital cannon. A targeting beam locks on, then six rings of TNT (over 100 blocks of it) rain from the sky.
+    - **Orbital Strike: Stab**: 40 TNT dropped down one shaft to drill towards bedrock.
+    - **Skyfall Lance**: a terrain-safe orbital strike (hurts, does not break blocks), plus a **Raze** version that carves a crater.
+    - Smite, Catapult, Sky Drop, Obsidian Cell, Frostbind, Nightfall, Hotfoot, Hollow Ambush, Feather Storm, Gravel Cascade, Powder Keg, Pocket Tornado, Switcheroo and Phantom Blast.
+  - Mob farms work: Strata's world is 160 blocks tall, against Java's 384, so mob caps, spawn range and despawning now count vertical distance scaled to match. Cave mobs far below no longer fill the mob cap. AFK within about 50 blocks of the farm vertically (above it is best). In testing, a sky farm went from 4 to 6 mobs in two minutes to 140 to 250.
+  - Darkness checks for spawning are cheaper and no longer give up (and read "too bright") inside big dark farm rooms.
+  - Flowing water now carries mobs and items, so water streams in farms and item collectors work. Flowing lava pushes players, mobs and fireproof items too (harder in the Nether, like Java).
+  - Craft all on touch screens: a Craft all button under the crafting output, or long-press the output slot.
+  - The loading screen now waits until everything within your render distance is built, with a live count.
+  - `/coords` works from the normal chat box.
+  - The Nether minimap no longer jumps between layers every time you jump or step.
+  - Soul fire no longer shows a missing texture with Minecraft resource packs.
+  - Deleting a world no longer leaves its server room throwing errors.
+  - Protocol 30: players need v36 to join a v36 server.
+- **v35 Server stability (the Bedrock Pulse update):**
+  - World servers no longer freeze while they build terrain. Generation now runs in short slices between player messages, so movement, crafting, inventory clicks and chat stay responsive while new land loads. In a test that loaded 625 chunks at once, ping stayed under 100 ms (v34 stalled for over a second).
+  - Land near players is built first, then chunks players asked for (shared fairly between players), then everything else.
+  - Untouched terrain is no longer sent from the server. Your device builds it, including land from older versions, which it now builds at the right level. This removes the big load spike after an update.
+  - Chunks are stored in half the memory unless they hold new cave blocks, which keeps big servers well inside their memory limit and stops the resets that lost progress.
+  - Generated terrain is cached on the server, so walking back to an area does not rebuild it.
+  - Progress is saved every 5 seconds instead of 10.
+  - Busy or failed server requests return a clean "retry" answer instead of crashing, and reconnects are staggered so players do not all retry at once.
+  - Protocol 29: players need v35 to join a v35 server.
+  - v35.1: `/tp x y z` now uses the coordinates of the dimension you are in, matching the F3 screen and minimap, so `/tp 100 70 0` in the Nether goes to Nether 100 70 0. Add `overworld` or `nether` at the end to jump to the other dimension, and use `~` for relative positions (`/tp ~ ~10 ~`). `/pos1` and `/pos2` work the same way, and `/back` returns you to where you teleported from.
+- **v34 Terrain checkpoint 6 (cave biomes), wide block IDs and trapdoor pathing:**
+  - Three cave biomes under newly generated land:
+    - **Verdant Hollow** (lush caves): moss floors and ceilings, moss carpets, grass, azalea and flowering azalea bushes, cave vines heavy with glow berries, spore blossoms, glow lichen, and clay pools with big and small dripleaf.
+    - **Fangspire Caverns** (dripstone caves): dripstone floors and roofs, forests of stalactites and stalagmites that taper from base to tip and fuse where they meet, plus extra copper ore.
+    - **The Hushdeep** (deep dark): deepslate under high ground, carpeted with sculk, sculk veins, sculk sensors, sculk shriekers and the odd sculk catalyst.
+  - Land generated by older versions keeps its caves exactly as they were.
+  - Cave blocks work like Java's:
+    - Pick glow berries from cave vines with a tap. Eat them, or plant them under a ceiling to grow new vines.
+    - Big dripleaf tips you off a few moments after you step on it. Redstone keeps it level.
+    - Landing on a stalagmite hurts much more than a normal fall.
+    - Stalactites, vines, roots and spore blossoms fall when their roof is mined away.
+    - Bone meal spreads moss and its plants, grows azalea trees from azaleas, makes big dripleaf taller and turns small dripleaf into big dripleaf.
+    - Moss carpet and deepslate can be crafted and smelted.
+  - Sculk:
+    - Sensors hear footsteps, mining and block placing within 8 blocks and give a short redstone pulse. Sneak to stay silent.
+    - When a player sets off a sensor, nearby shriekers shriek, and so does a shrieker you step on.
+    - Wild shriekers (the ones that generated in the Hushdeep) also bring Darkness, which pulls the world into a pulsing gloom for 12 seconds, and raise your warning level. Player-placed shriekers only shriek.
+    - Catalysts spread sculk over the ground when a creature dies nearby.
+    - The warden and ancient cities come in a later checkpoint.
+  - Spores drift down from spore blossoms and water drips from stalactite tips.
+  - The F3 screen shows the cave biome you are in.
+  - Wide block IDs: blocks now carry a 12-bit ID, so there is room for about 3,000 more blocks. Every existing block keeps its exact value, and old saves and servers load unchanged. Chunks with new blocks are saved in a marked wide format.
+  - Trapdoors: mobs treat trapdoors as floor when planning a path, like Java, so open trapdoors over a drop lead them off the edge in mob farms.
+  - Protocol 28: players need v34 to join a v34 server.
+- **v33 Terrain checkpoint 5 (atmosphere) and trapdoors:**
+  - Every biome now has its own air. Swamps and mangroves sit under a murky green haze, the Gloomroot Thicket is dim and close, jungles are humid, Rustmesa Badlands and deserts shimmer with warm dust and heat haze at midday, Petalfall Grove has a soft pink sky, Sporecap Isle a violet one, and the frozen biomes are crisp and clear. Sky and fog colours blend smoothly as you travel, over about 30 blocks.
+  - Morning mist: around sunrise, mist settles into valleys and low ground, thickest in wet biomes and after rain, and burns off as the sun climbs. A little lingers at night in swamps and jungles.
+  - Biome particles: cherry petals drift down in Petalfall Grove, spores float up over Sporecap Isle and the Gloomroot Thicket, dust blows across badlands, deserts and savanna, pollen hangs in the sun over plains and meadows, diamond dust glints in the frozen biomes, and swamps, mangroves and jungles get more fireflies, from dusk.
+  - Distant terrain, entities and water all fade into the same haze, with or without post-processing.
+  - Trapdoors: Oak, Spruce, Birch, Jungle, Acacia, Dark Oak, Cherry and Mangrove trapdoors (six planks of one wood make two) and the Iron Trapdoor (four iron ingots). Click the upper half of a block's side to place one at the top of the space, or the lower half to place it at the bottom. Placed against a wall, it hinges on that wall; placed on a floor or ceiling, it hinges on the far side. Tap a wooden trapdoor to open or close it. Redstone opens and closes both kinds, and iron trapdoors only respond to redstone.
+  - Protocol 27: players need v33 to join a v33 server.
+- **v32.1 Flowing water:**
+  - Flowing water now uses the same wave model as still water: ripples, glints and reflections drift along with the current instead of a texture tile per block. The flow direction is blended smoothly across blocks, so streams and rivers read as one continuous surface.
+  - The top of a waterfall or rapid no longer sticks up as a full cube. The surface ramps down into the pool below, so river cascades look like sloping rapids instead of stairs.
+  - Foam is now limited to the churning water right next to falls, and the surface of flowing water bobs with the same gentle waves as still water. Works with both Low and High water quality.
+- **v32 Terrain checkpoint 4 (biomes part 2):**
+  - Five more biomes in newly generated land: Petalfall Grove (cherry trees with clouds of pink blossom on high ground), Tanglewater Mangroves (warm swamps of mud and shallow water with mangroves standing on arching roots), Sporecap Isle (rare islands of mycelium and huge red and brown mushrooms), Frostspire Barrens (snowfields broken by spikes of packed ice, some of them very tall) and Coralreach Shallows (bright warm seas with coral reefs and seagrass).
+  - New blocks: Cherry and Mangrove logs, leaves, planks, a Cherry Sapling and a Mangrove Propagule, five coral blocks and five corals, Red and Brown Mushroom Blocks, Mushroom Stem and Mycelium.
+  - Stairs and slabs for Acacia, Dark Oak, Cherry and Mangrove.
 - **v31 Terrain checkpoint 3 (biomes part 1):**
   - Five new biomes in newly generated land: Sunbleached Savanna (dry grass, coarse dirt and crooked acacia trees), Rustmesa Badlands (red sand over cliffs striped with bands of coloured terracotta, cactus and dead bushes), Gloomroot Thicket (a dense dark oak forest with mushrooms underneath), Bloomvale Meadow (open grass carpeted with patches of flowers) and Elderspire Taiga (giant spruces, podzol and mossy boulders).
   - Bigger jungles with more giant jungle trees. Warm grassland now becomes savanna, like Java.
@@ -494,7 +559,7 @@ What has been run:
 - `scripts/v20-smoke.mjs <server>`: checks a same-tick swap from mace to sword hits for 6 with the sword taking the wear, and a normal swap gives a weak hit.
 - `scripts/v19-smoke.mjs <server>`: places rails and checks they join and curve, places a minecart, rides it and gets off.
 - `scripts/v17-smoke.mjs <server>`: places a piston facing the way the player looks, powers it and checks the push, then checks a Watcher pulse lights a lamp.
-- `npm test`: 232 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning, crop growth, and data pack conversion (shaped, shapeless, smelting, tags, filters, unknown items, sanitising), anti-xray consistency between client and server terrain, an inventory fuzz test, economy pricing, and structure placement, determinism, secrecy, Trial Cage waves and vault keys, cobblestone generation, lava contact, kelp, absorption hearts, 2x2 trees, `/give`, generation versions, and redstone circuits (dust decay and climbing, torch inversion and burnout, repeater delay and locking, comparator containers and subtraction, a clock, plates, buttons, doors, and repeatable traces), pistons (push, pull, 12-block limit, obsidian, quasi-connectivity), watchers, a sugar cane farm, hoppers (chest to chest, locking, collecting items), dispensers (water, bone meal) and droppers), blast resistance, keg merging and chain-reaction speed, rail shapes and power, minecarts on straights and curves, riding, Sensor and Trigger Rails, Keg Cart fall blasts, crossbow loading, mace damage and spear reach, Java weapon tables, mace smash order and knockback, attribute swapping, spear jab range and charge damage, arrow damage, pack item names, Java's random generator, enchanting table costs and selection, anvil maths, and enchantment effects). The vanilla pack import test runs when the pack zip is present locally.
+- `npm test`: 237 tests covering deterministic world generation and biome spread, meshing correctness and speed, crafting and inventory determinism (client/server agreement), server-side mining validation, fluid flow, fall damage, bows, villages, Java movement speeds and jump height, natural spawning in dark rooms vs daylight vs torch light, despawning, crop growth, and data pack conversion (shaped, shapeless, smelting, tags, filters, unknown items, sanitising), anti-xray consistency between client and server terrain, an inventory fuzz test, economy pricing, and structure placement, determinism, secrecy, Trial Cage waves and vault keys, cobblestone generation, lava contact, kelp, absorption hearts, 2x2 trees, `/give`, generation versions, and redstone circuits (dust decay and climbing, torch inversion and burnout, repeater delay and locking, comparator containers and subtraction, a clock, plates, buttons, doors, and repeatable traces), pistons (push, pull, 12-block limit, obsidian, quasi-connectivity), watchers, a sugar cane farm, hoppers (chest to chest, locking, collecting items), dispensers (water, bone meal) and droppers), blast resistance, keg merging and chain-reaction speed, rail shapes and power, minecarts on straights and curves, riding, Sensor and Trigger Rails, Keg Cart fall blasts, crossbow loading, mace damage and spear reach, Java weapon tables, mace smash order and knockback, attribute swapping, spear jab range and charge damage, arrow damage, pack item names, Java's random generator, enchanting table costs and selection, anvil maths, and enchantment effects). The vanilla pack import test runs when the pack zip is present locally.
 - `scripts/mp-smoke.mjs` against `wrangler dev`: two WebSocket clients exercise room creation, owner vs guest, block break and place sync, server-validated inventory, chat, chunk persistence, impersonation rejection, kick and ban, commands, and rejoin with saved inventory.
 - Headless Chrome (SwiftShader software WebGL) against `wrangler dev`: title, world creation, single-player loading and rendering, iPad-emulated touch controls (look, break, place, joystick walking, inventory, recipe book), importing the Java 26.3 vanilla pack (60/62 blocks, 73/74 items, animated water/lava, all six creature skins, player skins and HUD sprites confirmed in screenshots), and **two independent browser sessions** in one multiplayer room (UI create, code join with preview, both players visible to each other, chat both ways).
 - `wrangler deploy --dry-run`: bundle and bindings validated.

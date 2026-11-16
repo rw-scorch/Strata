@@ -115,8 +115,24 @@ async function createRoom(req: Request, env: Env): Promise<Response> {
   return json({ error: 'Could not allocate a room code, please retry' }, 503);
 }
 
+function failure(err: unknown): Response {
+  const e = err as { overloaded?: boolean; retryable?: boolean; message?: string } | null;
+  const busy = !!e?.overloaded || /overloaded/i.test(e?.message ?? '');
+  const retry = busy || !!e?.retryable;
+  console.error(busy ? 'room busy' : 'route error', e?.message ?? err);
+  return new Response(JSON.stringify({ error: busy ? 'World is busy, retrying shortly' : 'Server hiccup, please retry', retry }), {
+    status: retry ? 503 : 500,
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...(retry ? { 'retry-after': '2' } : {}) },
+  });
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
+    try { return await route(req, env); } catch (err) { return failure(err); }
+  },
+} satisfies ExportedHandler<Env>;
+
+async function route(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
 
@@ -164,5 +180,4 @@ export default {
 
     if (path.startsWith('/api/')) return json({ error: 'Not found' }, 404);
     return env.ASSETS.fetch(req);
-  },
-} satisfies ExportedHandler<Env>;
+}

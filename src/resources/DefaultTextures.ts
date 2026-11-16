@@ -275,7 +275,29 @@ function door(top: boolean): Px {
   return p;
 }
 
+function trapdoorTex(key: string, base: RGBA, metal = false): Px {
+  const p = metal ? noise(key, base, 0.05) : planks(key + '_td', base);
+  const edge = shade(base, metal ? 0.72 : 0.62);
+  for (let i = 0; i < 16; i++) { p.set(i, 0, edge); p.set(i, 15, edge); p.set(0, i, edge); p.set(15, i, edge); }
+  const holes = metal ? [[3, 3, 5, 6], [10, 3, 12, 6], [3, 10, 5, 13], [10, 10, 12, 13]] : [[3, 3, 6, 6], [9, 3, 12, 6], [3, 9, 6, 12], [9, 9, 12, 12]];
+  for (const [x0, y0, x1, y1] of holes) {
+    for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) p.set(x, y, edge);
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) p.set(x, y, [0, 0, 0, 0]);
+  }
+  if (metal) for (const [x, y] of [[7, 7], [8, 8], [7, 8], [8, 7]]) p.set(x, y, shade(base, 1.2));
+  return p;
+}
+
 const TEX: Record<string, () => Px> = {
+  oak_trapdoor: () => trapdoorTex('oak', hex(0xa8834d)),
+  spruce_trapdoor: () => trapdoorTex('spruce', hex(0x6e5134)),
+  birch_trapdoor: () => trapdoorTex('birch', hex(0xd2bf88)),
+  jungle_trapdoor: () => trapdoorTex('jungle', hex(0xa87656)),
+  acacia_trapdoor: () => trapdoorTex('acacia', hex(0xb05d37)),
+  dark_oak_trapdoor: () => trapdoorTex('dark_oak', hex(0x4a3220)),
+  cherry_trapdoor: () => trapdoorTex('cherry', hex(0xe3b3ad)),
+  mangrove_trapdoor: () => trapdoorTex('mangrove', hex(0x773631)),
+  iron_trapdoor: () => trapdoorTex('iron_td', hex(0xc8c8c8), true),
   stone: () => stone(),
   dirt: () => speckle(noise('dirt', hex(0x7a5536), 0.1), 'dirt', [hex(0x5e4027), hex(0x8f6845), hex(0x9a7a5a)], 26),
   grass_block_top: () => { const p = noise('gtop', [180, 180, 180, 255], 0.16); return speckle(p, 'gtop', [[140, 140, 140, 255], [215, 215, 215, 255]], 30); },
@@ -309,6 +331,31 @@ const TEX: Record<string, () => Px> = {
   dark_oak_leaves: () => leaves('dark_oak_leaves'),
   acacia_sapling: () => plant('asap', (p) => { stem(p, 7, 8, 15, hex(0x6a645c)); for (let y = 2; y < 7; y++) for (let x = 2; x < 14; x++) if (Math.abs(y - 4) * 3 + Math.abs(x - 7.5) < 7 && (x + y) % 3) p.set(x, y, hex(0x6f8f2c)); }),
   dark_oak_sapling: () => plant('dsap', (p) => { stem(p, 7, 9, 15, hex(0x3b2a19)); for (let y = 2; y < 10; y++) for (let x = 3; x < 12; x++) if ((x - 7) ** 2 + (y - 6) ** 2 < 15 && (x * y + 1) % 3) p.set(x, y, hex(0x2f6a1c)); }),
+  cherry_planks: () => planks('cherry', hex(0xe3b3ad)),
+  mangrove_planks: () => planks('mangrove', hex(0x773631)),
+  cherry_log: () => logSide('cherry_log', hex(0x3a2230), hex(0x2a1622)),
+  cherry_log_top: () => logTop('cherry_top', hex(0x3a2230), hex(0xd9a29a)),
+  mangrove_log: () => logSide('mangrove_log', hex(0x544433), hex(0x3d3024)),
+  mangrove_log_top: () => logTop('mangrove_top', hex(0x544433), hex(0x7a3a33)),
+  cherry_leaves: () => { const p = noise('cherryl', hex(0xf0a6c8), 0.12); for (let i = 0; i < 40; i++) { const x = (i * 7) % 16, y = (i * 11) % 16; p.set(x, y, i % 3 ? hex(0xf7c1da) : hex(0xd97fae)); } for (let i = 0; i < 18; i++) p.set((i * 5 + 3) % 16, (i * 9 + 1) % 16, [0, 0, 0, 0]); return p; },
+  mangrove_leaves: () => leaves('mangrove_leaves'),
+  cherry_sapling: () => plant('csap', (p) => { stem(p, 7, 9, 15, hex(0x3a2230)); for (let y = 2; y < 9; y++) for (let x = 3; x < 13; x++) if ((x - 7.5) ** 2 + (y - 5) ** 2 < 14 && (x + 2 * y) % 3) p.set(x, y, hex(0xf0a6c8)); }),
+  mangrove_propagule: () => plant('mprop', (p) => { stem(p, 7, 4, 13, hex(0x6f8f2c)); for (let y = 1; y < 5; y++) for (let x = 5; x < 11; x++) if ((x + y) % 2) p.set(x, y, hex(0x4f7a28)); p.set(7, 14, hex(0x7a5a2a)); }),
+  tube_coral_block: () => speckle(noise('tcb', hex(0x3157d0), 0.1), 'tcb', [hex(0x2742a8), hex(0x4a74e8)], 40),
+  brain_coral_block: () => speckle(noise('bcb', hex(0xcf5b9f), 0.1), 'bcb', [hex(0xa8467f), hex(0xe57ab7)], 40),
+  bubble_coral_block: () => speckle(noise('bucb', hex(0xa519a1), 0.1), 'bucb', [hex(0x84137f), hex(0xc23dbf)], 40),
+  fire_coral_block: () => speckle(noise('fcb', hex(0xa3232e), 0.1), 'fcb', [hex(0x821b24), hex(0xc43a45)], 40),
+  horn_coral_block: () => speckle(noise('hcb', hex(0xd8c742), 0.1), 'hcb', [hex(0xb3a332), hex(0xeadb62)], 40),
+  tube_coral: () => plant('tc', (p) => { for (let y = 3; y < 16; y++) for (const x of [4, 7, 11]) if ((y + x) % 4) p.set(x + ((y >> 2) & 1), y, hex(0x3157d0)); }),
+  brain_coral: () => plant('bc', (p) => { for (let y = 6; y < 16; y++) for (let x = 3; x < 13; x++) if ((x - 8) ** 2 + (y - 11) ** 2 < 22 && (x * y) % 3) p.set(x, y, hex(0xcf5b9f)); }),
+  bubble_coral: () => plant('buc', (p) => { for (let y = 4; y < 16; y++) for (let x = 2; x < 14; x++) if (((x - 8) ** 2 + (y - 9) ** 2) % 7 < 2) p.set(x, y, hex(0xa519a1)); }),
+  fire_coral: () => plant('fc', (p) => { for (let y = 2; y < 16; y++) for (const x of [3, 6, 9, 12]) if ((x + y) % 3) p.set(x + (y % 2), y, hex(0xa3232e)); }),
+  horn_coral: () => plant('hc', (p) => { for (let y = 3; y < 16; y++) for (let x = 2; x < 14; x++) if (Math.abs(x - 8) < (16 - y) / 2 && (x + y) % 2) p.set(x, y, hex(0xd8c742)); }),
+  red_mushroom_block: () => { const p = noise('rmb', hex(0xc22b28), 0.06); for (const [x, y, r] of [[3, 3, 2], [11, 4, 2], [7, 10, 2], [13, 12, 1], [2, 12, 1]]) for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) if (dx * dx + dy * dy <= r * r) p.set((x + dx + 16) % 16, (y + dy + 16) % 16, hex(0xe8e4d8)); return p; },
+  brown_mushroom_block: () => speckle(noise('bmb', hex(0x956f51), 0.06), 'bmb', [hex(0x7f5c42), hex(0xa77f60)], 30),
+  mushroom_stem: () => speckle(noise('mst', hex(0xcbc4b8), 0.05), 'mst', [hex(0xb8b0a2), hex(0xdcd6cb)], 24),
+  mycelium_top: () => speckle(noise('myc', hex(0x6f6265), 0.1), 'myc', [hex(0x8a7d84), hex(0x5c5052), hex(0x9a8c96)], 60),
+  mycelium_side: () => { const p = TEX.dirt(); for (let x = 0; x < 16; x++) for (let y = 0; y < 3 + ((x * 5) % 3); y++) p.set(x, y, (x + y) % 3 ? hex(0x6f6265) : hex(0x8a7d84)); return p; },
   red_sand: () => speckle(noise('rsand', hex(0xbe6621), 0.06), 'rsand', [hex(0xa85818), hex(0xd27a35)], 30),
   coarse_dirt: () => speckle(noise('cdirt', hex(0x77553a), 0.12), 'cdirt', [hex(0x5a3f2a), hex(0x8f8f8f), hex(0x6b6b6b), hex(0x9a7a5a)], 40),
   podzol_top: () => speckle(noise('podz', hex(0x5b3e1d), 0.12), 'podz', [hex(0x7a5a2a), hex(0x3f2a12), hex(0x6a4f22)], 44),
@@ -711,6 +758,53 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   TEX.vault_front = () => { const p = cage('vaultf', hex(0x5c5650), null); for (let y = 6; y < 10; y++) for (let x = 6; x < 10; x++) p.set(x, y, hex(0xffd36a)); p.set(7, 10, hex(0x3a3430)); p.set(8, 10, hex(0x3a3430)); return p; };
 }
 
+{
+  const T = TEX;
+  const blob = (key: string, c: RGBA, c2: RGBA, holes = 0.12, p = new Px()) => { const r = rngFor(key); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { if (r.next() < holes) continue; p.set(x, y, shade(r.next() < 0.3 ? c2 : c, 0.85 + r.next() * 0.25)); } return p; };
+  const dots = (p: Px, key: string, c: RGBA, n: number) => { const r = rngFor(key + 'd'); for (let i = 0; i < n; i++) { const x = r.int(15), y = r.int(15); p.set(x, y, c); p.set(x + 1, y, shade(c, 0.85)); } return p; };
+  const strands = (key: string, c: RGBA, berries: RGBA | null, hang = true) => { const p = new Px(); const r = rngFor(key); for (const x0 of [3, 7, 11]) { let x = x0 + r.int(2); for (let y = 0; y < 16; y++) { p.set(x, y, shade(c, 0.8 + r.next() * 0.3)); if (r.next() < 0.35) p.set(x + 1, y, shade(c, 0.7)); if (r.next() < 0.12) x += r.int(3) - 1; x = Math.max(1, Math.min(14, x)); if (berries && r.next() < 0.12) { p.set(x - 1, y, berries); p.set(x - 1, Math.min(15, y + 1), shade(berries, 0.8)); } } } if (!hang) return p; return p; };
+  const moss: RGBA = hex(0x5c7a2c), mossD: RGBA = hex(0x40581e), leaf: RGBA = hex(0x5e8a30), pink: RGBA = hex(0xd877c4);
+  T.moss_block = () => speckle(noise('moss', moss, 0.12), 'moss', [mossD, hex(0x76963a)], 40);
+  T.azalea_leaves = () => blob('azl', leaf, hex(0x4a6e26));
+  T.flowering_azalea_leaves = () => dots(blob('fazl', leaf, hex(0x4a6e26)), 'fazl', pink, 9);
+  const bush = (key: string, flowers: boolean) => { const p = new Px(); const r = rngFor(key); for (let y = 0; y < 10; y++) for (let x = 1; x < 15; x++) { const dx = (x - 7.5) / 7, dy = (y - 5) / 5.5; if (dx * dx + dy * dy < 1 && r.next() > 0.1) p.set(x, y, shade(leaf, 0.75 + r.next() * 0.35)); } for (let y = 9; y < 16; y++) { p.set(7, y, hex(0x6a5030)); p.set(8, y, hex(0x55402a)); } if (flowers) dots(p, key, pink, 6); return p; };
+  T.azalea_side = () => bush('azs', false); T.flowering_azalea_side = () => bush('fazs', true);
+  T.azalea_top = () => blob('azt', leaf, hex(0x4a6e26), 0.05); T.flowering_azalea_top = () => dots(blob('fazt', leaf, hex(0x4a6e26), 0.05), 'fazt', pink, 8);
+  T.azalea_plant = () => { const p = new Px(); for (let y = 4; y < 16; y++) { p.set(7, y, hex(0x6a5030)); p.set(8, y, hex(0x55402a)); } return p; };
+  T.rooted_dirt = () => { const p = speckle(noise('rdirt', hex(0x7a5536), 0.1), 'rdirt', [hex(0x5e4027)], 20); const r = rngFor('rroot'); for (let i = 0; i < 5; i++) { let x = r.int(16); for (let y = 0; y < 16; y++) { p.set(x, y, hex(0xa07a50)); if (r.next() < 0.3) x = (x + r.int(3) + 15) % 16; } } return p; };
+  T.hanging_roots = () => strands('hroot', hex(0x9a7048), null);
+  T.cave_vines = () => strands('cvine', hex(0x4f7a2a), null); T.cave_vines_plant = () => strands('cvinep', hex(0x4f7a2a), null);
+  T.cave_vines_lit = () => strands('cvine', hex(0x4f7a2a), hex(0xffb030)); T.cave_vines_plant_lit = () => strands('cvinep', hex(0x4f7a2a), hex(0xffb030));
+  T.spore_blossom = () => { const p = new Px(); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const dx = x - 7.5, dy = y - 7.5, d = Math.hypot(dx, dy), a = Math.atan2(dy, dx); const petal = 4.5 + Math.cos(a * 4) * 2.5; if (d < petal) p.set(x, y, d < 2 ? hex(0xf0d0e8) : shade(pink, 0.8 + (d / petal) * 0.3)); } return p; };
+  T.spore_blossom_base = () => blob('sbb', leaf, hex(0x3e6020), 0.4);
+  T.big_dripleaf_top = () => { const p = new Px(); const r = rngFor('bdt'); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const dx = (x - 7.5) / 7.8, dy = (y - 7.5) / 7.8; if (dx * dx + dy * dy < 1) p.set(x, y, (x === 7 || x === 8) ? hex(0x5e9a2a) : shade(hex(0x6eaa36), 0.85 + r.next() * 0.2)); } return p; };
+  T.big_dripleaf_side = () => { const p = new Px(); for (let x = 0; x < 16; x++) { p.set(x, 0, hex(0x5e9a2a)); p.set(x, 1, hex(0x4e8a22)); } return p; };
+  T.big_dripleaf_stem = () => { const p = new Px(); for (let y = 0; y < 16; y++) { p.set(7, y, hex(0x5e9a2a)); p.set(8, y, hex(0x4a7e20)); } return p; };
+  T.small_dripleaf_side = () => { const p = new Px(); for (let y = 2; y < 16; y++) p.set(7 + ((y >> 2) & 1), y, hex(0x5e9a2a)); for (const [cx, cy] of [[4, 4], [11, 3], [6, 9]]) for (let y = -2; y <= 2; y++) for (let x = -3; x <= 3; x++) if (x * x / 9 + y * y / 4 < 1) p.set(cx + x, cy + y, hex(0x6eaa36)); return p; };
+  T.small_dripleaf_top = () => T.big_dripleaf_top(); T.small_dripleaf_stem_top = () => T.small_dripleaf_side(); T.small_dripleaf_stem_bottom = () => T.big_dripleaf_stem();
+  T.glow_lichen = () => { const p = new Px(); const r = rngFor('glich'); for (let i = 0; i < 9; i++) { const cx = r.int(16), cy = r.int(16), rad = 1 + r.int(3); for (let y = -rad; y <= rad; y++) for (let x = -rad; x <= rad; x++) if (x * x + y * y <= rad * rad && r.next() > 0.25) p.set((cx + x + 16) % 16, (cy + y + 16) % 16, r.next() < 0.3 ? hex(0xb8f0d0) : hex(0x6ab890)); } return p; };
+  const drip = (up: boolean, thick: number) => { const p = new Px(); const r = rngFor(`drip${up}${thick}`); const base = [2, 3, 4.5, 5.5, 6.5][thick], tip = [0.5, 0.5, 2, 4.5, 5.5][thick]; for (let y = 0; y < 16; y++) { const t = up ? y / 15 : 1 - y / 15; const w = tip + (base - tip) * t; if (thick <= 1 && t < 0.3) continue; for (let x = 0; x < 16; x++) if (Math.abs(x - 7.5) < w) p.set(x, y, shade(hex(0x8a6a50), 0.8 + r.next() * 0.3)); } return p; };
+  ['up', 'down'].forEach((d, di) => ['tip_merge', 'tip', 'frustum', 'middle', 'base'].forEach((t, ti) => { T[`pointed_dripstone_${d}_${t}`] = () => drip(di === 0, ti); }));
+  const sk: RGBA = hex(0x0b2a32), skL: RGBA = hex(0x2fd6d6);
+  T.sculk = () => speckle(noise('sculk', sk, 0.18), 'sculk', [hex(0x0f3c46), skL], 14);
+  T.sculk_vein = () => { const p = new Px(); const r = rngFor('svein'); for (let i = 0; i < 6; i++) { let x = r.int(16), y = r.int(16); for (let k = 0; k < 10; k++) { p.set(x, y, r.next() < 0.15 ? skL : sk); x = (x + r.int(3) + 15) % 16; y = (y + r.int(3) + 15) % 16; } } return p; };
+  T.sculk_sensor_side = () => { const p = noise('sss', sk, 0.15); for (let x = 0; x < 16; x++) { p.set(x, 0, skL); if (x % 4 === 1) for (let y = 1; y < 6; y++) p.set(x, y, hex(0x146470)); } return p; };
+  T.sculk_sensor_top = () => { const p = noise('sst', sk, 0.15); for (let i = 3; i < 13; i++) { p.set(i, 3, skL); p.set(i, 12, skL); p.set(3, i, skL); p.set(12, i, skL); } return p; };
+  T.sculk_sensor_bottom = () => noise('ssb', hex(0x10343c), 0.1);
+  T.sculk_sensor_tendril_inactive = () => { const p = new Px(); for (let y = 6; y < 16; y++) { p.set(7, y, hex(0x146470)); p.set(8, y, hex(0x0f5058)); } return p; };
+  T.sculk_sensor_tendril_active = () => { const p = new Px(); for (let y = 6; y < 16; y++) { p.set(7, y, skL); p.set(8, y, hex(0x22b0b0)); } return p; };
+  T.sculk_shrieker_side = () => { const p = noise('shs', hex(0xd8d0b8), 0.08); for (let y = 8; y < 16; y++) for (let x = 0; x < 16; x++) p.set(x, y, shade(sk, 0.9 + (x % 3) * 0.05)); return p; };
+  T.sculk_shrieker_top = () => { const p = noise('sht', hex(0xd8d0b8), 0.08); for (let y = 4; y < 12; y++) for (let x = 4; x < 12; x++) p.set(x, y, hex(0x0a1a20)); return p; };
+  T.sculk_shrieker_bottom = () => noise('shb', sk, 0.12);
+  T.sculk_shrieker_inner_top = () => noise('shi', hex(0x0a1a20), 0.1); T.sculk_shrieker_can_summon_inner_top = () => speckle(noise('shc', hex(0x0a1a20), 0.1), 'shc', [skL], 6);
+  T.sculk_catalyst_side = () => { const p = noise('scs', sk, 0.15); for (let y = 0; y < 5; y++) for (let x = 0; x < 16; x++) p.set(x, y, shade(hex(0xd8d0b8), 0.9 + (y & 1) * 0.08)); return p; };
+  T.sculk_catalyst_top = () => { const p = noise('sct', hex(0xd8d0b8), 0.08); for (let y = 5; y < 11; y++) for (let x = 5; x < 11; x++) p.set(x, y, (x + y) & 1 ? skL : hex(0x16a0a0)); return p; };
+  T.sculk_catalyst_bottom = () => noise('scb', sk, 0.12);
+  T.deepslate = () => { const p = noise('dslate', hex(0x4a4a50), 0.08); const r = rngFor('dsl'); for (let y = 0; y < 16; y += 3 + r.int(2)) for (let x = 0; x < 16; x++) if (r.next() < 0.7) p.set(x, y, hex(0x3a3a40)); return p; };
+  T.deepslate_top = () => speckle(noise('dslatet', hex(0x4c4c52), 0.08), 'dslatet', [hex(0x3a3a40)], 30);
+  T.cobbled_deepslate = () => cobble('cdslate', hex(0x505056), hex(0x2c2c30));
+}
+
 export function defaultBlockTexture(key: string): Px {
   const f = TEX[key];
   if (f) return f();
@@ -907,6 +1001,8 @@ const ITEM_MAP: Record<string, () => Px> = {
   ITEM_MAP.ink_sac = () => drawSprite(['................', '................', '......aaaa......', '.....abbbba.....', '....abbcbbba....', '....abbbbbba....', '....abbbbbba....', '.....abbbba.....', '......abba......', '.....a.aa.a.....', '....a..aa..a....', '.......aa.......', '................', '................', '................', '................'], { a: 0x101014, b: 0x2a2a34, c: 0x6a6a7a });
   ITEM_MAP.cocoa_beans = () => drawSprite(['................', '................', '................', '.....aa...aa....', '....abba.abba...', '....abca.abca...', '....abba.abba...', '.....aa...aa....', '.......aa.......', '......abba......', '......abca......', '......abba......', '.......aa.......', '................', '................', '................'], { a: 0x3a2010, b: 0x7a4a24, c: 0xa87040 });
 }
+
+ITEM_MAP.glow_berries = () => drawSprite(['................', '........a.......', '.......a........', '......a.........', '.....bb..bb.....', '....bccb.bccb...', '....bccb.bccb...', '.....bb...bb....', '.......a........', '......bb........', '.....bccb.......', '.....bccb.......', '......bb........', '................', '................', '................'], { a: 0x4f7a2a, b: 0xd07a10, c: 0xffc040 });
 
 export function defaultItemTexture(key: string): Px | null {
   if (ITEM_MAP[key]) return ITEM_MAP[key]();

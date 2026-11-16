@@ -1,5 +1,5 @@
 import { unzipSync } from 'fflate';
-import { BLOCKS, B } from '../core/blocks';
+import { BLOCKS, B, CAVE_TEX } from '../core/blocks';
 import { ITEMS } from '../core/items';
 import { decodeTGA } from './tga';
 
@@ -84,7 +84,7 @@ export const JAVA_BLOCK_NAMES: Record<string, { name: string; state?: string }> 
   farmland: { name: 'farmland', state: 'moisture=7' }, wheat: { name: 'wheat', state: 'age=0' },
 };
 
-const SKIP_MODEL = new Set(['chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'nether_wart', 'nether_brick_fence', 'carrots', 'potatoes', 'beetroots', 'lectern', 'brewing_stand', 'cauldron', 'grindstone', 'stonecutter', 'bell', 'lantern', 'cake', 'composter', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser']);
+const SKIP_MODEL = new Set(['moss_carpet', 'azalea', 'flowering_azalea', 'hanging_roots', 'cave_vines', 'cave_vines_lit', 'spore_blossom', 'big_dripleaf', 'big_dripleaf_stem', 'small_dripleaf', 'glow_lichen', 'pointed_dripstone', 'sculk_vein', 'sculk_sensor', 'sculk_shrieker', 'chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'nether_wart', 'nether_brick_fence', 'carrots', 'potatoes', 'beetroots', 'lectern', 'brewing_stand', 'cauldron', 'grindstone', 'stonecutter', 'bell', 'lantern', 'cake', 'composter', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser']);
 
 const all6 = (t: string) => ({ px: t, nx: t, py: t, ny: t, pz: t, nz: t });
 const RS_FACES: Record<string, Record<string, string>> = {
@@ -92,7 +92,7 @@ const RS_FACES: Record<string, Record<string, string>> = {
   redstone_torch: all6('block/redstone_torch'), unlit_redstone_torch: all6('block/redstone_torch_off'),
   enchanting_table: { ...all6('block/enchanting_table_side'), py: 'block/enchanting_table_top', ny: 'block/enchanting_table_bottom' },
   anvil: { ...all6('block/anvil'), py: 'block/anvil_top' },
-  nether_portal: all6('block/nether_portal'), fire: all6('block/fire_0'), iron_bars: all6('block/iron_bars'),
+  nether_portal: all6('block/nether_portal'), fire: all6('block/fire_0'), soul_fire: all6('block/soul_fire_0'), iron_bars: all6('block/iron_bars'),
   lever: { ...all6('block/lever'), ny: 'block/cobblestone' },
   stone_button: all6('block/stone'), oak_button: all6('block/oak_planks'), stone_pressure_plate: all6('block/stone'), oak_pressure_plate: all6('block/oak_planks'),
   repeater: { ...all6('block/smooth_stone'), py: 'block/repeater', front: 'block/repeater_on' },
@@ -375,7 +375,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       if (els && els.length) {
         const cube = els.find((e) => e.from.join() === '0,0,0' && e.to.join() === '16,16,16') ?? els[0];
         const isCross = els.some((e) => e.rotation && Math.abs(e.rotation.angle) === 45);
-        if (isCross || def.render === 'cross' || def.render === 'crop') {
+        if (isCross || def.render === 'cross' || def.render === 'crop' || def.render === 'fire') {
           const f = Object.values(els[0].faces ?? {})[0];
           const t = f ? resolveTex(chain, f.texture) : null;
           if (t) { fo.px = fo.nx = fo.py = fo.ny = fo.pz = fo.nz = t; }
@@ -408,9 +408,9 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
         water: ['block/water_still', 'block/water_flow'], lava: ['block/lava_still', 'block/lava_flow'], wheat: Array.from({ length: 8 }, (_, i) => `block/wheat_stage${i}`), nether_wart: [0, 1, 2].map((i) => `block/nether_wart_stage${i}`), carrots: [0, 1, 2, 3].map((i) => `block/carrots_stage${i}`), potatoes: [0, 1, 2, 3].map((i) => `block/potatoes_stage${i}`), beetroots: [0, 1, 2, 3].map((i) => `block/beetroots_stage${i}`), lily_pad: ['block/lily_pad'], air: [],
       };
       for (const t of extra[b.key] ?? []) needTex.add(t);
-      if (b.render === 'boxes') for (const f of new Set([...Object.values(b.faces), b.front].filter(Boolean) as string[])) needTex.add(`block/${f}`);
+      if (b.render === 'boxes' || b.id >= 1024) for (const f of new Set([...Object.values(b.faces), b.front].filter(Boolean) as string[])) needTex.add(`block/${f}`);
     }
-    for (const t of RS6_TEX) needTex.add(`block/${t}`);
+    for (const t of [...RS6_TEX, ...CAVE_TEX]) needTex.add(`block/${t}`);
     for (let i = 0; i < 10; i++) needTex.add(`block/destroy_stage_${i}`);
     for (const k of ['grass_block_top', 'grass_block_side', 'grass_block_side_overlay', 'grass_block_snow', 'farmland_moist']) needTex.add(`block/${k}`);
     const itemModelNames = new Map<string, string>();

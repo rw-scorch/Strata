@@ -324,7 +324,7 @@ export class InventoryUI {
     d.lp = window.setTimeout(() => {
       if (this.drag !== d || d.active) return;
       d.long = true;
-      this.op({ t: 'click', s: s.ref!, b: 1 });
+      this.op(s.ref!.c === 'out' ? { t: 'quick', s: s.ref! } : { t: 'click', s: s.ref!, b: 1 });
       navigator.vibrate?.(15);
     }, 430);
     this.drag = d;
@@ -466,6 +466,12 @@ export class InventoryUI {
       for (let r = 0; r < 3; r++) for (let c = 0; c < 9; c++) { const i = 9 + r * 9 + c; this.slot(win, ref('inv', i), () => inv.slots[i], x + c * 18, y + r * 18); }
       for (let c = 0; c < 9; c++) this.slot(win, ref('inv', c), () => inv.slots[c], x + c * 18, y + 58);
     };
+    const craftAll = (x: number, y: number) => {
+      if (!matchMedia('(pointer: coarse)').matches) return;
+      const b = h('button', { class: 'mc-craftall', style: `left:${x * s}px;top:${y * s}px;font-size:${7 * s}px;padding:${s}px ${3 * s}px` }, 'Craft all');
+      b.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); if (craftResult(this.session!.me.inv, this.session?.sim.book)) { this.op({ t: 'quick', s: { c: 'out', i: 0 } }); navigator.vibrate?.(15); } });
+      win.appendChild(b);
+    };
     const bookBtn = (x: number, y: number) => {
       const b = sprite(A, 'gs:recipe_book/button', 20, 18, s, x, y, 'mc-sprite mc-btnimg');
       b.addEventListener('pointerenter', () => { b.style.backgroundImage = `url(${guiURL(A, 'gs:recipe_book/button_highlighted')})`; });
@@ -481,6 +487,7 @@ export class InventoryUI {
       win.appendChild(label('Crafting', 97, 8, s));
       for (let i = 0; i < 4; i++) this.slot(win, ref('craft', i), () => inv.craft[i], 98 + (i % 2) * 18, 18 + Math.floor(i / 2) * 18);
       this.slot(win, ref('out', 0), () => craftResult(inv, this.session?.sim.book)?.stack ?? null, 154, 28);
+      craftAll(140, 48);
       this.slot(win, ref('off', 0), () => inv.off?.[0] ?? null, 77, 62);
       bookBtn(104, 61);
       invSlots(8, 84);
@@ -490,6 +497,7 @@ export class InventoryUI {
       win.appendChild(label('Inventory', 8, 72, s));
       for (let i = 0; i < 9; i++) this.slot(win, ref('craft', i), () => inv.craft[i], 30 + (i % 3) * 18, 17 + Math.floor(i / 3) * 18);
       this.slot(win, ref('out', 0), () => craftResult(inv, this.session?.sim.book)?.stack ?? null, 124, 35);
+      craftAll(114, 56);
       bookBtn(5, 34);
       invSlots(8, 84);
     } else if (this.screen === 'furnace') {
