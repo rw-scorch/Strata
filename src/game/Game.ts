@@ -9,6 +9,10 @@ import type { RuleSet } from '../core/sim/WorldSim';
 import { MF } from '../core/sim/WorldSim';
 import * as THREE from 'three';
 import { raycast } from '../core/physics';
+import { bound, bindOf, keyName } from '../controls/keybinds';
+import { guardHistory } from '../ui/touchGuard';
+import { showBlueprints } from '../ui/BlueprintUI';
+import type { Blueprint } from '../core/blueprint';
 import { Renderer, FrameEnv } from '../rendering/Renderer';
 import { ChunkManager } from './ChunkManager';
 import { LocalPlayer } from './Player';
@@ -38,7 +42,7 @@ import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
-import { B, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix, bid, WIDE_BASE, ID_LIMIT } from '../core/blocks';
+import { B, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix, bid, WIDE_BASE, ID_LIMIT, isReplaceable } from '../core/blocks';
 import { heldStack, equipmentOf } from '../core/inventory';
 import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
@@ -87,6 +91,7 @@ export class Game {
   private time = 1000;
   private dayCycle = true;
   private weather: Weather = 'clear';
+  private weatherEnd = 0;
   private rain = 0;
   private thunder = 0;
   private flash = 0;
@@ -104,6 +109,50 @@ export class Game {
   zoomLevel = 4;
   private dynLights: [number, number, number, number][] = [];
   private darkT = 0;
+  private loadSkip = false;
+  private dim: { el: HTMLElement; phase: 'start' | 'end'; t0: number; tEnd: number; nether: boolean } | null = null;
+
+  private onTravel(phase: 'start' | 'end', nether: boolean): void {
+    const now = performance.now();
+    if (phase === 'start') {
+      this.dim?.el.remove();
+      const grid = document.createElement('canvas');
+      grid.width = grid.height = 5 * 6;
+      grid.className = 'load-grid';
+      const el = h('div', { class: `screen loading-screen mc-load dim-load${nether ? ' to-nether' : ''}` },
+        h('div', { class: 'load-title' }, nether ? 'Entering the Nether' : 'Returning to the Overworld'),
+        h('div', { class: 'load-step' }, 'Loading terrain...'), grid);
+      this.screens.appendChild(el);
+      this.dim = { el, phase, t0: now, tEnd: 0, nether };
+      return;
+    }
+    if (!this.dim) return;
+    this.dim.phase = 'end';
+    this.dim.tEnd = now;
+  }
+
+  private updateDim(): void {
+    const d = this.dim;
+    if (!d) return;
+    const now = performance.now();
+    const pcx = Math.floor(this.player.x / 16), pcz = Math.floor(this.player.z / 16);
+    const cv = d.el.querySelector('.load-grid') as HTMLCanvasElement;
+    const g = cv.getContext('2d')!;
+    g.clearRect(0, 0, cv.width, cv.height);
+    let done = 0, total = 0;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      const m = this.chunks.chunkMeshed(pcx + dx, pcz + dz), r = this.chunks.chunkReady(pcx + dx, pcz + dz);
+      g.fillStyle = m ? (d.nether ? '#c8402a' : '#7fcc19') : r ? (d.nether ? '#6a1e14' : '#3a7d1e') : '#333333';
+      g.fillRect((dx + 2) * 6, (dz + 2) * 6, 6, 6);
+      total++; if (m) done++;
+    }
+    (d.el.querySelector('.load-step') as HTMLElement).textContent = d.phase === 'start' ? 'Finding the way through...' : done < total ? `Building terrain... ${done}/${total}` : 'Arriving...';
+    const ready = d.phase === 'end' && (done >= total || now - d.tEnd > 12000) && now - d.t0 > 600;
+    if (ready || now - d.t0 > 45000) {
+      d.el.remove();
+      this.dim = null;
+    }
+  }
 
   private emitOf(id: number): number {
     if (id === I.LAVA_BUCKET) return 15;
@@ -257,13 +306,15 @@ export class Game {
     this.hurtEl = document.getElementById('hurt-flash')!;
   }
 
-  private setupCommon(seed: number, remote: boolean, arena: ArenaKind | null = null): void {
+  private setupCommon(seed: number, remote: boolean, arena: ArenaKind | null = null, climate?: number, studio = false): void {
     const s = getSettings();
     const tint = document.getElementById('tint') as HTMLDivElement;
     this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => Math.max(this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, this.dynLightAt(x, y, z)), tint);
-    this.gen = new WorldGenerator(seed, arena, remote ? { secret: null } : undefined);
-    this.renderer.setLodWorld(seed, arena);
+    this.gen = new WorldGenerator(seed, arena, remote ? { secret: null, climate } : climate === undefined && !studio ? undefined : { climate, studio });
+    this.renderer.setLodWorld(seed, arena, climate, studio);
     this.renderer.moving.ctx = { atlas: this.atlas.data, gen: this.gen };
+    this.renderer.ghost.ctx = { atlas: this.atlas.data, gen: this.gen };
+    this.renderer.ghost.show(null);
     const curCache = new Map<number, [number, number] | null>();
     this.player.flow = (px, py, pz) => {
       const x = Math.floor(px), z = Math.floor(pz);
@@ -292,7 +343,7 @@ export class Game {
       }
       return null;
     };
-    this.chunks = new ChunkManager(seed, arena, this.atlas.data, {
+    this.chunks = new ChunkManager(seed, arena, this.atlas.data, { climate, studio }, {
       loadStored: (cx, cz) => this.storedKeys?.has(`${cx},${cz}`) && this.worldMeta ? WorldStorage.loadChunk(this.worldMeta.id, cx, cz) : null,
       requestRemote: (cx, cz) => this.session?.requestChunk?.(cx, cz),
       onGenerated: (cx, cz, ents) => { if (this.session instanceof LocalSession) this.session.onGenerated(cx, cz, ents); },
@@ -380,9 +431,16 @@ export class Game {
     const onVis = () => { if (document.visibilityState === 'hidden') { void this.session?.save?.(false); if (this.state === 'playing' && this.session?.info.kind === 'local') this.pause(); } };
     document.addEventListener('visibilitychange', onVis);
     this.disposers.push(() => document.removeEventListener('visibilitychange', onVis));
-    const gesture = (e: Event) => e.preventDefault();
-    document.addEventListener('gesturestart', gesture);
-    this.disposers.push(() => document.removeEventListener('gesturestart', gesture));
+    const release = () => { this.mobile?.releaseAll(); this.input.breaking = false; this.input.using = false; };
+    const onHide = () => { if (document.visibilityState === 'hidden') release(); };
+    window.addEventListener('blur', release);
+    window.addEventListener('pagehide', release);
+    document.addEventListener('visibilitychange', onHide);
+    this.disposers.push(() => { window.removeEventListener('blur', release); window.removeEventListener('pagehide', release); document.removeEventListener('visibilitychange', onHide); });
+    this.disposers.push(guardHistory(() => this.running, () => {
+      if (this.inv?.isOpen) { this.inv.close(); return; }
+      if (this.state === 'playing' || this.state === 'chat') this.pause();
+    }));
     this.player.stepSound = (m) => audio.play(`step.${m}`, this.player.x, this.player.y, this.player.z);
     this.player.swimSound = () => audio.play('swim', this.player.x, this.player.y, this.player.z);
     this.interaction.onSwing = () => { this.renderer.handSwing = 1; };
@@ -421,13 +479,14 @@ export class Game {
     teleport: (x, y, z) => this.onTeleport(x, y, z),
     chat: (from, text, kind, ts) => this.chatUI?.add(from, text, kind, ts),
     time: (t, cycle) => { this.time = t; this.dayCycle = cycle; },
-    weather: (w) => { this.weather = w; },
+    weather: (w, d) => { this.weather = w; this.weatherEnd = d === undefined ? 0 : performance.now() / 1000 + d / 20; },
     lightning: (x, y, z) => this.onLightning(x, y, z),
     pistonMove: (l) => this.renderer?.moving.add(l, performance.now()),
     ride: (id) => { this.riding = id >= 0 ? String(id) : null; },
     enchantOffers: (o) => { this.inv?.setOffers(o); },
     equipment: (id, eq) => { this.renderer?.entities.setEquipment(`p:${id}`, eq); },
     dark: (t) => { this.darkT = Math.max(this.darkT, t / 20); },
+    travel: (phase, nether) => this.onTravel(phase, nether),
     knock: (x, y, z, set) => { this.player.body.vx += x; this.player.body.vy = set ? y : Math.max(this.player.body.vy, y); this.player.body.vz += z; },
     boom: (x, y, z, r) => this.onBoom(x, y, z, r),
     player: (p) => this.onPlayer(p),
@@ -448,7 +507,7 @@ export class Game {
     if (!rec) throw new Error('World not found');
     this.worldMeta = rec.meta;
     this.storedKeys = await WorldStorage.chunkKeys(meta.id);
-    this.setupCommon(rec.meta.seed, false, rec.meta.arena ?? null);
+    this.setupCommon(rec.meta.seed, false, rec.meta.arena ?? null, rec.meta.climate, !!rec.meta.studio);
     const s = getSettings();
     const local = new LocalSession(rec.meta, rec.state, this.chunks, this.ev, s.playerName || 'Wayfarer', s.appearance);
     local.initLevels(rec.state, this.storedKeys ?? new Set());
@@ -476,7 +535,7 @@ export class Game {
       else { packIds = room.settings.personalPacks ? s.activePacks : []; packNote = `This world suggests the resource pack "${room.pack.name}". You do not have it installed, so ${room.settings.personalPacks ? 'your own packs' : 'default textures'} are used. Gameplay is unaffected.`; }
     } else if (!room.settings.personalPacks) { packIds = []; if (s.activePacks.length) packNote = 'This world uses default textures for everyone.'; }
     this.atlas = await this.app.rebuildAtlas(packIds);
-    this.setupCommon(room.seed, true, room.arena ?? null);
+    this.setupCommon(room.seed, true, room.arena ?? null, room.climate, false);
     this.session = remote;
     remote.attach(this.chunks, this.ev, welcome);
     const p = remote.me;
@@ -511,16 +570,17 @@ export class Game {
     const voiceKey = (e: KeyboardEvent, down: boolean) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-      if (e.code === 'KeyV' && !e.repeat) this.voice?.setPtt(down);
-      if (e.code === 'KeyC' && !e.repeat) { this.zoomHeld = down && this.state === 'playing'; if (!down) this.zoomLevel = 4; }
-      if (e.code === 'KeyM' && down && !e.repeat && this.voice) { this.voice.setMuted(!this.voice.muted); }
+      if (bound(e.code, 'talk') && !e.repeat) this.voice?.setPtt(down);
+      if (this.bpMode && down && (e.code === 'BracketLeft' || e.code === 'BracketRight')) { this.bpMode.dy += e.code === 'BracketRight' ? 1 : -1; this.bpMode.checkAt = 0; return; }
+      if (bound(e.code, 'zoom') && !e.repeat) { this.zoomHeld = down && this.state === 'playing'; if (!down) this.zoomLevel = 4; }
+      if (bound(e.code, 'mute') && down && !e.repeat && this.voice) { this.voice.setMuted(!this.voice.muted); }
       if (down && !e.repeat && this.state === 'playing' && this.minimap) {
-        if (e.code === 'KeyN' && e.shiftKey) this.minimap.toggleHideAll();
-        else if (e.code === 'KeyN') { this.desktop?.unlock(); this.minimap.openBig(); }
-        else if (e.code === 'KeyB') {
+        if (bound(e.code, 'map') && e.shiftKey) this.minimap.toggleHideAll();
+        else if (bound(e.code, 'map')) { this.desktop?.unlock(); this.minimap.openBig(); }
+        else if (bound(e.code, 'waypoint')) {
           const p = this.player;
           const w = this.minimap.add(`Waypoint ${this.minimap.waypoints.length + 1}`, p.x, p.y, p.z);
-          toast(`Dropped ${w.name}. Press N to edit it.`, 'info');
+          toast(`Dropped ${w.name}. Press ${keyName(bindOf('map'))} to edit it.`, 'info');
         }
       }
     };
@@ -568,7 +628,8 @@ export class Game {
     const grid = document.createElement('canvas');
     grid.width = grid.height = 11 * 4;
     grid.className = 'load-grid';
-    this.loadingEl = h('div', { class: 'screen loading-screen mc-load' }, h('div', { class: 'load-title' }, text), h('div', { class: 'load-step' }, 'Loading terrain...'), grid, h('div', { class: 'load-pct' }, '0%'));
+    this.loadSkip = false;
+    this.loadingEl = h('div', { class: 'screen loading-screen mc-load' }, h('div', { class: 'load-title' }, text), h('div', { class: 'load-step' }, 'Loading terrain...'), grid, h('div', { class: 'load-pct' }, '0%'), h('button', { class: 'btn load-skip', style: 'visibility:hidden', onclick: () => { this.loadSkip = true; } }, 'Play now'));
     this.screens.appendChild(this.loadingEl);
   }
 
@@ -594,7 +655,9 @@ export class Game {
     (this.loadingEl.querySelector('.load-pct') as HTMLElement).textContent = `${pct}%`;
     (this.loadingEl.querySelector('.load-step') as HTMLElement).textContent = gen < total ? `Loading terrain... ${gen}/${total}` : done < total ? `Building chunks... ${done}/${total}` : 'Joining world...';
     const waited = performance.now() - this.loadStart;
-    const ready = done >= total || (waited > 30000 && core >= 9) || (waited > 45000 && this.chunks.chunkMeshed(pcx, pcz));
+    const skipBtn = this.loadingEl.querySelector('.load-skip') as HTMLElement | null;
+    if (skipBtn) skipBtn.style.visibility = core >= 9 && done < total && waited > 1500 ? 'visible' : 'hidden';
+    const ready = done >= total || (this.loadSkip && core >= 9) || (waited > 30000 && core >= 9) || (waited > 45000 && this.chunks.chunkMeshed(pcx, pcz));
     if (ready) {
       this.loadingEl.remove();
       this.loadingEl = null;
@@ -622,12 +685,106 @@ export class Game {
     this.mobile.refreshState();
   }
 
+  private bpMode: { bp: Blueprint; el: HTMLElement; status: HTMLElement; dy: number; pos: [number, number, number] | null; cells: Int32Array; checkAt: number; blocked: number } | null = null;
+
+  private openBlueprints(): void {
+    const s = this.session;
+    const local = s.info.kind === 'local';
+    const blocked = s.info.arena ? 'Not available in arena games.' : this.rulesState.allowBlueprints === false && !local ? 'The owner has turned blueprints off here.' : !s.placeBlueprint ? 'Not available here.' : null;
+    showBlueprints({
+      studio: !!s.info.studio,
+      placeBlocked: blocked,
+      creative: s.me.mode === 'creative',
+      inv: s.me.inv,
+      sel: () => [s.me.sel?.[0] ?? null, s.me.sel?.[1] ?? null],
+      get: (x, y, z) => this.chunks.getBlock(x, y, z),
+      onPlace: (bp) => { this.resume(); this.startBlueprint(bp); },
+      onShaper: this.session.me.mode === 'creative' && local ? () => showShaper((c) => this.session.chat(c), () => { const t = this.interaction.target; return t ? [t.x, t.y, t.z] : null; }, () => heldStack(this.session.me.inv)?.id ?? null) : undefined,
+    });
+  }
+
+  private startBlueprint(bp: Blueprint): void {
+    this.endBlueprint();
+    const cells: number[] = [];
+    for (let i = 0; i < bp.blocks.length; i++) if (bp.blocks[i]) cells.push(i);
+    const status = h('div', { class: 'bp-status' }, 'Aim at the ground where you want to build.');
+    const hint = matchMedia('(pointer: coarse)').matches ? null : h('div', { class: 'small muted' }, 'Right-click to place, middle-click to cancel, [ and ] to lower or raise.');
+    const el = h('div', { class: 'bp-hud' },
+      h('div', {}, h('b', {}, bp.name), ` (${bp.w} x ${bp.h} x ${bp.d})`),
+      status,
+      hint,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn small', onclick: () => { if (this.bpMode) { this.bpMode.dy--; this.bpMode.checkAt = 0; } } }, 'Lower'),
+        h('button', { class: 'btn small', onclick: () => { if (this.bpMode) { this.bpMode.dy++; this.bpMode.checkAt = 0; } } }, 'Raise'),
+        h('button', { class: 'btn small primary', onclick: () => this.confirmBlueprint() }, 'Place'),
+        h('button', { class: 'btn small danger', onclick: () => this.endBlueprint() }, 'Cancel')));
+    document.getElementById('hud-root')!.appendChild(el);
+    this.bpMode = { bp, el, status, dy: 0, pos: null, cells: Int32Array.from(cells), checkAt: 0, blocked: -1 };
+    this.renderer.ghost.show(bp);
+  }
+
+  private endBlueprint(): void {
+    if (!this.bpMode) return;
+    this.bpMode.el.remove();
+    this.bpMode = null;
+    this.renderer.ghost.show(null);
+  }
+
+  private confirmBlueprint(): void {
+    const m = this.bpMode;
+    if (!m?.pos) { toast('Aim at the ground first', 'error'); return; }
+    if (m.blocked > 0) { toast(`Blocked by ${m.blocked} block${m.blocked === 1 ? '' : 's'}. Move it to a clear spot.`, 'error'); return; }
+    this.session.placeBlueprint?.(m.bp, m.pos[0], m.pos[1], m.pos[2]);
+    this.endBlueprint();
+  }
+
+  private updateBlueprint(): void {
+    const m = this.bpMode;
+    if (!m) return;
+    const cam = this.renderer.camera;
+    const d = new THREE.Vector3();
+    cam.getWorldDirection(d);
+    const hit = raycast(this.chunks, cam.position.x, cam.position.y, cam.position.z, d.x, d.y, d.z, 64);
+    if (!hit) { m.pos = null; this.renderer.ghost.group.visible = false; m.status.textContent = 'Aim at the ground where you want to build.'; return; }
+    const { bp } = m;
+    const pos: [number, number, number] = [hit.x + hit.nx - Math.floor(bp.w / 2), hit.y + hit.ny + m.dy, hit.z + hit.nz - Math.floor(bp.d / 2)];
+    const moved = !m.pos || pos.some((v, i) => v !== m.pos![i]);
+    m.pos = pos;
+    const now = performance.now();
+    if (moved || now > m.checkAt) {
+      m.checkAt = now + 400;
+      let blocked = 0;
+      const stride = Math.max(1, Math.floor(m.cells.length / 60000));
+      for (let k = 0; k < m.cells.length; k += stride) {
+        const i = m.cells[k];
+        const x = i % bp.w, z = Math.floor(i / bp.w) % bp.d, y = Math.floor(i / (bp.w * bp.d));
+        const v = this.chunks.getBlock(pos[0] + x, pos[1] + y, pos[2] + z);
+        if (bid(v) && !isReplaceable(v)) blocked += stride;
+      }
+      m.blocked = blocked;
+      m.status.textContent = blocked ? `Overlaps about ${blocked} block${blocked === 1 ? '' : 's'}. Move it or raise it.` : 'Clear spot. Tap Place to build.';
+      m.status.classList.toggle('bad', blocked > 0);
+    }
+    this.renderer.ghost.group.visible = true;
+    this.renderer.ghost.place(pos[0], pos[1], pos[2], m.blocked === 0);
+  }
+
   private aimFar(): [number, number, number] | null {
     const cam = this.renderer.camera;
     const d = new THREE.Vector3();
     cam.getWorldDirection(d);
     const hit = raycast(this.chunks, cam.position.x, cam.position.y, cam.position.z, d.x, d.y, d.z, 320);
     return hit ? [Math.floor(localX(hit.x)), hit.y, hit.z] : null;
+  }
+
+  private preStorm(): number {
+    if (this.weather !== 'clear') return 0;
+    const local = this.session.info.kind === 'local';
+    const sim = this.session.sim;
+    if (!sim.settings.weatherCycle) return 0;
+    const left = local ? sim.weatherTimer / 20 : this.weatherEnd ? this.weatherEnd - performance.now() / 1000 : Infinity;
+    const k = Math.min(1, Math.max(0, (150 - left) / 120));
+    return k * k * (3 - 2 * k);
   }
 
   private sendChat(t: string): void {
@@ -732,6 +889,7 @@ export class Game {
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
       mischief: local || remote.me.op ? () => showMischief(() => (local ? [this.session.me.name] : [...remote.players.values()].map((q) => q.name)), this.session.me.name, (c) => this.session.chat(c), () => this.aimFar()) : undefined,
+      blueprints: !this.session.info.arena ? () => this.openBlueprints() : undefined,
       shaper: canShape ? () => showShaper((c) => this.session.chat(c), () => { const t = this.interaction.target; return t ? [t.x, t.y, t.z] : null; }, () => heldStack(this.session.me.inv)?.id ?? null) : undefined,
       difficulty: local ? { value: this.session.info.difficulty, set: (d) => (this.session as LocalSession).setDifficulty(d) } : undefined,
       quit: () => void this.quit(),
@@ -755,6 +913,7 @@ export class Game {
   }
 
   async quit(reason?: string): Promise<void> {
+    this.endBlueprint();
     if (!this.running) return;
     this.capturePanorama();
     this.running = false;
@@ -1120,7 +1279,7 @@ export class Game {
       const rf = MF.RIDE | (playing && this.input.moveZ > 0.3 ? MF.FORWARD : 0) | (playing && this.input.crouch ? MF.CROUCH : 0) | (this.interaction?.charging ? MF.CHARGE : 0);
       if (!me.dead) s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, rf);
       s.tick(dt, performance.now());
-    } else if (!frozen) {
+    } else if (!frozen && !this.dim) {
       this.player.update(dt, playing ? this.input : new InputState(), this.chunks, me.mode, me.dead);
       if (this.player.landed) audio.play('player.fall', this.player.x, this.player.y, this.player.z, 0.6);
       if (this.player.enteredWater) { audio.play('splash', this.player.x, this.player.y, this.player.z); this.onFx('splash', this.player.x, this.player.y + 0.5, this.player.z); }
@@ -1129,8 +1288,13 @@ export class Game {
         s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, this.player.flags() | (this.renderer.handSwing > 0.9 ? 1024 : 0) | (this.interaction?.charging ? MF.CHARGE : 0));
       }
       s.tick(dt, performance.now());
-    } else if (!local) s.tick(dt, performance.now());
-    if (playing && !loading) this.interaction.update(dt, this.input, s, this.chunks, this.renderer, this.player, false);
+    } else if (!local || (this.dim && !frozen)) s.tick(dt, performance.now());
+    if (playing && !loading && !this.dim && this.bpMode) {
+      if (this.input.usePressed) this.confirmBlueprint();
+      else if (this.input.pick) this.endBlueprint();
+      this.input.usePressed = false; this.input.using = false; this.input.pick = false; this.input.attackPressed = false; this.input.breaking = false;
+    }
+    if (playing && !loading && !this.dim && !this.bpMode) this.interaction.update(dt, this.input, s, this.chunks, this.renderer, this.player, false);
     else this.renderer.setSelection(null);
     this.hud.setTarget(!!this.interaction.entityTarget);
     this.minimap?.setSupporter(!!this.session.me.supporter);
@@ -1229,19 +1393,21 @@ export class Game {
     const wetSky = precip.rain && !precip.cold && !sheltered && !underwater ? this.rain : 0;
     this.renderer.sky.aurora += ((precip.cold ? 1 : 0) - this.renderer.sky.aurora) * Math.min(1, dt * 0.3);
     const nether = isNether(this.player.x);
-    if (!nether && this.gen && !loading) this.renderer.atmo.update({ dt, x: cam.position.x, y: cam.position.y, z: cam.position.z, time: this.time, rain: this.rain, cave: this.caveFx, active: true, biome: (x, z) => biomeAt(x, z).id, top: (x, z) => this.chunks.topAt(x, z) }, this.renderer.skyState.night);
+    if (!nether && this.gen && !loading) this.renderer.atmo.update({ dt, x: cam.position.x, y: cam.position.y, z: cam.position.z, time: this.time, rain: this.rain, pre: this.preStorm(), cave: this.caveFx, active: true, biome: (x, z) => biomeAt(x, z).id, top: (x, z) => this.chunks.topAt(x, z) }, this.renderer.skyState.night);
     if (nether && this.gen) {
       if (performance.now() - this.nfAt > 250) { this.nfAt = performance.now(); this.nfTarget = NETHER_FOG[this.gen.netherBiome(Math.floor(this.player.x), Math.floor(this.player.z))]; }
       const k = Math.min(1, dt * 1.5);
       for (let i = 0; i < 3; i++) this.nfCol[i] += (this.nfTarget[i] - this.nfCol[i]) * k;
     }
     this.updatePortalFx(dt);
+    this.updateDim();
+    this.updateBlueprint();
     if (this.darkT > 0) this.darkT = Math.max(0, this.darkT - dt);
     const env: FrameEnv = { dark: this.darkT > 0 ? Math.min(1, this.darkT / 1.5) * (0.65 + 0.35 * Math.sin(performance.now() / 1000 * Math.PI * 2 / 3)) : 0, nether, netherFog: this.nfCol, time: this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
     const dl = this.updateDynLights();
     const pl = Math.max(this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day), dl);
     if (this.interaction.eating > 0) this.renderer.handEat = this.interaction.eating; else if (this.renderer.handEat > 0 && this.interaction.eating === 0) this.renderer.handEat = 0;
-    if (!loading) this.renderer.render(dt, env, pl);
+    if (!loading && !(this.dim && performance.now() - this.dim.t0 > 300)) this.renderer.render(dt, env, pl);
 
     this.hud.tick(dt);
     this.updateLook(dt);

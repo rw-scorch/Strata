@@ -277,6 +277,9 @@ export class Menus {
     let difficulty: Difficulty = s.difficulty;
     let maxPlayers = DEFAULT_MAX_PLAYERS;
     let region = s.region;
+    const CLIMATES: [number, string][] = [[0.5, 'Patchwork'], [0.75, 'Compact'], [1, 'Natural'], [1.5, 'Broad'], [2.5, 'Vast'], [4, 'Continental']];
+    let climateI = 2;
+    let studio = false;
     let pvp = true, guestsBuild = true, cheats = false, sharePack = !!this.app.activePackRef(), personalPacks = true;
     const name = h('input', { class: 'input', value: multi ? `${s.playerName || 'Wayfarer'}'s World` : 'New World', maxlength: 32 }) as HTMLInputElement;
     const seed = h('input', { class: 'input', placeholder: 'Leave blank for a random seed', maxlength: 40 }) as HTMLInputElement;
@@ -301,10 +304,12 @@ export class Menus {
         ...(getSettings().labs || arena ? ARENA_KINDS : []).map((k) => [k, ARENA_INFO[k].name, ARENA_INFO[k].alt, ARENA_INFO[k].desc] as [ArenaKind, string, string, string]),
       ];
       for (const [k, title, sub, desc] of opts) {
-        types.appendChild(h('button', { class: `mode-card${arena === k ? ' on' : ''}`, onclick: () => { arena = k; if (k) { mode = 'survival'; pvp = true; } renderTypes(); } },
+        types.appendChild(h('button', { class: `mode-card${arena === k && !studio ? ' on' : ''}`, onclick: () => { arena = k; studio = false; if (k) { mode = 'survival'; pvp = true; } renderTypes(); } },
           h('b', {}, title), h('span', { class: 'badge' }, sub), h('small', {}, desc)));
       }
-      modeBlock.style.display = arena ? 'none' : '';
+      if (!multi) types.appendChild(h('button', { class: `mode-card${studio ? ' on' : ''}`, onclick: () => { studio = true; arena = null; mode = 'creative'; if (name.value.match(/World$/)) name.value = 'Drafting Studio'; renderTypes(); } },
+        h('b', {}, 'Drafting Studio'), h('span', { class: 'badge' }, 'Blueprints'), h('small', {}, 'A flat, peaceful creative plot for designing builds you can save as blueprints and place in other worlds.')));
+      modeBlock.style.display = arena || studio ? 'none' : '';
       if (arena && name.value.match(/World$/)) name.value = ARENA_INFO[arena].name;
     };
     renderTypes();
@@ -313,7 +318,7 @@ export class Menus {
       clear(err);
       const sd = seedFromInput(seed.value);
       if (!multi) {
-        const meta = await WorldStorage.create(name.value.trim() || 'New World', sd, mode, difficulty, arena);
+        const meta = await WorldStorage.create(name.value.trim() || 'New World', sd, studio ? 'creative' : mode, studio ? 'peaceful' : difficulty, arena, arena || studio ? undefined : CLIMATES[climateI][0], studio);
         this.app.playLocal(meta);
         return;
       }
@@ -326,7 +331,7 @@ export class Menus {
           body: JSON.stringify({
             name: name.value.trim() || 'Untitled World', seed: sd, mode, difficulty, maxPlayers, ownerId: id.id, ownerSecret: id.secret,
             ownerName: s.playerName || 'Wayfarer', region: region === 'auto' ? undefined : region,
-            settings: { pvp: pvp || !!arena, guestsBuild, cheats, personalPacks }, pack: sharePack ? this.app.activePackRef() : null, arena,
+            settings: { pvp: pvp || !!arena, guestsBuild, cheats, personalPacks }, pack: sharePack ? this.app.activePackRef() : null, arena, climate: arena ? undefined : CLIMATES[climateI][0],
           }),
         });
         const j = await res.json() as { code?: string; room?: RoomMeta; error?: string };
@@ -339,7 +344,11 @@ export class Menus {
         create.textContent = 'Create online world';
       }
     });
-    modeBlock.append(h('div', { class: 'section-title' }, 'Game mode'), modes);
+    const climateBlock = h('div', {},
+      h('div', { class: 'section-title' }, 'Climate Breadth'),
+      slider('Biome size', 0, CLIMATES.length - 1, 1, climateI, (v) => `${CLIMATES[v][1]} (${CLIMATES[v][0]}x)`, (v) => { climateI = v; }),
+      h('div', { class: 'small muted' }, 'Biomes follow temperature like Java: deserts and jungles sit in warm belts, snow in cold ones, with temperate land between. Larger settings stretch every climate zone so biomes are bigger and change more gradually.'));
+    modeBlock.append(h('div', { class: 'section-title' }, 'Game mode'), modes, climateBlock);
     const mpOptions = multi ? [
       slider('Maximum players', 1, MAX_PLAYERS_LIMIT, 1, maxPlayers, (v) => `${v}`, (v) => { maxPlayers = v; }),
       select('Server region', REGIONS as [string, string][], region, (v) => { region = v; }),
@@ -565,6 +574,14 @@ export class Menus {
     const full = (info.players?.length ?? 0) >= (info.maxPlayers ?? DEFAULT_MAX_PLAYERS);
     const versionOk = info.version === PROTOCOL_VERSION;
     const mine = getRooms('hosted').some((r) => r.code === code);
+    if (!versionOk) {
+      if ((info.version ?? 0) < PROTOCOL_VERSION) setTimeout(() => { if (box.isConnected) void this.joinPreview(code); }, 4000);
+      else {
+        try {
+          if (!sessionStorage.getItem('strata.vreload')) { sessionStorage.setItem('strata.vreload', '1'); void navigator.serviceWorker?.getRegistration().then((r) => r?.update()).finally(() => location.reload()); }
+        } catch { /* storage blocked */ }
+      }
+    }
     box.append(
       h('div', { class: 'kv' },
         h('dt', {}, 'World'), h('dd', {}, info.name ?? ''),
@@ -575,7 +592,7 @@ export class Menus {
       ),
       ...[
         info.players?.length ? h('div', { class: 'small muted' }, `Online: ${info.players.map((p) => p.name).join(', ')}`) : null,
-        !versionOk ? h('div', { class: 'error-box' }, `Version mismatch: this world runs protocol ${info.version}, your game uses ${PROTOCOL_VERSION}. Reload the page to update.`) : null,
+        !versionOk ? h('div', { class: 'info-box' }, (info.version ?? 0) < PROTOCOL_VERSION ? 'This world\'s server is finishing an update. Trying again in a few seconds...' : 'A newer version of Strata is out. Updating the game...') : null,
         full && !mine ? h('div', { class: 'error-box' }, 'This world is full right now.') : null,
       ].filter((x): x is HTMLDivElement => !!x),
       h('button', { class: 'btn primary block', disabled: !versionOk || (full && !mine), onclick: () => {

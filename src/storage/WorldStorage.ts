@@ -18,6 +18,8 @@ export interface WorldMeta {
   version: number;
   playTime: number;
   arena?: ArenaKind | null;
+  climate?: number;
+  studio?: boolean;
 }
 
 export interface SavedPlayer {
@@ -74,8 +76,8 @@ export const WorldStorage = {
     return all.map((r) => migrate(r).meta).sort((a, b) => b.lastPlayed - a.lastPlayed);
   },
 
-  async create(name: string, seed: number, mode: GameMode, difficulty: Difficulty, arena: ArenaKind | null = null): Promise<WorldMeta> {
-    const meta: WorldMeta = { id: newId(), name: name.slice(0, 32) || 'New World', seed, mode, difficulty, createdAt: Date.now(), lastPlayed: Date.now(), version: SAVE_VERSION, playTime: 0, arena };
+  async create(name: string, seed: number, mode: GameMode, difficulty: Difficulty, arena: ArenaKind | null = null, climate?: number, studio = false): Promise<WorldMeta> {
+    const meta: WorldMeta = { id: newId(), name: name.slice(0, 32) || 'New World', seed, mode, difficulty, createdAt: Date.now(), lastPlayed: Date.now(), version: SAVE_VERSION, playTime: 0, arena, ...(arena || climate === undefined || studio ? {} : { climate }), ...(studio && !arena ? { studio: true } : {}) };
     await dbPut('worlds', meta.id, { meta, state: null } satisfies WorldRecord);
     return meta;
   },

@@ -34,6 +34,7 @@ export interface RoomMeta {
   settings: RoomSettings;
   region: string;
   arena?: ArenaKind | null;
+  climate?: number;
 }
 
 export interface RoomInfo {
@@ -77,6 +78,8 @@ export type C2S =
   | { t: 'room'; name?: string; difficulty?: Difficulty; maxPlayers?: number; settings?: Partial<RoomSettings>; pack?: PackRef | null }
   | { t: 'kick'; pid: string }
   | { t: 'mute'; pid: string; on: boolean }
+  | { t: 'bpc'; i: number; n: number; s: string }
+  | { t: 'bp'; x: number; y: number; z: number; n: number; name: string }
   | { t: 'ping'; c: number }
   | { t: 'resync' }
   | { t: 'buy'; k: string }
@@ -95,7 +98,7 @@ export type S2C =
   | { t: 'eco'; k: 'prices'; sell: Record<number, number>; shop: Record<string, number>; on?: boolean }
   | { t: 'eco'; k: 'view'; view: EcoView }
   | { t: 'rtc'; from: string; d: unknown }
-  | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
+  | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; wd?: number; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
   | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
   | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[]; lv?: number; om?: number[] }
   | { t: 'ores'; cx: number; cz: number; o: number[] }
@@ -117,6 +120,7 @@ export type S2C =
   | { t: 'ride'; id: number }
   | { t: 'knock'; x: number; y: number; z: number; s?: number }
   | { t: 'dark'; d: number }
+  | { t: 'trv'; s: 0 | 1; n: 0 | 1 }
   | { t: 'eo'; o: { cost: number; clue: string | null; clueLvl: number }[] }
   | { t: 'boom'; x: number; y: number; z: number; r: number }
   | { t: 'death'; msg: string }
@@ -124,7 +128,7 @@ export type S2C =
   | { t: 'tp'; x: number; y: number; z: number }
   | { t: 'chat'; from: { id: string; name: string; sup?: string } | null; text: string; kind: 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error'; ts: number }
   | { t: 'time'; time: number; cycle: boolean }
-  | { t: 'wx'; w: string }
+  | { t: 'wx'; w: string; d?: number }
   | { t: 'bolt'; x: number; y: number; z: number }
   | { t: 'room'; room: RoomMeta; players: PublicPlayer[] }
   | { t: 'pong'; c: number; s: number }

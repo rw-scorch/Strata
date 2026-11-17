@@ -5,6 +5,7 @@ import { getSettings, updateSettings, GraphicsPreset, isTouchDevice, Settings } 
 import { storageEstimate, requestPersistence } from '../storage/db';
 import { GAME_VERSION, PROTOCOL_VERSION } from '../core/constants';
 import { MobileControls } from '../controls/MobileControls';
+import { BIND_GROUPS, BindAction, bindOf, keyName, setBind, resetBinds, conflicts } from '../controls/keybinds';
 import { InputState } from '../controls/InputState';
 import { drawAvatar } from './avatar';
 import { apiURL } from '../multiplayer/RemoteSession';
@@ -127,18 +128,41 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
           mcText('Sounds are made live in your browser. Resource pack sounds replace block, step and pickup sounds.', { center: true, small: true }),
         );
         break;
-      case 'controls':
+      case 'controls': {
+        const painters: (() => void)[] = [];
+        let active: (() => void) | null = null;
+        const capture = (a: BindAction, btn: HTMLButtonElement) => {
+          active?.();
+          btn.textContent = '> Press a key <';
+          const done = () => { window.removeEventListener('keydown', kd, true); window.removeEventListener('mousedown', md, true); active = null; painters.forEach((f) => f()); };
+          const kd = (e: KeyboardEvent) => { e.preventDefault(); e.stopPropagation(); if (e.code !== 'Escape') setBind(a, e.code); done(); };
+          const md = (e: MouseEvent) => { if (e.target === btn && e.button === 0) return; e.preventDefault(); e.stopPropagation(); setBind(a, `Mouse${e.button}`); done(); };
+          window.addEventListener('keydown', kd, true);
+          setTimeout(() => window.addEventListener('mousedown', md, true), 0);
+          active = done;
+        };
         scr = screen('Controls',
           mcRow(mcCycle('Controls', [['auto', 'Automatic'], ['mouse', 'Mouse & Keys'], ['touch', 'Touch']], s.controlScheme, (v) => set({ controlScheme: v }), { tip: 'Automatic switches between touch and mouse when you use them.' }),
             mcToggle('Auto-Jump', s.autoJump, (v) => set({ autoJump: v }))),
           mcRow(mcSlider('Sensitivity', 0.2, 3, 0.05, s.sensitivity, (v) => pct(v / 2), (v) => set({ sensitivity: v })),
             mcToggle('Invert Mouse', s.invertY, (v) => set({ invertY: v }))),
           mcHeading('Key Binds'),
-          ...[['Move', 'W A S D'], ['Jump', 'Space'], ['Sneak', 'Shift'], ['Sprint', 'Ctrl'], ['Attack/Destroy', 'Left Button'], ['Use Item/Place', 'Right Button'], ['Pick Block', 'Middle Button'],
-            ['Hotbar', '1-9, Scroll'], ['Inventory', 'E'], ['Drop Item', 'Q'], ['Chat', 'T'], ['Command', '/'], ['Perspective', 'F5'], ['Hide HUD', 'F1'], ['Debug Screen', 'F3'], ['Advanced Tooltips', 'F3 + H']]
-            .map(([a, b]) => mcRow(h('div', { class: 'mct mc-kb-label' }, a), mcButton(b, () => {}, 75, { disabled: true }))),
+          mcText('Tap a binding, then press the new key or mouse button. Escape cancels.', { small: true, center: true }),
+          ...BIND_GROUPS.flatMap(([group, list]) => [
+            mcText(group, { center: true, color: '#ffff55' }),
+            ...list.map(([a, label]) => {
+              const btn = mcButton('', () => capture(a, btn), 75);
+              const paint = () => { btn.textContent = keyName(bindOf(a)); btn.style.color = conflicts(a) ? '#ff5555' : ''; };
+              paint();
+              painters.push(paint);
+              return mcRow(h('div', { class: 'mct mc-kb-label' }, label), btn);
+            }),
+          ]),
+          mcRow(mcButton('Reset Keys', () => { resetBinds(); painters.forEach((f) => f()); }, 150)),
+          mcText('Fixed keys: Escape (pause), Enter (chat), F3 (debug), F3 + H (advanced tooltips), mouse wheel (hotbar).', { small: true, center: true }),
         );
         break;
+      }
       case 'touch': {
         const edit = () => {
           scr.el.style.display = 'none';

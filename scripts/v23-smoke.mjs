@@ -8,7 +8,7 @@ const r = await (await fetch(base + '/api/rooms', { method: 'POST', body: JSON.s
 const ws = new WebSocket(`${wsBase}/ws/${r.code}`);
 const a = { msgs: [], welcome: null };
 ws.onmessage = (e) => { const m = JSON.parse(e.data); a.msgs.push(m); if (m.t === 'welcome') a.welcome = m; };
-ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 30, id: `owner-v23-${tag}`, secret: 'owner-secret-v23-0000', name: 'Alpha', appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
+ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 32, id: `owner-v23-${tag}`, secret: 'owner-secret-v23-0000', name: 'Alpha', appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
 a.send = (m) => ws.send(JSON.stringify(m));
 await sleep(1500);
 ok('joined', !!a.welcome, JSON.stringify(a.msgs[0])?.slice(0, 120));
@@ -45,9 +45,10 @@ await mv(n.x + 0.4, n.y, n.z + 2.5); await sleep(500);
 await mv(n.x, n.y, n.z);
 let back = null;
 for (let i = 0; i < 40 && !back; i++) { await sleep(500); back = a.msgs.filter((m) => m.t === 'tp' && m.x < 300000).at(-1); }
-await sleep(1500);
+for (let i = 0; i < 30 && !a.msgs.some((m) => m.t === 'trv' && m.s === 1); i++) await sleep(500);
+await sleep(300);
 back = a.msgs.filter((m) => m.t === 'tp').at(-1);
-ok('walking back in returns to the first portal', !!back && Math.abs(back.x - (x0 + 1)) < 1.6 && Math.abs(back.z - (z0 + 0.5)) < 1.6 && Math.abs(back.y - (y0 + 1)) < 1.1, JSON.stringify(back));
+ok('walking back in returns to the first portal', !!back && Math.abs(back.x - (x0 + 1)) < 1.6 && Math.abs(back.z - (z0 + 0.5)) < 1.6 && Math.abs(back.y - (y0 + 1)) < 1.1, JSON.stringify({ back, first: [x0, y0, z0], n: [n.x, n.y, n.z], tps: a.msgs.filter((m) => m.t === 'tp' || m.t === 'trv') }));
 ws.close();
 console.log(fails ? `${fails} FAILED` : 'ALL PASSED');
 process.exit(fails ? 1 : 0);

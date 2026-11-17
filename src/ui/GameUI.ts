@@ -137,6 +137,7 @@ export interface PauseActions {
   room?(): void;
   shaper?(): void;
   mischief?(): void;
+  blueprints?(): void;
   packs(): void;
   datapacks?(): void;
   economy?(cmd: string): void;
@@ -156,6 +157,7 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
       mcButton('Back to Game', () => { close(); a.resume(); }, 204),
       row(a.invite ? mcButton('Invite Friends', () => a.invite!(), 98) : null, a.players ? mcButton('Players', () => a.players!(), 98) : null),
       row(a.room ? mcButton('World Settings', () => a.room!(), 98) : null, a.shaper ? mcButton('World Shaper', () => a.shaper!(), 98) : null),
+      a.blueprints ? mcButton('Blueprints', () => a.blueprints!(), 204) : null,
       a.mischief ? mcButton('Mischief Console', () => a.mischief!(), 204) : null,
       a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
       row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
@@ -220,7 +222,7 @@ export function showPlayers(players: PublicPlayer[], meId: string, isOwner: bool
 
 export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string; difficulty?: Difficulty; maxPlayers?: number; settings?: Partial<RoomMeta['settings']>; pack?: RoomMeta['pack'] }) => void, activePack: { name: string; hash: string } | null, rules: RuleSet = {}, onRules?: (cmds: string[]) => void): void {
   const s = { ...room.settings };
-  const r = { map: rules.allowMinimap !== false, coords: rules.allowCoords !== false, homes: rules.maxHomes ?? 2, tpa: rules.tpa !== false, day: rules.dayLength ?? DEFAULT_DAY_LENGTH, night: rules.nightLength ?? DEFAULT_NIGHT_LENGTH };
+  const r = { map: rules.allowMinimap !== false, coords: rules.allowCoords !== false, homes: rules.maxHomes ?? 2, tpa: rules.tpa !== false, bp: rules.allowBlueprints !== false, day: rules.dayLength ?? DEFAULT_DAY_LENGTH, night: rules.nightLength ?? DEFAULT_NIGHT_LENGTH };
   let name = room.name, diff = room.difficulty, max = room.maxPlayers;
   let pack = room.pack;
   const packLine = h('div', { class: 'small muted' });
@@ -242,6 +244,7 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
     toggle('Coordinates allowed', r.coords, (v) => { r.coords = v; }, 'When off, coordinates are hidden from the HUD and debug screen, to stop screen-peeking.'),
     slider('Homes per player', 0, 10, 1, r.homes, (v) => (v ? String(v) : 'Off'), (v) => { r.homes = v; }),
     toggle('Teleport requests (/tpa)', r.tpa, (v) => { r.tpa = v; }),
+    toggle('Blueprints', r.bp, (v) => { r.bp = v; }, 'Players can build their saved blueprints here if they carry every block needed and the spot is clear.'),
     slider('Daytime length', 1, 20, 1, Math.round(r.day * 2), (v) => `${v / 2}x (${Math.round((10 * v) / 2)} min)`, (v) => { r.day = v / 2; }),
     slider('Night length', 1, 8, 1, Math.round(r.night * 4), (v) => `${v / 4}x (${((25 * v) / 12).toFixed(1)} min)`, (v) => { r.night = v / 4; }),
     h('div', { class: 'section-title' }, 'Shared resource pack'),
@@ -260,6 +263,7 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
       if (r.coords !== (rules.allowCoords !== false)) cmds.push(`/gamerule showCoordinates ${r.coords}`);
       if (r.homes !== (rules.maxHomes ?? 2)) cmds.push(`/gamerule maxHomes ${r.homes}`);
       if (r.tpa !== (rules.tpa !== false)) cmds.push(`/gamerule allowTpa ${r.tpa}`);
+      if (r.bp !== (rules.allowBlueprints !== false)) cmds.push(`/gamerule allowBlueprints ${r.bp}`);
       if (r.day !== (rules.dayLength ?? DEFAULT_DAY_LENGTH)) cmds.push(`/gamerule dayLength ${r.day}`);
       if (r.night !== (rules.nightLength ?? DEFAULT_NIGHT_LENGTH)) cmds.push(`/gamerule nightLength ${r.night}`);
       if (cmds.length) onRules?.(cmds);

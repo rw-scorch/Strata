@@ -3,7 +3,7 @@ import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { LodMesher, LodTileReq } from '../rendering/lod/LodMesher';
 
 type InMsg =
-  | { t: 'init'; seed: number; arena?: ArenaKind | null; colors: Uint8Array }
+  | { t: 'init'; seed: number; arena?: ArenaKind | null; colors: Uint8Array; climate?: number; studio?: boolean }
   | { t: 'colors'; colors: Uint8Array }
   | { t: 'surf'; cx: number; cz: number; h: Uint8Array; id: Uint16Array }
   | ({ t: 'tile'; id: number } & LodTileReq);
@@ -15,7 +15,7 @@ let mesher: LodMesher | null = null;
 scope.onmessage = (e) => {
   const m = e.data;
   try {
-    if (m.t === 'init') { gen = new WorldGenerator(m.seed, m.arena ?? null); mesher = new LodMesher(gen, m.colors); return; }
+    if (m.t === 'init') { gen = new WorldGenerator(m.seed, m.arena ?? null, m.climate === undefined && !m.studio ? undefined : { climate: m.climate, studio: m.studio }); mesher = new LodMesher(gen, m.colors); return; }
     if (m.t === 'colors') { if (gen) { const old = mesher; mesher = new LodMesher(gen, m.colors); if (old) mesher.surf = old.surf; } return; }
     if (m.t === 'surf') { mesher?.surf.set(`${m.cx},${m.cz}`, { h: m.h, id: m.id }); return; }
     if (!mesher) throw new Error('lod worker not initialised');

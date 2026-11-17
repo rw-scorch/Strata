@@ -1,3 +1,4 @@
+import { actionsFor, bindOf, bound, BindAction } from './keybinds';
 import { getSettings, updateSettings } from '../storage/Settings';
 import type { InputState } from './InputState';
 
@@ -68,14 +69,10 @@ export class DesktopControls {
       if (performance.now() - this.lastTouch < 900) return;
       if (!this.locked && uiTarget(e.target)) return;
       this.input.touchMode = false;
-      if (e.button === 0) { this.input.breaking = true; this.input.attackPressed = true; }
-      else if (e.button === 2) { this.input.using = true; this.input.usePressed = true; }
-      else if (e.button === 1) { this.input.pick = true; e.preventDefault(); }
+      if (e.button === 1) e.preventDefault();
+      this.press(`Mouse${e.button}`, true, false, false);
     });
-    on('mouseup', (e) => {
-      if (e.button === 0) this.input.breaking = false;
-      else if (e.button === 2) this.input.using = false;
-    });
+    on('mouseup', (e) => { this.press(`Mouse${e.button}`, false, false, false); });
     on('contextmenu', (e) => { if (this.hooks.isPlaying()) e.preventDefault(); });
     on('wheel', (e) => {
       if (!this.locked && !free()) return;
@@ -169,36 +166,44 @@ export class DesktopControls {
       return;
     }
     if (!this.hooks.isPlaying()) {
-      if (down && (e.code === 'KeyE' || e.code === 'Escape')) this.hooks.onInventory();
+      if (down && (bound(e.code, 'inventory') || e.code === 'Escape')) this.hooks.onInventory();
       return;
     }
     const c = e.code;
     if (down) {
-      if (c === 'F1') { e.preventDefault(); this.hooks.onToggleHud(); return; }
-      if (c === 'F5') { e.preventDefault(); this.hooks.onThirdPerson(); return; }
-      if (c === 'KeyE') { this.hooks.onInventory(); return; }
-      if (c === 'KeyT' || c === 'Enter') { e.preventDefault(); this.hooks.onChat(''); return; }
-      if (c === 'Slash') { e.preventDefault(); this.hooks.onChat('/'); return; }
+      if (c === 'Enter') { e.preventDefault(); this.hooks.onChat(''); return; }
       if (c === 'Escape') { this.hooks.onPause(); return; }
-      if (c === 'KeyQ') { if (e.ctrlKey) this.input.dropAll = true; else this.input.drop = true; }
-      if (c === 'KeyF' && !e.repeat) this.hooks.onSwapHands?.();
-      if (c.startsWith('Digit')) { const n = Number(c.slice(5)); if (n >= 1 && n <= 9) this.input.hotbarSelect = n - 1; }
-      if (c === 'KeyW' && !e.repeat) {
-        const now = performance.now();
-        if (now - this.lastW < 280) this.sprintLatch = true;
-        this.lastW = now;
+      if (['Space', 'ArrowUp', 'ArrowDown', 'Tab', 'F1', 'F5', 'Slash'].includes(c) || actionsFor(c).length) e.preventDefault();
+    }
+    this.press(c, down, e.repeat, e.ctrlKey);
+  }
+
+  private press(c: string, down: boolean, repeat: boolean, ctrl: boolean): void {
+    const acts = actionsFor(c);
+    if (down) {
+      for (const a of acts) {
+        switch (a) {
+          case 'hud': this.hooks.onToggleHud(); return;
+          case 'perspective': this.hooks.onThirdPerson(); return;
+          case 'inventory': this.hooks.onInventory(); return;
+          case 'chat': this.hooks.onChat(''); return;
+          case 'command': this.hooks.onChat('/'); return;
+          case 'drop': if (ctrl) this.input.dropAll = true; else this.input.drop = true; break;
+          case 'swap': if (!repeat) this.hooks.onSwapHands?.(); break;
+          case 'attack': if (!repeat) { this.input.breaking = true; this.input.attackPressed = true; } break;
+          case 'use': if (!repeat) { this.input.using = true; this.input.usePressed = true; } break;
+          case 'pick': if (!repeat) this.input.pick = true; break;
+          case 'forward': if (!repeat) { const now = performance.now(); if (now - this.lastW < 280) this.sprintLatch = true; this.lastW = now; } break;
+          case 'jump': if (!repeat) { this.input.jumpPressed = true; const now = performance.now(); if (now - this.input.lastJumpTap < 300) this.input.flyToggle = true; this.input.lastJumpTap = now; } break;
+          default: if (a.startsWith('hot')) this.input.hotbarSelect = Number(a.slice(3)) - 1;
+        }
       }
-      if (c === 'Space' && !e.repeat) {
-        this.input.jumpPressed = true;
-        const now = performance.now();
-        if (now - this.input.lastJumpTap < 300) this.input.flyToggle = true;
-        this.input.lastJumpTap = now;
-      }
-      if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(c)) e.preventDefault();
       this.keys.add(c);
     } else {
       this.keys.delete(c);
-      if (c === 'KeyW') this.sprintLatch = false;
+      if (acts.includes('forward')) this.sprintLatch = false;
+      if (acts.includes('attack')) this.input.breaking = false;
+      if (acts.includes('use')) this.input.using = false;
     }
     this.sync();
   }
@@ -206,11 +211,12 @@ export class DesktopControls {
   private sync(): void {
     const k = this.keys;
     const i = this.input;
-    i.moveZ = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-    i.moveX = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
-    i.jump = k.has('Space');
-    i.crouch = k.has('ShiftLeft') || k.has('ShiftRight');
-    i.sprint = (k.has('ControlLeft') || this.sprintLatch) && i.moveZ > 0;
+    const b = (a: BindAction) => k.has(bindOf(a));
+    i.moveZ = (b('forward') || k.has('ArrowUp') ? 1 : 0) - (b('back') || k.has('ArrowDown') ? 1 : 0);
+    i.moveX = (b('right') || k.has('ArrowRight') ? 1 : 0) - (b('left') || k.has('ArrowLeft') ? 1 : 0);
+    i.jump = b('jump');
+    i.crouch = b('sneak') || (bindOf('sneak') === 'ShiftLeft' && k.has('ShiftRight'));
+    i.sprint = (b('sprint') || this.sprintLatch) && i.moveZ > 0;
     if (i.moveX || i.moveZ || i.jump) i.touchMode = false;
   }
 

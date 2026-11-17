@@ -1014,7 +1014,8 @@ export class EntityRenderer {
     let best: { view: EntityView; dist: number } | null = null;
     for (const v of this.views.values()) {
       if (!filter(v) || v.dying) continue;
-      const x0 = v.x - v.hw, x1 = v.x + v.hw, y0 = v.y, y1 = v.y + v.h, z0 = v.z - v.hw, z1 = v.z + v.hw;
+      const pad = v.kind === 'fireball' ? 0.45 : 0;
+      const x0 = v.x - v.hw - pad, x1 = v.x + v.hw + pad, y0 = v.y - pad, y1 = v.y + v.h + pad, z0 = v.z - v.hw - pad, z1 = v.z + v.hw + pad;
       let tmin = 0, tmax = maxDist;
       const o = [ox, oy, oz], d = [dx, dy, dz], lo = [x0, y0, z0], hi = [x1, y1, z1];
       let ok = true;

@@ -69,7 +69,7 @@ export class BlockInteraction {
     if ((held?.id ?? 0) !== this.seenId) { this.seenId = held?.id ?? 0; this.strengthT = performance.now(); }
     const jabReady = !spear || attackCharge(performance.now() - Math.max(this.lastSwing, this.strengthT), attackStats(held).speed) >= 1;
     const entReach = attackRange(attackStats(held), creative);
-    let ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, entReach, (v) => v.kind === 'mob' || v.kind === 'cart' || (v.kind === 'player' && v.id !== 'me' && !(v.flags & (1 << 14))));
+    let ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, entReach, (v) => v.kind === 'mob' || v.kind === 'cart' || (v.kind === 'fireball' && !(v.flags & 1)) || (v.kind === 'player' && v.id !== 'me' && !(v.flags & (1 << 14))));
     if (ent && spear && ent.dist < SPEAR_MIN) ent = null;
     const entityFirst = ent && (!hit || ent.dist < hit.dist);
     this.entityTarget = entityFirst ? ent!.view : null;
@@ -89,7 +89,7 @@ export class BlockInteraction {
     this.charging = spear && input.using && !me.dead && !lure && !t0Interactive;
     if (this.entityTarget && jabReady && (input.attackPressed || (input.usePressed && input.touchAim)) && this.attackCd <= 0) {
       const v = this.entityTarget;
-      if (v.kind === 'mob' || v.kind === 'cart') session.attack(v.id);
+      if (v.kind === 'mob' || v.kind === 'cart' || v.kind === 'fireball') session.attack(v.id);
       else if (this.pvpCheck?.() && !(v.extra & 256)) session.attackPlayer(v.id.replace(/^p:/, ''));
       this.attackCd = 0.05;
       this.lastSwing = performance.now();

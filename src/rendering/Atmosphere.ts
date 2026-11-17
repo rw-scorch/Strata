@@ -71,6 +71,7 @@ export interface AtmoInput {
   x: number; y: number; z: number;
   time: number;
   rain: number;
+  pre?: number;
   cave: number;
   active: boolean;
   biome: (x: number, z: number) => string;
@@ -147,7 +148,9 @@ export class Atmosphere {
     else this.fxAmt = Math.min(1, this.fxAmt + i.dt * 0.5);
     this.wet = i.rain > this.wet ? this.wet + (i.rain - this.wet) * Math.min(1, i.dt * 0.2) : Math.max(0, this.wet - i.dt / 240);
     const dawn = Atmosphere.dawn(i.time);
-    const m = this.humid * (dawn + night * 0.3 + this.wet * 0.45 + 0.04) * (1 - i.cave);
+    const after = this.wet * (1 - i.rain);
+    const damp = Math.max(this.humid, after * 0.6, (i.pre ?? 0) * 0.5);
+    const m = damp * (dawn * 1.1 + night * 0.4 + after * 0.75 + (i.pre ?? 0) * 0.55) * (1 - i.cave);
     this.mist += (m - this.mist) * Math.min(1, i.dt * 0.4);
     this.mistThick = 3.5 + this.humid * 4;
   }

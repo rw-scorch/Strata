@@ -1,3 +1,4 @@
+import { BlueprintGhost } from './BlueprintGhost';
 import type { BlockArray } from '../core/chunk';
 import * as THREE from 'three';
 import { Atmosphere } from './Atmosphere';
@@ -48,6 +49,7 @@ export class Renderer {
   readonly gl: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
+  readonly ghost: BlueprintGhost;
   readonly uniforms: WorldUniforms;
   readonly terrain = new THREE.Group();
   readonly sky: Sky;
@@ -79,7 +81,7 @@ export class Renderer {
   refreshHand(): void { this.handItemId = -2; }
   private lodScene = new THREE.Scene();
   private lodCam = new THREE.PerspectiveCamera(70, 1, 2, 10000);
-  private lodWorld: { seed: number; arena: ArenaKind | null } | null = null;
+  private lodWorld: { seed: number; arena: ArenaKind | null; climate?: number; studio?: boolean } | null = null;
   private lodOn = false;
   caveCulling = true;
   visibleSections = 0;
@@ -147,6 +149,7 @@ export class Renderer {
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
     this.chests = new ChestRenderer(this.uniforms, atlas, probe);
     this.moving = new MovingBlocks(this.mats);
+    this.ghost = new BlueprintGhost(this.uniforms);
     this.entities.cull = (x, y, z) => this.sectionVisible(x, y, z);
     this.particles.leafLook = (id) => {
       const d = this.atlas.data;
@@ -155,7 +158,7 @@ export class Renderer {
       const c = tint === 3 ? [128, 167, 85] : tint === 4 ? [97, 153, 97] : tint ? [104, 168, 52] : [255, 255, 255];
       return { tile, r: c[0] / 255, g: c[1] / 255, b: c[2] / 255 };
     };
-    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.explosions.points, this.weather.group, this.entities.group, this.chests.group, this.moving.group);
+    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.explosions.points, this.weather.group, this.entities.group, this.chests.group, this.moving.group, this.ghost.group);
     const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.outline = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));
     this.outline.visible = false;
@@ -214,8 +217,8 @@ export class Renderer {
     this.resize();
   }
 
-  setLodWorld(seed: number, arena: ArenaKind | null): void {
-    this.lodWorld = { seed, arena };
+  setLodWorld(seed: number, arena: ArenaKind | null, climate?: number, studio = false): void {
+    this.lodWorld = { seed, arena, climate, studio };
     this.configureLod();
   }
 
@@ -227,7 +230,7 @@ export class Renderer {
       return;
     }
     if (!this.lod) {
-      this.lod = new LodManager(this.lodWorld!.seed, this.lodWorld!.arena, this.atlas.lodColors(), this.uniforms);
+      this.lod = new LodManager(this.lodWorld!.seed, this.lodWorld!.arena, this.atlas.lodColors(), this.uniforms, this.lodWorld!.climate, this.lodWorld!.studio);
       this.lodScene.add(this.lod.group);
     }
     this.lod.configure(Math.max(dist, (s!.renderDistance + 2)), LOD_SAMPLES[s!.lodQuality ?? 'medium'], LOD_SPLIT[s!.lodQuality ?? 'medium']);
@@ -307,6 +310,7 @@ export class Renderer {
     this.chests.setAtlas(a);
     this.moving.clear();
     if (this.moving.ctx) this.moving.ctx = { ...this.moving.ctx, atlas: a.data };
+    if (this.ghost.ctx) this.ghost.ctx = { ...this.ghost.ctx, atlas: a.data };
     this.lod?.setColors(a.lodColors());
     this.handItemId = -2;
     if (old !== a) old.dispose();

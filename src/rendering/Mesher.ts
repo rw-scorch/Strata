@@ -207,6 +207,15 @@ function cellSky(x: number, y: number, z: number): number { return y >= H ? 15 :
 function cellBlk(x: number, y: number, z: number): number { return y >= H || y < 0 ? 0 : blk[ridx(x, y, z)]; }
 
 const cornerSky = new Float32Array(4), cornerBlk = new Float32Array(4), cornerAo = new Uint8Array(4);
+const CO = new Int8Array(6 * 4 * 6);
+for (let d = 0; d < 6; d++) {
+  const [a, b] = TANG[d];
+  for (let k = 0; k < 4; k++) {
+    const o = (d * 4 + k) * 6;
+    CO[o + a] = k === 1 || k === 2 ? 1 : -1;
+    CO[o + 3 + b] = k === 2 || k === 3 ? 1 : -1;
+  }
+}
 
 function faceCorners(rx: number, y: number, rz: number, d: number, smooth: boolean): void {
   const n = NORMALS[d];
@@ -216,25 +225,23 @@ function faceCorners(rx: number, y: number, rz: number, d: number, smooth: boole
     for (let k = 0; k < 4; k++) { cornerSky[k] = baseS; cornerBlk[k] = baseB; cornerAo[k] = 3; }
     return;
   }
-  const [a, b] = TANG[d];
-  const t1 = [0, 0, 0], t2 = [0, 0, 0];
   for (let k = 0; k < 4; k++) {
-    const su = k === 1 || k === 2 ? 1 : -1;
-    const sv = k === 2 || k === 3 ? 1 : -1;
-    t1[0] = t1[1] = t1[2] = 0; t2[0] = t2[1] = t2[2] = 0;
-    t1[a] = su; t2[b] = sv;
-    const s1x = qx + t1[0], s1y = qy + t1[1], s1z = qz + t1[2];
-    const s2x = qx + t2[0], s2y = qy + t2[1], s2z = qz + t2[2];
-    const cx = qx + t1[0] + t2[0], cy = qy + t1[1] + t2[1], cz = qz + t1[2] + t2[2];
-    const inR = (x: number, z: number) => x >= 0 && x < R && z >= 0 && z < R;
-    const o1 = inR(s1x, s1z) ? cellOpaque(s1x, s1y, s1z) : 0;
-    const o2 = inR(s2x, s2z) ? cellOpaque(s2x, s2y, s2z) : 0;
-    const oc = inR(cx, cz) ? cellOpaque(cx, cy, cz) : 0;
+    const o = (d * 4 + k) * 6;
+    const t1x = CO[o], t1y = CO[o + 1], t1z = CO[o + 2], t2x = CO[o + 3], t2y = CO[o + 4], t2z = CO[o + 5];
+    const s1x = qx + t1x, s1y = qy + t1y, s1z = qz + t1z;
+    const s2x = qx + t2x, s2y = qy + t2y, s2z = qz + t2z;
+    const cx = s1x + t2x, cy = s1y + t2y, cz = s1z + t2z;
+    const in1 = s1x >= 0 && s1x < R && s1z >= 0 && s1z < R;
+    const in2 = s2x >= 0 && s2x < R && s2z >= 0 && s2z < R;
+    const inc = cx >= 0 && cx < R && cz >= 0 && cz < R;
+    const o1 = in1 ? cellOpaque(s1x, s1y, s1z) : 0;
+    const o2 = in2 ? cellOpaque(s2x, s2y, s2z) : 0;
+    const oc = inc ? cellOpaque(cx, cy, cz) : 0;
     cornerAo[k] = o1 && o2 ? 0 : 3 - (o1 + o2 + oc);
     let ss = baseS, sb = baseB, cnt = 1;
-    if (!o1 && inR(s1x, s1z)) { ss += cellSky(s1x, s1y, s1z); sb += cellBlk(s1x, s1y, s1z); cnt++; }
-    if (!o2 && inR(s2x, s2z)) { ss += cellSky(s2x, s2y, s2z); sb += cellBlk(s2x, s2y, s2z); cnt++; }
-    if (!oc && !(o1 && o2) && inR(cx, cz)) { ss += cellSky(cx, cy, cz); sb += cellBlk(cx, cy, cz); cnt++; }
+    if (!o1 && in1) { ss += cellSky(s1x, s1y, s1z); sb += cellBlk(s1x, s1y, s1z); cnt++; }
+    if (!o2 && in2) { ss += cellSky(s2x, s2y, s2z); sb += cellBlk(s2x, s2y, s2z); cnt++; }
+    if (!oc && !(o1 && o2) && inc) { ss += cellSky(cx, cy, cz); sb += cellBlk(cx, cy, cz); cnt++; }
     cornerSky[k] = ss / cnt; cornerBlk[k] = sb / cnt;
   }
 }
@@ -331,9 +338,9 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (B
     for (let s = 0; s < slices; s++) {
       let any = false;
       for (let v = 0; v < dimV; v++) for (let u = 0; u < dimU; u++) {
-        const p = [0, 0, 0];
-        p[axis] = s; p[ua] = u; p[va] = v;
-        const x = p[0], y = p[1], z = p[2];
+        const x = axis === 0 ? s : ua === 0 ? u : v;
+        const y = axis === 1 ? s : ua === 1 ? u : v;
+        const z = axis === 2 ? s : ua === 2 ? u : v;
         const mi = v * dimU + u;
         maskTex[mi] = 0;
         const rx = x + 16, rz = z + 16;
@@ -863,7 +870,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
         2: [[x, y, z + 1 - t], [x + 1, y, z + 1 - t], [x + 1, y + 1, z + 1 - t], [x, y + 1, z + 1 - t]],
         3: [[x + t, y, z], [x + t, y, z + 1], [x + t, y + 1, z + 1], [x + t, y + 1, z]],
       };
-      quadRaw(cut, pts[f], [[0, 1], [1, 1], [1, 0], [0, 0]], tile, sk, bl, 220, 255, 255, 255, 0, true);
+      quadRaw(cut, pts[f], [[0, 1], [1, 1], [1, 0], [0, 0]], tile, sk, bl, 220, r, g, b, tcode ? 1 : 0, true);
       return;
     }
     case 11: {

@@ -1,5 +1,7 @@
 import { setPackNames, usePackNames } from './core/items';
 import './styles.css';
+import { installTouchGuard } from './ui/touchGuard';
+installTouchGuard();
 import { Menus } from './ui/Menus';
 import { Game } from './game/Game';
 import { TextureAtlas } from './resources/TextureAtlas';

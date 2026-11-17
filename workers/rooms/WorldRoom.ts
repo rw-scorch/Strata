@@ -1,4 +1,5 @@
 import type { BlockArray } from '../../src/core/chunk';
+import { decodeBlueprint, BP_PART, BP_MAX_PARTS } from '../../src/core/blueprint';
 import { cleanKey, keyHint } from '../adminKey';
 import { DurableObject } from 'cloudflare:workers';
 import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
@@ -63,6 +64,7 @@ interface Session {
   oreSent?: Set<string>;
   oreQueue?: string[];
   chunkReq?: string[];
+  bpParts?: string[];
 }
 
 interface Attachment { pid: string | null; name: string; op: boolean; }
@@ -178,7 +180,7 @@ export class WorldRoom extends DurableObject<Env> {
     const m = this.meta!;
     return {
       code: m.code, name: m.name, ownerId: m.ownerId, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty,
-      maxPlayers: m.maxPlayers, seed: m.seed, createdAt: m.createdAt, version: PROTOCOL_VERSION, pack: m.pack, settings: m.settings, region: m.region, arena: m.arena ?? null,
+      maxPlayers: m.maxPlayers, seed: m.seed, createdAt: m.createdAt, version: PROTOCOL_VERSION, pack: m.pack, settings: m.settings, region: m.region, arena: m.arena ?? null, climate: m.climate,
     };
   }
 
@@ -186,7 +188,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (this.sim) return this.sim;
     const m = this.loadMeta()!;
     if (m.arena) { this.sql.exec('DELETE FROM chunks'); this.cache.clear(); }
-    this.gen = new WorldGenerator(m.seed, m.arena ?? null, { secret: this.oreSeed() });
+    this.gen = new WorldGenerator(m.seed, m.arena ?? null, { secret: this.oreSeed(), climate: m.climate });
     this.levels = this.loadLevels(m);
     const store: WorldStore = {
       getBlock: (x, y, z) => {
@@ -586,11 +588,12 @@ export class WorldRoom extends DurableObject<Env> {
     const s = (body.settings ?? {}) as Partial<RoomSettings>;
     const pack = body.pack && typeof body.pack === 'object' ? body.pack as PackRef : null;
     const arena = isArenaKind(body.arena) ? body.arena : null;
+    const climate = !arena && typeof body.climate === 'number' && Number.isFinite(body.climate) ? Math.max(0.5, Math.min(4, Math.round(body.climate * 100) / 100)) : undefined;
     this.meta = {
       code, name: cleanText(body.name, 32) || 'Untitled World', ownerId, ownerName: cleanName(body.ownerName), mode, difficulty, maxPlayers, seed,
       createdAt: Date.now(), version: PROTOCOL_VERSION,
       pack: pack && typeof pack.hash === 'string' ? { name: cleanText(pack.name, 40), hash: cleanText(pack.hash, 80) } : null,
-      arena, ops: [],
+      arena, ops: [], ...(climate === undefined ? {} : { climate }),
       pvpV6: true, genBase: GEN_LEVEL,
       settings: { ...defaultSettings(), pvp: s.pvp !== false || !!arena, guestsBuild: s.guestsBuild !== false, cheats: mode === 'creative' ? s.cheats !== false : !!s.cheats, personalPacks: s.personalPacks !== false },
       region: cleanText(body.region, 8) || 'auto',
@@ -867,7 +870,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.queueChunks(s, p);
     const players = [...sim.players.values()].filter((x) => !x.vanished || p.op).map((x) => this.publicPlayer(x));
     this.send(s, {
-      t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, worldSpawn: sim.spawn, rules: ruleSnapshot(sim.settings), recipes: sim.dataPacks.length ? sim.dataPacks : undefined,
+      t: 'welcome', room: this.publicMeta(), players, time: sim.time, cycle: sim.settings.dayCycle, weather: sim.weather, wd: sim.settings.weatherCycle ? sim.weatherTimer : undefined, worldSpawn: sim.spawn, rules: ruleSnapshot(sim.settings), recipes: sim.dataPacks.length ? sim.dataPacks : undefined,
       you: { id, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, op: p.op, sup: p.supporter },
     });
     for (const nm of sim.namedMobs()) this.send(s, { t: 'mn', id: nm.id, n: nm.name });
@@ -933,6 +936,23 @@ export class WorldRoom extends DurableObject<Env> {
       case 'eat': sim.eat(p); return;
       case 'sw': sim.swing(p); return;
       case 'bow': if (typeof msg.p === 'number' && typeof msg.y === 'number' && typeof msg.x === 'number') sim.shootBow(p, msg.p, msg.y, msg.x); return;
+      case 'bpc': {
+        if (!isInt(msg.n, 1, BP_MAX_PARTS) || !isInt(msg.i, 0, msg.n - 1) || typeof msg.s !== 'string' || msg.s.length > BP_PART) { s.strikes++; return; }
+        if (msg.i === 0) s.bpParts = new Array(msg.n).fill('');
+        if (!s.bpParts || s.bpParts.length !== msg.n) { s.strikes++; return; }
+        s.bpParts[msg.i] = msg.s;
+        return;
+      }
+      case 'bp': {
+        const parts = s.bpParts;
+        s.bpParts = undefined;
+        if (!parts || parts.length !== msg.n || !isInt(msg.x, -3e7, 3e7) || !isInt(msg.y, -64, 512) || !isInt(msg.z, -3e7, 3e7)) { this.systemChat('Blueprint upload failed. Try again.', 'error', s); return; }
+        const bp = decodeBlueprint(parts.join(''), cleanText(msg.name, 32) || 'Blueprint');
+        if (!bp) { this.systemChat('That blueprint contains blocks that cannot be placed.', 'error', s); return; }
+        const r = sim.placeBlueprint(p, bp, msg.x, msg.y, msg.z);
+        if (r) this.systemChat(r, 'info', s);
+        return;
+      }
       case 'atk': if (isInt(msg.id, 0, 1e9)) sim.attack(p, msg.id); return;
       case 'ue': if (isInt(msg.id, 0, 1e9)) sim.useEntity(p, msg.id); return;
       case 'ench': if (isInt(msg.i, 0, 2)) sim.enchant(p, msg.i); return;
@@ -1225,6 +1245,7 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       case 'lightning': this.broadcast({ t: 'bolt', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z) }); return;
       case 'dark': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'dark', d: ev.t }); return; }
+      case 'travel': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trv', s: ev.phase === 'end' ? 1 : 0, n: ev.nether ? 1 : 0 }); return; }
       case 'knock': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'knock', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), ...(ev.set ? { s: 1 } : {}) }); return; }
       case 'ride': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'ride', id: ev.id }); return; }
       case 'work': {
@@ -1236,7 +1257,7 @@ export class WorldRoom extends DurableObject<Env> {
       }
       case 'pmove': this.sendNear(ev.l[0], ev.l[2], 96, { t: 'pmove', l: ev.l }); return;
       case 'boom': this.sendNear(ev.x, ev.z, 128, { t: 'boom', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), r: ev.r }); return;
-      case 'weather': this.broadcast({ t: 'wx', w: ev.w }); return;
+      case 'weather': this.broadcast({ t: 'wx', w: ev.w, d: ev.d }); return;
       case 'time': this.broadcast({ t: 'time', time: this.sim!.time, cycle: this.sim!.settings.dayCycle }); return;
       case 'rules': this.saveMeta(); this.broadcast({ t: 'rules', r: ruleSnapshot(this.sim!.settings) }); return;
       case 'crafted': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'crafted', r: ev.recipe.id, n: ev.times }); return; }

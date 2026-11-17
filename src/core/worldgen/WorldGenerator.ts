@@ -27,7 +27,8 @@ export interface Column {
 
 export interface GenBlockEntity { x: number; y: number; z: number; type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob'; items: (ItemStack | null)[]; mob?: string; }
 export interface GeneratedChunk { blocks: Uint32Array; entities: GenBlockEntity[]; special?: boolean; }
-export interface GenOptions { secret?: number | null; }
+export interface GenOptions { secret?: number | null; climate?: number; studio?: boolean; }
+export const STUDIO_FLOOR = 6, STUDIO_PLOT = 64;
 
 const S = CHUNK_SIZE;
 const M = 5;
@@ -49,7 +50,7 @@ export class WorldGenerator {
   private villageCache = new Map<string, VillagePlan | null>();
 
   village(rx: number, rz: number): VillagePlan | null {
-    if (this.arena) return null;
+    if (this.arena || this.studio) return null;
     const k = `${rx},${rz}`;
     if (!this.villageCache.has(k)) {
       if (this.villageCache.size > 64) this.villageCache.clear();
@@ -76,7 +77,7 @@ export class WorldGenerator {
   private structCache = new Map<string, StructurePlan | null>();
 
   private structure(type: 'stronghold' | 'trial', rx: number, rz: number): StructurePlan | null {
-    if (this.arena || this.oreSeed === null) return null;
+    if (this.arena || this.studio || this.oreSeed === null) return null;
     const k = `${type[0]}${rx},${rz}`;
     if (!this.structCache.has(k)) {
       if (this.structCache.size > 96) this.structCache.clear();
@@ -88,7 +89,7 @@ export class WorldGenerator {
 
   structuresNear(x0: number, z0: number, x1: number, z1: number): StructurePlan[] {
     const out: StructurePlan[] = [];
-    if (this.arena || this.oreSeed === null) return out;
+    if (this.arena || this.studio || this.oreSeed === null) return out;
     for (const [type, R, pad] of [['stronghold', STRONGHOLD_REGION, 0], ['trial', TRIAL_REGION, 0]] as const) {
       for (let rz = Math.floor((z0 - R / 2) / R); rz <= Math.floor((z1 + R / 2) / R); rz++) for (let rx = Math.floor((x0 - R / 2) / R); rx <= Math.floor((x1 + R / 2) / R); rx++) {
         const p = this.structure(type, rx, rz);
@@ -106,7 +107,7 @@ export class WorldGenerator {
   }
 
   locate(type: 'stronghold' | 'trial', x: number, z: number): StructurePlan | null {
-    if (this.arena || this.oreSeed === null) return null;
+    if (this.arena || this.studio || this.oreSeed === null) return null;
     const R = type === 'stronghold' ? STRONGHOLD_REGION : TRIAL_REGION;
     const crx = Math.floor(x / R), crz = Math.floor(z / R);
     let best: StructurePlan | null = null, bd = Infinity;
@@ -147,8 +148,15 @@ export class WorldGenerator {
     return out;
   }
 
+  private readonly climate: number | undefined;
+  readonly studio: boolean;
+  private readonly ck: number;
+
   constructor(seed: number, arena: ArenaKind | null = null, opts?: GenOptions) {
     this.seed = seed >>> 0;
+    this.climate = opts?.climate === undefined ? undefined : Math.max(0.5, Math.min(4, opts.climate));
+    this.ck = this.climate ?? 1;
+    this.studio = !!opts?.studio && !arena;
     this.arena = arena;
     this.oreSeed = opts && 'secret' in opts ? (opts.secret === null || opts.secret === undefined ? null : opts.secret >>> 0) : mix32(this.seed ^ 0x0a5e7c11);
     let k = 0;
@@ -163,9 +171,11 @@ export class WorldGenerator {
     this.nLush = mk(); this.nDrip = mk(); this.nDeep = mk();
   }
 
+  private studioCol: Column | null = null;
   private raw = { h: 0, land: 0, swamp: 0, lake: 0, d: 0, hills: 0, h2: 0 };
 
   column(x: number, z: number): Column {
+    if (this.studio && !isNether(x)) return this.studioCol ??= { height: STUDIO_FLOOR, biome: BIOMES.find((b) => b.id === 'plains') ?? BIOMES[0], temp: 0.6, humid: 0.5, mountain: 0, river: 0 };
     if (this.arena) return this.columnV1(x, z);
     const c1 = this.columnV1(x, z);
     if (this.lv >= RIVER_LEVEL && c1.river > 0.02) return this.riverColumn(x, z, c1);
@@ -322,7 +332,7 @@ export class WorldGenerator {
   }
 
   riverCurrent(x: number, z: number): [number, number] | null {
-    if (this.arena || isNether(x)) return null;
+    if (this.arena || this.studio || isNether(x)) return null;
     const lv = this.lv, bl = this.blend;
     this.lv = GEN_LEVEL; this.blend = null;
     try {
@@ -371,8 +381,9 @@ export class WorldGenerator {
     const c = this.nCont.fbm2(x / 900, z / 900, 4) * 1.4 + 0.18;
     const e = this.nErode.fbm2(x / 480, z / 480, 3);
     const p = 1 - Math.abs(this.nPeak.fbm2(x / 230, z / 230, 4));
-    const temp = this.nTemp.fbm2(x / 820, z / 820, 3) * 1.3;
-    const humid = this.nHum.fbm2(x / 700, z / 700, 3) * 1.3;
+    const cl = this.climate !== undefined;
+    const temp = cl ? this.nTemp.fbm2(x / (820 * this.ck), z / (820 * this.ck), 2) * 1.4 : this.nTemp.fbm2(x / 820, z / 820, 3) * 1.3;
+    const humid = cl ? this.nHum.fbm2(x / (700 * this.ck), z / (700 * this.ck), 2) * 1.4 : this.nHum.fbm2(x / 700, z / 700, 3) * 1.3;
     const d = this.nDetail.fbm2(x / 48, z / 48, 3);
     const hills = this.nHill.fbm2(x / 140, z / 140, 4);
 
@@ -406,7 +417,7 @@ export class WorldGenerator {
     else if (riverW > 0.55 && height < SEA_LEVEL + 1) id = temp < -0.45 ? 'snowy_tundra' : 'river';
     else if (land < 0.5 && height >= SEA_LEVEL + 2) id = 'island';
     else if (height <= SEA_LEVEL + 2 && land < 0.85 && temp > -0.45 && swampW < 0.4) id = 'beach';
-    else if (mw > 0.45) id = height > 112 || temp < -0.3 ? 'snowy_mountains' : 'mountains';
+    else if (mw > 0.45) id = (height > 112 && !(cl && temp > 0.25)) || temp < -0.3 ? 'snowy_mountains' : 'mountains';
     else if (swampW > 0.4) id = 'swamp';
     else if (temp > 0.42) id = humid < 0.05 ? 'desert' : humid > 0.25 ? 'jungle' : 'plains';
     else if (temp < -0.45) id = humid > -0.1 ? 'taiga' : 'snowy_tundra';
@@ -422,25 +433,25 @@ export class WorldGenerator {
   private refineBiome(id: BiomeId, x: number, z: number, temp: number, humid: number, height: number): BiomeId {
     if (id !== 'plains' && id !== 'forest' && id !== 'birch_forest' && id !== 'desert' && id !== 'jungle' && id !== 'taiga') return id;
     if (temp > 0.42) {
-      if (humid < -0.2 && this.nVariety.fbm2(x / 360 + 51, z / 360, 2) + (height > SEA_LEVEL + 9 ? 0.12 : 0) > 0.22) return 'badlands';
+      if (humid < -0.2 && this.nVariety.fbm2(x / (360 * this.ck) + 51, z / (360 * this.ck), 2) + (height > SEA_LEVEL + 9 ? 0.12 : 0) > 0.22) return 'badlands';
       if (humid < 0.05) return 'desert';
       if (humid > 0.19) return 'jungle';
       return 'savanna';
     }
     if (id === 'taiga') return humid > 0.3 ? 'old_growth_taiga' : 'taiga';
     if ((id === 'forest' || id === 'birch_forest') && humid > 0.34) return 'dark_forest';
-    if ((id === 'plains' || id === 'forest') && this.nVariety.fbm2(x / 420, z / 420, 2) > 0.42) return 'meadow';
+    if ((id === 'plains' || id === 'forest') && this.nVariety.fbm2(x / (420 * this.ck), z / (420 * this.ck), 2) > 0.42) return 'meadow';
     return id;
   }
 
   private refineBiome2(id: BiomeId, x: number, z: number, temp: number, height: number): BiomeId {
     switch (id) {
       case 'ocean': return temp > 0.42 ? 'warm_ocean' : id;
-      case 'island': return this.nVariety.fbm2(x / 260 - 300, z / 260 + 170, 2) > 0.18 ? 'mushroom_fields' : id;
-      case 'snowy_tundra': return this.nVariety.fbm2(x / 300 + 400, z / 300, 2) > 0.22 ? 'ice_spikes' : id;
+      case 'island': return this.nVariety.fbm2(x / (260 * this.ck) - 300, z / (260 * this.ck) + 170, 2) > 0.18 ? 'mushroom_fields' : id;
+      case 'snowy_tundra': return this.nVariety.fbm2(x / (300 * this.ck) + 400, z / (300 * this.ck), 2) > 0.22 ? 'ice_spikes' : id;
       case 'swamp': return temp > 0.25 ? 'mangrove_swamp' : id;
       case 'forest': case 'meadow': case 'plains': case 'birch_forest':
-        return height > SEA_LEVEL + 13 && this.nVariety.fbm2(x / 380 + 200, z / 380 - 90, 2) > 0.24 ? 'cherry_grove' : id;
+        return height > SEA_LEVEL + 13 && this.nVariety.fbm2(x / (380 * this.ck) + 200, z / (380 * this.ck) - 90, 2) > 0.24 ? 'cherry_grove' : id;
       default: return id;
     }
   }
@@ -497,6 +508,7 @@ export class WorldGenerator {
 
   generate(cx: number, cz: number, level = GEN_LEVEL, old: ArrayLike<number> | null = null): GeneratedChunk {
     if (this.arena) return { blocks: generateArenaChunk(this.arena, cx, cz), entities: [] };
+    if (this.studio && !isNether(cx * S)) return { blocks: studioChunk(cx, cz), entities: [] };
     if (isNether(cx * S)) return (this.nether ??= new NetherGen(this.seed)).generate(cx, cz, level);
     this.lv = level;
     this.blend = old && Array.prototype.some.call(old, (v: number) => v) ? old : null;
@@ -1203,6 +1215,7 @@ export class WorldGenerator {
 
   findSpawn(): { x: number; y: number; z: number } {
     if (this.arena) { const l = arenaLayout(this.arena).lobby; return { x: l[0], y: l[1], z: l[2] }; }
+    if (this.studio) return { x: 0.5, y: STUDIO_FLOOR + 1, z: 0.5 };
     for (let r = 0; r < 4000; r += 16) {
       for (let a = 0; a < 8; a++) {
         const x = Math.round(Math.cos((a / 8) * Math.PI * 2) * r);
@@ -1235,3 +1248,17 @@ export function biomeNameAt(gen: WorldGenerator, x: number, z: number, lv?: numb
 }
 
 export { BIOMES, hashFloat2 };
+
+function studioChunk(cx: number, cz: number): Uint32Array {
+  const b = new Uint32Array(CHUNK_VOLUME);
+  for (let z = 0; z < S; z++) for (let x = 0; x < S; x++) {
+    const wx = cx * S + x, wz = cz * S + z;
+    const edge = (Math.abs(wx + 0.5) === STUDIO_PLOT + 0.5 || Math.abs(wz + 0.5) === STUDIO_PLOT + 0.5) && Math.abs(wx + 0.5) <= STUDIO_PLOT + 0.5 && Math.abs(wz + 0.5) <= STUDIO_PLOT + 0.5;
+    const col = (y: number, v: number) => { b[(y * S + z) * S + x] = v; };
+    col(0, B.BEDROCK);
+    for (let y = 1; y <= 3; y++) col(y, B.STONE);
+    col(4, B.DIRT); col(5, B.DIRT);
+    col(STUDIO_FLOOR, edge ? B.COBBLESTONE : B.GRASS);
+  }
+  return b;
+}

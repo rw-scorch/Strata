@@ -69,16 +69,18 @@ export class ChunkManager implements WorldStore {
   meshTimes: number[] = [];
   private seed: number;
 
-  constructor(seed: number, arena: ArenaKind | null, atlas: AtlasData, hooks: ChunkSourceHooks, remote: boolean) {
+  constructor(seed: number, arena: ArenaKind | null, atlas: AtlasData, wopt: { climate?: number; studio?: boolean }, hooks: ChunkSourceHooks, remote: boolean) {
     this.seed = seed;
+    this.wopt = wopt;
     this.hooks = hooks;
     this.remote = remote;
     this.init = { arena, atlas };
-    const n = Math.max(1, Math.min(4, (navigator.hardwareConcurrency ?? 4) - 1));
+    const n = Math.max(2, Math.min(6, (navigator.hardwareConcurrency ?? 4) - 1));
     for (let i = 0; i < n; i++) { this.workers.push(this.spawnWorker(i)); this.busy.push(false); this.workJob.push(0); this.workAt.push(0); }
   }
 
   private init: { arena: ArenaKind | null; atlas: AtlasData };
+  private wopt: { climate?: number; studio?: boolean };
   private workJob: number[] = [];
   private workAt: number[] = [];
 
@@ -86,7 +88,7 @@ export class ChunkManager implements WorldStore {
     const w = new Worker(new URL('../workers/ChunkWorker.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e) => { if (this.workers[i] === w) this.onWorker(i, e.data); };
     w.onerror = (e) => console.error('chunk worker error', e.message);
-    w.postMessage({ t: 'init', seed: this.seed, arena: this.init.arena, atlas: this.init.atlas, client: this.remote });
+    w.postMessage({ t: 'init', seed: this.seed, arena: this.init.arena, atlas: this.init.atlas, client: this.remote, climate: this.wopt.climate, studio: this.wopt.studio });
     return w;
   }
 

@@ -34,7 +34,7 @@ export class LodManager {
   readonly mask: THREE.DataTexture;
   private maskData = new Uint8Array(1);
 
-  constructor(seed: number, arena: ArenaKind | null, colors: Uint8Array, uniforms: { uDay: { value: number }; uFogColor: { value: THREE.Color }; uSkyColor: { value: THREE.Color } } & AtmoUniforms) {
+  constructor(seed: number, arena: ArenaKind | null, colors: Uint8Array, uniforms: { uDay: { value: number }; uFogColor: { value: THREE.Color }; uSkyColor: { value: THREE.Color } } & AtmoUniforms, climate?: number, studio = false) {
     this.surfaces = LodManager.pending(seed);
     this.seed = seed;
     this.mask = new THREE.DataTexture(this.maskData, 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
@@ -85,7 +85,7 @@ export class LodManager {
       const w = new Worker(new URL('../../workers/LodWorker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (e) => this.onWorker(i, e.data);
       w.onerror = (e) => console.error('lod worker error', e.message);
-      w.postMessage({ t: 'init', seed, arena, colors });
+      w.postMessage({ t: 'init', seed, arena, colors, climate, studio });
       for (const [k, s] of this.surfaces) { const [cx, cz] = k.split(',').map(Number); w.postMessage({ t: 'surf', cx, cz, h: s.h, id: s.id }); }
       this.workers.push(w);
       this.busy.push(false);

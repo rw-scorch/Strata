@@ -1,3 +1,4 @@
+import type { Blueprint } from '../core/blueprint';
 import type { BlockArray } from '../core/chunk';
 import type { RuleSet } from '../core/sim/WorldSim';
 export interface TradeInfo { id: string; prof: number; xp: number; uses: number[]; seed?: number; }
@@ -36,12 +37,13 @@ export interface SessionEvents {
   teleport(x: number, y: number, z: number): void;
   chat(from: { id: string; name: string; sup?: string } | null, text: string, kind: ChatKind, ts: number): void;
   time(time: number, cycle: boolean): void;
-  weather(w: Weather): void;
+  weather(w: Weather, ticksLeft?: number): void;
   lightning(x: number, y: number, z: number): void;
   pistonMove?(list: number[]): void;
   ride?(id: number): void;
   knock?(x: number, y: number, z: number, set?: boolean): void;
   dark?(ticks: number): void;
+  travel?(phase: 'start' | 'end', nether: boolean): void;
   equipment?(id: string, eq: number[]): void;
   enchantOffers?(o: { cost: number; clue: string | null; clueLvl: number }[]): void;
   boom?(x: number, y: number, z: number, r: number): void;
@@ -62,6 +64,8 @@ export interface SessionInfo {
   kind: 'local' | 'remote';
   name: string;
   seed: number;
+  climate?: number;
+  studio?: boolean;
   mode: GameMode;
   difficulty: Difficulty;
   spawn: { x: number; y: number; z: number };
@@ -104,4 +108,5 @@ export interface GameSession {
   close(): void;
   stats(): { rtt: number; inRate: number; outRate: number; state: string };
   setDataPacks?(d: DataRecipes[]): void;
+  placeBlueprint?(bp: Blueprint, x: number, y: number, z: number): void;
 }

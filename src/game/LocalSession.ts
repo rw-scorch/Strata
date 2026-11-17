@@ -1,3 +1,4 @@
+import type { Blueprint } from '../core/blueprint';
 import { localSupporterColor } from '../storage/Settings';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../core/worldgen/genLevel';
 import { ruleSnapshot } from '../core/sim/WorldSim';
@@ -32,7 +33,7 @@ export class LocalSession implements GameSession {
     this.meta = meta;
     this.ev = ev;
     this.chunks = chunks;
-    const gen = new WorldGenerator(meta.seed, meta.arena ?? null);
+    const gen = new WorldGenerator(meta.seed, meta.arena ?? null, meta.climate === undefined && !meta.studio ? undefined : { climate: meta.climate, studio: meta.studio });
     this.sim = new WorldSim({
       seed: meta.seed, store: chunks, gen, difficulty: meta.difficulty, emit: (e) => this.onEvent(e),
       validateMoves: false, authoritative: true, spawn: state?.spawn ?? undefined,
@@ -42,6 +43,12 @@ export class LocalSession implements GameSession {
     this.sim.settings.dayCycle = state?.dayCycle ?? true;
     Object.assign(this.sim.settings, state?.rules ?? {});
     this.sim.setDataPacks(cleanPackList(state?.datapacks));
+    if (meta.studio) {
+      this.sim.settings.mobSpawning = false;
+      this.sim.settings.weatherCycle = false;
+      this.sim.settings.cheats = true;
+      if (!state) { this.sim.time = 6000; this.sim.settings.dayCycle = false; }
+    }
     this.sim.keepPopulated = true;
     this.sim.populated = new Set(state?.populated ?? []);
     this.beChunks = new Set(state?.beChunks ?? []);
@@ -68,7 +75,7 @@ export class LocalSession implements GameSession {
     p.supporter = localSupporterColor();
     this.me = p;
     this.pendingMobs = state?.mobs ?? [];
-    this.info = { kind: 'local', name: meta.name, seed: meta.seed, mode: p.mode, difficulty: meta.difficulty, spawn: this.sim.spawn, isOwner: true, arena: meta.arena ?? null };
+    this.info = { kind: 'local', name: meta.name, seed: meta.seed, climate: meta.climate, studio: !!meta.studio, mode: p.mode, difficulty: meta.difficulty, spawn: this.sim.spawn, isOwner: true, arena: meta.arena ?? null };
   }
 
   private pendingMobs: WorldState['mobs'];
@@ -153,8 +160,9 @@ export class LocalSession implements GameSession {
       case 'work': if (e.p === this.me) { ev.container('work', 'chest', e.items.map((s) => s ? cloneStack(s) : null)); if (e.offers) ev.enchantOffers?.(e.offers); } return;
       case 'knock': if (e.p === this.me) ev.knock?.(e.x, e.y, e.z, !!e.set); return;
       case 'dark': if (e.p === this.me) ev.dark?.(e.t); return;
+      case 'travel': if (e.p === this.me) ev.travel?.(e.phase, e.nether); return;
       case 'boom': ev.boom?.(e.x, e.y, e.z, e.r); return;
-      case 'weather': ev.weather(e.w); return;
+      case 'weather': ev.weather(e.w, e.d); return;
       case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;
       case 'rules': ev.rules?.(ruleSnapshot(this.sim.settings)); return;
       case 'mode': this.info.mode = e.p.mode; ev.mode(e.p.mode); return;
@@ -205,6 +213,12 @@ export class LocalSession implements GameSession {
   buy(key: string): void { this.sim.buy(this.me, key); }
 
   respawn(): void { this.sim.respawn(this.me); }
+  placeBlueprint(bp: Blueprint, x: number, y: number, z: number): void {
+    this.sim.setNow(performance.now());
+    const r = this.sim.placeBlueprint(this.me, bp, x, y, z);
+    if (r) this.ev.chat(null, r, 'info', Date.now());
+  }
+
   getBlockEntity(key: string): BlockEntity | undefined { return this.sim.blockEntities.get(key); }
 
   chat(text: string): void {

@@ -1,3 +1,4 @@
+import { Blueprint, encodeBlueprint, BP_PART, BP_MAX_PARTS } from '../core/blueprint';
 import { loadCustomSkin } from '../resources/skins';
 import { PROTOCOL_VERSION, GameMode } from '../core/constants';
 import { WorldSim, SimPlayer, newPlayer, BlockEntity, Appearance, Weather } from '../core/sim/WorldSim';
@@ -96,6 +97,15 @@ export class RemoteSession implements GameSession {
       if (this.ws !== ws) return;
       this.ws = null;
       if (this.closed) return;
+      const older = this.lastErrorCode === 'version' && Number(/protocol (\d+)/.exec(this.lastError)?.[1] ?? 0) < PROTOCOL_VERSION;
+      if (older && this.attempts < 12) {
+        this.lastErrorCode = ''; this.attempts++;
+        this.state = 'reconnecting';
+        if (this.welcomeWaiter) this.ev?.connection?.('reconnecting', 'The world is finishing an update, retrying...');
+        else this.ev?.connection('reconnecting', 'The world is finishing an update, retrying...');
+        setTimeout(() => { if (!this.closed) this.open(); }, 3000 + Math.random() * 2000);
+        return;
+      }
       if (this.lastErrorCode === 'version') {
         try {
           if (!sessionStorage.getItem('strata.vreload')) { sessionStorage.setItem('strata.vreload', '1'); void navigator.serviceWorker?.getRegistration().then((r) => r?.update()).finally(() => location.reload()); return; }
@@ -141,7 +151,7 @@ export class RemoteSession implements GameSession {
     this.room = w.room;
     if (first) {
       this.sim = new WorldSim({
-        seed: w.room.seed, store: this.chunks!, gen: new WorldGenerator(w.room.seed, w.room.arena ?? null, { secret: null }), difficulty: w.room.difficulty, emit: (e) => {
+        seed: w.room.seed, store: this.chunks!, gen: new WorldGenerator(w.room.seed, w.room.arena ?? null, { secret: null, climate: w.room.climate }), difficulty: w.room.difficulty, emit: (e) => {
           if (e.e === 'sound' && e.src && e.src === this.me?.id) this.ev?.sound(e.s, e.x, e.y, e.z, e.vol, e.pitch);
           else if (e.e === 'particles' && e.src && e.src === this.me?.id) this.ev?.fx(e.k, e.x, e.y, e.z, e.d);
         },
@@ -164,7 +174,7 @@ export class RemoteSession implements GameSession {
     this.sim.setDataPacks(cleanPackList(w.recipes ?? []));
     this.ev?.recipes?.(this.sim.dataPacks);
     this.info = {
-      kind: 'remote', name: w.room.name, seed: w.room.seed, mode: y.mode, difficulty: w.room.difficulty, spawn: w.worldSpawn,
+      kind: 'remote', name: w.room.name, seed: w.room.seed, climate: w.room.climate, mode: y.mode, difficulty: w.room.difficulty, spawn: w.worldSpawn,
       roomCode: w.room.code, isOwner: y.op,
     };
     this.players.clear();
@@ -172,7 +182,7 @@ export class RemoteSession implements GameSession {
     for (const p of w.players) if (p.id !== this.me.id) this.addShadow(p);
     if (this.ev) {
       this.ev.time(w.time, w.cycle);
-      this.ev.weather(w.weather as Weather);
+      this.ev.weather(w.weather as Weather, w.wd);
       this.ev.inventory(this.me.inv);
       this.ev.vitals({ health: y.health, food: y.food, sat: y.sat, air: y.air, xp: y.xp, dead: y.dead, mode: y.mode });
       this.ev.room(w.room, w.players);
@@ -282,12 +292,13 @@ export class RemoteSession implements GameSession {
       case 'tp': Object.assign(this.me, { x: m.x, y: m.y, z: m.z }); ev.teleport(m.x, m.y, m.z); return;
       case 'chat': ev.chat(m.from, m.text, m.kind, m.ts); return;
       case 'time': this.sim.time = m.time; this.sim.settings.dayCycle = m.cycle; ev.time(m.time, m.cycle); return;
-      case 'wx': this.sim.weather = m.w as Weather; ev.weather(m.w as Weather); return;
+      case 'wx': this.sim.weather = m.w as Weather; ev.weather(m.w as Weather, m.d); return;
       case 'bolt': ev.lightning(m.x, m.y, m.z); return;
       case 'pmove': ev.pistonMove?.(m.l); return;
       case 'ride': ev.ride?.(m.id); return;
       case 'knock': ev.knock?.(m.x, m.y, m.z, m.s === 1); return;
       case 'dark': ev.dark?.(m.d); return;
+      case 'trv': ev.travel?.(m.s === 1 ? 'end' : 'start', m.n === 1); return;
       case 'eo': if (Array.isArray(m.o) && m.o.length === 3) ev.enchantOffers?.(m.o); return;
       case 'boom': ev.boom?.(m.x, m.y, m.z, m.r); return;
       case 'room':
@@ -369,6 +380,14 @@ export class RemoteSession implements GameSession {
   useEntity(id: string): void { this.flushMove(); this.send({ t: 'ue', id: Number(id) }); }
   enchant(i: number): void { this.send({ t: 'ench', i }); }
   anvil(n: string | null): void { this.send({ t: 'anvil', n }); }
+  placeBlueprint(bp: Blueprint, x: number, y: number, z: number): void {
+    const enc = encodeBlueprint(bp);
+    const n = Math.ceil(enc.length / BP_PART);
+    if (n > BP_MAX_PARTS) { this.ev?.chat(null, 'That blueprint is too detailed to send.', 'error', Date.now()); return; }
+    for (let i = 0; i < n; i++) this.send({ t: 'bpc', i, n, s: enc.slice(i * BP_PART, (i + 1) * BP_PART) });
+    this.send({ t: 'bp', x, y, z, n, name: bp.name });
+  }
+
   attack(id: string): void { this.flushMove(); this.send({ t: 'atk', id: Number(id) }); }
   attackPlayer(pid: string): void { this.flushMove(); this.send({ t: 'pvp', pid }); }
   invOp(op: InvOp): void {

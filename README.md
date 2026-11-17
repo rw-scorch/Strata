@@ -324,6 +324,32 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - Crawling: you now go prone in gaps under 1.5 blocks, move at sneak speed, and other players see a crawl animation. Swimming uses a dedicated flag so it shows reliably.
   - Plain names: Diamond, TNT, Flint and Steel, Gunpowder, Slime Block, Observer, Zombie, Skeleton and friends use ordinary English names. Old `/give` keys still work.
   - Piston Head and other technical blocks no longer appear in the creative inventory.
+- **v38 Blueprints, fire and speed:**
+  - Blueprints (Litematica-style, with survival rules). Every player has two blueprint slots, kept on their device. Pause > Blueprints.
+    - Saving: blueprints are drawn in the new Drafting Studio world type (singleplayer, creative). It is a flat, still, mob-free plot of 128 by 128 blocks with a cobblestone border. Select a region with `/pos1` and `/pos2` (up to 128 blocks on each side), open Blueprints and choose Save selection here.
+    - Placing: in any world, choose Place on a slot to see a ghost of the build at your crosshair. It is cyan when it fits and red when it would overlap blocks or players. Raise or lower it with the bar (or `[` and `]`), then press Place (or right-click). Middle-click or Cancel stops.
+    - Survival and adventure players must carry every block it needs; the card shows have/need per material and the blocks are taken from your inventory. Creative players place for free.
+    - Builds cannot overlap existing blocks. Bedrock, portals, fire, fluids and piston parts are never saved. One build at a time per player, with a short cooldown.
+    - World owners can turn blueprints off in Room settings (Blueprints) or with `/gamerule allowBlueprints false`. Guest build restrictions still apply.
+  - Fire spreads and burns like Java. Fire ages, spreads to flammable blocks up to a few blocks away (faster upward), burns logs, planks, leaves, wool, bookshelves and the like away, lights TNT, and goes out in the rain unless it is sheltered. A forest fire can now take down whole trees. `/gamerule doFireTick false` stops spreading.
+  - Faster loading: the chunk mesher is about 2.1x faster with identical output, every device uses at least two worker threads, and the loading screen has a Play now button that lets you in once the ground near you is ready instead of waiting for far chunks.
+  - The game no longer renders the world behind full-screen menus.
+  - Fixed a Nether portal round trip occasionally building a second Overworld portal. New portals now sit as close as possible to the target horizontally, and a portal pair remembers its partner.
+  - Protocol 32: players need v38 to join a v38 server.
+- **v37 Portals, climates and controls:**
+  - Dimension loading screen: walking through a Nether portal shows an "Entering the Nether" (or "Returning to the Overworld") screen until the terrain around you has finished building, instead of dropping you into half-loaded ground.
+  - Portals now follow Java's rules: an exit portal is searched for within 128 blocks in the Overworld and 16 in the Nether, a new portal is placed within 16 blocks of the target, and mobs, items, TNT and minecarts travel through portals too (with Java's 15-second cooldown). Portals in the Overworld occasionally spawn zombified piglins, more often on harder difficulties.
+  - Water and lava now push every entity: TNT, minecarts off rails, arrows, ghasts, magma cubes and blazes, as well as players, mobs and items.
+  - Ghasts fire once every 3 seconds like Java (a bug made them fire every 2), and no longer spawn within 40 blocks of another ghast. You can now punch a ghast fireball to send it back where you are looking; a returned fireball kills the ghast outright.
+  - `/locate` finds villages, strongholds, trial chambers, ruined portals, Nether fortresses and bastion remnants. From the Overworld, Nether structures are reported in Nether coordinates.
+  - Commands that change the world or cheat (`/locate`, `/spawn`, `/setspawn`, `/kill` and the rest) are now for admins, or creative players when commands are allowed. `/help` only lists what you can use.
+  - Climate Breadth: a new slider when creating a world sets biome size, from Patchwork (0.5x) to Continental (4x). New worlds also use smoother Java-like climate belts, so deserts never sit next to snowy biomes and hot regions get stony peaks instead of snowcaps. Existing worlds are unchanged.
+  - Fog now follows the day and the weather: it builds through the night, is thickest at dawn, burns off by mid-morning, rolls in for a couple of minutes before rain, and lingers after rain. Clear days have no mist.
+  - Rebindable keys: Options, Controls lists every action. Click one and press any key or mouse button. Clashes are shown in red, and Reset Keys restores the defaults.
+  - iPad and touch hardening: double-tap zoom, pinch zoom, trackpad pinch, long-press menus, text selection and the magnifier are blocked outside text boxes. Swiping back now opens the pause menu instead of leaving the game, and held touch controls release if a system gesture or notification interrupts them.
+  - Jungle vines are green again (they were missing their biome tint).
+  - The join screen retries automatically while a world's server is finishing an update, and updates the game itself if the page is the older side.
+  - Protocol 31: players need v37 to join a v37 server.
 - **v36 Mischief Console, mob farms and fixes:**
   - Mischief Console (admins only, in the Game Menu, or `/troll <prank> <player>`). Target one player, everyone else (`@o`), everyone (`@a`), a random player (`@r`) or, for aimable pranks, the block you are looking at (up to 320 blocks away, or `/troll <prank> at x y z`):
     - **Orbital Strike: Nuke**: an Unstable SMP-style orbital cannon. A targeting beam locks on, then six rings of TNT (over 100 blocks of it) rain from the sky.
@@ -555,6 +581,7 @@ What has been run:
 - `scripts/v16-smoke.mjs <server>`: places a lever, Emberdust and a lamp through the server and checks the lamp turns on and off.
 - `scripts/v18-smoke.mjs <server>`: checks piston animation data, slab placement and stacking, a powered Thunder Keg becoming a lit entity and exploding, and that player updates carry health.
 - `scripts/v23-smoke.mjs <server>`: builds an obsidian frame, lights it with Flint and Steel, travels to the Nether region and back to the same portal.
+- `scripts/v38-smoke.mjs <server>`: uploads a blueprint in two parts and checks it is built, then checks overlap, missing survival materials, the owner toggle and a malformed upload are all refused.
 - `scripts/v21-smoke.mjs <server>`: opens an Enchanting Table with 15 bookshelves, checks the level 30 offer, enchants a sword, and checks another player receives the held item and its glint.
 - `scripts/v20-smoke.mjs <server>`: checks a same-tick swap from mace to sword hits for 6 with the sword taking the wear, and a normal swap gives a weak hit.
 - `scripts/v19-smoke.mjs <server>`: places rails and checks they join and curve, places a minecart, rides it and gets off.

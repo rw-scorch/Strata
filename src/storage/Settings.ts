@@ -33,6 +33,7 @@ export interface Settings {
   betterGrass: 'off' | 'fast' | 'fancy';
   soundPhysics: boolean;
   mouseTweaks: boolean;
+  keybinds?: Record<string, string>;
   voiceMode: 'ptt' | 'vad';
   voiceVolume: number;
   micGain: number;
