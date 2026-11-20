@@ -5,7 +5,7 @@ let fails = 0;
 const ok = (name, cond, extra = '') => { console.log(`${cond ? 'PASS' : 'FAIL'} ${name}${extra ? ' ' + extra : ''}`); if (!cond) fails++; };
 const tag = Date.now().toString(36);
 const room = await (await fetch(base + '/api/rooms', { method: 'POST', body: JSON.stringify({ name: 'V40', seed: 40, mode: 'survival', difficulty: 'normal', ownerId: `own-v40-${tag}`, ownerSecret: 'owner-secret-v40-0000', ownerName: 'Alpha' }) })).json();
-const join = (id, secret, name, v = 34) => new Promise((res) => {
+const join = (id, secret, name, v = 35) => new Promise((res) => {
   const ws = new WebSocket(`${wsBase}/ws/${room.code}`);
   const c = { ws, msgs: [], closed: null, send: (m) => ws.send(JSON.stringify(m)) };
   ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome' || m.t === 'err') { c.you = m.you; c.welcome = m; res(c); } };
@@ -13,10 +13,10 @@ const join = (id, secret, name, v = 34) => new Promise((res) => {
   ws.onopen = () => c.send({ t: 'hello', v, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
 });
 const chats = (c) => c.msgs.filter((m) => m.t === 'chat').map((m) => m.text);
-const old = await join(`old-v40-${tag}`, `old-secret-v40-${tag}`, 'Old', 33);
-ok('protocol 33 clients are turned away', old.welcome?.t !== 'welcome', JSON.stringify(old.welcome ?? old.closed));
+const old = await join(`old-v40-${tag}`, `old-secret-v40-${tag}`, 'Old', 34);
+ok('protocol 34 clients are turned away', old.welcome?.t !== 'welcome', JSON.stringify(old.welcome ?? old.closed));
 const a = await join(`own-v40-${tag}`, 'owner-secret-v40-0000', 'Alpha');
-ok('owner joins on protocol 34', a.welcome?.t === 'welcome');
+ok('owner joins on protocol 35', a.welcome?.t === 'welcome');
 a.send({ t: 'chat', text: '/tp 100 64 0 end' });
 await sleep(1500);
 const tp = a.msgs.filter((m) => m.t === 'tp').at(-1);

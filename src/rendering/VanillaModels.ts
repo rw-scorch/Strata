@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { MobType } from '../core/sim/mobs';
 
-export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | 'villager' | 'zombified_piglin' | 'ghast' | 'magmacube' | 'strider' | 'blaze' | 'wither_skeleton' | 'piglin' | 'piglin_brute' | 'hoglin' | 'enderman' | 'enderman_eyes' | `player${number}`;
-export type Rig = 'humanoid' | 'quadruped' | 'chicken' | 'spider' | 'villager' | 'ghast' | 'magma' | 'strider' | 'blaze';
+export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | 'villager' | 'zombified_piglin' | 'ghast' | 'magmacube' | 'strider' | 'blaze' | 'wither_skeleton' | 'piglin' | 'piglin_brute' | 'hoglin' | 'zoglin' | 'shulker' | 'enderman' | 'enderman_eyes' | `player${number}`;
+export type Rig = 'humanoid' | 'quadruped' | 'chicken' | 'spider' | 'villager' | 'ghast' | 'magma' | 'strider' | 'blaze' | 'shulker';
 type V3 = [number, number, number];
 
 export interface VCube { o: V3; s: V3; uv: [number, number]; inf?: number; mirror?: boolean; layer?: 'overlay' | 'emissive'; }
@@ -186,6 +186,15 @@ export const VANILLA: Partial<Record<MobType | 'player', VanillaSpec>> = {
       { n: 'left_hind_leg', pivot: [5, 13, 10], cubes: [{ o: [-2.5, 0, -2.5], s: [5, 11, 5], uv: [0, 45] }] },
     ],
   },
+  zoglin: undefined,
+  shellward: {
+    key: 'shellward', main: 'shulker', texH: 64, height: 1, modelH: 16, rig: 'shulker',
+    parts: [
+      { n: 'base', pivot: [0, 24, 0], cubes: [{ o: [-8, -8, -8], s: [16, 8, 16], uv: [0, 28] }] },
+      { n: 'lid', pivot: [0, 24, 0], cubes: [{ o: [-8, -16, -8], s: [16, 12, 16], uv: [0, 0] }] },
+      { n: 'head', pivot: [0, 12, 0], cubes: [{ o: [-3, 0, -3], s: [6, 6, 6], uv: [0, 52] }] },
+    ],
+  },
   witherbone: { key: 'witherbone', main: 'wither_skeleton', texH: 32, height: 2.4, modelH: 32, rig: 'humanoid', parts: humanoid('skeleton') },
   flarewisp: {
     key: 'flarewisp', main: 'blaze', texH: 32, height: 1.8, modelH: 28.8, rig: 'blaze',
@@ -304,7 +313,7 @@ export function buildVanilla(spec: VanillaSpec, mainMat: THREE.ShaderMaterial, o
   return { obj, parts, rig };
 }
 
-export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; swim?: number; crawl?: boolean; riding?: boolean; squish?: number; cold?: boolean; holdR?: boolean; holdL?: boolean; xbow?: boolean; lance?: boolean; }
+export interface AnimState { ls: number; amt: number; age: number; pitch: number; aggressive: boolean; attack: number; crouch: boolean; type: string; swim?: number; crawl?: boolean; riding?: boolean; squish?: number; cold?: boolean; holdR?: boolean; holdL?: boolean; xbow?: boolean; lance?: boolean; peek?: number; }
 
 function reset(rig: Map<string, RigPart>): void {
   for (const r of rig.values()) { r.obj.position.copy(r.pos); r.obj.rotation.copy(r.rot); }
@@ -369,6 +378,11 @@ export function animateVanilla(spec: VanillaSpec, rig: Map<string, RigPart>, s: 
     for (let i = 4; i < 8; i++) { const r = g(`rod${i}`); if (r) r.position.set(c(a) * 7 - 1, 2 + c((i * 2 + t) * 0.25), sn(a) * 7 - 1); a += PI / 2; }
     a = 0.47123894 + t * PI * -0.05;
     for (let i = 8; i < 12; i++) { const r = g(`rod${i}`); if (r) r.position.set(c(a) * 5 - 1, 11 + c((i * 1.5 + t) * 0.5), sn(a) * 5 - 1); a += PI / 2; }
+  } else if (spec.rig === 'shulker') {
+    const peek = s.peek ?? 0, lid = g('lid');
+    const f1 = (0.5 + peek) * PI, f2 = -1 + sn(f1);
+    const f3 = f1 > PI ? sn(s.age * 0.1) * 0.7 : 0;
+    if (lid) { lid.position.y = 16 + sn(f1) * 8 + f3; lid.rotation.y = peek > 0.3 ? f2 * f2 * f2 * f2 * PI * 0.125 : 0; }
   } else if (spec.rig === 'ghast') {
     for (let i = 0; i < 9; i++) { const t = g(`tentacle${i}`); if (t) t.rotation.x = 0.2 * sn(s.age * 0.3 + i) + 0.4; }
   } else if (spec.rig === 'magma') {
@@ -426,3 +440,5 @@ export function firstPersonArmMatrix(swing: number, out: THREE.Matrix4): THREE.M
 }
 
 export const PLAYER_ARM_CUBES: VCube[] = [{ o: [-3, -2, -2], s: [4, 12, 4], uv: [40, 16] }, { o: [-3, -2, -2], s: [4, 12, 4], uv: [40, 32], inf: 0.25 }];
+
+VANILLA.zoglin = { ...VANILLA.hoglin!, key: 'zoglin', main: 'zoglin' };

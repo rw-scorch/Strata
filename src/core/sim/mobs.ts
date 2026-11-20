@@ -1,7 +1,7 @@
 import { I } from '../items';
 import { B } from '../blocks';
 
-export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider' | 'flarewisp' | 'witherbone' | 'piglin' | 'piglin_brute' | 'hoglin' | 'voidstalker' | 'voidwyrm' | 'riftcore' | 'shellward';
+export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider' | 'flarewisp' | 'witherbone' | 'piglin' | 'piglin_brute' | 'hoglin' | 'voidstalker' | 'voidwyrm' | 'riftcore' | 'shellward' | 'zoglin';
 
 export interface MobDrop { item: number; min: number; max: number; chance?: number; }
 
@@ -161,6 +161,11 @@ export const MOBS: Record<MobType, MobDef> = {
     type: 'shellward', code: 21, name: 'Shulker', hostile: true, health: 30, speed: 0, hw: 0.5, h: 1, damage: 4,
     drops: [{ item: I.SHULKER_SHELL, min: 1, max: 1, chance: 0.5 }], xp: 5, fireImmune: true,
     desc: 'A purpur box that hides on End city walls and lobs homing bullets that make you float.',
+  },
+  zoglin: {
+    type: 'zoglin', code: 22, name: 'Zoglin', hostile: true, health: 40, speed: 2.1, hw: 0.7, h: 1.4, damage: 6,
+    drops: [{ item: I.ROTTEN_FLESH, min: 1, max: 3 }], xp: 5,
+    desc: 'A hoglin that rotted away outside the Nether. It fears nothing, not even Warped Fungus, and tosses anything it can reach.',
   },
 };
 

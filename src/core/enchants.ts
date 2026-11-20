@@ -46,6 +46,7 @@ export const ENCHANTS: EnchantDef[] = [
   { key: 'density', name: 'Density', max: 5, weight: 5, anvil: 2, min: [5, 8], maxc: [25, 8], supp: ['mace'], group: 'damage' },
   { key: 'breach', name: 'Breach', max: 4, weight: 2, anvil: 4, min: [15, 9], maxc: [65, 9], supp: ['mace'], group: 'damage' },
   { key: 'lunge', name: 'Lunge', max: 3, weight: 5, anvil: 2, min: [5, 8], maxc: [25, 8], supp: ['spear'] },
+  { key: 'soul_speed', name: 'Soul Speed', max: 3, weight: 1, anvil: 8, min: [10, 10], maxc: [25, 10], supp: ['feet'], treasure: true },
   { key: 'mending', name: 'Mending', max: 1, weight: 2, anvil: 4, min: [25, 25], maxc: [75, 25], supp: DURABLE, group: 'bow', treasure: true },
   { key: 'wind_burst', name: 'Wind Burst', max: 3, weight: 2, anvil: 4, min: [15, 9], maxc: [65, 9], supp: ['mace'], treasure: true },
   { key: 'binding_curse', name: 'Curse of Binding', max: 1, weight: 1, anvil: 8, min: [25, 0], maxc: [50, 0], supp: ARMOR, treasure: true, curse: true },

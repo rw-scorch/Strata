@@ -83,7 +83,7 @@ describe('Java random and enchanting table maths', () => {
     expect([minCost(e('unbreaking'), 3), maxCost(e('unbreaking'), 3)]).toEqual([21, 71]);
     expect([minCost(e('breach'), 4), maxCost(e('breach'), 4)]).toEqual([42, 92]);
     expect([minCost(e('lunge'), 3), maxCost(e('lunge'), 3)]).toEqual([21, 41]);
-    expect(ENCHANTS.length).toBe(34);
+    expect(ENCHANTS.length).toBe(35);
   });
 
   it('offers are hidden for enchanted items and shown for books', () => {

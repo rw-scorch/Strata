@@ -1,7 +1,7 @@
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../core/constants';
 import { ChunkData, chunkKey, type BlockArray } from '../core/chunk';
-import { OPAQUE, LIGHT_EMIT, blockId } from '../core/blocks';
+import { OPAQUE, LIGHT_EMIT, blockId, emitOf } from '../core/blocks';
 import type { WorldStore } from '../core/sim/WorldSim';
 import type { GenBlockEntity } from '../core/worldgen/WorldGenerator';
 import type { MeshResult } from '../rendering/Mesher';
@@ -172,7 +172,7 @@ export class ChunkManager implements WorldStore {
     c.saveDirty = true;
     this.topCache.delete(x * 100003 + z);
     this.markDirty(c, true);
-    const lightChange = OPAQUE[blockId(old)] !== OPAQUE[blockId(v)] || LIGHT_EMIT[blockId(old)] !== LIGHT_EMIT[blockId(v)];
+    const lightChange = OPAQUE[blockId(old)] !== OPAQUE[blockId(v)] || emitOf(old) !== emitOf(v);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dz) continue;
       const n = this.get_(cx + dx, cz + dz);
@@ -431,7 +431,7 @@ export class ChunkManager implements WorldStore {
     const exposed = fy >= this.topAt(fx, fz) - 1;
     let torch = 0;
     for (let dy = -3; dy <= 3; dy++) for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
-      const e = LIGHT_EMIT[blockId(this.getBlock(fx + dx, fy + dy, fz + dz))];
+      const e = emitOf(this.getBlock(fx + dx, fy + dy, fz + dz));
       if (e) torch = Math.max(torch, (e - Math.abs(dx) - Math.abs(dy) - Math.abs(dz)) / 15);
     }
     const sky = exposed ? day : day * 0.2;

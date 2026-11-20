@@ -3,7 +3,7 @@ import { getItem, maxStack, fuelSeconds } from './items';
 import { CB } from './blocks';
 import { findRecipe, findSmelt, ingredientMatches, Recipe, RecipeBook, BASE_BOOK, Ingredient } from './crafting';
 
-export interface ItemStack { id: number; count: number; dmg?: number; ld?: number; en?: Record<string, number>; rc?: number; nm?: string; box?: (ItemStack | null)[]; }
+export interface ItemStack { id: number; count: number; dmg?: number; ld?: number; en?: Record<string, number>; rc?: number; nm?: string; box?: (ItemStack | null)[]; lt?: number[]; fl?: number; }
 
 export const INV_SIZE = 36;
 export const CHEST_SIZE = 27;
@@ -70,6 +70,8 @@ export function cloneStack(s: ItemStack | null): ItemStack | null {
   if (s.rc) c.rc = s.rc;
   if (s.nm) c.nm = s.nm;
   if (s.box) c.box = s.box.map(cloneStack);
+  if (s.lt) c.lt = [...s.lt];
+  if (s.fl) c.fl = s.fl;
   return c;
 }
 
@@ -86,7 +88,7 @@ export function cloneInv(inv: PlayerInv): PlayerInv {
 }
 
 export function sameKind(a: ItemStack | null, b: ItemStack | null): boolean {
-  return !!a && !!b && a.id === b.id && (a.dmg ?? 0) === (b.dmg ?? 0) && (a.ld ?? 0) === (b.ld ?? 0) && enKey(a) === enKey(b) && (a.rc ?? 0) === (b.rc ?? 0) && (a.nm ?? '') === (b.nm ?? '') && !a.box && !b.box;
+  return !!a && !!b && a.id === b.id && (a.dmg ?? 0) === (b.dmg ?? 0) && (a.ld ?? 0) === (b.ld ?? 0) && enKey(a) === enKey(b) && (a.rc ?? 0) === (b.rc ?? 0) && (a.nm ?? '') === (b.nm ?? '') && !a.box && !b.box && (a.lt ?? []).join() === (b.lt ?? []).join() && (a.fl ?? 1) === (b.fl ?? 1);
 }
 
 function enKey(s: ItemStack): string {
@@ -101,7 +103,9 @@ export function validStack(s: unknown): s is ItemStack {
     && (o.dmg === undefined || (Number.isInteger(o.dmg) && o.dmg >= 0)) && (o.ld === undefined || o.ld === 0 || o.ld === 1)
     && (o.en === undefined || validEn(o.en)) && (o.rc === undefined || (Number.isInteger(o.rc) && o.rc >= 0 && o.rc < 1 << 20))
     && (o.nm === undefined || (typeof o.nm === 'string' && o.nm.length > 0 && o.nm.length <= 50 && !/[\u0000-\u001f<>]/.test(o.nm)))
-    && (o.box === undefined || validBox(o.box));
+    && (o.box === undefined || validBox(o.box))
+    && (o.fl === undefined || (Number.isInteger(o.fl) && o.fl >= 1 && o.fl <= 3))
+    && (o.lt === undefined || (Array.isArray(o.lt) && o.lt.length === 3 && o.lt.every((n: unknown) => typeof n === 'number' && Number.isInteger(n) && Math.abs(n) < 1e7)));
 }
 
 export const BOX_SIZE = 27;
@@ -179,7 +183,7 @@ export function craftGrid(inv: PlayerInv): (ItemStack | null)[] {
 export function craftResult(inv: PlayerInv, book: RecipeBook = BASE_BOOK): { recipe: Recipe; stack: ItemStack } | null {
   const r = findRecipe(craftGrid(inv), inv.craftSize, book);
   if (!r) return null;
-  return { recipe: r, stack: { id: r.result, count: r.count } };
+  return { recipe: r, stack: r.fl ? { id: r.result, count: r.count, fl: r.fl } : { id: r.result, count: r.count } };
 }
 
 function consumeCraft(inv: PlayerInv): void {

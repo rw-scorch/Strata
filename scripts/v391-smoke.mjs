@@ -10,7 +10,7 @@ const join = (id, secret, name) => new Promise((res) => {
   const c = { ws, msgs: [], closed: null, send: (m) => ws.send(JSON.stringify(m)) };
   ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome') { c.you = m.you; c.welcome = m; res(c); } };
   ws.onclose = (e) => { c.closed = e.code; };
-  ws.onopen = () => c.send({ t: 'hello', v: 34, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
+  ws.onopen = () => c.send({ t: 'hello', v: 35, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
 });
 const chats = (c) => c.msgs.filter((m) => m.t === 'chat').map((m) => m.text);
 const a = await join(`own-v391-${tag}`, 'owner-secret-v391-000', 'Alpha');

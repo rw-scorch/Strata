@@ -241,7 +241,7 @@ export class WorldRoom extends DurableObject<Env> {
           const be = JSON.parse(row.data as string) as BlockEntity;
           be.items = be.items.map((s) => (validStack(s) ? cloneStack(s) : null));
           this.sim.blockEntities.set(row.k as string, be);
-          if (be.type === 'furnace') this.sim.activeFurnaces.add(row.k as string);
+          if (be.type === 'furnace' || be.type === 'campfire') this.sim.activeFurnaces.add(row.k as string);
         } catch { /* skip corrupt */ }
       }
       this.loadPersistentMobs();
@@ -581,7 +581,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (p.vanished) return;
     const data = {
       name: p.name, appearance: p.appearance, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv,
-      health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, homes: p.homes, back: p.back,
+      health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, anchor: p.anchor, homes: p.homes, back: p.back,
       kills: p.kills ?? 0, deaths: p.deaths ?? 0, playtime: Math.floor((p.playtime ?? 0) + (Date.now() - (this.playStart.get(p.id) ?? Date.now())) / 1000),
     };
     this.sql.exec(`UPDATE players SET data = ? WHERE id = ?`, JSON.stringify(data), p.id);
@@ -867,6 +867,7 @@ export class WorldRoom extends DurableObject<Env> {
       p.dead = d.dead === true;
       const sp = d.spawn as Record<string, unknown> | undefined;
       if (sp && isNum(sp.x) && isNum(sp.y) && isNum(sp.z)) p.spawn = { x: sp.x, y: sp.y, z: sp.z };
+      if (Array.isArray(d.anchor) && d.anchor.length === 3 && d.anchor.every((n) => isInt(n, -1e7, 1e7))) p.anchor = d.anchor as [number, number, number];
       const pt = (v: unknown) => { const o = v as Record<string, unknown> | undefined; return o && isNum(o.x) && isNum(o.y) && isNum(o.z) ? { x: o.x, y: o.y, z: o.z } : null; };
       if (d.homes && typeof d.homes === 'object') {
         p.homes = {};
@@ -1359,7 +1360,7 @@ export class WorldRoom extends DurableObject<Env> {
     for (const row of this.sql.exec(`SELECT id, data FROM players`).toArray()) {
       let d: Record<string, unknown>;
       try { d = row.data ? JSON.parse(row.data as string) : {}; } catch { continue; }
-      for (const k of ['x', 'y', 'z', 'spawn', 'homes', 'back', 'dead']) delete d[k];
+      for (const k of ['x', 'y', 'z', 'spawn', 'anchor', 'homes', 'back', 'dead']) delete d[k];
       d.health = 20; d.food = 20; d.air = 300; d.fire = 0;
       this.sql.exec(`UPDATE players SET data = ? WHERE id = ?`, JSON.stringify(d), row.id as string);
     }

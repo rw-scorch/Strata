@@ -287,14 +287,32 @@ describe('v40 Elytra and fireworks', () => {
     p.x = 0.5; p.y = 60; p.z = 0.5; p.lastMove = sim.now - 50;
     expect(sim.move(p, 4.5, 59.8, 0.5, 0, 0, 131072)).toBe(true);
   });
-  it('gliding wears the Elytra and saves you from fall damage', () => {
+  it('a shallow glide wears the Elytra and lands softly, a steep dive still hurts (Java rule)', () => {
     const { sim, p } = world();
     p.mode = 'survival'; p.inv.armor[1] = { id: I.ELYTRA, count: 1 };
     p.x = 0.5; p.y = 40; p.z = 0.5; p.peakY = 40;
-    for (let i = 0; i < 30; i++) { sim.setNow(sim.now + 100); sim.move(p, 0.5 + i, 40 - i, 0.5, 0, 0, 131072); }
+    for (let i = 0; i < 30; i++) { sim.setNow(sim.now + 100); sim.move(p, 0.5 + i, 40 - i * 0.5, 0.5, 0, 0, 131072); }
     expect(p.inv.armor[1]!.dmg).toBeGreaterThan(0);
-    sim.move(p, 31.5, 10, 0.5, 0, 0, 1);
+    sim.setNow(sim.now + 100);
+    sim.move(p, 30.5, 25, 0.5, 0, 0, 1);
     expect(p.health).toBe(20);
+    const w = world();
+    w.p.mode = 'survival'; w.p.inv.armor[1] = { id: I.ELYTRA, count: 1 };
+    w.p.x = 0.5; w.p.y = 60; w.p.z = 0.5; w.p.peakY = 60;
+    for (let i = 0; i < 20; i++) { w.sim.setNow(w.sim.now + 100); w.sim.move(w.p, 0.5 + i * 0.2, 60 - i * 2.5, 0.5, 0, 0, 131072); }
+    w.sim.setNow(w.sim.now + 100);
+    w.sim.move(w.p, 4.5, 10, 0.5, 0, 0, 1);
+    expect(w.p.health).toBeLessThan(20);
+  });
+  it('flying into a wall at speed hurts (kinetic energy)', () => {
+    const { sim, p, store } = world();
+    p.mode = 'survival'; p.inv.armor[1] = { id: I.ELYTRA, count: 1 };
+    for (let y = 20; y < 40; y++) for (let z = -3; z <= 3; z++) store.setBlock(30, y, z, B.STONE);
+    p.x = 0.5; p.y = 30; p.z = 0.5; p.peakY = 30;
+    for (let i = 1; i <= 9; i++) { sim.setNow(sim.now + 100); sim.move(p, 0.5 + i * 3, 30, 0.5, 0, 0, 131072); }
+    sim.setNow(sim.now + 100);
+    sim.move(p, 29.6, 30, 0.5, 0, 0, 131072);
+    expect(p.health).toBeLessThan(20);
   });
   it('a firework rocket is used up when you boost with it', () => {
     const { sim, p } = world();

@@ -1,9 +1,10 @@
+import { localX, dimOf, dimName } from '../../core/dimension';
 import { enchantLabel, ENCH } from '../../core/enchants';
 import { h } from '../dom';
 import type { TextureAtlas } from '../../resources/TextureAtlas';
 import { guiFallback } from './GuiPaint';
 import { getSettings } from '../../storage/Settings';
-import { getItem, maxDurability, fuelSeconds, type ItemDef } from '../../core/items';
+import { I, getItem, maxDurability, fuelSeconds, type ItemDef } from '../../core/items';
 import { findSmelt, RecipeBook, BASE_BOOK } from '../../core/crafting';
 
 let tipBook: RecipeBook = BASE_BOOK;
@@ -66,7 +67,9 @@ export function itemTooltipLines(st: ItemStack, advanced = false): { text: strin
   const it = getItem(st.id) as ItemDef | undefined;
   if (!it) return [];
   const enchanted = !!st.en && Object.keys(st.en).length > 0;
-  const out: { text: string; color: string }[] = [{ text: st.nm ? `"${st.nm}"` : it.name, color: st.nm ? '#55ffff' : enchanted ? '#55ffff' : '#ffffff' }];
+  const out: { text: string; color: string }[] = [{ text: st.nm ? `"${st.nm}"` : st.lt ? 'Lodestone Compass' : it.name, color: st.nm ? '#55ffff' : enchanted || st.lt ? '#ffff55' : '#ffffff' }];
+  if (st.id === I.FIREWORK_ROCKET) out.push({ text: `Flight Duration: ${st.fl ?? 1}`, color: '#aaaaaa' });
+  if (st.lt) out.push({ text: `Points to ${localX(st.lt[0])}, ${st.lt[1]}, ${st.lt[2]}${dimOf(st.lt[0]) !== 'overworld' ? ` (${dimName(st.lt[0])})` : ''}`, color: '#aaaaaa' });
   if (st.en) for (const [k, l] of Object.entries(st.en)) out.push({ text: enchantLabel(k, l), color: ENCH.get(k)?.curse ? '#ff5555' : '#aaaaaa' });
   if (st.box) {
     const held = st.box.filter((x): x is ItemStack => !!x);

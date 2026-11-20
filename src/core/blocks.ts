@@ -456,7 +456,13 @@ export const CB = {
   SCULK_SENSOR: 1042, SCULK_SHRIEKER: 1043, SCULK_CATALYST: 1044, DEEPSLATE: 1045, COBBLED_DEEPSLATE: 1046,
   END_STONE: 1047, END_STONE_BRICKS: 1048, PURPUR_BLOCK: 1049, PURPUR_PILLAR: 1050, END_ROD: 1051, CHORUS_PLANT: 1052, CHORUS_FLOWER: 1053,
   END_PORTAL_FRAME: 1054, END_PORTAL: 1055, END_GATEWAY: 1056, DRAGON_EGG: 1057, SHULKER_BOX: 1058, DRAGON_HEAD: 1059,
+  SOUL_TORCH: 1060, SOUL_LANTERN: 1061, CAMPFIRE: 1062, SOUL_CAMPFIRE: 1063, RESPAWN_ANCHOR: 1064, LODESTONE: 1065,
 } as const;
+export const LANTERN_HANGING = 1, CAMPFIRE_LIT = 4;
+export const ANCHOR_LIGHT = [0, 3, 7, 11, 15];
+export function isCampfire(id: number): boolean { return id === CB.CAMPFIRE || id === CB.SOUL_CAMPFIRE; }
+export function isLantern(id: number): boolean { return id === B.LANTERN || id === CB.SOUL_LANTERN; }
+export function isSoulLight(id: number): boolean { return id === CB.SOUL_TORCH || id === CB.SOUL_LANTERN || id === CB.SOUL_CAMPFIRE || id === B.SOUL_FIRE; }
 export const FRAME_EYE = 4, CHORUS_DEAD = 5;
 export const VINE_BODY = 1, DL_TILT_SHIFT = 2, SMALL_UPPER = 1, DRIP_DOWN = 8, SENSOR_ACTIVE = 1, SENSOR_COOL = 2, SHRIEK_ON = 1, SHRIEK_SUMMON = 2;
 export const CAULDRON_LAVA = 4;
@@ -499,6 +505,12 @@ def(CB.END_PORTAL, 'end_portal', 'End Portal', 'A window onto the void. Step in 
 def(CB.END_GATEWAY, 'end_gateway', 'End Gateway', 'A beacon of the void that flings you to the far islands.', { faces: ALL('end_portal'), solid: false, opaque: false, lightFilter: 0, lightEmit: 15, hardness: -1, drops: null, category: 'hidden', cullSelf: true });
 def(CB.DRAGON_EGG, 'dragon_egg', 'Dragon Egg', 'The prize for defeating the Ender Dragon. Touch it and it slips away.', { faces: ALL('dragon_egg'), render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 1, hardness: 3, interactive: true, category: 'functional' });
 def(CB.SHULKER_BOX, 'shulker_box', 'Shulker Box', 'A chest that keeps its contents when you break it. Carry 27 stacks in one slot.', { faces: ALL('shulker_box'), hardness: 2, tool: 'pickaxe', interactive: true, drops: null, category: 'functional' });
+def(CB.SOUL_TORCH, 'soul_torch', 'Soul Torch', 'A blue torch lit with soul sand. Dimmer than a torch, and Piglins keep away from it.', { faces: ALL('soul_torch'), render: 'torch', solid: false, opaque: false, lightFilter: 0, lightEmit: 10, hardness: 0, sound: 'wood', needsSupport: 'solid', category: 'functional' });
+def(CB.SOUL_LANTERN, 'soul_lantern', 'Soul Lantern', 'A lantern with a cold blue flame. Hang it under a block or set it on one.', { faces: ALL('soul_lantern'), render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 10, hardness: 3.5, tool: 'pickaxe', sound: 'metal', category: 'functional' });
+def(CB.CAMPFIRE, 'campfire', 'Campfire', 'Cooks up to four pieces of food at once and sends up smoke. Burns anyone who stands in it.', { faces: ALL('campfire_log'), render: 'boxes', solid: true, opaque: false, lightFilter: 0, lightEmit: 15, hardness: 2, tool: 'axe', sound: 'wood', interactive: true, drops: [{ item: 261, min: 2, max: 2 }], category: 'functional' });
+def(CB.SOUL_CAMPFIRE, 'soul_campfire', 'Soul Campfire', 'A campfire of blue soul flame. Burns harder than a campfire and keeps Piglins away.', { faces: ALL('campfire_log'), render: 'boxes', solid: true, opaque: false, lightFilter: 0, lightEmit: 10, hardness: 2, tool: 'axe', sound: 'wood', interactive: true, drops: [{ item: XB + 5 }], category: 'functional' });
+def(CB.RESPAWN_ANCHOR, 'respawn_anchor', 'Respawn Anchor', 'Charge it with Glowshard and use it in the Nether to respawn there. Anywhere else it explodes.', { faces: HALF_SIDES('respawn_anchor_side0', 'respawn_anchor_top_off', 'respawn_anchor_bottom'), render: 'boxes', opaque: false, lightFilter: 15, lightEmit: 15, hardness: 50, tool: 'pickaxe', tier: 4, interactive: true, category: 'functional' });
+def(CB.LODESTONE, 'lodestone', 'Lodestone', 'Use a Compass on it and the compass will point here instead of spawn, even in the Nether.', { faces: COL('lodestone_side', 'lodestone_top'), hardness: 3.5, tool: 'pickaxe', tier: 1, sound: 'metal', interactive: true, category: 'functional' });
 def(CB.DRAGON_HEAD, 'dragon_head', 'Dragon Head', 'A trophy from the bow of an End ship.', { faces: ALL('dragon_head'), render: 'boxes', opaque: false, lightFilter: 0, hardness: 1, category: 'functional' });
 export const CAVE_TEX = [
   ...['up', 'down'].flatMap((d) => DRIP_THICK.map((t) => `pointed_dripstone_${d}_${t}`)),
@@ -530,6 +542,12 @@ export const SOLID = solidTable;
 export const OPAQUE = opaqueTable;
 export const LIGHT_FILTER = filterTable;
 export const LIGHT_EMIT = emitTable;
+export function emitOf(v: number): number {
+  const id = bid(v);
+  if (id === CB.RESPAWN_ANCHOR) return ANCHOR_LIGHT[Math.min(4, (v >>> 8) & 7)];
+  if (id === CB.CAMPFIRE || id === CB.SOUL_CAMPFIRE) return ((v >>> 8) & CAMPFIRE_LIT) ? emitTable[id] : 0;
+  return emitTable[id];
+}
 
 export function getBlock(id: number): BlockDef {
   const b = (id & 0xff) | ((id >>> 8) & 0xf00);
@@ -674,7 +692,9 @@ export function customBoxes(v: number): Box[] {
     case B.CAULDRON: return [p(0, 3, 0, 16, 4, 16), p(0, 4, 0, 2, 16, 16), p(14, 4, 0, 16, 16, 16), p(2, 4, 0, 14, 16, 2), p(2, 4, 14, 14, 16, 16), p(0, 0, 0, 4, 3, 4), p(12, 0, 0, 16, 3, 4), p(0, 0, 12, 4, 3, 16), p(12, 0, 12, 16, 3, 16)];
     case B.GRINDSTONE: return [p(4, 4, 2, 12, 16, 14), p(2, 0, 6, 4, 13, 10), p(12, 0, 6, 14, 13, 10)];
     case B.BELL: return [p(4, 3, 4, 12, 10, 12), p(5, 10, 5, 11, 12, 11), p(3, 2, 3, 13, 3, 13), p(7, 12, 7, 9, 16, 9)];
-    case B.LANTERN: return [p(5, 0, 5, 11, 7, 11), p(6, 7, 6, 10, 9, 10), p(7, 9, 7, 9, 11, 9)];
+    case B.LANTERN: case CB.SOUL_LANTERN: return ((v >>> 8) & LANTERN_HANGING) ? [p(5, 1, 5, 11, 8, 11), p(6, 8, 6, 10, 10, 10), p(7, 10, 7, 9, 16, 9)] : [p(5, 0, 5, 11, 7, 11), p(6, 7, 6, 10, 9, 10), p(7, 9, 7, 9, 11, 9)];
+    case CB.CAMPFIRE: case CB.SOUL_CAMPFIRE: return [p(0, 0, 0, 16, 7, 16)];
+    case CB.RESPAWN_ANCHOR: return [p(0, 0, 0, 16, 16, 16)];
     case B.CAKE: { const b = Math.min(6, (v >>> 8) & 7); return [p(1 + b * 2, 0, 1, 15, 8, 15)]; }
     case CB.MOSS_CARPET: return [p(0, 0, 0, 16, 1, 16)];
     case CB.SCULK_SENSOR: case CB.SCULK_SHRIEKER: return [p(0, 0, 0, 16, 8, 16)];
@@ -777,10 +797,11 @@ export function selectionBox(v: number): [number, number, number, number, number
   }
 }
 
-for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE, CB.END_ROD, CB.CHORUS_PLANT, CB.CHORUS_FLOWER, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.DRAGON_EGG, CB.DRAGON_HEAD]) CUSTOM_BOX[id] = 1;
+for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE, CB.END_ROD, CB.CHORUS_PLANT, CB.CHORUS_FLOWER, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.DRAGON_EGG, CB.DRAGON_HEAD, CB.SOUL_LANTERN, CB.CAMPFIRE, CB.SOUL_CAMPFIRE, CB.RESPAWN_ANCHOR]) CUSTOM_BOX[id] = 1;
 export const CROPS: Record<number, { max: number; tex: string; stages: number[] }> = {
   [B.WHEAT]: { max: 7, tex: 'wheat', stages: [0, 1, 2, 3, 4, 5, 6, 7] },
   [B.CARROTS]: { max: 7, tex: 'carrots', stages: [0, 0, 1, 1, 2, 2, 2, 3] },
   [B.POTATOES]: { max: 7, tex: 'potatoes', stages: [0, 0, 1, 1, 2, 2, 2, 3] },
   [B.BEETROOTS]: { max: 3, tex: 'beetroots', stages: [0, 1, 2, 3] },
 };
+export const SPRITE_BLOCKS = ['hopper', 'lantern', 'soul_lantern', 'campfire', 'soul_campfire'];

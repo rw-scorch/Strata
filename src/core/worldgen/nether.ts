@@ -1,12 +1,15 @@
 import { CHUNK_SIZE, CHUNK_VOLUME } from '../constants';
 import { Simplex } from '../noise';
 import { Rng, hash2 } from '../rng';
-import { B, X, XV } from '../blocks';
+import { B, X, XV, makeBlock } from '../blocks';
 import { NETHER_HEIGHT, NETHER_LAVA } from '../dimension';
 import { planNetherPortal, stampRuinedPortal, PORTAL_GRID } from './ruinedPortal';
 import type { GenBlockEntity } from './WorldGenerator';
 import { fortressesNear, bastionsNear, stampFortress } from './fortress';
 import { stampBastion } from './bastion';
+import { hugeFungus } from './fungus';
+import { NETHER_DEPTH_LEVEL } from './genLevel';
+import { FALLING } from '../sim/fluids';
 
 const S = CHUNK_SIZE;
 const RACK = X(XV.NETHERRACK), QUARTZ = X(XV.NETHER_QUARTZ_ORE), GOLD = X(XV.NETHER_GOLD_ORE), SOUL = X(XV.SOUL_SAND), SOIL = X(XV.SOUL_SOIL);
@@ -122,8 +125,20 @@ export class NetherGen {
         }
       }
     };
-    vein(QUARTZ, 12, 12);
-    vein(GOLD, 8, 9);
+    const deep = level >= NETHER_DEPTH_LEVEL;
+    const center0 = deep ? bAt(8, 8) : 'nether_wastes';
+    if (deep) {
+      const dbl = center0 === 'basalt_deltas' ? 2 : 1;
+      vein(QUARTZ, 16 * dbl, 14);
+      vein(GOLD, (center0 === 'nether_wastes' ? 14 : 10) * dbl, 10);
+      for (let n = 0; n < 4; n++) {
+        let x = rng.int(S), y = NETHER_LAVA - 4 + rng.int(10), z = rng.int(S);
+        for (let i = 0; i < 26; i++) { if (get(x, y, z) === RACK) set(x, y, z, B.MAGMA_BLOCK); x += rng.int(3) - 1; y += rng.int(3) - 1; z += rng.int(3) - 1; }
+      }
+    } else {
+      vein(QUARTZ, 12, 12);
+      vein(GOLD, 8, 9);
+    }
     if (level >= 7) {
       const dr = new Rng(hash2(cx, cz, this.seed ^ 0xdeb715));
       const DEBRIS = X(XV.ANCIENT_DEBRIS);
@@ -149,7 +164,7 @@ export class NetherGen {
       for (let y = NETHER_LAVA + 2; y < 120; y++) if (get(x, y, z) === 0 && get(x, y + 1, z) !== 0 && get(x, y + 1, z) !== B.LAVA) out.push(y);
       return out;
     };
-    const glow = center === 'basalt_deltas' ? 1 : center === 'soul_sand_valley' ? 1 : 3;
+    const glow = center === 'basalt_deltas' ? 1 : center === 'soul_sand_valley' ? 1 : deep && center === 'nether_wastes' ? 7 : 3;
     for (let n = 0; n < glow; n++) {
       const x = 2 + rng.int(12), z = 2 + rng.int(12);
       let y = 40 + rng.int(70);
@@ -173,6 +188,7 @@ export class NetherGen {
       for (let i = 0; i < 4; i++) { const x = rng.int(S), z = rng.int(S); const fl = floors(x, z); if (fl.length && rng.chance(0.5)) { const y = fl[rng.int(fl.length)]; set(x, y, z, rng.chance(0.5) ? B.RED_MUSHROOM : B.BROWN_MUSHROOM); } }
     }
 
+    if (deep) this.springs(rng, get, set, center);
     if (center === 'crimson_forest' || center === 'warped_forest') {
       const crimson = center === 'crimson_forest';
       const NYL = crimson ? CNYL : WNYL, STEM = crimson ? CSTEM : WSTEM, WART = crimson ? CWART : WWART;
@@ -185,7 +201,14 @@ export class NetherGen {
             else if (r < 0.32) { const hgt = 1 + rng.int(8); for (let k = 0; k < hgt && get(x, y + k, z) === 0; k++) set(x, y + k, z, B.TWISTING_VINES); } }
         }
       }
-      const trees = 3 + rng.int(4);
+      if (deep) {
+        for (let t = 0; t < 8; t++) {
+          const x = 4 + rng.int(8), z = 4 + rng.int(8);
+          const fl = floors(x, z).filter((y) => get(x, y - 1, z) === NYL);
+          if (fl.length) hugeFungus(get, set, rng, x, fl[rng.int(fl.length)], z, crimson, false, NETHER_HEIGHT - 2);
+        }
+      }
+      const trees = deep ? 0 : 3 + rng.int(4);
       for (let t = 0; t < trees; t++) {
         const x = 3 + rng.int(10), z = 3 + rng.int(10);
         const fl = floors(x, z).filter((y) => get(x, y - 1, z) === NYL);
@@ -230,7 +253,8 @@ export class NetherGen {
       }
     }
 
-    if (center === 'soul_sand_valley') {
+    if (center === 'soul_sand_valley' && deep) this.soulValley(rng, get, set, floors, ceilings);
+    else if (center === 'soul_sand_valley') {
       for (let n = 0; n < 5; n++) {
         const x = rng.int(S), z = rng.int(S);
         const fl = floors(x, z);
@@ -249,7 +273,8 @@ export class NetherGen {
       if (rng.chance(0.12)) this.fossil(rng, get, set, floors);
     }
 
-    if (center === 'basalt_deltas') {
+    if (center === 'basalt_deltas' && deep) this.deltas(rng, get, set, floors);
+    else if (center === 'basalt_deltas') {
       for (let n = 0; n < 6; n++) {
         const x = 1 + rng.int(14), z = 1 + rng.int(14);
         const fl = floors(x, z);
@@ -283,6 +308,150 @@ export class NetherGen {
     for (const f of forts) stampFortress(f, bx, bz, S, set, get, entities);
     for (const b of basts) stampBastion(b, bx, bz, S, set, get, entities);
     return { blocks, entities };
+  }
+
+  private springs(rng: Rng, get: Get, set: Put, center: NetherBiome): void {
+    const wall = (v: number) => v === RACK || v === SOUL || v === SOIL || v === BLACK || v === BASALT || v === B.GRAVEL || v === B.MAGMA_BLOCK;
+    const open = center === 'nether_wastes' ? 20 : center === 'basalt_deltas' ? 6 : 8;
+    for (let n = 0; n < open + 8; n++) {
+      const x = 1 + rng.int(14), y0 = 10 + rng.int(110), z = 1 + rng.int(14);
+      for (let y = y0; y < Math.min(122, y0 + 24); y++) {
+        if (!wall(get(x, y, z)) || !wall(get(x, y - 1, z)) || !wall(get(x, y + 1, z))) continue;
+        const holes = DIR4.filter(([dx, dz]) => get(x + dx, y, z + dz) === 0);
+        const solid = DIR4.filter(([dx, dz]) => wall(get(x + dx, y, z + dz))).length;
+        if (n >= open) { if (holes.length === 0 && solid === 4) { set(x, y, z, B.LAVA); break; } continue; }
+        if (holes.length !== 1 || solid !== 3) continue;
+        set(x, y, z, B.LAVA);
+        this.pour(get, set, x + holes[0][0], y, z + holes[0][1], holes[0]);
+        break;
+      }
+    }
+  }
+
+  private pour(get: Get, set: Put, x: number, y: number, z: number, dir: [number, number]): void {
+    if (get(x, y, z) !== 0) return;
+    set(x, y, z, makeBlock(B.LAVA, 1));
+    let fy = y - 1;
+    if (get(x, fy, z) !== 0) {
+      const nx = x + dir[0], nz = z + dir[1];
+      if (get(nx, y, nz) === 0) set(nx, y, nz, makeBlock(B.LAVA, 2));
+      return;
+    }
+    while (fy > NETHER_LAVA && get(x, fy, z) === 0) { set(x, fy, z, makeBlock(B.LAVA, FALLING | 1)); fy--; }
+    const floor = fy + 1;
+    if (get(x, fy, z) === B.LAVA || fy <= NETHER_LAVA) return;
+    for (let r = 1; r <= 3; r++) for (const [dx, dz] of DIR4) {
+      const px = x + dx * r, pz = z + dz * r;
+      if (get(px, floor, pz) !== 0 || get(px, floor - 1, pz) === 0) break;
+      set(px, floor, pz, makeBlock(B.LAVA, r));
+    }
+  }
+
+  private soulValley(rng: Rng, get: Get, set: Put, floors: (x: number, z: number) => number[], ceilings: (x: number, z: number) => number[]): void {
+    for (let n = 0; n < 8; n++) {
+      const x = rng.int(S), z = rng.int(S);
+      const fl = floors(x, z);
+      if (fl.length && get(x, fl[0] - 1, z) === SOIL && rng.chance(0.7)) set(x, fl[0], z, B.SOUL_FIRE);
+    }
+    for (let n = 0; n < 10; n++) {
+      const x = 2 + rng.int(12), z = 2 + rng.int(12);
+      const cs = ceilings(x, z);
+      if (!cs.length || !rng.chance(0.35)) continue;
+      let y = cs[rng.int(cs.length)];
+      const top = y;
+      while (y > NETHER_LAVA && get(x, y, z) === 0) {
+        set(x, y, z, BASALT);
+        for (const [dx, dz] of DIR4) if (get(x + dx, y, z + dz) === 0 && (top - y < 2 || get(x, y - 1, z) !== 0 || get(x, y - 2, z) !== 0) && rng.chance(0.6)) set(x + dx, y, z + dz, BASALT);
+        y--;
+      }
+    }
+    if (rng.chance(0.18)) this.arch(rng, get, set, floors);
+    if (rng.chance(0.3)) this.fossil15(rng, get, set, floors);
+  }
+
+  private arch(rng: Rng, get: Get, set: Put, floors: (x: number, z: number) => number[]): void {
+    const alongX = rng.chance(0.5), span = 6 + rng.int(5);
+    const a = 1 + rng.int(14 - span), c = 3 + rng.int(10);
+    const [x0, z0, x1, z1] = alongX ? [a, c, a + span, c] : [c, a, c, a + span];
+    const f0 = floors(x0, z0)[0], f1 = floors(x1, z1)[0];
+    if (f0 === undefined || f1 === undefined || Math.abs(f0 - f1) > 3) return;
+    const base = Math.min(f0, f1), rise = Math.round(span * 0.8) + rng.int(3);
+    for (let i = 0; i <= span; i++) {
+      const t = i / span, y = base + Math.round(Math.sin(t * Math.PI) * rise);
+      const px = alongX ? x0 + i : x0, pz = alongX ? z0 : z0 + i;
+      for (let k = 0; k < 2; k++) for (let w = 0; w < 2; w++) {
+        const wx = alongX ? px : px + w, wz = alongX ? pz + w : pz;
+        if (get(wx, y + k, wz) === 0) set(wx, y + k, wz, BASALT);
+      }
+      if (i === 0 || i === span) for (let yy = Math.min(y, i === 0 ? f0 : f1); yy < y; yy++) for (let w = 0; w < 2; w++) { const wx = alongX ? px : px + w, wz = alongX ? pz + w : pz; if (get(wx, yy, wz) === 0) set(wx, yy, wz, BASALT); }
+    }
+  }
+
+  private fossil15(rng: Rng, get: Get, set: Put, floors: (x: number, z: number) => number[]): void {
+    const kind = rng.int(3);
+    if (kind === 0) { this.fossil(rng, get, set, floors); return; }
+    const x = 4 + rng.int(8), z = 4 + rng.int(8);
+    const fl = floors(x, z);
+    if (!fl.length) return;
+    const y = fl[0] - 1 - rng.int(2);
+    const put = (dx: number, dy: number, dz: number) => { const v = get(x + dx, y + dy, z + dz); if (v !== -1 && v !== B.LAVA && v !== B.BEDROCK) set(x + dx, y + dy, z + dz, BONE); };
+    if (kind === 1) {
+      for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let dy = 0; dy < 4; dy++) {
+        const shell = Math.abs(dx) === 2 || Math.abs(dz) === 2 || dy === 0 || dy === 3;
+        if (!shell) continue;
+        if ((dz === -2 && dy === 2 && Math.abs(dx) === 1) || (dz === -2 && dy === 1 && dx === 0)) continue;
+        put(dx, dy, dz);
+      }
+      for (let dx = -1; dx <= 1; dx++) put(dx, 0, -3);
+    } else {
+      const len = 7 + rng.int(5), alongX = rng.chance(0.5);
+      for (let i = 0; i < len; i++) {
+        const h = Math.round(Math.sin((i / (len - 1)) * Math.PI) * 4) + 1;
+        const u = i - (len >> 1);
+        for (let k = 0; k <= h; k++) for (const side of [-1, 1]) if (i % 2 === 0) put(alongX ? u : side * Math.min(3, k), k, alongX ? side * Math.min(3, k) : u);
+        put(alongX ? u : 0, h + 1, alongX ? 0 : u);
+      }
+    }
+  }
+
+  private deltas(rng: Rng, get: Get, set: Put, floors: (x: number, z: number) => number[]): void {
+    const isBase = (v: number) => v === BASALT || v === BLACK || v === RACK || v === B.MAGMA_BLOCK;
+    for (let n = 0; n < 12; n++) {
+      const x = 2 + rng.int(12), z = 2 + rng.int(12);
+      const fl = floors(x, z);
+      if (!fl.length) continue;
+      const y = fl[rng.int(fl.length)] - 1, r = 3 + rng.int(5), rim = rng.int(3);
+      for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        const d = dx * dx + dz * dz;
+        if (d > r * r) continue;
+        const px = x + dx, pz = z + dz;
+        if (!isBase(get(px, y, pz)) || get(px, y + 1, pz) !== 0 || !isBase(get(px, y - 1, pz))) continue;
+        let walled = true;
+        for (const [ax, az] of DIR4) { const w = get(px + ax, y, pz + az); if (w !== B.LAVA && !isBase(w)) walled = false; }
+        if (!walled) continue;
+        set(px, y, pz, B.LAVA);
+        if (rim) for (const [ax, az] of DIR4) { const w = get(px + ax, y, pz + az); if (isBase(w) && w !== B.MAGMA_BLOCK && rng.chance(0.55)) set(px + ax, y, pz + az, B.MAGMA_BLOCK); }
+      }
+    }
+    const columns = (count: number, reach: () => number, height: () => number) => {
+      for (let n = 0; n < count; n++) {
+        const x = 3 + rng.int(10), z = 3 + rng.int(10);
+        const fl = floors(x, z);
+        if (!fl.length) continue;
+        const y0 = fl[rng.int(fl.length)], R = reach(), H = height();
+        for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+          const dist = Math.hypot(dx, dz);
+          if (dist > R + 0.5) continue;
+          let fy = -1;
+          for (let yy = y0 + 2; yy >= y0 - 4; yy--) if (get(x + dx, yy, z + dz) === 0 && isBase(get(x + dx, yy - 1, z + dz))) { fy = yy; break; }
+          if (fy < 0) continue;
+          const h = Math.max(1, H - rng.int(3) - Math.round(dist));
+          for (let k = 0; k < h && get(x + dx, fy + k, z + dz) === 0; k++) set(x + dx, fy + k, z + dz, BASALT);
+        }
+      }
+    };
+    columns(4, () => 1, () => 1 + rng.int(4));
+    columns(2, () => 2 + rng.int(2), () => 5 + rng.int(6));
   }
 
   private fossil(rng: Rng, get: (x: number, y: number, z: number) => number, set: (x: number, y: number, z: number, v: number) => void, floors: (x: number, z: number) => number[]): void {
@@ -322,3 +491,6 @@ export class NetherGen {
 }
 
 const seen = new Set<number>();
+const DIR4: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+type Get = (x: number, y: number, z: number) => number;
+type Put = (x: number, y: number, z: number, v: number) => void;

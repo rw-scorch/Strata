@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
 import { PROFESSIONS } from '../core/trades';
 import { I, getItem, toolId } from '../core/items';
-import { BLOCKS, B, customBoxes, CUSTOM_BOX } from '../core/blocks';
+import { BLOCKS, B, customBoxes, CUSTOM_BOX, makeBlock } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
@@ -128,6 +128,17 @@ const MOB_PARTS: Partial<Record<MobType, PartSpec[]>> = {
     { n: 'legFR', s: [0.36, 0.85, 0.36], p: [0.25, 0.85, -0.53], o: [0, -0.42, 0], c: 0x9a6248 },
     { n: 'legBL', s: [0.3, 0.7, 0.3], p: [-0.3, 0.7, 0.62], o: [0, -0.35, 0], c: 0x9a6248 },
     { n: 'legBR', s: [0.3, 0.7, 0.3], p: [0.3, 0.7, 0.62], o: [0, -0.35, 0], c: 0x9a6248 },
+  ],
+  zoglin: [
+    { n: 'body', s: [1.0, 0.9, 1.6], p: [0, 0.95, 0], c: 0xc07888 },
+    { n: 'mane', s: [0.04, 0.6, 1.1], p: [0, 1.65, -0.1], c: 0xd8e0c0 },
+    { n: 'head', s: [0.85, 0.4, 1.0], p: [0, 1.0, -0.95], c: 0xd08a96 },
+    { n: 'tuskL', s: [0.12, 0.6, 0.12], p: [-0.45, 1.2, -1.3], c: 0xe8e8d8 },
+    { n: 'tuskR', s: [0.12, 0.6, 0.12], p: [0.45, 1.2, -1.3], c: 0xe8e8d8 },
+    { n: 'legFL', s: [0.36, 0.85, 0.36], p: [-0.25, 0.85, -0.53], o: [0, -0.42, 0], c: 0x9a5a68 },
+    { n: 'legFR', s: [0.36, 0.85, 0.36], p: [0.25, 0.85, -0.53], o: [0, -0.42, 0], c: 0x9a5a68 },
+    { n: 'legBL', s: [0.3, 0.7, 0.3], p: [-0.3, 0.7, 0.62], o: [0, -0.35, 0], c: 0x9a5a68 },
+    { n: 'legBR', s: [0.3, 0.7, 0.3], p: [0.3, 0.7, 0.62], o: [0, -0.35, 0], c: 0x9a5a68 },
   ],
   witherbone: [
     { n: 'body', s: [0.55, 0.85, 0.24], p: [0, 1.3, 0], c: 0x2a2a2a },
@@ -291,6 +302,8 @@ interface Snap { t: number; x: number; y: number; z: number; yaw: number; pitch:
 
 export interface EntityView {
   squish?: number;
+  wings?: [THREE.Object3D, THREE.Object3D] | null;
+  peekS?: number;
   cage?: boolean;
   id: string;
   kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'player';
@@ -387,6 +400,7 @@ export class EntityRenderer {
       if (glow) emissive = m; else overlay = m;
     }
     const b = buildVanilla(spec, main, overlay, emissive);
+    if (key === 'shellward') b.obj.children[0].position.y -= 0.5;
     return { obj: b.obj, parts: b.parts, mats, spec, rig: b.rig };
   }
 
@@ -458,7 +472,7 @@ export class EntityRenderer {
     const b = it?.kind === 'block' && it.blockIcon ? BLOCKS[itemId] : null;
     if (b) {
       const d = this.atlas.data;
-      const custom = b.render === 'trapdoor' ? [[0, 0, 0, 1, 3 / 16, 1]] : CUSTOM_BOX[itemId] ? customBoxes(itemId) : [];
+      const custom = b.render === 'trapdoor' ? [[0, 0, 0, 1, 3 / 16, 1]] : CUSTOM_BOX[itemId] ? customBoxes(makeBlock(itemId, 0)) : [];
       const boxes = custom.length ? custom : [[0, 0, 0, 1, 1, 1]];
       const m = this.material(this.atlas.texture);
       m.side = THREE.FrontSide;
@@ -516,6 +530,7 @@ export class EntityRenderer {
 
   private applyEquip(v: EntityView): void {
     const ex = v as EntityView & { eqObjs?: THREE.Object3D[]; eqMats?: THREE.ShaderMaterial[] };
+    v.wings = null;
     for (const o of ex.eqObjs ?? []) o.parent?.remove(o);
     if (ex.eqMats?.length) { const drop = new Set(ex.eqMats); v.mats = v.mats.filter((m) => !drop.has(m)); for (const m of ex.eqMats) m.dispose(); }
     ex.eqObjs = []; ex.eqMats = [];
@@ -567,6 +582,29 @@ export class EntityRenderer {
     };
     held(e[0], 0, false);
     held(e[1], 1, true);
+    if (e[3] === I.ELYTRA) {
+      const g = !!(glint & (1 << 3));
+      const tex = vanilla ? this.atlas.entityTextures.get('elytra') ?? this.atlas.elytraFallback() : null;
+      const root = vanilla ? v.parts.get('body')?.parent ?? undefined : v.parts.get('body');
+      const wing = (left: boolean) => {
+        const pivot = new THREE.Group();
+        pivot.rotation.order = 'ZYX';
+        const m = this.material(tex);
+        if (vanilla) {
+          pivot.position.set(left ? 5 : -5, 0, 2);
+          pivot.add(new THREE.Mesh(armorGeo(left ? 'elytra|l' : 'elytra|r', [left ? { o: [-10, 0, 0], s: [10, 20, 2], uv: [22, 0], inf: 1 } : { o: [0, 0, 0], s: [10, 20, 2], uv: [22, 0], inf: 1, mirror: true }]), m));
+        } else {
+          pivot.position.set(left ? 0.14 : -0.14, 0.36, 0.17);
+          const mesh = new THREE.Mesh(boxGeo([0.62, 1.25, 0.12], 0x8a8a9a), m);
+          mesh.position.set(left ? 0.31 : -0.31, -0.62, 0);
+          pivot.add(mesh);
+        }
+        add(root, pivot, [m], g);
+        return pivot;
+      };
+      const l = wing(true), r = wing(false);
+      if (root) v.wings = [l, r];
+    }
     for (let s = 0; s < 4; s++) {
       const id = e[2 + s];
       if (id < 330 || id >= 350) continue;
@@ -981,7 +1019,8 @@ export class EntityRenderer {
         const aggressive = (v.flags & 16) !== 0;
         const mtype = v.kind === 'mob' ? MOB_BY_CODE[v.type]?.type ?? '' : 'player';
         if (v.spec && v.rig) {
-          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0, crawl: (v.flags & 16384) !== 0 && (v.flags & 16) === 0, squish: v.squish, cold: (v.flags & 32) !== 0 && mtype === 'lavastrider', riding: v.kind === 'player' && !!(v.flags & 8192), ...this.holdState(v), ...(mtype === 'piglin' && (v.flags & 32) && aggressive ? { xbow: true } : {}) });
+          animateVanilla(v.spec, v.rig, { ls: v.walk, amt: Math.min(1, speed / 5), age: v.age, pitch: v.kind === 'player' ? v.pitch : 0, aggressive, attack: v.swing > 0 ? 1 - v.swing : 0, crouch: v.kind === 'player' && (v.flags & 2) !== 0 && !v.swimT, type: mtype, swim: v.swimT ?? 0, crawl: (v.flags & 16384) !== 0 && (v.flags & 16) === 0, squish: v.squish, cold: (v.flags & 32) !== 0 && mtype === 'lavastrider', riding: v.kind === 'player' && !!(v.flags & 8192), ...this.holdState(v), ...(mtype === 'piglin' && (v.flags & 32) && aggressive ? { xbow: true } : {}), ...(mtype === 'shellward' ? { peek: this.shulkerPeek(v, dt) } : {}) });
+          if (mtype === 'shellward') this.attachShulker(v);
         } else {
           this.animateSimple(v, amp, aggressive, mtype);
         }
@@ -992,6 +1031,7 @@ export class EntityRenderer {
           v.obj.rotation.x = -(v.swimT ?? 0) * Math.PI / 2;
           if (v.swimT) { v.obj.position.y += v.swimT * 0.35; v.obj.position.x += Math.sin(v.yaw) * 0.9 * v.swimT; v.obj.position.z += Math.cos(v.yaw) * 0.9 * v.swimT; }
           const crouch = (v.flags & 2) !== 0 && !v.swimT;
+          if (v.wings) this.animateWings(v, crouch);
           if (!v.rig) {
             const body = v.parts.get('body'), head = v.parts.get('head');
             if (body) body.rotation.x = crouch ? -0.35 : 0;
@@ -1114,15 +1154,45 @@ export class EntityRenderer {
       if (f) { f.rotation.y = v.age * 0.08; f.rotation.x = v.age * 0.05; f.position.y = 1.3 + Math.sin(v.age * 0.1) * 0.25; }
       if (c) { c.rotation.y = -v.age * 0.12; c.rotation.z = v.age * 0.07; c.position.y = 1.3 + Math.sin(v.age * 0.1) * 0.25; }
     } else if (mtype === 'shellward') {
-      const peek = ((v.flags >> 8) & 15) / 15, att = (v.flags >> 12) & 7;
-      const lid = p.get('lid'); if (lid) lid.position.y = peek * 0.45;
+      const peek = this.shulkerPeek(v, 1 / 60);
+      const lid = p.get('lid'); if (lid) lid.position.y = Math.max(0, -Math.sin((0.5 + peek) * Math.PI) + 1) * 0.5;
       const hd = p.get('head'); if (hd) hd.scale.setScalar(0.6 + peek * 0.4);
-      const rot: [number, number][] = [[0, Math.PI / 2], [0, -Math.PI / 2], [Math.PI, 0], [0, 0], [-Math.PI / 2, 0], [Math.PI / 2, 0]];
-      const [rx, rz] = rot[att] ?? [0, 0];
-      v.obj.rotation.order = 'YXZ';
-      v.obj.rotation.x = rx; v.obj.rotation.z = rz;
-      v.obj.position.y += 0.5;
+      this.attachShulker(v);
     }
+  }
+
+  private shulkerPeek(v: EntityView, dt: number): number {
+    const want = ((v.flags >> 8) & 15) / 15, cur = v.peekS ?? want;
+    v.peekS = Math.abs(want - cur) <= dt ? want : cur + Math.sign(want - cur) * dt;
+    return v.peekS;
+  }
+
+  private attachShulker(v: EntityView): void {
+    const att = (v.flags >> 12) & 7;
+    const rot: [number, number][] = [[0, Math.PI / 2], [0, -Math.PI / 2], [Math.PI, 0], [0, 0], [-Math.PI / 2, 0], [Math.PI / 2, 0]];
+    const [rx, rz] = rot[att] ?? [0, 0];
+    v.obj.rotation.order = 'YXZ';
+    v.obj.rotation.x = rx; v.obj.rotation.z = rz;
+    v.obj.position.y += 0.5;
+  }
+
+  private animateWings(v: EntityView, crouch: boolean): void {
+    const [l, r] = v.wings!;
+    let xr = 0.2617994, zr = -0.2617994, y = 0, yr = 0;
+    if (v.flags & 131072) {
+      let f4 = 1;
+      const a = v.snaps[v.snaps.length - 1], b = v.snaps[v.snaps.length - 2];
+      if (a && b) {
+        const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z, len = Math.hypot(dx, dy, dz);
+        if (dy < 0 && len > 1e-4) f4 = 1 - Math.pow(-dy / len, 1.5);
+      }
+      xr = f4 * 0.34906584 + (1 - f4) * 0.2617994;
+      zr = f4 * (-Math.PI / 2) + (1 - f4) * -0.2617994;
+    } else if (crouch) { xr = 0.6981317; zr = -Math.PI / 4; y = 3; yr = 0.08726646; }
+    const k = v.rig ? 1 : -1;
+    const base = v.rig ? 0 : 0.36;
+    l.position.y = v.rig ? y : base - y / 16; r.position.y = l.position.y;
+    l.rotation.set(xr * k, yr, zr); r.rotation.set(xr * k, -yr, -zr);
   }
 
   pick(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, filter: (v: EntityView) => boolean): { view: EntityView; dist: number } | null {

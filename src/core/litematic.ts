@@ -1,4 +1,4 @@
-import { B, BLOCKS, makeBlock, SHAPE_MATS, SLAB_TOP, STAIRS_UP, doorMeta, trapdoorMeta, TD_SPECIES_MIN } from './blocks';
+import { B, BLOCKS, makeBlock, SHAPE_MATS, SLAB_TOP, STAIRS_UP, doorMeta, trapdoorMeta, TD_SPECIES_MIN, CB } from './blocks';
 import { getItem, ITEMS } from './items';
 import { BP_MAX, Blueprint, bpItem } from './blueprint';
 import { JAVA_BLOCK_NAMES } from '../resources/javaNames';
@@ -79,7 +79,7 @@ function nameMap(): Map<string, number> {
     if (j && !j.state?.includes('snowy=true') && !j.state?.includes('lit=true')) m.set(j.name, b.id);
   }
   for (const it of ITEMS) if (it && it.places !== undefined) { if (!m.has(it.key)) m.set(it.key, it.id); }
-  m.set('grass_block', B.GRASS); m.set('short_grass', B.TALL_GRASS); m.set('wall_torch', B.TORCH);
+  m.set('grass_block', B.GRASS); m.set('short_grass', B.TALL_GRASS); m.set('wall_torch', B.TORCH); m.set('soul_wall_torch', CB.SOUL_TORCH);
   NAMES = m;
   return m;
 }

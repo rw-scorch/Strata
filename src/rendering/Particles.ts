@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { WorldUniforms } from './ChunkMaterial';
 import type { BlockReader } from '../core/physics';
-import { isSolid, BLOCKS, blockId, isBaseId, ID_LIMIT, CB, DRIP_DOWN, B, isSoulSand } from '../core/blocks';
+import { isSolid, BLOCKS, blockId, isBaseId, ID_LIMIT, CB, DRIP_DOWN, B, isSoulSand, CAMPFIRE_LIT } from '../core/blocks';
 
 const MAX = 1400;
 
@@ -66,6 +66,8 @@ export class Particles {
   private drips: number[] = [];
   private sporeT = 0;
   private dripT = 0;
+  private camps: number[] = [];
+  private campT = 0;
 
   ambient(dt: number, cx: number, cy: number, cz: number, env: AmbientEnv, world: BlockReader): void {
     if (this.level === 'off') return;
@@ -91,18 +93,29 @@ export class Particles {
         this.add({ x, y: Math.floor(y) + 0.95, z, vx: 0, vy: -0.4, vz: 0, life: 0, max: 6, tile: -1, su: 0, sv: 0, size: 0.07, r: 0.32, g: 0.5, b: 0.18, grav: 0, bright: 0.85, wander: 0.6 });
       }
     }
-    if (env.fx && env.fx !== 'fireflies' && env.cave < 0.5 && !env.underwater) this.biomeFx(dt, cx, cy, cz, env, world);
+    if (env.fx?.startsWith('n:') && !env.underwater) this.netherFx(dt, cx, cy, cz, env.fx.slice(2), world);
+    else if (env.fx && env.fx !== 'fireflies' && env.cave < 0.5 && !env.underwater) this.biomeFx(dt, cx, cy, cz, env, world);
     this.caveScanT += dt;
     if (this.caveScanT > 1.5) {
       this.caveScanT = 0;
-      const sp: number[] = [], dr: number[] = [];
+      const sp: number[] = [], dr: number[] = [], cf: number[] = [];
       const bx = Math.floor(cx), by = Math.floor(cy), bz = Math.floor(cz);
       for (let dz = -10; dz <= 10; dz++) for (let dx = -10; dx <= 10; dx++) for (let dy = -6; dy <= 10; dy++) {
         const v = world.getBlock(bx + dx, by + dy, bz + dz), id = blockId(v);
         if (id === CB.SPORE_BLOSSOM && sp.length < 60) sp.push(bx + dx, by + dy, bz + dz);
         else if (id === CB.POINTED_DRIPSTONE && (v >>> 8 & DRIP_DOWN) && ((v >>> 8) & 7) === 1 && dr.length < 90) dr.push(bx + dx, by + dy, bz + dz);
+        else if ((id === CB.CAMPFIRE || id === CB.SOUL_CAMPFIRE) && ((v >>> 8) & CAMPFIRE_LIT) && cf.length < 48) cf.push(bx + dx, by + dy, bz + dz);
       }
-      this.spores = sp; this.drips = dr;
+      this.spores = sp; this.drips = dr; this.camps = cf;
+    }
+    if (this.camps.length) {
+      this.campT += dt * (this.camps.length / 3) * (this.level === 'low' ? 1.2 : 3);
+      while (this.campT >= 1) {
+        this.campT -= 1;
+        const i = Math.floor(Math.random() * this.camps.length / 3) * 3;
+        const g = 0.62 + Math.random() * 0.12;
+        this.add({ x: this.camps[i] + 0.3 + Math.random() * 0.4, y: this.camps[i + 1] + 0.6, z: this.camps[i + 2] + 0.3 + Math.random() * 0.4, vx: (Math.random() - 0.5) * 0.15, vy: 1.4 + Math.random() * 0.6, vz: (Math.random() - 0.5) * 0.15, life: 0, max: 4 + Math.random() * 3, tile: -1, su: 2, sv: 0, size: 0.22 + Math.random() * 0.14, r: g, g, b: g, grav: -0.05, bright: 0.85, wander: 0.35 });
+      }
     }
     if (this.spores.length && !env.underwater) {
       this.sporeT += dt * this.spores.length / 3 * (this.level === 'low' ? 1.5 : 5);
@@ -162,6 +175,24 @@ export class Particles {
         const look = this.leafLook?.(leaf) ?? { tile: -1, r: 0.36, g: 0.56, b: 0.2 };
         this.add({ x: x + Math.random(), y: y - 0.05, z: z + Math.random(), vx: (Math.random() - 0.5) * 0.4 + (env.rain > 0.3 ? 0.8 : 0.2), vy: -0.5 - Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.4, life: 0, max: 9 + Math.random() * 4, tile: look.tile, su: Math.floor(Math.random() * 3) * 0.25, sv: Math.floor(Math.random() * 3) * 0.25, size: 0.13 + Math.random() * 0.05, r: look.r, g: look.g, b: look.b, grav: 0, bright: 0.9, wander: 0.9, leaf: true });
       }
+    }
+  }
+
+  private nfxT = 0;
+  private netherFx(dt: number, cx: number, cy: number, cz: number, biome: string, world: BlockReader): void {
+    const rate = ({ crimson_forest: 34, warped_forest: 30, soul_sand_valley: 22, basalt_deltas: 70, nether_wastes: 5 } as Record<string, number>)[biome] ?? 0;
+    this.nfxT += dt * rate * (this.level === 'low' ? 0.35 : 1);
+    let tries = 0;
+    while (this.nfxT >= 1 && tries++ < 40) {
+      this.nfxT -= 1;
+      const x = cx + (Math.random() - 0.5) * 24, y = cy + (Math.random() - 0.4) * 14, z = cz + (Math.random() - 0.5) * 24;
+      if (blockId(world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))) !== 0) continue;
+      const base = { x, y, z, life: 0, tile: -1, su: 1, sv: 0, grav: 0 };
+      if (biome === 'crimson_forest') this.add({ ...base, vx: (Math.random() - 0.5) * 0.2, vy: -0.12 - Math.random() * 0.12, vz: (Math.random() - 0.5) * 0.2, max: 6 + Math.random() * 4, size: 0.022 + Math.random() * 0.012, r: 0.85, g: 0.18, b: 0.16, bright: 1.1, wander: 0.2 });
+      else if (biome === 'warped_forest') this.add({ ...base, vx: (Math.random() - 0.5) * 0.15, vy: 0.08 + Math.random() * 0.1, vz: (Math.random() - 0.5) * 0.15, max: 6 + Math.random() * 4, size: 0.022 + Math.random() * 0.012, r: 0.15, g: 0.85, b: 0.78, bright: 1.15, wander: 0.18 });
+      else if (biome === 'soul_sand_valley') this.add({ ...base, vx: 0.25 + Math.random() * 0.2, vy: -0.2 - Math.random() * 0.15, vz: (Math.random() - 0.5) * 0.2, max: 5 + Math.random() * 4, size: 0.03 + Math.random() * 0.02, r: 0.62, g: 0.66, b: 0.68, bright: 0.8, wander: 0.3 });
+      else if (biome === 'basalt_deltas') this.add({ ...base, vx: (Math.random() - 0.5) * 0.3, vy: -0.35 - Math.random() * 0.25, vz: (Math.random() - 0.5) * 0.3, max: 4 + Math.random() * 3, size: 0.03 + Math.random() * 0.025, r: 0.88, g: 0.88, b: 0.9, bright: 0.85, wander: 0.35 });
+      else this.add({ ...base, vx: (Math.random() - 0.5) * 0.2, vy: 0.3 + Math.random() * 0.3, vz: (Math.random() - 0.5) * 0.2, max: 3 + Math.random() * 2, size: 0.025, r: 1, g: 0.55, b: 0.15, bright: 2, wander: 0.4, glow: Math.random() * 6 });
     }
   }
 

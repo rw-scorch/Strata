@@ -1,6 +1,6 @@
 import type { BlockArray } from '../chunk';
 import { CHUNK_SIZE, WORLD_HEIGHT } from '../constants';
-import { LIGHT_EMIT, LIGHT_FILTER, OPAQUE, bid } from '../blocks';
+import { LIGHT_EMIT, LIGHT_FILTER, OPAQUE, bid, emitOf } from '../blocks';
 
 export interface LightWorld {
   getBlock(x: number, y: number, z: number): number;
@@ -95,11 +95,11 @@ export class ChunkInfo {
     const raw = this.w.raw?.(cx, cz);
     if (raw) {
       for (let i = 0; i < raw.length; i++) {
-        const em = LIGHT_EMIT[bid(raw[i])];
+        const em = emitOf(raw[i]);
         if (em > 1) out.push(bx + (i & 15), i >> 8, bz + ((i >> 4) & 15), em);
       }
     } else for (let y = 0; y < WORLD_HEIGHT; y++) for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-      const em = LIGHT_EMIT[bid(this.w.getBlock(bx + lx, y, bz + lz))];
+      const em = emitOf(this.w.getBlock(bx + lx, y, bz + lz));
       if (em > 1) out.push(bx + lx, y, bz + lz, em);
     }
     e = Int32Array.from(out);
@@ -110,7 +110,7 @@ export class ChunkInfo {
 
   changed(x: number, y: number, z: number, oldV: number, newV: number): void {
     const cx = x >> 4, cz = z >> 4, k = ChunkInfo.key(cx, cz);
-    if ((LIGHT_FILTER[bid(oldV)] > 0) !== (LIGHT_FILTER[bid(newV)] > 0) || OPAQUE[bid(oldV)] !== OPAQUE[bid(newV)] || LIGHT_EMIT[bid(oldV)] !== LIGHT_EMIT[bid(newV)]) {
+    if ((LIGHT_FILTER[bid(oldV)] > 0) !== (LIGHT_FILTER[bid(newV)] > 0) || OPAQUE[bid(oldV)] !== OPAQUE[bid(newV)] || emitOf(oldV) !== emitOf(newV)) {
       this.gens.set(k, (this.gens.get(k) ?? 0) + 1);
     }
     const h = this.heights.get(k);
@@ -119,7 +119,7 @@ export class ChunkInfo {
       if (LIGHT_FILTER[bid(newV)] > 0) { if (y > h[i]) h[i] = y; }
       else if (y === h[i]) h[i] = this.scanColumn(x, y - 1, z);
     }
-    if (LIGHT_EMIT[bid(oldV)] > 1 || LIGHT_EMIT[bid(newV)] > 1) this.emitters.delete(k);
+    if (emitOf(oldV) > 1 || emitOf(newV) > 1 || LIGHT_EMIT[bid(oldV)] > 1) this.emitters.delete(k);
     const m = this.masks.get(k);
     if (m !== undefined && this.tickable(bid(newV))) this.masks.set(k, m | (1 << (y >> 4)));
   }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CB, BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX, ID_LIMIT, isBaseId, CAVE_TEX } from '../core/blocks';
+import { CB, BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX, ID_LIMIT, isBaseId, CAVE_TEX, makeBlock, SPRITE_BLOCKS } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
 import { BIOMES } from '../core/worldgen/biomes';
 import { defaultBlockTexture, defaultItemTexture, cloudTexture, hudIcon, Px } from './DefaultTextures';
@@ -9,6 +9,7 @@ import type { AnimInfo } from './ResourcePackImporter';
 export const FACE_SLOTS = 8;
 export const ATLAS_COLS = 32;
 export const ICON_SIZE = 32;
+type IsoBox = { b: number[]; top: number; left: number; right: number; ct?: number[]; cs?: number[] };
 export const ICON_COLS = 16;
 
 export interface AnimatedTile {
@@ -145,7 +146,7 @@ export class TextureAtlas {
     [0, 1, 1, 2].forEach((st, i) => { special[`wart${i}`] = get(`nether_wart_stage${st}`); });
     for (const c of ['carrots', 'potatoes', 'beetroots']) for (let i = 0; i < 4; i++) special[`${c}${i}`] = get(`${c}_stage${i}`);
     for (let i = 0; i < 10; i++) special[`destroy${i}`] = get(`destroy_stage_${i}`);
-    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top', 'cauldron_inner', 'chorus_flower_dead', 'end_portal_frame_eye', 'end_portal']) special[k] = get(k);
+    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top', 'cauldron_inner', 'chorus_flower_dead', 'end_portal_frame_eye', 'end_portal', 'campfire_log_lit', 'campfire_fire', 'soul_campfire_log_lit', 'soul_campfire_fire', 'respawn_anchor_side1', 'respawn_anchor_side2', 'respawn_anchor_side3', 'respawn_anchor_side4', 'respawn_anchor_top']) special[k] = get(k);
     for (const k of CAVE_TEX) special[k] = get(k);
     special.doorTop = get('oak_door_top');
     special.doorBottom = get('oak_door_bottom');
@@ -227,7 +228,7 @@ export class TextureAtlas {
   }
 
   private buildEntities(): void {
-    if (!this.pack) return;
+    if (!this.pack) { this.shulkerFallback(); return; }
     for (const [k, path] of this.pack.special) {
       if (!k.startsWith('ent_') || k.startsWith('ent_vprof_') || k === 'ent_villager_type') continue;
       const src = this.pack.files.get(path);
@@ -243,6 +244,7 @@ export class TextureAtlas {
       this.entityTextures.set(k.slice(4), t);
       this.entityCanvases.set(k.slice(4), c);
     }
+    this.shulkerFallback();
     const sad = this.entityCanvases.get('strider_saddle');
     if (sad) for (const k of ['strider', 'strider_cold']) {
       const b = this.entityCanvases.get(k);
@@ -281,6 +283,43 @@ export class TextureAtlas {
   }
 
   private armorTex = new Map<string, THREE.Texture>();
+
+  private canvasTex(c: HTMLCanvasElement): THREE.Texture {
+    const t = new THREE.CanvasTexture(c);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestMipmapLinearFilter; t.generateMipmaps = true; t.flipY = false; t.colorSpace = THREE.NoColorSpace;
+    return t;
+  }
+
+  private elytraTex: THREE.Texture | null = null;
+  elytraFallback(): THREE.Texture {
+    if (this.elytraTex) return this.elytraTex;
+    const c = document.createElement('canvas'); c.width = 64; c.height = 32;
+    const g = c.getContext('2d')!;
+    const px = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+    px(22, 0, 24, 22, '#7d7f8f');
+    for (let i = 0; i < 10; i++) { px(24 + i, 2 + i, 1, 20 - i, i % 3 === 0 ? '#5c5e6c' : '#8e90a2'); px(34 + i, 2, 1, 20, i % 2 ? '#6c6e7e' : '#9a9cad'); }
+    px(22, 2, 2, 20, '#4a4b56'); px(44, 2, 2, 20, '#4a4b56');
+    return (this.elytraTex = this.canvasTex(c));
+  }
+
+  private shulkerFallback(): void {
+    if (this.entityTextures.has('shulker')) return;
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    const g = c.getContext('2d')!;
+    const px = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+    const shell = '#94609e', dark = '#5e3a68', light = '#b583bd', inner = '#2a1c30';
+    px(0, 16, 64, 12, shell); px(16, 0, 16, 16, light); px(32, 0, 16, 16, inner);
+    for (let x = 0; x < 64; x += 4) px(x, 16, 1, 12, dark);
+    px(0, 26, 64, 2, dark); px(16, 0, 16, 1, dark); px(16, 15, 16, 1, dark); px(16, 0, 1, 16, dark); px(31, 0, 1, 16, dark);
+    for (let i = 2; i < 14; i += 4) px(16 + i, 2, 1, 12, '#a473ad');
+    px(0, 44, 64, 8, shell); px(16, 28, 16, 16, inner); px(32, 28, 16, 16, dark);
+    for (let x = 0; x < 64; x += 4) px(x, 44, 1, 8, dark);
+    px(0, 44, 64, 1, light);
+    px(0, 58, 24, 6, '#e8d89c'); px(6, 52, 6, 6, '#f0e2a8'); px(12, 52, 6, 6, '#c8b878');
+    px(7, 60, 1, 2, '#2a2018'); px(10, 60, 1, 2, '#2a2018'); px(8, 62, 2, 1, '#8a6a40');
+    this.entityTextures.set('shulker', this.canvasTex(c));
+    this.entityCanvases.set('shulker', c);
+  }
 
   armorTexture(mat: string, layer: 1 | 2): THREE.Texture {
     const key = `${mat}_${layer}`;
@@ -449,7 +488,7 @@ export class TextureAtlas {
     draw(right, 0.6, !!tintColor && !tintTop, [s, -h, 0, s * 0.98, cx, cy], overlay);
   }
 
-  private iconBoxes(id: number): { b: number[]; top: number; left: number; right: number }[] | null {
+  private iconBoxes(id: number): IsoBox[] | null {
     const t = this.data.blockTiles, o = id * FACE_SLOTS, sp = this.data.special;
     const px = (a: number[]) => a.map((n) => n / 16);
     const it = ITEMS[id];
@@ -461,7 +500,18 @@ export class TextureAtlas {
     }
     if (BLOCKS[id]?.render === 'trapdoor') return [{ b: [0, 0, 0, 1, 3 / 16, 1], top: t[o + 2], left: t[o + 4], right: t[o] }];
     if (id === CB.POINTED_DRIPSTONE) return null;
-    if (isBaseId(id) && CUSTOM_BOX[id]) return customBoxes(id).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
+    const sk = BLOCKS[id]?.key;
+    if (sk && SPRITE_BLOCKS.includes(sk) && sk !== 'hopper') { const p = this.pack?.itemTextures.get(sk); if (p && this.pack!.files.has(p)) return null; }
+    if (id === CB.CAMPFIRE || id === CB.SOUL_CAMPFIRE) {
+      const log = t[o], lit = (id === CB.SOUL_CAMPFIRE ? sp.soul_campfire_log_lit : sp.campfire_log_lit) ?? log;
+      return [[1, 0, 0, 5, 4, 16], [11, 0, 0, 15, 4, 16], [0, 3, 1, 16, 7, 5], [0, 3, 11, 16, 7, 15]].map((b) => ({ b: px(b), top: lit, left: log, right: log }));
+    }
+    if (id === CB.RESPAWN_ANCHOR) return [{ b: [0, 0, 0, 1, 1, 1], top: t[o + 2], left: t[o], right: t[o] }];
+    if (id === CB.END_ROD) return [
+      { b: px([6, 0, 6, 10, 1, 10]), top: t[o], left: t[o], right: t[o], ct: px([2, 2, 6, 6]), cs: px([2, 6, 6, 7]) },
+      { b: px([7, 1, 7, 9, 16, 9]), top: t[o], left: t[o], right: t[o], ct: px([2, 0, 4, 2]), cs: px([0, 0, 2, 15]) },
+    ];
+    if (isBaseId(id) && CUSTOM_BOX[id]) return customBoxes(makeBlock(id, 0)).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
     if (id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) return [{ b: px([1, 7, 1, 15, 8, 15]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.STONE_BUTTON || id === B.OAK_BUTTON) return [{ b: px([5, 6, 6, 11, 10, 10]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.PISTON || id === B.STICKY_PISTON) return [{ b: [0, 0, 0, 1, 1, 1], top: id === B.PISTON ? sp.piston_top : sp.piston_top_sticky, left: sp.piston_side, right: sp.piston_side }];
@@ -478,7 +528,7 @@ export class TextureAtlas {
     return null;
   }
 
-  private drawIsoBoxes(g: CanvasRenderingContext2D, boxes: { b: number[]; top: number; left: number; right: number }[], x0: number, y0: number, size: number): void {
+  private drawIsoBoxes(g: CanvasRenderingContext2D, boxes: IsoBox[], x0: number, y0: number, size: number): void {
     const s = size * 0.5, h = s * 0.5, cx = x0 + size / 2, cy = y0 + size * 0.5;
     const P = (X: number, Y: number, Z: number): [number, number] => [cx + s * (X - Z), cy - s + h * (X + Z) + 0.98 * s * (1 - Y)];
     const fw = this.data.tileSize;
@@ -501,11 +551,11 @@ export class TextureAtlas {
     };
     g.imageSmoothingEnabled = false;
     const order = [...boxes].sort((a, b) => a.b[1] - b.b[1] || (a.b[0] + a.b[2]) - (b.b[0] + b.b[2]));
-    for (const { b, top, left, right } of order) {
+    for (const { b, top, left, right, ct, cs } of order) {
       const [x1, y1, z1, x2, y2, z2] = b;
-      face(top, 1, P(x1, y2, z1), P(x2, y2, z1), P(x1, y2, z2), [x1, z1, x2, z2]);
-      face(left, 0.78, P(x1, y2, z2), P(x2, y2, z2), P(x1, y1, z2), [x1, 1 - y2, x2, 1 - y1]);
-      face(right, 0.6, P(x2, y2, z2), P(x2, y2, z1), P(x2, y1, z2), [1 - z2, 1 - y2, 1 - z1, 1 - y1]);
+      face(top, 1, P(x1, y2, z1), P(x2, y2, z1), P(x1, y2, z2), ct ?? [x1, z1, x2, z2]);
+      face(left, 0.78, P(x1, y2, z2), P(x2, y2, z2), P(x1, y1, z2), cs ?? [x1, 1 - y2, x2, 1 - y1]);
+      face(right, 0.6, P(x2, y2, z2), P(x2, y2, z1), P(x2, y1, z2), cs ?? [1 - z2, 1 - y2, 1 - z1, 1 - y1]);
     }
   }
 
@@ -521,7 +571,7 @@ export class TextureAtlas {
       const x = (i % ICON_COLS) * ICON_SIZE, y = Math.floor(i / ICON_COLS) * ICON_SIZE;
       const b = it.kind === 'block' && it.blockIcon ? BLOCKS[it.id] : null;
       const boxes = it.kind === 'block' ? this.iconBoxes(it.id) : null;
-      const sprite = it.id === B.HOPPER && !boxes ? this.itemSource(it) : null;
+      const sprite = it.kind === 'block' && !boxes && SPRITE_BLOCKS.includes(it.key) && this.pack?.itemTextures.has(it.key) ? this.itemSource(it) : it.id === B.HOPPER && !boxes ? this.itemSource(it) : null;
       if (boxes) this.drawIsoBoxes(g, boxes, x + 1, y + 1, ICON_SIZE - 2);
       else if (sprite) g.drawImage(sprite, 0, 0, sprite.width, sprite.width, x, y, ICON_SIZE, ICON_SIZE);
       else if (b) this.drawIsoBlock(g, b, x + 1, y + 1, ICON_SIZE - 2);

@@ -1,5 +1,5 @@
 import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB } from './blocks';
-import { I, toolId, armorId, dyeId, SPEAR_MATS } from './items';
+import { I, toolId, armorId, dyeId, SPEAR_MATS, getItem } from './items';
 import type { ItemStack } from './inventory';
 
 export type Ingredient = number | string | number[];
@@ -11,6 +11,8 @@ export const TAGS: Record<string, number[]> = {
   stones: [B.COBBLESTONE, B.MOSSY_COBBLESTONE],
   wool: COLORS.map(woolId),
   sand_like: [B.SAND, SB.RED_SAND],
+  souls: [XB + XV.SOUL_SAND, XB + XV.SOUL_SOIL],
+  any_logs: [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, SB.ACACIA_LOG, SB.DARK_OAK_LOG, SB.CHERRY_LOG, SB.MANGROVE_LOG, XB + XV.CRIMSON_STEM, XB + XV.WARPED_STEM],
 };
 
 export interface Recipe {
@@ -20,6 +22,7 @@ export interface Recipe {
   shapeless?: Ingredient[];
   result: number;
   count: number;
+  fl?: number;
   group: 'basics' | 'building' | 'tools' | 'combat' | 'food' | 'decor';
 }
 
@@ -160,6 +163,12 @@ shaped('cauldron', 'decor', B.CAULDRON, 1, ['I I', 'I I', 'III'], { I: I.IRON_IN
 shaped('loom', 'decor', B.LOOM, 1, ['SS', 'PP'], { S: I.STRING, P: 'planks' });
 shaped('grindstone', 'decor', B.GRINDSTONE, 1, ['TST', 'P P'], { T: I.STICK, S: STONE_SLAB, P: 'planks' });
 shaped('lantern', 'decor', B.LANTERN, 1, ['NNN', 'NTN', 'NNN'], { N: I.IRON_NUGGET, T: B.TORCH });
+shaped('soul_torch', 'basics', CB.SOUL_TORCH, 4, ['C', 'S', 'X'], { C: 'coals', S: I.STICK, X: 'souls' });
+shaped('soul_lantern', 'decor', CB.SOUL_LANTERN, 1, ['NNN', 'NTN', 'NNN'], { N: I.IRON_NUGGET, T: CB.SOUL_TORCH });
+shaped('campfire', 'decor', CB.CAMPFIRE, 1, [' S ', 'SCS', 'LLL'], { S: I.STICK, C: 'coals', L: 'any_logs' });
+shaped('soul_campfire', 'decor', CB.SOUL_CAMPFIRE, 1, [' S ', 'SXS', 'LLL'], { S: I.STICK, X: 'souls', L: 'any_logs' });
+shaped('respawn_anchor', 'decor', CB.RESPAWN_ANCHOR, 1, ['CCC', 'GGG', 'CCC'], { C: B.CRYING_OBSIDIAN, G: B.GLOWSTONE });
+shaped('lodestone', 'decor', CB.LODESTONE, 1, ['SSS', 'SNS', 'SSS'], { S: B.CHISELED_STONE_BRICKS, N: I.CINDERITE_INGOT });
 shaped('compass', 'tools', I.COMPASS, 1, [' I ', 'IRI', ' I '], { I: I.IRON_INGOT, R: I.REDSTONE });
 shaped('clock', 'tools', I.CLOCK, 1, [' G ', 'GRG', ' G '], { G: I.GOLD_INGOT, R: I.REDSTONE });
 shaped('glass_bottle', 'basics', I.GLASS_BOTTLE, 3, ['G G', ' G '], { G: B.GLASS });
@@ -170,6 +179,8 @@ shaped('purpur_block', 'building', CB.PURPUR_BLOCK, 4, ['PP', 'PP'], { P: I.POPP
 shaped('end_rod', 'decor', CB.END_ROD, 4, ['B', 'P'], { B: I.BLAZE_ROD, P: I.POPPED_CHORUS_FRUIT });
 shaped('shulker_box', 'decor', CB.SHULKER_BOX, 1, ['S', 'C', 'S'], { S: I.SHULKER_SHELL, C: B.CHEST });
 shapeless('firework_rocket', 'basics', I.FIREWORK_ROCKET, 3, [I.PAPER, I.GUNPOWDER]);
+R.push({ id: 'firework_rocket_2', group: 'basics', result: I.FIREWORK_ROCKET, count: 3, fl: 2, shapeless: [I.PAPER, I.GUNPOWDER, I.GUNPOWDER] });
+R.push({ id: 'firework_rocket_3', group: 'basics', result: I.FIREWORK_ROCKET, count: 3, fl: 3, shapeless: [I.PAPER, I.GUNPOWDER, I.GUNPOWDER, I.GUNPOWDER] });
 shapeless('writable_book', 'basics', I.WRITABLE_BOOK, 1, [I.BOOK, I.INK_SAC, I.FEATHER]);
 shaped('golden_carrot', 'food', I.GOLDEN_CARROT, 1, ['NNN', 'NCN', 'NNN'], { N: I.GOLD_NUGGET, C: I.CARROT });
 shaped('glistering_melon', 'food', I.GLISTERING_MELON, 1, ['NNN', 'NMN', 'NNN'], { N: I.GOLD_NUGGET, M: I.MELON_SLICE });
@@ -389,6 +400,12 @@ export interface RecipeBook {
   smelting: SmeltRecipe[];
   byId: Map<string, Recipe>;
   data: DataRecipes | null;
+}
+
+export const CAMPFIRE_COOK = 600;
+export function campfireResult(id: number, book: RecipeBook = BASE_BOOK): number | null {
+  const r = findSmelt(id, book);
+  return r && getItem(r.result)?.food ? r.result : null;
 }
 
 export const BASE_BOOK: RecipeBook = { crafting: R, smelting: SMELTING, byId: RECIPE_BY_ID, data: null };

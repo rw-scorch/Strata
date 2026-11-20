@@ -518,6 +518,19 @@ Object.assign(TEX, {
   dragon_egg: () => speckle(noise('egg', hex(0x120a1c), 0.12), 'egg', [hex(0x4a2a6a), hex(0x2a1640)], 24),
   shulker_box: () => { const p = rim(noise('shb', hex(0x8e5e9a), 0.05), hex(0x6a4076)); for (let x = 1; x < 15; x++) p.set(x, 5, hex(0x6a4076)); return p; },
   dragon_head: () => speckle(noise('dhd', hex(0x1c1a20), 0.1), 'dhd', [hex(0x2c2834), hex(0x0e0c10)], 30, 2),
+  soul_torch: () => { const p = new Px(); for (let y = 6; y < 16; y++) { p.set(7, y, hex(0x6b5233)); p.set(8, y, hex(0x4f3b22)); } p.set(7, 6, hex(0x9af0ff)); p.set(8, 6, hex(0x60d8f0)); p.set(7, 7, hex(0x3ab8d8)); p.set(8, 7, hex(0x2a98c0)); p.set(7, 5, hex(0xe0fcff)); p.set(8, 5, hex(0x9af0ff)); return p; },
+  soul_lantern: () => { const p = box(new Px(), hex(0x3a3a40), 4, 2, 11, 15); box(p, hex(0x7ae8f8), 5, 5, 10, 12); return p; },
+  campfire_log: () => campLog(false, false),
+  campfire_log_lit: () => campLog(true, false),
+  soul_campfire_log_lit: () => campLog(true, true),
+  campfire_fire: () => flame([0xfff4b0, 0xffc040, 0xf07a18, 0xc84010]),
+  soul_campfire_fire: () => flame([0xe8ffff, 0x8af0ff, 0x3ab8e0, 0x1a6aa8]),
+  respawn_anchor_bottom: () => speckle(noise('rab', hex(0x15101e), 0.08), 'rab', [hex(0x2a1e3a)], 20),
+  respawn_anchor_top_off: () => rim(box(speckle(noise('rat', hex(0x1c1428), 0.08), 'rat', [hex(0x3a2a4e)], 18), hex(0x0c0812), 4, 4, 11, 11), hex(0x2c2c34)),
+  respawn_anchor_top: () => { const p = rim(box(speckle(noise('ratl', hex(0x1c1428), 0.08), 'ratl', [hex(0x3a2a4e)], 18), hex(0x8a3ad8), 4, 4, 11, 11), hex(0x2c2c34)); box(p, hex(0xd890ff), 6, 6, 9, 9); return p; },
+  respawn_anchor_side0: () => anchorSide(0), respawn_anchor_side1: () => anchorSide(1), respawn_anchor_side2: () => anchorSide(2), respawn_anchor_side3: () => anchorSide(3), respawn_anchor_side4: () => anchorSide(4),
+  lodestone_side: () => { const p = rim(noise('lds', hex(0x8e9092), 0.05), hex(0x5e6062)); for (let x = 2; x < 14; x++) { p.set(x, 7, hex(0x4a4c50)); p.set(x, 8, hex(0xb0b2b6)); } return p; },
+  lodestone_top: () => { const p = rim(noise('ldt', hex(0x9a9c9e), 0.05), hex(0x5e6062)); box(p, hex(0x3a3c40), 4, 4, 11, 11); box(p, hex(0xb8bcc2), 6, 6, 9, 9); return p; },
   cauldron_side: () => rim(noise('cas', IRONC, 0.06), shade(IRONC, 0.7)), cauldron_top: () => box(rim(noise('cat', IRONC, 0.06), shade(IRONC, 1.2)), hex(0x2a2a2e), 2, 2, 13, 13), cauldron_bottom: () => noise('cab', shade(IRONC, 0.8), 0.06), cauldron_inner: () => noise('cai', shade(IRONC, 0.7), 0.06),
   loom_side: () => planks('lms', OAKC), loom_top: () => box(planks('lmt', OAKC), hex(0xe8e8e8), 2, 5, 13, 10), loom_bottom: () => planks('lmb', shade(OAKC, 0.85)),
   loom_front: () => { const p = planks('lmf', OAKC); for (let x = 3; x < 13; x += 2) box(p, hex(0xe8e8e8), x, 2, x, 13); box(p, hex(0x6a4a2a), 2, 7, 13, 8); return p; },
@@ -924,6 +937,7 @@ const ITEM_MAP: Record<string, () => Px> = {
   shulker_shell: () => { const p = new Px(); for (let y = 4; y < 13; y++) for (let x = 2; x < 14; x++) { const d = Math.hypot(x - 7.5, (y - 12) * 1.3); if (d < 6) p.set(x, y, y === 12 ? hex(0x5e3a6a) : (x + y) % 4 === 0 ? hex(0xa878b4) : hex(0x8e5e9a)); } return p; },
   elytra: () => { const p = new Px(); for (let y = 1; y < 15; y++) for (let x = 1; x < 15; x++) { const side = x < 8 ? 7.5 - x : x - 7.5; const edge = 1 + (y / 15) * 6.5; if (side < 0.5 || side > edge) continue; p.set(x, y, side > edge - 1 ? hex(0x6a6478) : (y % 3 === 0) ? hex(0x9a94aa) : hex(0xb8b2c8)); } return p; },
   firework_rocket: () => { const p = new Px(); for (let y = 4; y < 11; y++) for (let x = 6; x < 10; x++) p.set(x, y, x === 6 ? hex(0x8a1a1a) : hex(0xd83a2a)); for (let x = 6; x < 10; x++) { p.set(x, 3, hex(0xf0e8d0)); p.set(x, 4, hex(0xe8d8b0)); } p.set(7, 2, hex(0xf0e8d0)); p.set(8, 2, hex(0xf0e8d0)); for (let y = 11; y < 15; y++) p.set(8, y, hex(0x8a6a3e)); return p; },
+  experience_bottle: () => { const p = new Px(); for (let y = 5; y < 15; y++) for (let x = 4; x < 12; x++) { const d = Math.hypot(x - 7.5, y - 10); if (d < 4) p.set(x, y, d > 3.2 ? hex(0xd8f0e0, 220) : hex((x + y) % 4 === 0 ? 0xf0ff90 : y < 8 ? 0x9af060 : 0x4ab830)); } for (let y = 2; y < 6; y++) for (let x = 6; x < 10; x++) p.set(x, y, y === 2 ? hex(0x8a6a3e) : hex(0xd8f0e0, 220)); return p; },
   dragon_breath: () => { const p = new Px(); for (let y = 5; y < 15; y++) for (let x = 4; x < 12; x++) { const d = Math.hypot(x - 7.5, y - 10); if (d < 4) p.set(x, y, d > 3.2 ? hex(0xd8e8f0, 220) : hex(y < 8 ? 0xf0a0d0 : 0xc84aa0)); } for (let y = 2; y < 6; y++) for (let x = 6; x < 10; x++) p.set(x, y, y === 2 ? hex(0x8a6a3e) : hex(0xd8e8f0, 220)); return p; },
   ender_pearl: () => { const p = new Px(); for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) { const d = Math.hypot(x - 7.5, y - 7.5); if (d < 4.8) p.set(x, y, d < 1.6 ? hex(0x9ff0d8) : d < 3.2 ? hex(0x1f8a6e) : hex(0x0f4a3e)); } p.set(6, 5, hex(0xd8fff2)); return p; },
   pointed_dripstone: () => { const p = new Px(); const r = rngFor('dripitem'); for (let y = 1; y < 16; y++) { const w = 0.6 + (y / 15) * 4.2; for (let x = 0; x < 16; x++) if (Math.abs(x - 7.5) < w) p.set(x, y, shade(hex(y % 4 === 0 ? 0x7a5c44 : 0x8a6a50), 0.8 + r.next() * 0.3)); } return p; },
@@ -1085,5 +1099,30 @@ export function hudIcon(kind: 'heart' | 'heart_half' | 'heart_empty' | 'food' | 
     if (ch !== 'a' && (empty || (half && x > 4))) c = 0x3a3a3a;
     p.set(x, y, hex(c, ch !== 'a' && (empty || (half && x > 4)) ? 200 : 255));
   }
+  return p;
+}
+
+function campLog(lit: boolean, soul: boolean): Px {
+  const p = new Px(), bark = [0x4a3a26, 0x5e4a30, 0x3a2c1c], glow = soul ? [0x6ae0f0, 0x2a9ac8] : [0xffa030, 0xe06010];
+  const r = rngFor(lit ? (soul ? 'cls' : 'cll') : 'clo');
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 16; x++) p.set(x, y, hex(lit && y >= 2 && r.int(3) === 0 ? glow[r.int(2)] : bark[(x * 3 + y * 7 + r.int(2)) % 3]));
+  for (let y = 4; y < 8; y++) for (let x = 0; x < 4; x++) p.set(x, y, hex(x === 0 || x === 3 || y === 4 || y === 7 ? 0x4a3a26 : 0x9a7a4a));
+  for (let y = 8; y < 14; y++) for (let x = 0; x < 16; x++) p.set(x, y, hex(r.int(4) === 0 ? (lit ? glow[1] : 0x3a3a3a) : 0x1e1a18));
+  return p;
+}
+
+function flame(c: number[]): Px {
+  const p = new Px();
+  for (let x = 0; x < 16; x++) {
+    const h = 6 + Math.round(8 * Math.sin(((x + 0.5) / 16) * Math.PI) * (0.75 + 0.25 * Math.sin(x * 2.3)));
+    for (let y = 16 - h; y < 16; y++) { const t = (y - (16 - h)) / h, edge = x < 2 || x > 13; p.set(x, y, hex(c[edge ? 3 : t < 0.2 ? 0 : t < 0.5 ? 1 : t < 0.8 ? 2 : 3])); }
+  }
+  return p;
+}
+
+function anchorSide(charge: number): Px {
+  const p = speckle(noise(`ras${charge}`, hex(0x1a1224), 0.08), `ras${charge}`, [hex(0x3a2a4e), hex(0x2a1a3a)], 22);
+  for (let x = 0; x < 16; x++) { p.set(x, 0, hex(0x3a3a42)); p.set(x, 15, hex(0x3a3a42)); }
+  for (let i = 0; i < 4; i++) for (let y = 3; y < 13; y++) p.set(2 + i * 4, y, hex(i < charge ? (y % 3 === 0 ? 0xf0b0ff : 0xa040e0) : 0x2c2238));
   return p;
 }

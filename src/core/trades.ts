@@ -76,8 +76,8 @@ const POOLS: Record<Profession, OfferDef[]> = {
     o(0, [s(I.ROTTEN_FLESH, 32)], s(E), 16, 2), o(0, [s(E)], s(I.REDSTONE, 2), 12, 1),
     o(1, [s(I.GOLD_INGOT, 3)], s(E), 12, 10), o(1, [s(E)], s(I.LAPIS), 12, 5),
     o(2, [s(E, 4)], s(B.GLOWSTONE), 12, 10),
-    o(3, [s(I.GLASS_BOTTLE, 9)], s(E), 12, 30),
-    o(4, [s(I.NETHER_WART, 22)], s(E), 12, 30),
+    o(3, [s(I.GLASS_BOTTLE, 9)], s(E), 12, 30), o(3, [s(E, 5)], s(I.ENDER_PEARL), 12, 15),
+    o(4, [s(I.NETHER_WART, 22)], s(E), 12, 30), o(4, [s(E, 3)], s(I.EXPERIENCE_BOTTLE), 12, 30),
   ],
   mason: [
     o(0, [s(I.CLAY_BALL, 10)], s(E), 16, 2), o(0, [s(E)], s(I.BRICK, 10), 16, 1),

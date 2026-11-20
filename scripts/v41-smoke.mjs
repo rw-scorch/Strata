@@ -1,0 +1,37 @@
+const base = process.argv[2] ?? 'http://127.0.0.1:8787';
+const wsBase = base.replace(/^http/, 'ws');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const ok = (name, cond, extra = '') => { console.log(`${cond ? 'PASS' : 'FAIL'} ${name}${extra ? ' ' + extra : ''}`); if (!cond) fails++; };
+const tag = Date.now().toString(36);
+const room = await (await fetch(base + '/api/rooms', { method: 'POST', body: JSON.stringify({ name: 'V41', seed: 41, mode: 'survival', difficulty: 'normal', ownerId: `own-v41-${tag}`, ownerSecret: 'owner-secret-v41-0000', ownerName: 'Alpha' }) })).json();
+const join = (id, secret, name, v = 35) => new Promise((res) => {
+  const ws = new WebSocket(`${wsBase}/ws/${room.code}`);
+  const c = { ws, msgs: [], closed: null, send: (m) => ws.send(JSON.stringify(m)) };
+  ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome' || m.t === 'err') { c.you = m.you; c.welcome = m; res(c); } };
+  ws.onclose = (e) => { c.closed = e.code; res(c); };
+  ws.onopen = () => c.send({ t: 'hello', v, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
+});
+const chats = (c) => c.msgs.filter((m) => m.t === 'chat').map((m) => m.text);
+const old = await join(`old-v41-${tag}`, `old-secret-v41-${tag}`, 'Old', 34);
+ok('protocol 34 clients are turned away', old.welcome?.t !== 'welcome', JSON.stringify(old.welcome ?? old.closed));
+const a = await join(`own-v41-${tag}`, 'owner-secret-v41-0000', 'Alpha');
+ok('owner joins on protocol 35', a.welcome?.t === 'welcome');
+a.send({ t: 'chat', text: '/tp 0 70 0 nether' });
+await sleep(1500);
+const tp = a.msgs.filter((m) => m.t === 'tp').at(-1);
+ok('/tp ... nether lands in the Nether band', tp && tp.x > 300000, JSON.stringify(tp));
+const before = a.msgs.filter((m) => m.t === 'chunk').length;
+const want = [];
+for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) want.push([Math.floor(tp.x / 16) + i, Math.floor(tp.z / 16) + j]);
+a.send({ t: 'chunks', want });
+for (let i = 0; i < 10; i++) { a.send({ t: 'mv', p: [tp.x, tp.y, tp.z, 0, 0, 0] }); await sleep(500); }
+const got = a.msgs.filter((m) => m.t === 'chunk').slice(before);
+ok('new Nether chunks stream in at generation level 15', got.length > 0 && got.some((m) => (m.lv ?? m.level ?? 15) >= 15), `chunks ${got.length} lv ${[...new Set(got.map((m) => m.lv ?? m.level))].join(',')}`);
+a.send({ t: 'chat', text: '/give @s experience_bottle 4' });
+await sleep(800);
+const inv = a.msgs.filter((m) => m.t === 'inv').at(-1);
+ok('Bottles o\' Enchanting exist on the server', JSON.stringify(inv ?? {}).includes('"id":500'), '');
+a.ws.close();
+console.log(fails ? `${fails} FAILED` : 'ALL PASSED');
+process.exit(fails ? 1 : 0);

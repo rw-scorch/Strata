@@ -20,7 +20,7 @@ const MOB_VOICE: Record<string, { base: number; kind: 'bleat' | 'grunt' | 'cluck
   hollowed: { base: 95, kind: 'groan' }, rattlebone: { base: 0, kind: 'rattle' }, duskweaver: { base: 0, kind: 'hiss' }, villager: { base: 210, kind: 'hum' },
   cinderhusk: { base: 120, kind: 'grunt' }, wailer: { base: 520, kind: 'wail' }, emberslime: { base: 90, kind: 'squelch' }, lavastrider: { base: 260, kind: 'chirp' },
   flarewisp: { base: 160, kind: 'breath' }, witherbone: { base: 0, kind: 'rattle' },
-  piglin: { base: 170, kind: 'grunt' }, piglin_brute: { base: 105, kind: 'grunt' }, hoglin: { base: 75, kind: 'grunt' },
+  piglin: { base: 170, kind: 'grunt' }, piglin_brute: { base: 105, kind: 'grunt' }, hoglin: { base: 75, kind: 'grunt' }, zoglin: { base: 62, kind: 'grunt' },
 };
 
 export class AudioEngine {
@@ -296,6 +296,11 @@ export class AudioEngine {
       case 'bell': for (const [f, v] of [[784, 0.3], [1568, 0.12], [2350, 0.06]] as const) this.tone(dest, t, f, 'sine', { a: 0.002, d: 2.4, v }, f * 0.998); break;
       case 'composter': this.noiseHit(dest, t, sub === 'empty' ? 500 : 900, 1.5, 'bandpass', { a: 0.01, d: sub === 'fill_success' ? 0.35 : 0.2, v: 0.35 }); break;
       case 'fire': this.noiseHit(dest, t, 2500, 2, 'bandpass', { a: 0.002, d: 0.25, v: 0.35 }, 1.3); break;
+      case 'anchor':
+        if (sub === 'charge') { this.tone(dest, t, 180, 'sawtooth', { a: 0.02, d: 0.5, v: 0.16 }, 420, 8); this.noiseHit(dest, t, 900, 2, 'bandpass', { a: 0.02, d: 0.4, v: 0.2 }); }
+        else { this.tone(dest, t, 220, 'sine', { a: 0.05, d: 1.2, v: 0.25 }, 330, 4); this.tone(dest, t + 0.1, 440, 'triangle', { a: 0.05, d: 0.9, v: 0.08 }); }
+        break;
+      case 'lodestone': this.tone(dest, t, 660, 'sine', { a: 0.005, d: 0.6, v: 0.2 }, 990); this.noiseHit(dest, t, 3000, 4, 'bandpass', { a: 0.002, d: 0.1, v: 0.15 }); break;
       case 'explode': {
         this.noiseHit(dest, t, 900, 0.5, 'lowpass', { a: 0.003, d: 0.5, v: 1 }, 0.3);
         this.noiseHit(dest, t + 0.02, 160, 0.5, 'lowpass', { a: 0.01, d: 1.8, v: 0.9 }, 0.5);
@@ -402,6 +407,64 @@ export class AudioEngine {
       this.tone(g, t, f, 'sine', { a: 0.02, d: 2.2, v: 0.12 });
       this.tone(g, t, f * 2, 'triangle', { a: 0.01, d: 0.8, v: 0.03 });
       if (i % 4 === 0) this.tone(g, t, f / 2, 'sine', { a: 0.3, d: 3, v: 0.06 });
+    }
+  }
+
+  private nether = new Map<string, { gain: GainNode; stop: () => void }>();
+  private netherBiome: string | null = null;
+  private netherT = 4;
+
+  private netherLoop(biome: string): { gain: GainNode; stop: () => void } {
+    const ctx = this.ctx!;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(this.ambient);
+    const nodes: AudioScheduledSourceNode[] = [];
+    const noise = (type: BiquadFilterType, f: number, q: number, v: number, lfo = 0, depth = 0) => {
+      const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
+      const flt = ctx.createBiquadFilter(); flt.type = type; flt.frequency.value = f; flt.Q.value = q;
+      const g = ctx.createGain(); g.gain.value = v;
+      src.connect(flt).connect(g).connect(gain);
+      if (lfo) { const o = ctx.createOscillator(); o.frequency.value = lfo; const d = ctx.createGain(); d.gain.value = depth; o.connect(d).connect(flt.frequency); o.start(); nodes.push(o); }
+      src.start(); nodes.push(src);
+    };
+    const drone = (f: number, v: number, type: OscillatorType = 'sine', wob = 0) => {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = f;
+      const g = ctx.createGain(); g.gain.value = v;
+      if (wob) { const l = ctx.createOscillator(); l.frequency.value = wob; const d = ctx.createGain(); d.gain.value = v * 0.6; l.connect(d).connect(g.gain); l.start(); nodes.push(l); }
+      o.connect(g).connect(gain); o.start(); nodes.push(o);
+    };
+    switch (biome) {
+      case 'crimson_forest': noise('lowpass', 180, 0.7, 0.5); drone(49, 0.08, 'sine', 0.07); drone(73.5, 0.03, 'triangle', 0.11); break;
+      case 'warped_forest': noise('bandpass', 1100, 1.2, 0.12, 0.05, 500); noise('lowpass', 140, 0.7, 0.3); drone(82.4, 0.05, 'sine', 0.05); drone(123.5, 0.02, 'sine', 0.09); break;
+      case 'soul_sand_valley': noise('bandpass', 420, 2.2, 0.35, 0.08, 260); drone(98, 0.04, 'sine', 0.06); drone(146.8, 0.025, 'triangle', 0.04); break;
+      case 'basalt_deltas': noise('lowpass', 240, 0.8, 0.55); noise('highpass', 3000, 0.5, 0.025); drone(41.2, 0.07, 'sine', 0.05); break;
+      default: noise('lowpass', 130, 0.7, 0.55); drone(55, 0.07, 'sine', 0.04); drone(82.4, 0.02, 'sawtooth', 0.03);
+    }
+    return { gain, stop: () => { for (const n of nodes) try { n.stop(); } catch { /* stopped */ } gain.disconnect(); } };
+  }
+
+  setNetherAmbient(biome: string | null, dt: number): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    if (biome && !this.nether.has(biome)) this.nether.set(biome, this.netherLoop(biome));
+    for (const [k, n] of this.nether) {
+      const on = k === biome;
+      n.gain.gain.setTargetAtTime(on ? 0.5 : 0, ctx.currentTime, on ? 1.2 : 0.8);
+      if (!on && k !== this.netherBiome && n.gain.gain.value < 0.002) { n.stop(); this.nether.delete(k); }
+    }
+    this.netherBiome = biome;
+    if (!biome) return;
+    this.netherT -= dt;
+    if (this.netherT > 0) return;
+    this.netherT = 4 + Math.random() * 8;
+    const t = ctx.currentTime, g = this.out(0.6, (Math.random() - 0.5) * 1.6, this.ambient);
+    switch (biome) {
+      case 'crimson_forest': this.tone(g, t, 60 + Math.random() * 30, 'sawtooth', { a: 0.4, d: 1.6, v: 0.06 }, 40, 3); break;
+      case 'warped_forest': for (let i = 0; i < 3; i++) this.tone(g, t + i * 0.25, 900 + Math.random() * 700, 'sine', { a: 0.05, d: 1.4, v: 0.03 }); break;
+      case 'soul_sand_valley': this.tone(g, t, 300 + Math.random() * 120, 'sine', { a: 0.8, d: 2.8, v: 0.05 }, 180, 4); this.noiseHit(g, t, 600, 3, 'bandpass', { a: 1, d: 2, v: 0.08 }); break;
+      case 'basalt_deltas': for (let i = 0; i < 6; i++) this.noiseHit(g, t + Math.random() * 1.2, 2500 + Math.random() * 2500, 4, 'bandpass', { a: 0.001, d: 0.04, v: 0.12 }); break;
+      default: this.noiseHit(g, t, 90, 0.8, 'lowpass', { a: 0.6, d: 2.4, v: 0.18 }, 0.5);
     }
   }
 

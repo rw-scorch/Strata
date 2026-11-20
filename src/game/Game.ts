@@ -1,6 +1,6 @@
 import type { BlockArray } from '../core/chunk';
 import { isNether, isEnd, localX, dimOf } from '../core/dimension';
-import { NETHER_FOG } from '../core/worldgen/nether';
+import { NETHER_FOG, type NetherBiome } from '../core/worldgen/nether';
 import { GEN_LEVEL } from '../core/worldgen/genLevel';
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import { loadCustomSkin } from '../resources/skins';
@@ -296,6 +296,7 @@ export class Game {
 
   private arena!: ArenaUI;
   private caveFx = 0;
+  private nfBiome: NetherBiome | null = null;
   private minimap: Minimap | null = null;
   constructor(app: AppHooks, atlas: TextureAtlas) {
     if (import.meta.env.DEV) Object.assign(window, { __strata: this, __settings: updateSettings });
@@ -1317,15 +1318,26 @@ export class Game {
     const heldId = heldStack(this.session.me.inv)?.id ?? 0;
     if (heldId === I.COMPASS || heldId === I.CLOCK) {
       let text: string;
-      if (heldId === I.COMPASS) {
-        if (this.player.x > 300000) text = 'Compass: the needle spins wildly';
+      const held = heldStack(this.session.me.inv);
+      if (heldId === I.COMPASS && held?.lt) {
+        const [lx, ly, lz] = held.lt, here = dimOf(this.player.x);
+        const loaded = this.chunks.isLoaded(lx, lz);
+        const gone = loaded && blockId(this.chunks.getBlock(lx, ly, lz)) !== CB.LODESTONE;
+        if (dimOf(lx) !== here || gone) text = 'Lodestone Compass: the needle spins wildly';
+        else {
+          const dx = lx + 0.5 - this.player.x, dz = lz + 0.5 - this.player.z, d = Math.round(Math.hypot(dx, dz));
+          const dirs = ['south', 'south-west', 'west', 'north-west', 'north', 'north-east', 'east', 'south-east'];
+          text = d < 2 ? 'Lodestone Compass: the lodestone is right here' : `Lodestone Compass: lodestone is ${d} blocks ${dirs[(Math.round(Math.atan2(-dx, dz) / (Math.PI / 4)) + 8) % 8]}`;
+        }
+      } else if (heldId === I.COMPASS) {
+        if (dimOf(this.player.x) !== 'overworld') text = 'Compass: the needle spins wildly';
         else {
           const sp = this.session.info.spawn, dx = sp.x - this.player.x, dz = sp.z - this.player.z, d = Math.round(Math.hypot(dx, dz));
           const dirs = ['south', 'south-west', 'west', 'north-west', 'north', 'north-east', 'east', 'south-east'];
           text = d < 3 ? 'Compass: you are at the world spawn' : `Compass: spawn is ${d} blocks ${dirs[(Math.round(Math.atan2(-dx, dz) / (Math.PI / 4)) + 8) % 8]}`;
         }
       } else {
-        if (this.player.x > 300000) text = 'Clock: the hands spin wildly';
+        if (dimOf(this.player.x) !== 'overworld') text = 'Clock: the hands spin wildly';
         else { const t = ((Math.floor(this.time) % 24000) + 24000) % 24000, hh = Math.floor((t / 1000 + 6) % 24), mm = Math.floor(((t % 1000) / 1000) * 60); text = `Clock: ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} ${t < 12500 ? '(day)' : '(night)'}`; }
       }
       this.hud.setInstrument(text);
@@ -1400,7 +1412,7 @@ export class Game {
     this.renderer.chests.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(64, st.renderDistance * 16));
     this.renderer.particles.update(dt, this.chunks);
     if (!loading) this.renderer.particles.bubbles(dt, this.player.x, this.player.eyeY, this.player.z, this.chunks);
-    if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12, fx: dimOf(this.player.x) !== 'overworld' ? null : this.renderer.atmo.fx, fxAmt: this.renderer.atmo.fxAmt, day: this.renderer.skyState.day, dust: [this.renderer.atmo.dustColor.r, this.renderer.atmo.dustColor.g, this.renderer.atmo.dustColor.b] }, this.chunks);
+    if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12, fx: dimOf(this.player.x) === 'nether' ? (this.nfBiome ? `n:${this.nfBiome}` : null) : dimOf(this.player.x) !== 'overworld' ? null : this.renderer.atmo.fx, fxAmt: this.renderer.atmo.fxAmt, day: this.renderer.skyState.day, dust: [this.renderer.atmo.dustColor.r, this.renderer.atmo.dustColor.g, this.renderer.atmo.dustColor.b] }, this.chunks);
     const biomeAt = (x: number, z: number) => this.gen!.biomeAt(x, z, this.chunks.levelAt(x, z));
     this.renderer.weather.intensity = dimOf(this.player.x) !== 'overworld' ? 0 : this.rain;
     this.renderer.weather.splash = (x, y, z) => this.renderer.particles.puff(x, y, z, 0.6, 0.7, 0.9, 2, 1.2, 6, 0.04, 0.3);
@@ -1427,10 +1439,11 @@ export class Game {
     const nether = isNether(this.player.x) || inEnd;
     if (!nether && this.gen && !loading) this.renderer.atmo.update({ dt, x: cam.position.x, y: cam.position.y, z: cam.position.z, time: this.time, rain: this.rain, pre: this.preStorm(), cave: this.caveFx, active: true, biome: (x, z) => biomeAt(x, z).id, top: (x, z) => this.chunks.topAt(x, z) }, this.renderer.skyState.night);
     if (nether && this.gen) {
-      if (performance.now() - this.nfAt > 250) { this.nfAt = performance.now(); this.nfTarget = inEnd ? [0.06, 0.045, 0.075] : NETHER_FOG[this.gen.netherBiome(Math.floor(this.player.x), Math.floor(this.player.z))]; }
+      if (performance.now() - this.nfAt > 250) { this.nfAt = performance.now(); this.nfBiome = inEnd ? null : this.gen.netherBiome(Math.floor(this.player.x), Math.floor(this.player.z)); this.nfTarget = this.nfBiome ? NETHER_FOG[this.nfBiome] : [0.06, 0.045, 0.075]; }
       const k = Math.min(1, dt * 1.5);
       for (let i = 0; i < 3; i++) this.nfCol[i] += (this.nfTarget[i] - this.nfCol[i]) * k;
     }
+    audio.setNetherAmbient(nether && !inEnd && !loading ? this.nfBiome : null, dt);
     this.updatePortalFx(dt);
     this.updateDim();
     this.updateBlueprint();
@@ -1450,7 +1463,7 @@ export class Game {
     this.player.blocking = this.interaction.blocking;
     this.renderer.blocking = this.interaction.blocking;
     this.player.depthStrider = this.session.me.inv.armor[3]?.en?.depth_strider ?? 0;
-    { const el = this.session.me.inv.armor[1]; this.player.elytra = !!el && el.id === I.ELYTRA && (el.dmg ?? 0) < maxDurability(I.ELYTRA) - 1; }
+    { const el = this.session.me.inv.armor[1]; this.player.elytra = !!el && el.id === I.ELYTRA && (el.dmg ?? 0) < maxDurability(I.ELYTRA) - 1; this.player.soulSpeed = this.session.me.inv.armor[3]?.en?.soul_speed ?? 0; }
     { const held = heldStack(this.session.me.inv); this.hud.setAttackCharge(attackCharge(performance.now() - Math.max(this.interaction.lastSwing, this.interaction.strengthT), attackStats(held).speed)); }
     if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
     if (!loading && this.minimap) { this.minimap.update(); this.renderer.beams.set(this.minimap.visibleWaypoints(), this.minimap.version * 2 + (this.minimap.hideAll ? 1 : 0) + (this.minimap.mapAllowed ? 0 : 7919)); }

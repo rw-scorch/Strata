@@ -1,6 +1,6 @@
 import { NETHER_EDGE } from '../core/dimension';
 import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium, bubbleColumn, bubbleSurface } from '../core/physics';
-import { getBlock, blockId, B, isDoorBlock, isTrapdoor, TD_OPEN } from '../core/blocks';
+import { getBlock, blockId, B, isDoorBlock, isTrapdoor, TD_OPEN, isSoulSand, X, XV } from '../core/blocks';
 import { MF } from '../core/sim/WorldSim';
 import type { InputState } from '../controls/InputState';
 import type { GameMode } from '../core/constants';
@@ -46,6 +46,7 @@ export class LocalPlayer {
   inBubbles = 0;
   levitateT = 0;
   elytra = false;
+  soulSpeed = 0;
   gliding = false;
   rocketT = 0;
   private jumpWas = false;
@@ -176,7 +177,7 @@ export class LocalPlayer {
     this.jumpWas = input.jump;
     if (this.levitateT > 0) this.levitateT--;
     if (this.gliding && (b.onGround || inFluid || !this.elytra || this.flying || this.levitateT > 0)) this.gliding = false;
-    else if (!this.gliding && jumpEdge && this.elytra && !b.onGround && !inFluid && !this.flying && !m.ladder && b.vy < 0) this.gliding = true;
+    else if (!this.gliding && jumpEdge && this.elytra && !b.onGround && !inFluid && !this.flying && !m.ladder && this.levitateT <= 0) this.gliding = true;
     if (!this.gliding) this.rocketT = 0;
     if (this.gliding) {
       const cp = Math.cos(this.pitch);
@@ -252,7 +253,9 @@ export class LocalPlayer {
       const under = world.getBlock(Math.floor(b.x), Math.floor(b.y - 0.5000001), Math.floor(b.z));
       const slip = b.onGround ? slipperiness(blockId(under)) : 1;
       const f = slip * 0.91;
-      const speed = b.onGround ? 0.1 * (this.sprinting ? 1.3 : 1) * (0.21600002 / (slip * slip * slip)) : this.sprinting ? 0.025999999 : 0.02;
+      const soulBlock = b.onGround && (isSoulSand(under) || under === X(XV.SOUL_SOIL));
+      const base = 0.1 + (soulBlock && this.soulSpeed > 0 ? 0.03 * (1 + this.soulSpeed * 0.35) : 0);
+      const speed = b.onGround ? base * (this.sprinting ? 1.3 : 1) * (0.21600002 / (slip * slip * slip)) : this.sprinting ? 0.025999999 : 0.02;
       moveRelative(speed);
       if (m.ladder) {
         b.vx = Math.max(-0.15, Math.min(0.15, b.vx));
@@ -267,6 +270,7 @@ export class LocalPlayer {
         if (ub === B.SLIME_BLOCK && !this.crouching && vyPre < -0.1) { b.vy = -vyPre; b.onGround = false; }
         else if (ub === B.SLIME_BLOCK && Math.abs(vyPre) < 0.1 && !this.crouching) { const k = 0.4 + Math.abs(vyPre) * 0.2; b.vx *= k; b.vz *= k; }
         if (ub === B.HONEY_BLOCK) { b.vx *= 0.4; b.vz *= 0.4; }
+        if (this.soulSpeed === 0 && isSoulSand(world.getBlock(Math.floor(b.x), Math.floor(b.y - 0.2), Math.floor(b.z)))) { b.vx *= 0.4; b.vz *= 0.4; }
       }
       if ((b.hitH || input.jump) && m.ladder) b.vy = 0.2;
       b.vy = this.levitateT > 0 ? b.vy + (0.05 - b.vy) * 0.2 : (b.vy - GRAVITY) * 0.98;

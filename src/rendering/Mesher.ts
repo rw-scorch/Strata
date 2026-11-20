@@ -1,6 +1,6 @@
 import type { BlockArray } from '../core/chunk';
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -191,7 +191,7 @@ function computeLight(maxY: number): void {
   qh = 0; qt = 0;
   for (let y = 0; y <= maxY; y++) for (let z = 0; z < R; z++) for (let x = 0; x < R; x++) {
     const i = ridx(x, y, z);
-    const e = LIGHT_EMIT[bid(region[i])];
+    const e = emitOf(region[i]);
     if (e) { blk[i] = e; queue[qt++] = i; }
   }
   spread(blk);
@@ -813,6 +813,35 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
           boxFaces(o, x, y, z, x + 1, y + 13 * q, z + 1, (d) => d === 2 ? up : d === 3 ? dn : side, sk, bl, 255, 255, 255, undefined);
           if ((v >>> 8) & FRAME_EYE) { const eye = sp.end_portal_frame_eye ?? up; boxFaces(o, x + 4 * q, y + 13 * q, z + 4 * q, x + 12 * q, y + 1, z + 12 * q, () => eye, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? flatUV(4, 4, 12, 12) : sideUV(4, 0, 12, 3)); }
         }
+        return;
+      }
+      if (id === CB.CAMPFIRE || id === CB.SOUL_CAMPFIRE) {
+        const o = builders[0], q = 1 / 16, log = tl[id * FS], soul = id === CB.SOUL_CAMPFIRE, lit = (meta & CAMPFIRE_LIT) !== 0;
+        const litTop = lit ? (soul ? sp.soul_campfire_log_lit : sp.campfire_log_lit) ?? log : log;
+        const swap = (meta & 1) === 1;
+        const uv = (u0: number, v0: number, u1: number, v1: number) => [[u0 * q, v1 * q], [u1 * q, v1 * q], [u1 * q, v0 * q], [u0 * q, v0 * q]];
+        const rot = (a: number[][]) => [a[1], a[2], a[3], a[0]];
+        const logBox = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, alongZ: boolean, base = false) => {
+          if (swap) { [x0, z0, x1, z1] = [z0, x0, z1, x1]; alongZ = !alongZ; }
+          boxFaces(o, x + x0 * q, y + y0 * q, z + z0 * q, x + x1 * q, y + y1 * q, z + z1 * q, (d) => d === 2 && !base ? litTop : log, sk, bl, 255, 255, 255, undefined, (d) => {
+            if (base) return d === 2 || d === 3 ? (alongZ ? rot(uv(0, 8, 16, 14)) : uv(0, 8, 16, 14)) : uv(0, 8, 16, 9);
+            const long = alongZ ? d === 0 || d === 1 : d === 4 || d === 5;
+            if (d === 2 || d === 3) return alongZ ? rot(uv(0, 0, 16, 4)) : uv(0, 0, 16, 4);
+            return long ? uv(0, 0, 16, 4) : uv(0, 4, 4, 8);
+          });
+        };
+        logBox(1, 0, 0, 5, 4, 16, true); logBox(11, 0, 0, 15, 4, 16, true); logBox(0, 3, 1, 16, 7, 5, false); logBox(0, 3, 11, 16, 7, 15, false);
+        logBox(5, 0, 0, 11, 1, 16, true, true);
+        if (lit) {
+          const ft = (soul ? sp.soul_campfire_fire : sp.campfire_fire) ?? log, a = 0.15, b2 = 0.85, uvf = [[0, 1], [1, 1], [1, 0], [0, 0]];
+          quadRaw(builders[1], [[x + a, y, z + a], [x + b2, y, z + b2], [x + b2, y + 1, z + b2], [x + a, y + 1, z + a]], uvf, ft, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+          quadRaw(builders[1], [[x + a, y, z + b2], [x + b2, y, z + a], [x + b2, y + 1, z + a], [x + a, y + 1, z + b2]], uvf, ft, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+        }
+        return;
+      }
+      if (id === CB.RESPAWN_ANCHOR) {
+        const c = Math.min(4, meta & 7), side = c ? sp[`respawn_anchor_side${c}`] ?? tl[id * FS] : tl[id * FS], top = c ? sp.respawn_anchor_top ?? tl[id * FS + 2] : tl[id * FS + 2], bot = tl[id * FS + 3];
+        boxFaces(builders[0], x, y, z, x + 1, y + 1, z + 1, (d) => d === 2 ? top : d === 3 ? bot : side, sk, bl, 255, 255, 255, undefined, undefined, c ? F_EMIT : 0);
         return;
       }
       if (id === B.CAULDRON) {

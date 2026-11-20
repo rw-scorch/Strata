@@ -9,7 +9,7 @@ const t0 = Date.now();
 const open = (id, secret, name) => new Promise((res) => {
   const ws = new WebSocket(`${wsBase}/ws/${room.code}`);
   const c = { ws, msgs: [], send: (m) => ws.readyState === 1 && ws.send(JSON.stringify(m)) };
-  ws.onopen = () => c.send({ t: 'hello', v: 34, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
+  ws.onopen = () => c.send({ t: 'hello', v: 35, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
   ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.t === 'welcome') { c.you = m.you; res(c); } else if (m.t === 'pong') rtt.push([Date.now() - t0, Date.now() - m.c]); else if (m.t === 'chat') c.msgs.push(m.text); };
 });
 const o = await open(`st-own-${tag}`, 'st-owner-secret-0000', 'Host');

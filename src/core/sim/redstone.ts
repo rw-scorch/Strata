@@ -88,7 +88,7 @@ export function pushReaction(v: number): PushReaction {
 export function riderSupport(v: number): [number, number, number] | null {
   const id = bid(v);
   if (id === B.LADDER) { const [dx, dz] = FACING_DIRS[blockMeta(v) & 3]; return [dx, 0, dz]; }
-  if (id === B.TORCH) { const m = blockMeta(v) & 7; if (m === 0) return [0, -1, 0]; const [dx, dz] = FACING_DIRS[(m - 1) & 3]; return [dx, 0, dz]; }
+  if (id === B.TORCH || id === CB.SOUL_TORCH) { const m = blockMeta(v) & 7; if (m === 0) return [0, -1, 0]; const [dx, dz] = FACING_DIRS[(m - 1) & 3]; return [dx, 0, dz]; }
   return null;
 }
 

@@ -26,6 +26,7 @@ export interface SavedPlayer {
   x: number; y: number; z: number; yaw: number; pitch: number; mode: GameMode; flying: boolean;
   inv: PlayerInv; health: number; food: number; sat: number; air: number; xp: number; dead: boolean;
   spawn: { x: number; y: number; z: number };
+  anchor?: [number, number, number];
   homes?: Record<string, { x: number; y: number; z: number }>;
   back?: { x: number; y: number; z: number };
 }

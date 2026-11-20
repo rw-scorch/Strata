@@ -147,11 +147,11 @@ export class BlockInteraction {
     const off = me.inv.off?.[0] ?? null;
     const offItem = off ? getItem(off.id) : undefined;
     const tInteractive = !!t && !!getBlock(world.getBlock(t.x, t.y, t.z)).interactive;
-    const mainIdle = !held || (item?.places === undefined && !item?.food && held.id !== I.BOW && held.id !== I.CROSSBOW && held.id !== I.ENDER_PEARL && held.id !== I.EYE_OF_ENDER && held.id !== I.SHIELD);
+    const mainIdle = !held || (item?.places === undefined && !item?.food && held.id !== I.BOW && held.id !== I.CROSSBOW && held.id !== I.ENDER_PEARL && held.id !== I.EYE_OF_ENDER && held.id !== I.EXPERIENCE_BOTTLE && held.id !== I.SHIELD);
     const shieldUp = !me.dead && input.using && !tInteractive && !this.entityTarget && (held?.id === I.SHIELD || (off?.id === I.SHIELD && mainIdle));
     this.blocking = shieldUp;
-    if (held?.id === I.FIREWORK_ROCKET && input.usePressed && !me.dead && (player.gliding || !t)) { if (player.gliding) player.rocketT = 26; session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
-    const pearlMain = held?.id === I.ENDER_PEARL || (held?.id === I.EYE_OF_ENDER && !(t && blockId(world.getBlock(t.x, t.y, t.z)) === CB.END_PORTAL_FRAME)), pearlOff = off?.id === I.ENDER_PEARL && mainIdle;
+    if (held?.id === I.FIREWORK_ROCKET && input.usePressed && !me.dead && (player.gliding || !t)) { if (player.gliding) player.rocketT = 10 * ((held.fl ?? 1) + 1) + Math.floor(Math.random() * 6) + Math.floor(Math.random() * 7); session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
+    const pearlMain = held?.id === I.ENDER_PEARL || held?.id === I.EXPERIENCE_BOTTLE || (held?.id === I.EYE_OF_ENDER && !(t && blockId(world.getBlock(t.x, t.y, t.z)) === CB.END_PORTAL_FRAME)), pearlOff = off?.id === I.ENDER_PEARL && mainIdle;
     if ((pearlMain || pearlOff) && input.usePressed && !tInteractive && !me.dead) { session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
     const bow = held?.id === I.BOW;
     const xbow = held?.id === I.CROSSBOW;

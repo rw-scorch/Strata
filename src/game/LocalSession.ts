@@ -59,7 +59,7 @@ export class LocalSession implements GameSession {
       if (state.end) this.sim.endState = { ...freshEndState(), ...state.end };
       for (const [k, be] of state.blockEntities) {
         this.sim.blockEntities.set(k, be);
-        if (be.type === 'furnace') this.sim.activeFurnaces.add(k);
+        if (be.type === 'furnace' || be.type === 'campfire') this.sim.activeFurnaces.add(k);
       }
     }
     const p = newPlayer('local', name, meta.mode, this.sim.spawn);
@@ -67,7 +67,7 @@ export class LocalSession implements GameSession {
     p.op = true;
     if (state?.player) {
       const s = state.player;
-      Object.assign(p, { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, mode: s.mode, health: s.health, food: s.food, sat: s.sat, air: s.air, xp: s.xp, dead: s.dead, spawn: s.spawn, peakY: s.y });
+      Object.assign(p, { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, mode: s.mode, health: s.health, food: s.food, sat: s.sat, air: s.air, xp: s.xp, dead: s.dead, spawn: s.spawn, anchor: s.anchor, peakY: s.y });
       p.inv = sanitizeInv(s.inv);
       this.flying = s.flying;
       if (s.homes) p.homes = s.homes;
@@ -256,7 +256,7 @@ export class LocalSession implements GameSession {
     this.playStart = now;
     this.meta.mode = this.me.mode;
     await WorldStorage.saveState(this.meta, {
-      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, flying: this.flying, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, homes: p.homes, back: p.back },
+      player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, flying: this.flying, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, anchor: p.anchor, homes: p.homes, back: p.back },
       time: this.sim.time, weather: this.sim.weather, weatherTimer: this.sim.weatherTimer, spawn: this.sim.spawn, end: this.sim.endState,
       blockEntities: [...this.sim.blockEntities.entries()], beChunks: [...this.beChunks], mobs,
       dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
