@@ -1,12 +1,12 @@
 import type { ItemStack, PlayerInv } from '../inventory';
 import { armorPoints } from '../inventory';
 
-const SWORD_DMG = [4, 5, 6, 4, 7];
-const AXE_DMG = [7, 9, 9, 7, 9];
-const PICK_DMG = [2, 3, 4, 2, 5];
-const SHOVEL_DMG = [2.5, 3.5, 4.5, 2.5, 5.5];
-const AXE_SPD = [0.8, 0.8, 0.9, 1.0, 1.0];
-const HOE_SPD = [1, 2, 3, 1, 4];
+export const SWORD_DMG = [4, 5, 6, 4, 7, 8];
+export const AXE_DMG = [7, 9, 9, 7, 9, 10];
+export const PICK_DMG = [2, 3, 4, 2, 5, 6];
+export const SHOVEL_DMG = [2.5, 3.5, 4.5, 2.5, 5.5, 6.5];
+export const AXE_SPD = [0.8, 0.8, 0.9, 1.0, 1.0, 1.0];
+export const HOE_SPD = [1, 2, 3, 1, 4, 4];
 
 export interface AttackStats { damage: number; speed: number; sword: boolean; axe: boolean; spear?: boolean; mace?: boolean; reach?: number; wear: number }
 
@@ -28,7 +28,7 @@ export function attackRange(stats: AttackStats, creative: boolean): number { ret
 
 export function attackStats(stack: ItemStack | null): AttackStats {
   const id = stack?.id ?? 0;
-  if (id >= 300 && id < 325) {
+  if (id >= 300 && id < 330) {
     const m = Math.floor((id - 300) / 5), t = (id - 300) % 5;
     switch (t) {
       case 0: return { damage: PICK_DMG[m], speed: 1.2, sword: false, axe: false, wear: 2 };
@@ -66,8 +66,8 @@ export function scaledDamage(base: number, charge: number): number {
 export function armorReduce(inv: PlayerInv, amount: number, toughness = 0, breach = 0): number {
   const armor = Math.min(20, armorPoints(inv));
   if (armor <= 0) return amount;
-  const eff = Math.min(20, Math.max(armor / 5, armor - amount / (2 + toughness / 4)));
-  return amount * (1 - Math.max(0, eff / 25 - 0.15 * breach));
+  const eff = Math.min(20, Math.max(armor / 5, armor - amount / (2 + toughness / 4))) / 25;
+  return amount * (1 - Math.max(0, Math.min(1, eff - 0.15 * breach)));
 }
 
 export function enchantBonus(stack: ItemStack | null, mobType: string | null): number {
@@ -84,6 +84,18 @@ export const WIND_BURST = [0, 1.2, 1.75, 2.2];
 
 export function armorToughness(inv: PlayerInv): number {
   let t = 0;
-  for (const a of inv.armor) if (a && a.id >= 342 && a.id < 346) t += 2;
+  for (const a of inv.armor) if (a && a.id >= 342 && a.id < 346) t += 2; else if (a && a.id >= 346 && a.id < 350) t += 3;
   return t;
+}
+
+export function knockResist(inv: PlayerInv): number {
+  let k = 0;
+  for (const a of inv.armor) if (a && a.id >= 346 && a.id < 350) k += 0.1;
+  return Math.min(1, k);
+}
+
+export function difficultyDamage(d: number, difficulty: 'peaceful' | 'easy' | 'normal' | 'hard'): number {
+  if (difficulty === 'peaceful') return 0;
+  if (difficulty === 'easy') return Math.min(d / 2 + 1, d);
+  return difficulty === 'hard' ? d * 1.5 : d;
 }

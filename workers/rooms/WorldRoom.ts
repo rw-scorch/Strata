@@ -6,7 +6,7 @@ import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator, type GeneratedChunk } from '../../src/core/worldgen/WorldGenerator';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
-import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot, entTypeCode, EndState, freshEndState } from '../../src/core/sim/WorldSim';
+import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot, entTypeCode, entExtra, EndState, freshEndState } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
 import { Minigame } from '../../src/core/labs/minigames/Minigame';
 import { isArenaKind } from '../../src/core/labs/minigames/arena';
@@ -245,6 +245,7 @@ export class WorldRoom extends DurableObject<Env> {
         } catch { /* skip corrupt */ }
       }
       this.loadPersistentMobs();
+      this.loadFixtures();
       this.loaded = true;
     }
     const cx = Math.floor(spawn.x / 16), cz = Math.floor(spawn.z / 16);
@@ -495,8 +496,8 @@ export class WorldRoom extends DurableObject<Env> {
         if (!done) {
           for (const e of g.entities) {
             const wx = cx * 16 + e.x, wz = cz * 16 + e.z;
-            this.sim.addGeneratedChest(wx, e.y, wz, e.items, e.type, e.mob);
-            if (e.type !== 'mob') this.dirtyBE.add(posKey(wx, e.y, wz));
+            this.sim.addGeneratedChest(wx, e.y, wz, e.items, e.type, e.mob, e.face);
+            if (e.type !== 'mob' && e.type !== 'frame') this.dirtyBE.add(posKey(wx, e.y, wz));
           }
           this.sql.exec(`INSERT OR REPLACE INTO genbe (k) VALUES (?)`, k);
         }
@@ -552,6 +553,7 @@ export class WorldRoom extends DurableObject<Env> {
       this.dirtyBE.clear();
       for (const p of this.sim.players.values()) this.savePlayer(p);
       this.savePersistentMobs();
+      this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('fixtures', ?)`, JSON.stringify(this.sim.fixtures()));
     }
     this.saveMeta();
     this.lastFlush = Date.now();
@@ -562,6 +564,12 @@ export class WorldRoom extends DurableObject<Env> {
     const out: number[][] = [];
     for (const e of this.sim.entities.values()) if (e.type === 'shellward' && out.length < 4000) out.push([Math.round(e.x * 10) / 10, Math.round(e.y * 10) / 10, Math.round(e.z * 10) / 10, Math.ceil(e.health), e.att ?? 3]);
     this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('pmobs', ?)`, JSON.stringify(out));
+  }
+
+  private loadFixtures(): void {
+    const row = this.sql.exec(`SELECT v FROM kv WHERE k = 'fixtures'`).toArray()[0];
+    if (!row || !this.sim) return;
+    try { this.sim.loadFixtures(JSON.parse(row.v as string)); } catch { /* corrupt */ }
   }
 
   private loadPersistentMobs(): void {
@@ -1355,7 +1363,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.pumpT = null;
     this.joinQueue = [];
     for (const t of ['chunks', 'be', 'genbe', 'genlv', 'gcache']) this.sql.exec(`DELETE FROM ${t}`);
-    for (const k of ['spawn', 'genpts', 'oreSeed', 'countdown', 'pmobs']) this.sql.exec(`DELETE FROM kv WHERE k = ?`, k);
+    for (const k of ['spawn', 'genpts', 'oreSeed', 'countdown', 'pmobs', 'fixtures']) this.sql.exec(`DELETE FROM kv WHERE k = ?`, k);
     m.end = undefined;
     for (const row of this.sql.exec(`SELECT id, data FROM players`).toArray()) {
       let d: Record<string, unknown>;
@@ -1377,6 +1385,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (!s.pid || !this.sim) return;
     const p = this.sim.players.get(s.pid);
     if (p) {
+      this.sim.combatLog(p);
       this.sim.removePlayer(s.pid);
       this.savePlayer(p);
     }
@@ -1569,7 +1578,7 @@ export class WorldRoom extends DurableObject<Env> {
 
   private entRow(e: Entity): number[] {
     const type = entTypeCode(e);
-    return [e.id, ENT_KIND[e.kind], type, q2(e.x), q2(e.y), q2(e.z), Math.round(e.yaw * 100) / 100, e.flags, e.kind === 'item' ? e.item!.count : Math.ceil(e.health)];
+    return [e.id, ENT_KIND[e.kind], type, q2(e.x), q2(e.y), q2(e.z), Math.round(e.yaw * 100) / 100, e.flags, entExtra(e)];
   }
 
   private flushEntities(): void {

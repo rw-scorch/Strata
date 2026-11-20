@@ -334,6 +334,30 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - Arrows: textured from the pack's arrow entity texture with the Java cross-plane model, tilt along their flight path, slow sharply in water, catch fire in lava or fire, light TNT when burning, press wooden buttons, fall when the block holding them breaks, and stay stuck for a minute.
   - Inventory: no tooltip on every tap, long press (550 ms) shows the tooltip and only splits a stack when the cursor is empty, releasing a long press with a held stack places all of it, and the hotbar only redraws slots that changed.
   - Everyone can use /spawn and /sethome. Operators can run `/countdown <time> [label]` (shown to all players at the top of the screen, `/countdown cancel` to stop). The owner can run `/resetworld <time> confirm` or use World settings > Refresh world: when the timer ends the map gets a new seed and every build, chest, home, bed and spawn point is wiped, while money, inventories, XP and the shop are kept. Players are sent back into the new world automatically.
+- **v42 Ironclad Ledger (combat, frames and carts):**
+  - Combat now follows the Java numbers. Netherite tools are in the weapon table: sword 8, axe 10, pickaxe 6, shovel 6.5. Before, they hit like a bare hand.
+  - Armour uses the Java formula with toughness: diamond adds 2 per piece and netherite adds 3. Each netherite piece also gives 10% knockback resistance. Breach lowers armour effectiveness by 15% per level.
+  - Damage scales with difficulty as in Java: Easy is half plus one (never more than Normal), and Hard is 1.5 times.
+  - Mob damage on Normal matches Java: Piglin 8 (golden sword), Piglin Brute 13, Zombified Piglin 8, and Hoglin and Zoglin hit for a random 3 to 8. Skeleton arrows use the Java formula, about 3 to 5 on Normal.
+  - Fire Protection and Projectile Protection now cover Blaze and Ghast fireballs.
+  - Item Frames and Glow Item Frames hang on walls, floors and ceilings. Put any item in one, use it again to turn the item (8 steps), and hit it to take the item out. A frame drops if its block is removed or it is caught in an explosion. Glow frames show their item at full brightness. Glow Ink Sacs are sold in the Rare shop.
+  - End ships now hang their Elytra in an item frame, as in Java, instead of keeping it in the chest.
+  - New Minecarts with Hopper and with Chest. Open them to see their cargo. A hopper minecart draws items from a container above the track and gathers items it rolls over, and a powered Activator Rail switches it off. Hoppers fill carts beside or below them and empty carts that stop above them. Breaking a cart drops it with its cargo.
+  - Item frames and every minecart are now saved with the world. Before, placed carts were lost on reload.
+  - Teleports (/home, /spawn, /back, /tp, /tpa) have a 3 second warm-up. Moving or taking damage cancels it.
+  - Combat timer: taking or dealing player damage, or being hit by a mob, puts you in combat for 15 seconds. You cannot teleport while in combat, and leaving a server while in combat kills you and drops your items where you stood. Change these with `/gamerule teleportdelay <seconds>` and `/gamerule combattimer <seconds>` (0 turns either off).
+  - The new Sovereign Console (pause menu, for admins and single player) gives one-tap admin tools. Max enchant gives the held item every compatible enchantment at its top level, with Sharpness, Protection, Fortune and Mending chosen over the options they exclude. It also has Repair, Heal and feed, game mode, time and weather buttons, and the teleport warm-up and combat timer settings. The matching commands are `/enchantmax`, `/repair` and `/heal`.
+  - Protocol 36: older clients are asked to reload.
+- **v41.1 End fixes:**
+  - The Ender Dragon now has Java-style body parts: head, neck, body, three tail segments and two wings, matching its model. Before, only a small box around its middle could be hit, so swings at the head or tail and arrows at its body went through it.
+  - Damage follows Java: hits to the head do full damage, hits anywhere else do a quarter plus one. Arrows bounce off a perched dragon. It takes off once it has lost a quarter of its health while perched (50, not 25).
+  - Contact follows Java too. The head and neck bite for 10 (scaled by difficulty). The wings push players away, gently and less the further you are, and only hurt (5) while it is flying. They no longer fling everyone near its body every half second. It pauses all of this briefly after being hit, as in Java, so you can melee a perched dragon from the side.
+  - It breaks blocks with its whole body and wings, and Respawn Anchors are now dragon-proof.
+  - Dragon's breath clouds from fireballs grow from 3 to 7 blocks over 30 seconds (Java values). The perched breath attack makes a 5-block cloud in front of its head. Breath now hurts mobs as well as players, apart from undead mobs.
+  - The first kill gives 12,000 experience and later kills 500, shared among the players who fought, as in Java.
+  - The dragon's health is saved with the world, so a server restart mid-fight no longer heals it.
+  - Endermen in the End were taking damage whenever it rained in the Overworld. Rain, lightning, cauldron filling and undead sunburn now only happen in the Overworld.
+  - Ender Pearls thrown through an End Gateway now carry you through it, as in Java. Nether portals cannot be lit in the End and do nothing there.
 - **v41 Ashen Reaches (the Nether biome update):**
   - New Nether chunks generate at world level 15. Old chunks and old worlds generate exactly as before.
   - Crimson and Warped Forests grow huge fungi using Java's shape rules: 4 to 13 blocks tall (sometimes double), an occasional thick 3x3 stem, wart caps with shroomlights, and weeping vines under crimson caps. Bone meal on a fungus standing on its own nylium grows one 40 percent of the time. Bone meal on nylium sprouts roots and fungi (plus sprouts and twisting vines on warped nylium), turns netherrack next to nylium into nylium, and lengthens weeping and twisting vines.
@@ -646,6 +670,7 @@ What has been run:
 - `scripts/v16-smoke.mjs <server>`: places a lever, Emberdust and a lamp through the server and checks the lamp turns on and off.
 - `scripts/v18-smoke.mjs <server>`: checks piston animation data, slab placement and stacking, a powered Thunder Keg becoming a lit entity and exploding, and that player updates carry health.
 - `scripts/v23-smoke.mjs <server>`: builds an obsidian frame, lights it with Flint and Steel, travels to the Nether region and back to the same portal.
+- `scripts/v42-smoke.mjs <server>`: checks old clients are refused, the teleport warm-up, `/enchantmax` and the new items.
 - `scripts/v41-smoke.mjs <server>`: checks old clients are refused, Nether travel at generation level 15, chunk streaming and the new items.
 - `scripts/v40-smoke.mjs <server>`: checks old clients are refused, `/tp ... end` and back, End chunks streaming, and that the dragon and crystals appear.
 - `scripts/v391-smoke.mjs <server>`: checks /sethome and /spawn for guests, countdown permissions and broadcast, and a full world refresh (seed changes, homes cleared, players can rejoin).

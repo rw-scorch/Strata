@@ -137,6 +137,7 @@ export interface PauseActions {
   room?(): void;
   shaper?(): void;
   mischief?(): void;
+  admin?(): void;
   blueprints?(): void;
   waypoints?(): void;
   packs(): void;
@@ -159,7 +160,7 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
       row(a.invite ? mcButton('Invite Friends', () => a.invite!(), 98) : null, a.players ? mcButton('Players', () => a.players!(), 98) : null),
       row(a.room ? mcButton('World Settings', () => a.room!(), 98) : null, a.shaper ? mcButton('World Shaper', () => a.shaper!(), 98) : null),
       row(a.blueprints ? mcButton('Blueprints', () => a.blueprints!(), a.waypoints ? 98 : 204) : null, a.waypoints ? mcButton('Waypoints', () => a.waypoints!(), a.blueprints ? 98 : 204) : null),
-      a.mischief ? mcButton('Mischief Console', () => a.mischief!(), 204) : null,
+      row(a.admin ? mcButton('Sovereign Console', () => a.admin!(), a.mischief ? 98 : 204) : null, a.mischief ? mcButton('Mischief Console', () => a.mischief!(), a.admin ? 98 : 204) : null),
       a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
       row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
       a.datapacks ? mcButton('Data Packs...', () => a.datapacks!(), 204) : null,
@@ -335,6 +336,35 @@ export function showDeath(root: HTMLElement, msg: string, onRespawn: () => void,
   );
   root.appendChild(el);
   return () => el.remove();
+}
+
+export function showSovereign(run: (cmd: string) => void, held: () => string | null, rules: () => { tpDelay?: number; combatTime?: number }): void {
+  const heldLine = h('div', { class: 'small muted' });
+  const refresh = () => { const n = held(); heldLine.textContent = n ? `Holding: ${n}` : 'Holding nothing'; };
+  refresh();
+  const act = (label: string, cmd: string, kind = '') => h('button', { class: `btn small ${kind}`, onclick: () => { run(cmd); setTimeout(refresh, 300); } }, label);
+  const pickRow = (title: string, rule: string, cur: number, opts: [number, string][]) => {
+    const seg = h('div', { class: 'segmented' });
+    let val = cur;
+    const draw = () => { clear(seg); for (const [v, l] of opts) seg.appendChild(h('button', { class: v === val ? 'on' : '', onclick: () => { val = v; run(`/gamerule ${rule} ${v}`); draw(); } }, l)); };
+    draw();
+    return h('div', { class: 'stack' }, h('div', { class: 'small' }, title), seg);
+  };
+  const r = rules();
+  const body = h('div', { class: 'stack' },
+    h('div', { class: 'small muted' }, 'Admin tools for this world. Every button runs a command you can also type in chat.'),
+    h('div', { class: 'section-title' }, 'Held item'),
+    heldLine,
+    h('div', { class: 'row wrap' }, act('Max enchant', '/enchantmax', 'primary'), act('Repair', '/repair')),
+    h('div', { class: 'section-title' }, 'You'),
+    h('div', { class: 'row wrap' }, act('Heal and feed', '/heal'), act('Survival', '/gamemode survival'), act('Creative', '/gamemode creative')),
+    h('div', { class: 'section-title' }, 'World'),
+    h('div', { class: 'row wrap' }, act('Day', '/time set day'), act('Night', '/time set night'), act('Clear skies', '/weather clear'), act('Rain', '/weather rain')),
+    h('div', { class: 'section-title' }, 'Teleports and combat'),
+    pickRow('Teleport warm-up', 'teleportdelay', r.tpDelay ?? 3, [[0, 'Instant'], [3, '3s'], [5, '5s'], [10, '10s']]),
+    pickRow('Combat timer (blocks teleports, logging out kills)', 'combattimer', r.combatTime ?? 15, [[0, 'Off'], [10, '10s'], [15, '15s'], [30, '30s']]),
+  );
+  modal('Sovereign Console', body, [{ label: 'Close', kind: 'primary' }]);
 }
 
 export function showMischief(names: () => string[], me: string, run: (cmd: string) => void, aim?: () => [number, number, number] | null): void {

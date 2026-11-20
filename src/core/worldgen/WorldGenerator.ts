@@ -26,7 +26,7 @@ export interface Column {
   wlv?: number;
 }
 
-export interface GenBlockEntity { x: number; y: number; z: number; type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob'; items: (ItemStack | null)[]; mob?: string; }
+export interface GenBlockEntity { x: number; y: number; z: number; type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob' | 'frame'; items: (ItemStack | null)[]; mob?: string; face?: number; }
 export interface GeneratedChunk { blocks: Uint32Array; entities: GenBlockEntity[]; special?: boolean; }
 export interface GenOptions { secret?: number | null; climate?: number; studio?: boolean; }
 export const STUDIO_FLOOR = 6, STUDIO_PLOT = 64;

@@ -17,7 +17,7 @@ function retryDelay(n: number): number {
 }
 
 const FATAL = new Set(['kicked', 'banned', 'auth', 'version', 'unavailable', 'full', 'duplicate']);
-const KIND = ['mob', 'item', 'arrow', 'tnt', 'cart', 'fireball'] as const;
+const KIND = ['mob', 'item', 'arrow', 'tnt', 'cart', 'fireball', 'frame'] as const;
 
 export function wsURL(code: string): string {
   const base = import.meta.env.VITE_SERVER_URL as string | undefined;

@@ -43,7 +43,7 @@ export interface PackManifest {
 }
 
 
-export const IMPORTER_VERSION = 29;
+export const IMPORTER_VERSION = 30;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -407,7 +407,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       for (const t of extra[b.key] ?? []) needTex.add(t);
       if (b.render === 'boxes' || b.id >= 1024) for (const f of new Set([...Object.values(b.faces), b.front].filter(Boolean) as string[])) needTex.add(`block/${f}`);
     }
-    for (const t of [...RS6_TEX, ...CAVE_TEX, 'chorus_flower_dead', 'end_portal_frame_eye', 'campfire_log_lit', 'campfire_fire', 'soul_campfire_log_lit', 'soul_campfire_fire', 'respawn_anchor_side1', 'respawn_anchor_side2', 'respawn_anchor_side3', 'respawn_anchor_side4', 'respawn_anchor_top']) needTex.add(`block/${t}`);
+    for (const t of [...RS6_TEX, ...CAVE_TEX, 'chorus_flower_dead', 'end_portal_frame_eye', 'campfire_log_lit', 'campfire_fire', 'soul_campfire_log_lit', 'soul_campfire_fire', 'respawn_anchor_side1', 'respawn_anchor_side2', 'respawn_anchor_side3', 'respawn_anchor_side4', 'respawn_anchor_top', 'item_frame', 'glow_item_frame']) needTex.add(`block/${t}`);
     for (let i = 0; i < 10; i++) needTex.add(`block/destroy_stage_${i}`);
     for (const k of ['grass_block_top', 'grass_block_side', 'grass_block_side_overlay', 'grass_block_snow', 'farmland_moist']) needTex.add(`block/${k}`);
     const itemModelNames = new Map<string, string>();

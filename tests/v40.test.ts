@@ -55,7 +55,7 @@ describe('v40 the End: terrain', () => {
     for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) {
       const r = g.generate(Math.floor((END_X + city!.x) / 16) + i, Math.floor(city!.z / 16) + j);
       for (const v of r.blocks) if (v) counts.set(bid(v), (counts.get(bid(v)) ?? 0) + 1);
-      for (const e of r.entities) ents.push(e.type === 'chest' && e.items.some((s) => s?.id === I.ELYTRA) ? 'elytra' : `${e.type}:${e.mob ?? ''}`);
+      for (const e of r.entities) ents.push((e.type === 'chest' || e.type === 'frame') && e.items.some((s) => s?.id === I.ELYTRA) ? 'elytra' : `${e.type}:${e.mob ?? ''}`);
     }
     expect(counts.get(CB.PURPUR_BLOCK)).toBeGreaterThan(400);
     expect(ents.filter((e) => e === 'mob:shellward').length).toBeGreaterThan(3);
@@ -179,7 +179,8 @@ describe('v40 the End: dragon fight', () => {
     const d = kinds(sim, 'voidwyrm')[0];
     for (const c of kinds(sim, 'riftcore')) sim.hurtMob(c, 1, p.id, 0, 0);
     d.phase = 'perch';
-    sim.hurtMob(d, 500, p.id, 0, 0);
+    run(15);
+    sim.hurtMob(d, 2000, p.id, 0, 0);
     expect(d.phase).toBe('dying');
     run(220);
     expect(kinds(sim, 'voidwyrm')).toHaveLength(0);

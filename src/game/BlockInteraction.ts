@@ -70,7 +70,7 @@ export class BlockInteraction {
     if ((held?.id ?? 0) !== this.seenId) { this.seenId = held?.id ?? 0; this.strengthT = performance.now(); }
     const jabReady = !spear || attackCharge(performance.now() - Math.max(this.lastSwing, this.strengthT), attackStats(held).speed) >= 1;
     const entReach = attackRange(attackStats(held), creative);
-    let ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, entReach, (v) => v.kind === 'mob' || v.kind === 'cart' || (v.kind === 'fireball' && !(v.flags & 1)) || (v.kind === 'player' && v.id !== 'me' && !(v.flags & (1 << 14))));
+    let ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, entReach, (v) => v.kind === 'mob' || v.kind === 'cart' || v.kind === 'frame' || (v.kind === 'fireball' && !(v.flags & 1)) || (v.kind === 'player' && v.id !== 'me' && !(v.flags & (1 << 14))));
     if (ent && spear && ent.dist < SPEAR_MIN) ent = null;
     const entityFirst = ent && (!hit || ent.dist < hit.dist);
     this.entityTarget = entityFirst ? ent!.view : null;
@@ -78,7 +78,7 @@ export class BlockInteraction {
 
     const tdef = this.entityTarget?.kind === 'mob' ? MOB_BY_CODE[this.entityTarget.type] : undefined;
     const strider = tdef?.type === 'lavastrider' && !!this.entityTarget && (held?.id === I.SADDLE || (this.entityTarget.flags & 64) !== 0);
-    const lure = strider || (held?.id === I.NAME_TAG && !!held.nm) || this.entityTarget?.kind === 'cart' || !!tdef?.trader || (held ? !!tdef?.lure?.includes(held.id) : false);
+    const lure = strider || (held?.id === I.NAME_TAG && !!held.nm) || this.entityTarget?.kind === 'cart' || this.entityTarget?.kind === 'frame' || !!tdef?.trader || (held ? !!tdef?.lure?.includes(held.id) : false);
     if (this.entityTarget && lure && input.usePressed && this.useCd <= 0) {
       session.useEntity(this.entityTarget.id);
       this.useCd = 0.3;
@@ -90,7 +90,7 @@ export class BlockInteraction {
     this.charging = spear && input.using && !me.dead && !lure && !t0Interactive;
     if (this.entityTarget && jabReady && (input.attackPressed || (input.usePressed && input.touchAim)) && this.attackCd <= 0) {
       const v = this.entityTarget;
-      if (v.kind === 'mob' || v.kind === 'cart' || v.kind === 'fireball') session.attack(v.id);
+      if (v.kind === 'mob' || v.kind === 'cart' || v.kind === 'frame' || v.kind === 'fireball') session.attack(v.id);
       else if (this.pvpCheck?.() && !(v.extra & 256)) session.attackPlayer(v.id.replace(/^p:/, ''));
       this.attackCd = 0.05;
       this.lastSwing = performance.now();

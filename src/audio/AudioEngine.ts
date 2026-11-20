@@ -300,6 +300,11 @@ export class AudioEngine {
         if (sub === 'charge') { this.tone(dest, t, 180, 'sawtooth', { a: 0.02, d: 0.5, v: 0.16 }, 420, 8); this.noiseHit(dest, t, 900, 2, 'bandpass', { a: 0.02, d: 0.4, v: 0.2 }); }
         else { this.tone(dest, t, 220, 'sine', { a: 0.05, d: 1.2, v: 0.25 }, 330, 4); this.tone(dest, t + 0.1, 440, 'triangle', { a: 0.05, d: 0.9, v: 0.08 }); }
         break;
+      case 'frame':
+        if (sub === 'rotate') this.noiseHit(dest, t, 1600 * rnd(), 5, 'bandpass', { a: 0.002, d: 0.07, v: 0.3 });
+        else if (sub === 'add' || sub === 'remove') { this.noiseHit(dest, t, (sub === 'add' ? 1100 : 900) * rnd(), 3, 'bandpass', { a: 0.003, d: 0.12, v: 0.35 }); this.tone(dest, t, sub === 'add' ? 520 : 420, 'triangle', { a: 0.003, d: 0.08, v: 0.08 }); }
+        else { const m = MATERIAL.wood ?? MATERIAL.stone; this.noiseHit(dest, t, m.f * rnd() * (sub === 'break' ? 1 : 0.8), m.q, m.type, { a: 0.004, d: m.dur, v: sub === 'break' ? 0.5 : 0.4 }); }
+        break;
       case 'lodestone': this.tone(dest, t, 660, 'sine', { a: 0.005, d: 0.6, v: 0.2 }, 990); this.noiseHit(dest, t, 3000, 4, 'bandpass', { a: 0.002, d: 0.1, v: 0.15 }); break;
       case 'explode': {
         this.noiseHit(dest, t, 900, 0.5, 'lowpass', { a: 0.003, d: 0.5, v: 1 }, 0.3);

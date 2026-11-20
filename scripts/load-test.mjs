@@ -18,7 +18,7 @@ function bot(i) {
     const ws = new WebSocket(`${wsBase}/ws/${room.code}`);
     const st = { x: 0, y: 90, z: 0, ready: false, start: Date.now() };
     const send = (m) => { if (ws.readyState === 1) ws.send(JSON.stringify(m)); };
-    ws.onopen = () => send({ t: 'hello', v: 35, id, secret, name: `Bot${i}`, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
+    ws.onopen = () => send({ t: 'hello', v: 36, id, secret, name: `Bot${i}`, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
     ws.onmessage = (e) => {
       msgsIn++;
       const m = JSON.parse(e.data);

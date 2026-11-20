@@ -248,7 +248,8 @@ export class EndGen {
     box(sx + 2, sy, sz - 3, sx + 8, sy + 5, sz + 3, P, 0, P);
     for (let y = sy + 1; y <= sy + 2; y++) put(sx + 8, y, sz, 0);
     put(sx + 8, sy + 3, sz, GL);
-    chest(sx + 3, sy + 1, sz, [...shipLoot(r)]);
+    chest(sx + 3, sy + 1, sz, cityLoot(r));
+    { const X = c.x + sx + 2, Z = c.z + sz; if (inC(X, Z)) entities.push({ x: X - bx, y: c.y + sy + 3, z: Z - bz, type: 'frame', items: [{ id: I.ELYTRA, count: 1 }], face: 0 }); }
     chest(sx + 4, sy - 2, sz + 2, cityLoot(r));
     put(sx + 26, sy + 1, sz, makeBlock(CB.DRAGON_HEAD, 0));
     mob(sx + 6, sy + 1, sz + 2, 'shellward');
@@ -334,9 +335,4 @@ export function cityLoot(r: Rng): (ItemStack | null)[] {
   return items;
 }
 
-function shipLoot(r: Rng): (ItemStack | null)[] {
-  const items = cityLoot(r);
-  items[13] = { id: I.ELYTRA, count: 1 };
-  return items;
-}
 

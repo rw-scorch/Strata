@@ -118,6 +118,10 @@ shaped('detector_rail', 'decor', B.DETECTOR_RAIL, 6, ['I I', 'IPI', 'IRI'], { I:
 shaped('activator_rail', 'decor', B.ACTIVATOR_RAIL, 6, ['ISI', 'ITI', 'ISI'], { I: I.IRON_INGOT, S: I.STICK, T: B.REDSTONE_TORCH });
 shaped('minecart', 'tools', I.MINECART, 1, ['I I', 'III'], { I: I.IRON_INGOT });
 shapeless('tnt_minecart', 'combat', I.TNT_MINECART, 1, [I.MINECART, B.TNT]);
+shapeless('hopper_minecart', 'tools', I.HOPPER_MINECART, 1, [I.MINECART, B.HOPPER]);
+shapeless('chest_minecart', 'tools', I.CHEST_MINECART, 1, [I.MINECART, B.CHEST]);
+shaped('item_frame', 'decor', I.ITEM_FRAME, 1, ['SSS', 'SLS', 'SSS'], { S: I.STICK, L: I.LEATHER });
+shapeless('glow_item_frame', 'decor', I.GLOW_ITEM_FRAME, 1, [I.ITEM_FRAME, I.GLOW_INK_SAC]);
 shaped('crossbow', 'combat', I.CROSSBOW, 1, ['SIS', 'THT', ' S '], { S: I.STICK, I: I.IRON_INGOT, T: I.STRING, H: I.TRIPWIRE_HOOK });
 shaped('tripwire_hook', 'tools', I.TRIPWIRE_HOOK, 2, ['I', 'S', 'P'], { I: I.IRON_INGOT, S: I.STICK, P: 'planks' });
 shaped('mace', 'combat', I.MACE, 1, ['B', 'S'], { B: B.IRON_BLOCK, S: I.STICK });

@@ -28,7 +28,7 @@ import type { S2C } from '../core/protocol';
 import { money } from '../core/economy';
 import { setTooltipBook } from '../ui/mc/Gui';
 import { BASE_BOOK } from '../core/crafting';
-import { ChatUI, showPause, showInvite, showPlayers, showRoomSettings, showShaper, showDeath, showMischief } from '../ui/GameUI';
+import { ChatUI, showPause, showInvite, showPlayers, showRoomSettings, showShaper, showDeath, showMischief, showSovereign } from '../ui/GameUI';
 import { h, toast, modal } from '../ui/dom';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
@@ -894,6 +894,7 @@ export class Game {
       economy: !local && this.room?.settings.economy !== false ? (cmd: string) => { this.resume(); this.session.chat(cmd); } : undefined,
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
+      admin: local || remote.me.op ? () => showSovereign((c) => this.session.chat(c), () => { const s = heldStack(this.session.me.inv); return s ? getItem(s.id)?.name ?? null : null; }, () => this.rulesState ?? {}) : undefined,
       mischief: local || remote.me.op ? () => showMischief(() => (local ? [this.session.me.name] : [...remote.players.values()].map((q) => q.name)), this.session.me.name, (c) => this.session.chat(c), () => this.aimFar()) : undefined,
       blueprints: !this.session.info.arena ? () => this.openBlueprints() : undefined,
       waypoints: this.minimap ? () => { this.closePause?.(); this.minimap?.openBig(); } : undefined,
@@ -980,7 +981,7 @@ export class Game {
   // ---- SessionEvents ----
   private onBlock(): void { /* chunk data is updated by the store */ }
 
-  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
+  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
     this.renderer?.entities.upsert(id, kind, type, x, y, z, yaw, 0, flags, extra, performance.now());
   }
 

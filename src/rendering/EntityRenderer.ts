@@ -1,3 +1,4 @@
+import { dragonParts, rayPart } from '../core/sim/dragon';
 import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
 import { PROFESSIONS } from '../core/trades';
@@ -306,7 +307,7 @@ export interface EntityView {
   peekS?: number;
   cage?: boolean;
   id: string;
-  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'player';
+  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame' | 'player';
   type: number;
   obj: THREE.Group;
   parts: Map<string, THREE.Object3D>;
@@ -509,6 +510,55 @@ export class EntityRenderer {
     const m = this.material(this.atlas.iconTexture);
     obj.add(new THREE.Mesh(g, m));
     return { obj, mats: [m] };
+  }
+
+  private frameModel(glow: boolean, item: number, face: number, rot: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[] } {
+    const d = this.atlas.data, sp = d.special;
+    const m = this.material(this.atlas.texture);
+    const wood = d.blockTiles[B.BIRCH_PLANKS * FACE_SLOTS], back = sp[glow ? 'glow_item_frame' : 'item_frame'] ?? wood;
+    const inner = new THREE.Group();
+    const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tile: number) => {
+      const g = new THREE.BoxGeometry((x1 - x0) / 16, (y1 - y0) / 16, (z1 - z0) / 16);
+      g.translate((x0 + x1) / 32 - 0.5, (y0 + y1) / 32 - 0.5, (z0 + z1) / 32);
+      const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+      const tx = tile % d.cols, ty = Math.floor(tile / d.cols);
+      for (let f = 0; f < 6; f++) {
+        const [ua, ub] = f < 2 ? [z0, z1] : [x0, x1];
+        const [va, vb] = f === 2 || f === 3 ? [z0, z1] : [y0, y1];
+        for (let k = 0; k < 4; k++) {
+          const i = f * 4 + k;
+          uv.setXY(i, (tx + (ua + (ub - ua) * uv.getX(i)) / 16) / d.cols, (ty + 1 - (va + (vb - va) * uv.getY(i)) / 16) / d.rows);
+        }
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 3).fill(1), 3));
+      inner.add(new THREE.Mesh(g, m));
+    };
+    box(3, 3, 0, 13, 13, 0.5, back);
+    box(2, 2, 0, 14, 3, 1, wood); box(2, 13, 0, 14, 14, 1, wood);
+    box(2, 3, 0, 3, 13, 1, wood); box(13, 3, 0, 14, 13, 1, wood);
+    const mats = [m];
+    if (item) {
+      const it = this.itemModel(item);
+      const block = getItem(item)?.kind === 'block' && getItem(item)?.blockIcon;
+      const holder = new THREE.Group();
+      holder.rotation.z = -rot * Math.PI / 4;
+      if (block) { it.obj.scale.setScalar(0.5 / 0.26); it.obj.position.z = 1 / 16 + 0.25; it.obj.rotation.y = Math.PI / 4; }
+      else { it.obj.scale.setScalar(0.5 / 0.42); it.obj.position.z = 1 / 16 + 0.005; }
+      holder.add(it.obj);
+      inner.add(holder);
+      mats.push(...it.mats);
+    }
+    const orient = new THREE.Group();
+    if (face === 0) orient.rotation.y = Math.PI / 2;
+    else if (face === 1) orient.rotation.y = -Math.PI / 2;
+    else if (face === 2) orient.rotation.x = -Math.PI / 2;
+    else if (face === 3) orient.rotation.x = Math.PI / 2;
+    else if (face === 5) orient.rotation.y = Math.PI;
+    orient.add(inner);
+    const obj = new THREE.Group();
+    orient.position.y = 0.375;
+    obj.add(orient);
+    return { obj, mats };
   }
 
   private equip = new Map<string, number[]>();
@@ -743,6 +793,10 @@ export class EntityRenderer {
       this.removeNow(id);
       v = undefined;
     }
+    if (v && kind === 'frame' && (v.extra !== extra || v.flags !== flags)) {
+      this.removeNow(id);
+      v = undefined;
+    }
     if (v && kind === 'mob' && (v as EntityView & { pb?: number }).pb !== undefined && (v as EntityView & { pb?: number }).pb !== ((flags >> 9) & 15)) {
       this.removeNow(id);
       v = undefined;
@@ -836,6 +890,13 @@ export class EntityRenderer {
           part(0.9, 0.5, 0.08, 0, 0.45, -0.6);
           part(0.9, 0.5, 0.08, 0, 0.45, 0.6);
         }
+        if (type === 2 || type === 3) {
+          const t = this.itemModel(type === 2 ? B.HOPPER : B.CHEST);
+          t.obj.scale.setScalar(0.75 / 0.26);
+          t.obj.position.y = type === 2 ? 0.62 : 0.55;
+          g.add(t.obj);
+          mats.push(...t.mats);
+        }
         if (type === 1) {
           const t = this.itemModel(B.TNT);
           t.obj.scale.setScalar(0.75 / 0.26);
@@ -845,6 +906,9 @@ export class EntityRenderer {
         }
         built = { obj: g, parts: new Map(), mats };
         hw = 0.49; h = 0.7;
+      } else if (kind === 'frame') {
+        built = { ...this.frameModel(type === 1, extra, flags & 7, (flags >> 3) & 7), parts: new Map() };
+        hw = 0.375; h = 0.75;
       } else if (kind === 'fireball') {
         const g = new THREE.Group();
         const m = this.material(null, true);
@@ -984,6 +1048,8 @@ export class EntityRenderer {
         v.bob += dt * 2;
         v.obj.position.y += 0.18 + Math.sin(v.bob) * 0.06;
         v.obj.rotation.y += dt * 1.6;
+      } else if (v.kind === 'frame') {
+        v.obj.rotation.set(0, 0, 0);
       } else if (v.kind === 'arrow' && v.type > 0) {
         v.obj.rotation.set(0, v.age * 0.25, 0);
       } else if (v.kind === 'arrow') {
@@ -1060,6 +1126,7 @@ export class EntityRenderer {
       if (v.lightT <= 0) { v.lightT = (v.kind === 'tnt' ? 1 : 0.25) + Math.random() * 0.1; v.light = this.probe(v.x, v.y + Math.min(1.2, v.h * 0.6), v.z); }
       const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
       for (const m of v.mats) { m.uniforms.uLight.value = Math.max(0.2, v.light); if (!v.dying) m.uniforms.uHurt.value = hurt; }
+      if (v.kind === 'frame' && v.type === 1) for (const m of v.mats) m.uniforms.uLight.value = 1;
       if (v.kind === 'tnt' || v.kind === 'cart') for (const m of v.mats) if (m.uniforms.uWhite) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
@@ -1199,6 +1266,11 @@ export class EntityRenderer {
     let best: { view: EntityView; dist: number } | null = null;
     for (const v of this.views.values()) {
       if (!filter(v) || v.dying || v.cage) continue;
+      if (v.kind === 'mob' && v.type === 19) {
+        const h = rayPart(dragonParts(v.x, v.y, v.z, v.yaw), ox, oy, oz, dx, dy, dz, maxDist);
+        if (h && (!best || h.dist < best.dist)) best = { view: v, dist: h.dist };
+        continue;
+      }
       const pad = v.kind === 'fireball' ? 0.45 : 0;
       const x0 = v.x - v.hw - pad, x1 = v.x + v.hw + pad, y0 = v.y - pad, y1 = v.y + v.h + pad, z0 = v.z - v.hw - pad, z1 = v.z + v.hw + pad;
       let tmin = 0, tmax = maxDist;

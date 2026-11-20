@@ -30,7 +30,7 @@ export interface ItemDef {
 export const I = {
   GLOW_BERRIES: 4096,
   SHIELD: 490, ENDER_PEARL: 491,
-  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500,
+  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505,
   STICK: 256, APPLE: 258, COAL: 260, CHARCOAL: 261, IRON_INGOT: 262, FLINT: 263, AETHERITE: 264,
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
@@ -115,6 +115,11 @@ add({ id: I.SHULKER_SHELL, key: 'shulker_shell', name: 'Shulker Shell', desc: 'T
 add({ id: I.ELYTRA, key: 'elytra', name: 'Elytra', desc: 'Wear in the chest slot, then jump while falling to glide. Fireworks give a boost. Only found aboard End ships.', kind: 'armor', texture: 'elytra', maxStack: 1, durability: 432, armor: { slot: 1, points: 0, durability: 432 }, tab: 'combat' });
 add({ id: I.FIREWORK_ROCKET, key: 'firework_rocket', name: 'Firework Rocket', desc: 'Launch it for a show, or use it while gliding for a burst of speed.', kind: 'material', texture: 'firework_rocket', tab: 'tools' });
 add({ id: I.EXPERIENCE_BOTTLE, key: 'experience_bottle', name: "Bottle o' Enchanting", desc: 'Throw it and it shatters into 3 to 11 experience for whoever is closest.', kind: 'material', texture: 'experience_bottle', tab: 'tools' });
+add({ id: I.ITEM_FRAME, key: 'item_frame', name: 'Item Frame', desc: 'Hang it on a wall, floor or ceiling and set any item in it. Use it again to turn the item.', kind: 'material', texture: 'item_frame', tab: 'functional' });
+add({ id: I.GLOW_ITEM_FRAME, key: 'glow_item_frame', name: 'Glow Item Frame', desc: 'An item frame whose contents shine in the dark.', kind: 'material', texture: 'glow_item_frame', tab: 'functional' });
+add({ id: I.HOPPER_MINECART, key: 'hopper_minecart', name: 'Minecart with Hopper', desc: 'Rolls along rails, drawing items from containers above and gathering items it passes. Hoppers below can empty it. Powered Activator Rails switch it off.', kind: 'material', texture: 'hopper_minecart', maxStack: 1, tab: 'tools' });
+add({ id: I.CHEST_MINECART, key: 'chest_minecart', name: 'Minecart with Chest', desc: 'A rolling chest. Open it to load cargo; hoppers can fill and empty it.', kind: 'material', texture: 'chest_minecart', maxStack: 1, tab: 'tools' });
+add({ id: I.GLOW_INK_SAC, key: 'glow_ink_sac', name: 'Glow Ink Sac', desc: 'Faintly luminous ink. Combine with an Item Frame to make it glow.', kind: 'material', texture: 'glow_ink_sac', tab: 'materials' });
 add({ id: I.DRAGON_BREATH, key: 'dragon_breath', name: "Dragon's Breath", desc: 'Bottled from the purple cloud the Ender Dragon breathes.', kind: 'material', texture: 'dragon_breath', tab: 'materials' });
 add({ id: I.FLINT_AND_STEEL, key: 'firestriker', name: 'Flint and Steel', desc: 'Strike it on TNT to light the fuse.', kind: 'material', texture: 'firestriker', maxStack: 1, durability: 64, tab: 'tools' });
 mat(I.FEATHER, 'feather', 'Feather', 'Plucked from a Chicken. Fletches arrows.');

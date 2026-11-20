@@ -2,7 +2,7 @@ import type { Blueprint } from '../core/blueprint';
 import { localSupporterColor } from '../storage/Settings';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../core/worldgen/genLevel';
 import { ruleSnapshot } from '../core/sim/WorldSim';
-import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity, entTypeCode, freshEndState } from '../core/sim/WorldSim';
+import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity, entTypeCode, entExtra, freshEndState } from '../core/sim/WorldSim';
 import { Minigame, GameState } from '../core/labs/minigames/Minigame';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { MOBS, MobType } from '../core/sim/mobs';
@@ -76,6 +76,7 @@ export class LocalSession implements GameSession {
     p.supporter = localSupporterColor();
     this.me = p;
     this.pendingMobs = state?.mobs ?? [];
+    if (state?.fixtures) this.sim.loadFixtures(state.fixtures);
     this.info = { kind: 'local', name: meta.name, seed: meta.seed, climate: meta.climate, studio: !!meta.studio, mode: p.mode, difficulty: meta.difficulty, spawn: this.sim.spawn, isOwner: true, arena: meta.arena ?? null };
   }
 
@@ -113,7 +114,7 @@ export class LocalSession implements GameSession {
     const k = chunkKey(cx, cz);
     if (this.beChunks.has(k)) return;
     this.beChunks.add(k);
-    for (const e of ents) this.sim.addGeneratedChest(cx * 16 + e.x, e.y, cz * 16 + e.z, e.items, e.type, e.mob);
+    for (const e of ents) this.sim.addGeneratedChest(cx * 16 + e.x, e.y, cz * 16 + e.z, e.items, e.type, e.mob, e.face);
   }
 
   private emitVitals(): void {
@@ -129,7 +130,7 @@ export class LocalSession implements GameSession {
       case 'particles': ev.fx(e.k, e.x, e.y, e.z, e.d); return;
       case 'spawn': {
         const x = e.ent;
-        ev.entity(String(x.id), x.kind, entTypeCode(x), x.x, x.y, x.z, x.yaw, x.flags, x.kind === 'item' ? x.item!.count : x.health);
+        ev.entity(String(x.id), x.kind, entTypeCode(x), x.x, x.y, x.z, x.yaw, x.flags, entExtra(x));
         return;
       }
       case 'remove': ev.entityRemove(String(e.id), e.why === 'death', e.by); return;
@@ -146,7 +147,7 @@ export class LocalSession implements GameSession {
       case 'chestLid': ev.chestLid?.(e.x, e.y, e.z, e.n); return;
       case 'screen': {
         const sc = e.p.screen;
-        ev.screen(sc.type, sc.x, sc.y, sc.z);
+        ev.screen(sc.type, sc.x, sc.y, sc.z, e.p.screenTitle);
         if (sc.type === 'chest' || sc.type === 'furnace') this.onEvent({ e: 'container', key: `${sc.x},${sc.y},${sc.z}` });
         return;
       }
@@ -197,7 +198,7 @@ export class LocalSession implements GameSession {
     }
     for (const e of this.sim.entities.values()) {
       const type = entTypeCode(e);
-      this.ev.entity(String(e.id), e.kind, type, e.x, e.y, e.z, e.yaw, e.flags, e.kind === 'item' ? e.item!.count : e.health);
+      this.ev.entity(String(e.id), e.kind, type, e.x, e.y, e.z, e.yaw, e.flags, entExtra(e));
     }
     void ENT_KIND;
   }
@@ -258,7 +259,7 @@ export class LocalSession implements GameSession {
     await WorldStorage.saveState(this.meta, {
       player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, flying: this.flying, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, anchor: p.anchor, homes: p.homes, back: p.back },
       time: this.sim.time, weather: this.sim.weather, weatherTimer: this.sim.weatherTimer, spawn: this.sim.spawn, end: this.sim.endState,
-      blockEntities: [...this.sim.blockEntities.entries()], beChunks: [...this.beChunks], mobs,
+      blockEntities: [...this.sim.blockEntities.entries()].filter(([k]) => !k.includes(',-64,')), beChunks: [...this.beChunks], mobs, fixtures: this.sim.fixtures(),
       dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
       populated: [...this.sim.populated],
       genBase: this.levels.base, genPts: this.levels.points.length ? this.levels.points : undefined, genLv: this.levels.encode(),

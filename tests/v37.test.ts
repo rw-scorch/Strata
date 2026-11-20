@@ -74,7 +74,7 @@ describe('v37 commands', () => {
     sim.addPlayer(p);
     expect(sim.command(p, '/locate village')).toMatch(/permission/);
     expect(sim.command(p, '/setspawn')).toMatch(/permission/);
-    expect(sim.command(p, '/spawn')).toMatch(/world spawn/);
+    expect(sim.command(p, '/spawn')).toMatch(/Teleporting in 3 seconds/);
     expect(sim.command(p, '/help')).not.toMatch(/\/give/);
   });
 

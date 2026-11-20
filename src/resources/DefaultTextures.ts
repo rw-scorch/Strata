@@ -523,6 +523,8 @@ Object.assign(TEX, {
   campfire_log: () => campLog(false, false),
   campfire_log_lit: () => campLog(true, false),
   soul_campfire_log_lit: () => campLog(true, true),
+  item_frame: () => speckle(noise('ifr', hex(0x8a5428), 0.1), 'ifr', [hex(0x6a3a1a), hex(0x9a6436)], 40),
+  glow_item_frame: () => speckle(noise('gifr', hex(0x2a9a8c), 0.1), 'gifr', [hex(0x1a6a62), hex(0x7af0d8)], 40),
   campfire_fire: () => flame([0xfff4b0, 0xffc040, 0xf07a18, 0xc84010]),
   soul_campfire_fire: () => flame([0xe8ffff, 0x8af0ff, 0x3ab8e0, 0x1a6aa8]),
   respawn_anchor_bottom: () => speckle(noise('rab', hex(0x15101e), 0.08), 'rab', [hex(0x2a1e3a)], 20),
@@ -1040,6 +1042,12 @@ const ITEM_MAP: Record<string, () => Px> = {
   ITEM_MAP.firestriker = () => drawSprite(['................', '................', '..aaaa..........', '.abbbba.........', '.ab..ba.........', '.ab..ba.........', '.abbbba...cc....', '..aaaa...cddc...', '........cdddc...', '.......cdddc....', '......cdddc.....', '.....cdddc......', '......ccc.......', '................', '................', '................'], { a: 0x3a3a3a, b: 0xb8b8b8, c: 0x1a1a20, d: 0x4a4a58 });
   ITEM_MAP.copper_ingot = () => drawSprite(SPRITES.ingot.rows, { a: 0x6a3018, b: 0xc06a48, c: 0xf0b090 });
   ITEM_MAP.trial_key = () => drawSprite(['................', '................', '..aaa...........', '.abbba..........', '.ab.ba..........', '.abbbaaaaaaaaa..', '..aaabbbbbbbbba.', '.....aaaaaba.ba.', '..........a..a..', '................', '................', '................', '................', '................', '................', '................'], { a: 0x4a3010, b: 0xe8b040 });
+  ITEM_MAP.glow_ink_sac = () => drawSprite(['................', '................', '......aaaa......', '.....abbbba.....', '....abbcbbba....', '....abbbbbba....', '....abcbbbba....', '.....abbbba.....', '......abba......', '.....a.aa.a.....', '....a..aa..a....', '.......aa.......', '................', '................', '................', '................'], { a: 0x0a4a50, b: 0x2ab8b0, c: 0xb0fff0 });
+  const frameSprite = (b: number, c: number) => () => drawSprite(['................', '.aaaaaaaaaaaaaa.', '.abbbbbbbbbbbba.', '.abccccccccccba.', '.abcddddddddcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcddddddddcba.', '.abccccccccccba.', '.abbbbbbbbbbbba.', '.aaaaaaaaaaaaaa.', '................'], { a: 0x5a4020, b: 0xc8a868, c: 0x9a7a44, d: b, e: c });
+  ITEM_MAP.item_frame = frameSprite(0x6a3a1a, 0x8a5428);
+  ITEM_MAP.glow_item_frame = frameSprite(0x1a7a70, 0x5ae0c8);
+  ITEM_MAP.hopper_minecart = () => drawSprite(['................', '................', '...hhhhhhhhhh...', '...hiiiiiiiih...', '.a..hhiiiihh..a.', '.abbbbhhhhbbbba.', '.abccccccccccba.', '.abccccccccccba.', '.abbbbbbbbbbbba.', '..aaaaaaaaaaaa..', '...dd......dd...', '..dddd....dddd..', '...dd......dd...', '................', '................', '................'], { a: 0x3a3a3a, b: 0x8a8a8a, c: 0x5a5a5a, d: 0x2a2a2a, h: 0x4a4a4e, i: 0x22222a });
+  ITEM_MAP.chest_minecart = () => drawSprite(['................', '................', '...wwwwwwwwww...', '...wvvvvvvvvw...', '.a.wwwwggwwww.a.', '.abbbbbbbbbbbba.', '.abccccccccccba.', '.abccccccccccba.', '.abbbbbbbbbbbba.', '..aaaaaaaaaaaa..', '...dd......dd...', '..dddd....dddd..', '...dd......dd...', '................', '................', '................'], { a: 0x3a3a3a, b: 0x8a8a8a, c: 0x5a5a5a, d: 0x2a2a2a, w: 0x6a4420, v: 0xa8743a, g: 0xd8d8d8 });
   ITEM_MAP.ink_sac = () => drawSprite(['................', '................', '......aaaa......', '.....abbbba.....', '....abbcbbba....', '....abbbbbba....', '....abbbbbba....', '.....abbbba.....', '......abba......', '.....a.aa.a.....', '....a..aa..a....', '.......aa.......', '................', '................', '................', '................'], { a: 0x101014, b: 0x2a2a34, c: 0x6a6a7a });
   ITEM_MAP.cocoa_beans = () => drawSprite(['................', '................', '................', '.....aa...aa....', '....abba.abba...', '....abca.abca...', '....abba.abba...', '.....aa...aa....', '.......aa.......', '......abba......', '......abca......', '......abba......', '.......aa.......', '................', '................', '................'], { a: 0x3a2010, b: 0x7a4a24, c: 0xa87040 });
 }

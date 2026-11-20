@@ -86,7 +86,7 @@ export const MOBS: Record<MobType, MobDef> = {
     desc: 'A village local. Use on them to trade emeralds for goods.',
   },
   cinderhusk: {
-    type: 'cinderhusk', code: 9, name: 'Zombified Piglin', hostile: false, neutral: true, fireImmune: true, health: 20, speed: 2.3, hw: 0.3, h: 1.95, damage: 5,
+    type: 'cinderhusk', code: 9, name: 'Zombified Piglin', hostile: false, neutral: true, fireImmune: true, health: 20, speed: 2.3, hw: 0.3, h: 1.95, damage: 8,
     drops: [{ item: I.ROTTEN_FLESH, min: 0, max: 1 }, { item: I.GOLD_NUGGET, min: 0, max: 1 }, { item: I.GOLD_INGOT, min: 1, max: 1, chance: 0.025 }], xp: 5,
     nether: { nether_wastes: { weight: 100, min: 4, max: 4 }, crimson_forest: { weight: 1, min: 2, max: 4 } },
     fortress: { weight: 5, min: 4, max: 4 },
@@ -124,13 +124,13 @@ export const MOBS: Record<MobType, MobDef> = {
     desc: 'A tall, soot-black skeleton with a stone sword. Its blows wither you for a while.',
   },
   piglin: {
-    type: 'piglin', code: 15, name: 'Piglin', hostile: false, neutral: true, health: 16, speed: 2.5, hw: 0.3, h: 1.95, damage: 5,
+    type: 'piglin', code: 15, name: 'Piglin', hostile: false, neutral: true, health: 16, speed: 2.5, hw: 0.3, h: 1.95, damage: 8,
     drops: [], xp: 5,
     nether: { nether_wastes: { weight: 15, min: 4, max: 4 }, crimson_forest: { weight: 5, min: 3, max: 4 } },
     desc: 'A gold-loving Nether native with a sword or crossbow. Wear something golden and it leaves you be. Toss it a gold ingot to barter.',
   },
   piglin_brute: {
-    type: 'piglin_brute', code: 16, name: 'Piglin Brute', hostile: true, health: 50, speed: 2.5, hw: 0.3, h: 1.95, damage: 7,
+    type: 'piglin_brute', code: 16, name: 'Piglin Brute', hostile: true, health: 50, speed: 2.5, hw: 0.3, h: 1.95, damage: 13,
     drops: [], xp: 20,
     desc: 'A hulking Bastion guard with a golden axe. Gold does not calm it.',
   },

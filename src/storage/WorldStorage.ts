@@ -40,6 +40,7 @@ export interface WorldState {
   blockEntities: [string, BlockEntity][];
   beChunks: string[];
   mobs: { type: MobType; x: number; y: number; z: number; health: number; att?: number }[];
+  fixtures?: unknown[];
   end?: EndState;
   dayCycle: boolean;
   populated?: number[];

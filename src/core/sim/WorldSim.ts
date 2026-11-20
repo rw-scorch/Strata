@@ -14,7 +14,7 @@ import { getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorI
 import { catOf, lvl, tableOffers, tableList, anvilResult, JavaRandom, ENCH, ENCHANTS, supports, compatible, enchantLabel, type TableOffer } from '../enchants';
 import {
   PlayerInv, ItemStack, InvOp, applyInvOp, emptyInv, giveItem, heldStack, damageHeld, consumeHeld,
-  armorPoints, damageArmor, allStacks, CHEST_SIZE, FURNACE_SIZE, invHash, sameKind, cloneStack,
+  armorPoints, damageArmor, allStacks, CHEST_SIZE, FURNACE_SIZE, invHash, sameKind, cloneStack, validStack,
   countItem, removeItem,
 } from '../inventory';
 import { findSmelt, campfireResult, CAMPFIRE_COOK, Recipe, RecipeBook, BASE_BOOK, DataRecipes, makeBook, ingredientMatches } from '../crafting';
@@ -22,7 +22,7 @@ import { mergeData } from '../datapack';
 import { trialLoot, vaultLoot } from '../worldgen/structures';
 import { Redstone, isButton, isPlate, isTorch, isDiode, attachOut, DIR6, LEVER_ON, isPiston, HOPPER_OFF } from './redstone';
 import { TreeSet, megaJungle, megaSpruce, jungleVines, acacia, darkOak, cherry, mangrove } from '../worldgen/trees';
-import { enchantBonus, WIND_BURST, attackStats, attackCharge, scaledDamage, armorReduce, armorToughness, maceBonus, arrowDamage, attackRange, SPEAR_STATS, SPEAR_MIN, SPEAR_MARGIN, CHARGE_HURT_SPEED, CHARGE_KNOCK_SPEED, chargeDamage, SMASH_RANGE, SMASH_PUSH, SMASH_HEAVY, type AttackStats } from './combat';
+import { enchantBonus, WIND_BURST, attackStats, attackCharge, scaledDamage, armorReduce, armorToughness, knockResist, difficultyDamage, maceBonus, arrowDamage, attackRange, SPEAR_STATS, SPEAR_MIN, SPEAR_MARGIN, CHARGE_HURT_SPEED, CHARGE_KNOCK_SPEED, chargeDamage, SMASH_RANGE, SMASH_PUSH, SMASH_HEAVY, type AttackStats } from './combat';
 import { JOB_SITES, JOB_BLOCK, PROFESSIONS, villagerOffers, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
 import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium, fluidFlow, bubbleColumn, bubbleSurface } from '../physics';
 import { Rng } from '../rng';
@@ -30,6 +30,7 @@ import { WorldGenerator } from '../worldgen/WorldGenerator';
 import { MOBS, MobType, MobDef, PASSIVE_TYPES, HOSTILE_TYPES, MOB_BY_CODE } from './mobs';
 import { findPath, standable, PathNode } from './pathfind';
 import { hugeFungus, CNYL, WNYL } from '../worldgen/fungus';
+import { dragonParts, rayPart, partDistance, pointPart, type DragonPart } from './dragon';
 import { tickFluid, fluidDelay, FluidWorld } from './fluids';
 import { ChunkInfo, chunkNum } from './light';
 import { Mischief } from './mischief';
@@ -53,12 +54,19 @@ function getItemByName(key: string): ReturnType<typeof getItem> | undefined {
   return undefined;
 }
 
+export function entExtra(e: Entity): number {
+  if (e.kind === 'item') return e.item!.count;
+  if (e.kind === 'frame') return e.item?.id ?? 0;
+  return Math.ceil(e.health);
+}
+
 export interface Appearance { skin: number; hair: number; shirt: number; pants: number; }
 
 export function entTypeCode(e: Entity): number {
   if (e.kind === 'mob') return MOBS[e.type as MobType].code;
   if (e.kind === 'item') return e.item!.id;
-  if (e.kind === 'cart') return e.type === 'tntcart' ? 1 : 0;
+  if (e.kind === 'cart') return e.type === 'tntcart' ? 1 : e.type === 'hoppercart' ? 2 : e.type === 'chestcart' ? 3 : 0;
+  if (e.kind === 'frame') return e.type === 'glowframe' ? 1 : 0;
   if (e.kind === 'fireball') return e.type === 'dfire' ? 1 : 0;
   if (e.kind === 'arrow' && e.type === 'bullet') return 60001;
   if (e.kind === 'arrow' && e.type === 'pearl') return I.ENDER_PEARL;
@@ -68,6 +76,7 @@ export function entTypeCode(e: Entity): number {
 }
 
 const SIX = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const;
+const CART_ITEMS: Record<number, CartType> = { [I.MINECART]: 'cart', [I.TNT_MINECART]: 'tntcart', [I.HOPPER_MINECART]: 'hoppercart', [I.CHEST_MINECART]: 'chestcart' };
 const EXP_Y = [0.1, 0.5, 0.9], EXP_X = [-0.8, 0.8], EXP_Y_FEW = [0.25, 0.75], EXP_X_FEW = [0];
 const FLUID_ID = (() => { const t = new Uint8Array(ID_LIMIT); for (let i = 0; i < 256; i++) if (BLOCKS[i]?.fluid) t[i] = 1; return t; })();
 const RAYS: Float32Array = (() => {
@@ -122,6 +131,9 @@ export interface SimPlayer {
   homes?: Record<string, { x: number; y: number; z: number }>;
   supporter?: string;
   back?: { x: number; y: number; z: number };
+  tpWarm?: { x: number; y: number; z: number; safe: boolean; at: number; ox: number; oy: number; oz: number; done: string; after?: () => void };
+  combatT?: number;
+  inCombat?: boolean;
   bpAt?: number;
   vanished?: boolean;
   skin?: { png: string; slim: boolean } | null;
@@ -130,7 +142,10 @@ export interface SimPlayer {
   stepAcc?: number; warn?: number; warnT?: number; shriekCd?: number;
 }
 
-export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball';
+export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame';
+export type CartType = 'cart' | 'tntcart' | 'hoppercart' | 'chestcart';
+export const CARGO_X = 3_000_000;
+export interface Fixture { k: string; x: number; y: number; z: number; yaw?: number; f?: number; r?: number; item?: ItemStack | null; cargo?: (ItemStack | null)[]; off?: boolean }
 export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade' | 'enchant' | 'anvil' | 'smith';
 
 export interface GameHooks {
@@ -159,7 +174,11 @@ export interface GameHooks {
 export interface Entity extends Body {
   id: number;
   kind: EntityKind;
-  type: MobType | 'item' | 'arrow' | 'tnt' | 'cart' | 'tntcart' | 'fireball' | 'pearl' | 'xpbottle' | 'eye' | 'bullet' | 'firework' | 'dfire';
+  type: MobType | 'item' | 'arrow' | 'tnt' | CartType | 'fireball' | 'pearl' | 'xpbottle' | 'eye' | 'bullet' | 'firework' | 'dfire' | 'frame' | 'glowframe';
+  sup?: [number, number, number];
+  face?: number;
+  rot?: number;
+  off?: boolean;
   tx?: number;
   tz?: number;
   ty?: number;
@@ -311,11 +330,11 @@ export interface SimSettings {
   dayLength?: number; nightLength?: number;
   simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number;
   maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean;
+  tpDelay?: number; combatTime?: number;
 }
 
 const DT = 1 / 20;
-const DIFF_DMG: Record<Difficulty, number> = { peaceful: 0, easy: 0.5, normal: 1, hard: 1.5 };
-export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick'] as const;
+export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime'] as const;
 export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
 export function ruleSnapshot(s: SimSettings): RuleSet {
   const out: Record<string, unknown> = {};
@@ -452,11 +471,12 @@ export function newPlayer(id: string, name: string, mode: GameMode, spawn: { x: 
   };
 }
 
-export interface EndState { started: boolean; alive: boolean; kills: number; lastKill: number; exitOpen: boolean; gates: number[]; lost: number[]; warned?: boolean; summon?: number; auto?: boolean; }
+export interface EndState { started: boolean; alive: boolean; kills: number; lastKill: number; exitOpen: boolean; gates: number[]; lost: number[]; warned?: boolean; summon?: number; auto?: boolean; hp?: number; }
 export function freshEndState(): EndState { return { started: false, alive: true, kills: 0, lastKill: 0, exitOpen: false, gates: [], lost: [] }; }
 export const DRAGON_RESPAWN_MS = 2 * 86400000, DRAGON_PEAK = 10;
 const RIM: [number, number][] = [[0, 3], [0, -3], [3, 0], [-3, 0]];
-const DRAGON_IMMUNE = new Set<number>([B.OBSIDIAN, B.BEDROCK, B.IRON_BARS, CB.END_STONE, CB.END_PORTAL, CB.END_GATEWAY, CB.END_PORTAL_FRAME, B.CRYING_OBSIDIAN]);
+const UNDEAD = new Set<MobType>(['hollowed', 'rattlebone', 'cinderhusk', 'witherbone', 'zoglin']);
+const DRAGON_IMMUNE = new Set<number>([B.OBSIDIAN, B.BEDROCK, B.IRON_BARS, CB.END_STONE, CB.END_PORTAL, CB.END_GATEWAY, CB.END_PORTAL_FRAME, B.CRYING_OBSIDIAN, CB.RESPAWN_ANCHOR]);
 
 export class WorldSim {
   readonly seed: number;
@@ -488,7 +508,7 @@ export class WorldSim {
   weatherTimer = 12000;
   endState: EndState = freshEndState();
   peakPlayers = 0;
-  private clouds: { x: number; y: number; z: number; r: number; t: number; by?: number }[] = [];
+  private clouds: { x: number; y: number; z: number; r: number; t: number; by?: number; grow?: number }[] = [];
   rng: Rng;
   private nextEntityId = 1;
   private fluidQueue = new Map<string, number>();
@@ -508,7 +528,7 @@ export class WorldSim {
   }
 
   private rainAt(x: number, y: number, z: number): boolean {
-    if (this.weather === 'clear' || isNether(x)) return false;
+    if (this.weather === 'clear' || dimOf(x) !== 'overworld') return false;
     if (!this.info.exposed(x, y, z)) return false;
     const b = this.gen.column(x, z).biome.id;
     return b !== 'desert' && b !== 'badlands' && b !== 'savanna';
@@ -786,6 +806,8 @@ export class WorldSim {
 
   useEntity(p: SimPlayer, entityId: number): boolean {
     const e = this.entities.get(entityId);
+    if (e?.kind === 'frame' && !p.dead) return this.useFrame(p, e);
+    if (e?.kind === 'cart' && !p.dead && (e.type === 'hoppercart' || e.type === 'chestcart') && Math.hypot(e.x - p.x, e.z - p.z) <= 6) { this.openCargo(p, e); return true; }
     if (e?.kind === 'cart' && !p.dead && Math.hypot(e.x - p.x, e.z - p.z) <= 6) {
       const held = heldStack(p.inv);
       if (e.type === 'tntcart' && held?.id === I.FLINT_AND_STEEL) { this.cartFuse(e, 80); if (p.mode === 'survival') { damageHeld(p.inv, 1); this.emit({ e: 'inv', p }); } return true; }
@@ -1431,7 +1453,8 @@ export class WorldSim {
     this.emit({ e: 'container', key: k });
   }
 
-  addGeneratedChest(x: number, y: number, z: number, items: (ItemStack | null)[], type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob' = 'chest', mob = 'hollowed'): void {
+  addGeneratedChest(x: number, y: number, z: number, items: (ItemStack | null)[], type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob' | 'frame' = 'chest', mob = 'hollowed', face = 0): void {
+    if (type === 'frame') { if (this.authoritative) this.spawnFrame(x, y, z, face, false, items[0] ?? null); return; }
     if (type === 'mob') {
       if (!this.authoritative || !MOBS[mob as MobType] || mob === 'riftcore' || mob === 'voidwyrm') return;
       const e = this.spawnMob(mob as MobType, x + 0.5, y, z + 0.5);
@@ -1573,6 +1596,7 @@ export class WorldSim {
   }
 
   lightPortal(x: number, y: number, z: number): boolean {
+    if (isEnd(x)) return false;
     for (const axis of [0, 1]) {
       const sh = this.portalShape(x, y, z, axis);
       if (!sh) continue;
@@ -1612,7 +1636,7 @@ export class WorldSim {
     }
     const pv = blockId(v0) === B.NETHER_PORTAL ? v0 : blockId(v1) === B.NETHER_PORTAL ? v1 : 0;
     if (!pv) { p.portalLock = false; if (p.portalT) p.portalT = Math.max(0, p.portalT - 4); return; }
-    if (p.portalLock || p.riding !== undefined) return;
+    if (p.portalLock || p.riding !== undefined || isEnd(p.x)) return;
     p.portalT = (p.portalT ?? 0) + 1;
     if (p.portalT < (p.mode === 'creative' ? 1 : 80)) return;
     const nether = !isNether(p.x);
@@ -1971,6 +1995,7 @@ export class WorldSim {
     } else p.peakY = Math.max(p.peakY, y);
     if (flags & MF.GLIDE && (y - oy) / (mdt / 50) > -0.5) p.peakY = y + 1;
     if (p.screen.type && p.screen.y >= 0 && !this.inReach(p, p.screen.x, p.screen.y, p.screen.z, 3)) this.closeScreen(p);
+    if (p.screen.type === 'chest' && p.screen.y === -64 && p.screen.x >= CARGO_X) { const c = this.entities.get(p.screen.x - CARGO_X); if (!c || Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z) > 8) this.closeScreen(p); }
     if (this.authoritative && flags & MF.GROUND && !(flags & (MF.CROUCH | MF.FLY))) {
       p.stepAcc = (p.stepAcc ?? 0) + horiz;
       if (p.stepAcc > 1.4) { p.stepAcc = 0; this.vibrate(Math.floor(x), Math.floor(y), Math.floor(z), p.id); }
@@ -2128,7 +2153,7 @@ export class WorldSim {
   }
 
   private protectionPoints(p: SimPlayer, cause: string): number {
-    const fire = cause === 'fire' || cause === 'lava', blast = cause === 'explosion', proj = cause === 'arrow' || this.projectileHit, fall = cause === 'fall' || cause === 'stalagmite';
+    const fire = cause === 'fire' || cause === 'lava' || cause === 'small_fireball' || cause === 'fireball', blast = cause === 'explosion', proj = cause === 'arrow' || cause === 'small_fireball' || cause === 'fireball' || this.projectileHit, fall = cause === 'fall' || cause === 'stalagmite';
     let n = 0;
     for (const a of p.inv.armor) {
       if (!a?.en) continue;
@@ -2183,6 +2208,7 @@ export class WorldSim {
       knock = false;
     } else { p.lastHurt = amount; p.hurtCd = 10; }
     let dmg = amount;
+    kb *= 1 - knockResist(p.inv);
     if (!bypassArmor) {
       const ap = Math.min(20, armorPoints(p.inv));
       dmg = armorReduce(p.inv, amount, armorToughness(p.inv), this.hitBy?.breach ?? 0);
@@ -2195,6 +2221,9 @@ export class WorldSim {
     if (this.hitBy && (cause === 'player' || MOBS[cause as MobType])) this.thorns(p, this.hitBy);
     dmg = Math.round(dmg * 100) / 100;
     if (dmg <= 0) return;
+    if (p.tpWarm) { p.tpWarm = undefined; this.emit({ e: 'msg', text: 'Teleport cancelled: you took damage.', kind: 'error', to: p.id }); }
+    if (cause === 'player' && killer) { this.tagCombat(p); const a = this.findPlayer(killer); if (a && a !== p) this.tagCombat(a); }
+    else if (MOBS[cause as MobType] || cause === 'arrow' || cause === 'fireball' || cause === 'small_fireball') this.tagCombat(p);
     if (p.absorb && p.absorb > 0) {
       const take = Math.min(p.absorb, dmg);
       p.absorb = Math.round((p.absorb - take) * 100) / 100;
@@ -2215,6 +2244,7 @@ export class WorldSim {
   }
 
   private kill(p: SimPlayer, cause: string, killer?: string): void {
+    p.tpWarm = undefined; p.combatT = 0; p.inCombat = false;
     if (p.riding !== undefined) this.dismount(p);
     p.dead = true;
     p.deaths = (p.deaths ?? 0) + 1;
@@ -2223,7 +2253,7 @@ export class WorldSim {
     p.back = { x: p.x, y: p.y, z: p.z };
     p.dig = null;
     const msgs: Record<string, string> = {
-      fall: 'hit the ground too hard', kinetic: 'experienced kinetic energy', stalagmite: 'was impaled on a stalagmite', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death', wither: 'withered away', small_fireball: 'was fireballed by a Blaze',
+      fall: 'hit the ground too hard', kinetic: 'experienced kinetic energy', stalagmite: 'was impaled on a stalagmite', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death', wither: 'withered away', small_fireball: 'was fireballed by a Blaze', combatlog: 'was killed for logging out in combat',
       void: 'fell out of the world', breath: "was withered by the Ender Dragon's breath", starve: 'starved to death', fire: 'burned to a crisp', arrow: 'was shot by a Skeleton',
       kill: 'gave up on this life', player: `was struck down by ${killer ?? 'a rival'}`,
     };
@@ -2394,6 +2424,7 @@ export class WorldSim {
   private finishVirtual(p: SimPlayer, x: number, y: number, z: number): void {
     if (y !== -64) return;
     const k = posKey(x, y, z);
+    if (x >= CARGO_X) { p.screenTitle = undefined; return; }
     const be = this.blockEntities.get(k);
     const kind = this.virtualKinds.get(k) ?? 'box';
     this.blockEntities.delete(k);
@@ -2700,9 +2731,16 @@ export class WorldSim {
       if (id === B.FURNACE || id === B.FURNACE_LIT) { this.openScreen(p, 'furnace', x, y, z); return true; }
       if (id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER) { this.openScreen(p, 'chest', x, y, z); return true; }
     }
-    if ((stack?.id === I.MINECART || stack?.id === I.TNT_MINECART) && isRail(id)) {
+    if (stack && CART_ITEMS[stack.id] && isRail(id)) {
       if (!this.canBuild(p)) return false;
-      if (this.authoritative && this.placeCart(p, x, y, z, stack.id === I.TNT_MINECART) && p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+      if (this.authoritative && this.placeCart(p, x, y, z, CART_ITEMS[stack.id]) && p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+      return true;
+    }
+    if (stack && (stack.id === I.ITEM_FRAME || stack.id === I.GLOW_ITEM_FRAME)) {
+      if (!this.canBuild(p) || (this.game && !this.game.canPlace(p, x + nx, y + ny, z + nz))) return false;
+      if (this.authoritative && this.placeFrame(x, y, z, nx, ny, nz, stack.id === I.GLOW_ITEM_FRAME, p.yaw)) {
+        if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+      }
       return true;
     }
     if (stack?.id === I.FLINT_AND_STEEL && id !== B.TNT) {
@@ -3288,6 +3326,7 @@ export class WorldSim {
   attack(p: SimPlayer, entityId: number): boolean {
     if (p.dead) return false;
     const e = this.entities.get(entityId);
+    if (e?.kind === 'frame') return this.hitFrame(p, e);
     if (e?.kind === 'cart') {
       if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || this.now - p.lastAttack < 45) return false;
       if (attackStats(heldStack(p.inv)).mace) { p.lastAttack = this.now; p.strengthAt = this.now; if (e.type === 'tntcart' && p.mode !== 'creative') this.hitCart(p, e, 100); else this.removeCart(e, p.mode !== 'creative'); return true; }
@@ -3307,7 +3346,16 @@ export class WorldSim {
     if (this.game?.onAttackMob(p, e)) return true;
     const dx = e.x - p.x, dy = e.y + e.h / 2 - (p.y + 1.62), dz = e.z - p.z;
     const ws = attackStats(heldStack(p.inv));
-    if (Math.hypot(dx, dy, dz) > attackRange(ws, p.mode === 'creative') + e.hw + 1.5) return false;
+    this.dragonPart = null;
+    if (e.type === 'voidwyrm') {
+      const range = attackRange(ws, p.mode === 'creative') + 1;
+      const parts = dragonParts(e.x, e.y, e.z, e.yaw), cp = Math.cos(p.pitch);
+      const ey = p.y + 1.62, hit = rayPart(parts, p.x, ey, p.z, -Math.sin(p.yaw) * cp, Math.sin(p.pitch), -Math.cos(p.yaw) * cp, range, 0.6);
+      let part = hit?.part ?? null;
+      if (!part) { let bd = range + 0.5; for (const q of parts) { const d = partDistance(q, p.x, ey, p.z); if (d < bd) { bd = d; part = q; } } }
+      if (!part) return false;
+      this.dragonPart = part;
+    } else if (Math.hypot(dx, dy, dz) > attackRange(ws, p.mode === 'creative') + e.hw + 1.5) return false;
     if (this.now - p.lastAttack < 45) return false;
     if (ws.spear) return this.jab(p, { mob: e });
     const fa = lvl(heldStack(p.inv), 'fire_aspect');
@@ -3373,7 +3421,7 @@ export class WorldSim {
   }
 
   private tickEnderman(e: Entity, inWater: boolean): void {
-    const wet = inWater || ((this.weather === 'rain' || this.weather === 'thunder') && !isNether(e.x) && e.age % 10 === 0 && this.skyExposed(e.x, e.y + e.h, e.z));
+    const wet = inWater || ((this.weather === 'rain' || this.weather === 'thunder') && dimOf(e.x) === 'overworld' && e.age % 10 === 0 && this.skyExposed(e.x, e.y + e.h, e.z));
     if (wet && e.age % 10 === 0) { this.hurtMob(e, 1, null, 0, 0); return; }
     if (e.age % 5 === 0 && !(e.provoked! > 0 && e.target) && this.difficulty !== 'peaceful') {
       const ex = e.x, ey = e.y + 2.55, ez = e.z;
@@ -3444,6 +3492,14 @@ export class WorldSim {
           break outer;
         }
       }
+    }
+    if (isEnd(e.x) && !owner.portalLock) for (let k = 1; k <= 4; k++) {
+      const t = (reach * k) / 4;
+      if (blockId(this.get(Math.floor(e.x + dx * t), Math.floor(e.y + dy * t), Math.floor(e.z + dz * t))) !== CB.END_GATEWAY) continue;
+      this.entities.delete(e.id);
+      this.emit({ e: 'remove', id: e.id, why: 'hit' });
+      this.gatewayJump(owner);
+      return;
     }
     if (!hit) { e.x += dx * step; e.y += dy * step; e.z += dz * step; e.yaw = Math.atan2(-dx, -dz); return; }
     this.entities.delete(e.id);
@@ -3677,6 +3733,7 @@ export class WorldSim {
     this.tickPlates();
     this.rs.tickMoving();
     this.tickHoppers();
+    this.tickWarps();
     this.tickFurnaces();
     this.mischief.tick();
     this.tickBlueprints();
@@ -3700,8 +3757,9 @@ export class WorldSim {
       if (this.weather === 'clear') this.setWeather(this.rng.chance(0.25) ? 'thunder' : 'rain');
       else this.setWeather('clear');
     }
-    if (this.weather === 'thunder' && this.rng.chance(1 / 160) && this.players.size) {
-      const ps = [...this.players.values()];
+    const outside = this.weather === 'thunder' ? [...this.players.values()].filter((o) => dimOf(o.x) === 'overworld') : [];
+    if (outside.length && this.rng.chance(1 / 160)) {
+      const ps = outside;
       const p = ps[this.rng.int(ps.length)];
       const x = Math.floor(p.x + (this.rng.next() - 0.5) * 80), z = Math.floor(p.z + (this.rng.next() - 0.5) * 80);
       if (this.store.isLoaded(x, z)) {
@@ -3893,12 +3951,12 @@ export class WorldSim {
 
   private blasts: { x: number; y: number; z: number; power: number }[] = [];
 
-  placeCart(p: SimPlayer | null, x: number, y: number, z: number, tnt: boolean): Entity | null {
+  placeCart(p: SimPlayer | null, x: number, y: number, z: number, kind: boolean | CartType): Entity | null {
     const rv = this.get(x, y, z);
     if (!isRail(blockId(rv))) return null;
     const shape = railShape(rv);
     const e: Entity = {
-      id: this.allocId(), kind: 'cart', type: tnt ? 'tntcart' : 'cart', x: x + 0.5, y: y + 1 / 16 + railHeight(shape, 0.5, 0.5), z: z + 0.5, vx: 0, vy: 0, vz: 0,
+      id: this.allocId(), kind: 'cart', type: kind === true ? 'tntcart' : kind === false ? 'cart' : kind, x: x + 0.5, y: y + 1 / 16 + railHeight(shape, 0.5, 0.5), z: z + 0.5, vx: 0, vy: 0, vz: 0,
       hw: 0.49, h: 0.7, onGround: true, hitH: false, hitCeil: false, yaw: p ? p.yaw : 0, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0, wob: 0, fall: 0,
     };
     this.entities.set(e.id, e);
@@ -3943,9 +4001,188 @@ export class WorldSim {
     if (e.rider) { const r = this.players.get(e.rider); if (r) this.dismount(r); }
     this.entities.delete(e.id);
     this.emit({ e: 'remove', id: e.id, why: 'despawn' });
+    const ck = posKey(CARGO_X + e.id, -64, 0), cargo = this.blockEntities.get(ck);
+    if (cargo) {
+      for (const p of this.players.values()) if (p.screen.type === 'chest' && p.screen.x === CARGO_X + e.id && p.screen.y === -64) this.closeScreen(p);
+      this.blockEntities.delete(ck);
+      if (drop) for (const s of cargo.items) if (s) this.spawnItem(e.x, e.y + 0.3, e.z, s);
+    }
     if (!drop) return;
+    if (e.type === 'hoppercart' || e.type === 'chestcart') { this.spawnItem(e.x, e.y + 0.3, e.z, { id: e.type === 'hoppercart' ? I.HOPPER_MINECART : I.CHEST_MINECART, count: 1 }); return; }
     this.spawnItem(e.x, e.y + 0.3, e.z, { id: I.MINECART, count: 1 });
     if (e.type === 'tntcart') this.spawnItem(e.x, e.y + 0.3, e.z, { id: B.TNT, count: 1 });
+  }
+
+  cargo(e: Entity): (ItemStack | null)[] | null {
+    if (e.kind !== 'cart' || (e.type !== 'hoppercart' && e.type !== 'chestcart')) return null;
+    const k = posKey(CARGO_X + e.id, -64, 0);
+    let be = this.blockEntities.get(k);
+    if (!be) { be = { type: 'chest', items: new Array(e.type === 'hoppercart' ? 5 : 27).fill(null) }; this.blockEntities.set(k, be); }
+    return be.items;
+  }
+
+  private cartAt(x: number, y: number, z: number): Entity | null {
+    for (const e of this.entities.values()) if (e.kind === 'cart' && (e.type === 'hoppercart' || e.type === 'chestcart') && Math.floor(e.x) === x && Math.floor(e.y) === y && Math.floor(e.z) === z) return e;
+    return null;
+  }
+
+  private openCargo(p: SimPlayer, e: Entity): void {
+    if (p.screen.type) this.closeScreen(p);
+    this.cargo(e);
+    p.screen = { type: 'chest', x: CARGO_X + e.id, y: -64, z: 0 };
+    p.screenTitle = e.type === 'hoppercart' ? 'Minecart with Hopper' : 'Minecart with Chest';
+    p.inv.craftSize = 2;
+    this.emit({ e: 'screen', p });
+    this.emit({ e: 'inv', p });
+  }
+
+  private tickHopperCart(e: Entity): void {
+    if (!this.authoritative || e.off) return;
+    const items = this.cargo(e)!;
+    const bx = Math.floor(e.x), by = Math.floor(e.y), bz = Math.floor(e.z);
+    const put = (s: ItemStack): boolean => {
+      const max = getItem(s.id)?.maxStack ?? 64;
+      const at = items.findIndex((t) => t && t.id === s.id && !t.dmg && !s.dmg && !t.en && !s.en && t.count < max);
+      const slot = at >= 0 ? at : items.findIndex((t) => !t);
+      if (slot < 0) return false;
+      if (items[slot]) items[slot]!.count++; else items[slot] = { ...cloneStack(s)!, count: 1 };
+      return true;
+    };
+    let moved = false;
+    const above = this.containerSlots(bx, by + 1, bz);
+    if (above) {
+      const aid = blockId(this.get(bx, by + 1, bz));
+      outer: for (const group of above) {
+        const order = aid === B.FURNACE || aid === B.FURNACE_LIT ? [2] : group.map((_, i) => i);
+        for (const i of order) {
+          const s = group[i];
+          if (!s || !put(s)) continue;
+          s.count--; if (s.count <= 0) group[i] = null;
+          this.containerTouched(bx, by + 1, bz);
+          moved = true;
+          break outer;
+        }
+      }
+    }
+    for (const it of this.entities.values()) {
+      if (it.kind !== 'item' || !it.item || (it.pickupDelay ?? 0) > 0) continue;
+      if (Math.abs(it.x - e.x) > 0.75 || Math.abs(it.z - e.z) > 0.75 || it.y < e.y - 0.25 || it.y > e.y + 1.5) continue;
+      let n = 0;
+      while (n < it.item.count && put(it.item)) n++;
+      if (!n) continue;
+      moved = true;
+      if (n >= it.item.count) { this.entities.delete(it.id); this.emit({ e: 'remove', id: it.id, why: 'pickup' }); }
+      else it.item.count -= n;
+    }
+    if (moved) this.emit({ e: 'container', key: posKey(CARGO_X + e.id, -64, 0) });
+  }
+
+  placeFrame(x: number, y: number, z: number, nx: number, ny: number, nz: number, glow: boolean, yaw = 0, item?: ItemStack | null): Entity | null {
+    const f = SIX.findIndex(([a, b, c]) => a === nx && b === ny && c === nz);
+    if (f < 0 || !isSolid(this.get(x, y, z)) || isSolid(this.get(x + nx, y + ny, z + nz))) return null;
+    for (const o of this.entities.values()) if (o.kind === 'frame' && o.face === f && o.sup && o.sup[0] === x && o.sup[1] === y && o.sup[2] === z) return null;
+    const rot = ny !== 0 ? ((Math.round(-yaw / (Math.PI / 2)) % 4) + 4) % 4 * 2 : 0;
+    return this.spawnFrame(x, y, z, f, glow, item ?? null, ny > 0 ? (8 - rot) % 8 : rot, true);
+  }
+
+  spawnFrame(x: number, y: number, z: number, f: number, glow: boolean, item: ItemStack | null, rot = 0, sound = false): Entity {
+    const [nx, ny, nz] = SIX[f], o = 0.5 + 1 / 32;
+    const e: Entity = {
+      id: this.allocId(), kind: 'frame', type: glow ? 'glowframe' : 'frame', x: x + 0.5 + nx * o, y: y + 0.5 + ny * o - 0.375, z: z + 0.5 + nz * o, vx: 0, vy: 0, vz: 0,
+      hw: 0.375, h: 0.75, onGround: true, hitH: false, hitCeil: false, yaw: 0, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: f | (rot << 3),
+      sup: [x, y, z], face: f, rot, item: item ? { ...cloneStack(item)!, count: 1 } : undefined, persistent: true,
+    };
+    this.entities.set(e.id, e);
+    this.emit({ e: 'spawn', ent: e });
+    if (sound) this.emit({ e: 'sound', s: 'frame.place', x: e.x, y: e.y + 0.375, z: e.z });
+    return e;
+  }
+
+  private frameSync(e: Entity): void { e.flags = (e.face ?? 0) | ((e.rot ?? 0) << 3); }
+
+  breakFrame(e: Entity, drop: boolean): void {
+    if (!this.entities.has(e.id)) return;
+    this.entities.delete(e.id);
+    this.emit({ e: 'remove', id: e.id, why: 'despawn' });
+    this.emit({ e: 'sound', s: 'frame.break', x: e.x, y: e.y + 0.375, z: e.z });
+    if (!drop) return;
+    if (e.item) this.spawnItem(e.x, e.y + 0.375, e.z, e.item);
+    this.spawnItem(e.x, e.y + 0.375, e.z, { id: e.type === 'glowframe' ? I.GLOW_ITEM_FRAME : I.ITEM_FRAME, count: 1 });
+  }
+
+  private tickFrame(e: Entity): void {
+    if (!this.authoritative || ++e.age % 10) return;
+    const s = e.sup!, [nx, ny, nz] = SIX[e.face ?? 0];
+    if (!this.store.isLoaded(s[0], s[2])) return;
+    if (!isSolid(this.get(s[0], s[1], s[2])) || isSolid(this.get(s[0] + nx, s[1] + ny, s[2] + nz))) this.breakFrame(e, true);
+  }
+
+  private useFrame(p: SimPlayer, e: Entity): boolean {
+    if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || !this.canBuild(p)) return false;
+    if (e.item) {
+      e.rot = ((e.rot ?? 0) + 1) % 8;
+      this.frameSync(e);
+      this.emit({ e: 'sound', s: 'frame.rotate', x: e.x, y: e.y + 0.375, z: e.z });
+      return true;
+    }
+    const held = heldStack(p.inv);
+    if (!held) return false;
+    e.item = { ...cloneStack(held)!, count: 1 };
+    e.rot = 0;
+    this.frameSync(e);
+    if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+    this.emit({ e: 'sound', s: 'frame.add', x: e.x, y: e.y + 0.375, z: e.z });
+    return true;
+  }
+
+  private hitFrame(p: SimPlayer, e: Entity): boolean {
+    if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || this.now - p.lastAttack < 45 || !this.canBuild(p)) return false;
+    p.lastAttack = this.now;
+    if (e.item) {
+      const it = e.item;
+      e.item = undefined; e.rot = 0;
+      this.frameSync(e);
+      if (p.mode !== 'creative') this.spawnItem(e.x, e.y + 0.375, e.z, it);
+      this.emit({ e: 'sound', s: 'frame.remove', x: e.x, y: e.y + 0.375, z: e.z });
+      return true;
+    }
+    this.breakFrame(e, p.mode !== 'creative');
+    return true;
+  }
+
+  fixtures(): Fixture[] {
+    const out: Fixture[] = [];
+    for (const e of this.entities.values()) {
+      if (e.kind === 'frame') out.push({ k: e.type, x: e.sup![0], y: e.sup![1], z: e.sup![2], f: e.face, r: e.rot, item: e.item ?? null });
+      else if (e.kind === 'cart' && !e.rider) {
+        const c = this.blockEntities.get(posKey(CARGO_X + e.id, -64, 0));
+        out.push({ k: e.type, x: Math.round(e.x * 100) / 100, y: Math.round(e.y * 100) / 100, z: Math.round(e.z * 100) / 100, yaw: Math.round(e.yaw * 100) / 100, cargo: c?.items, off: e.off || undefined });
+      }
+      if (out.length >= 20000) break;
+    }
+    return out;
+  }
+
+  loadFixtures(list: unknown): void {
+    if (!Array.isArray(list)) return;
+    const n = (v: unknown, lim = 3e7) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= lim;
+    for (const r of list.slice(0, 20000) as Fixture[]) {
+      if (!r || typeof r !== 'object' || !n(r.x) || !n(r.y, 4096) || !n(r.z)) continue;
+      if (r.k === 'frame' || r.k === 'glowframe') {
+        const f = Number(r.f), rot = Number(r.r ?? 0);
+        if (!Number.isInteger(f) || f < 0 || f > 5 || !Number.isInteger(rot) || rot < 0 || rot > 7) continue;
+        this.spawnFrame(Math.floor(r.x), Math.floor(r.y), Math.floor(r.z), f, r.k === 'glowframe', validStack(r.item) ? r.item : null, rot);
+      } else if (r.k === 'cart' || r.k === 'tntcart' || r.k === 'hoppercart' || r.k === 'chestcart') {
+        const e: Entity = {
+          id: this.allocId(), kind: 'cart', type: r.k, x: r.x, y: r.y, z: r.z, vx: 0, vy: 0, vz: 0, hw: 0.49, h: 0.7, onGround: true, hitH: false, hitCeil: false,
+          yaw: n(r.yaw, 10) ? r.yaw! : 0, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0, wob: 0, fall: 0, off: !!r.off,
+        };
+        this.entities.set(e.id, e);
+        this.emit({ e: 'spawn', ent: e });
+        const items = this.cargo(e);
+        if (items && Array.isArray(r.cargo)) r.cargo.slice(0, items.length).forEach((s, i) => { items[i] = validStack(s) ? cloneStack(s) : null; });
+      }
+    }
   }
 
   private cartBlasted(e: Entity): void {
@@ -3965,6 +4202,7 @@ export class WorldSim {
 
   private tickCart(e: Entity): void {
     if (e.wob) e.wob = Math.max(0, e.wob - 1);
+    if (e.type === 'hoppercart') this.tickHopperCart(e);
     if (e.fuse !== undefined && e.fuse >= 0) {
       e.fuse--;
       e.flags = (e.fuse >> 2) & 1;
@@ -4035,6 +4273,7 @@ export class WorldSim {
       vx *= wet ? 0.95 : fr; vz *= wet ? 0.95 : fr;
       if (speed > 0.001) e.yaw = Math.atan2(-vx, -vz);
       if (id === B.DETECTOR_RAIL && this.authoritative) this.rs.setDetector(bx, by, bz, true);
+      if (id === B.ACTIVATOR_RAIL && e.type === 'hoppercart') e.off = powered;
       if (id === B.ACTIVATOR_RAIL && powered) {
         if (e.type === 'tntcart') this.cartFuse(e, 80);
         if (e.rider) { const r = this.players.get(e.rider); if (r) this.dismount(r); }
@@ -4190,6 +4429,7 @@ export class WorldSim {
       if (e.kind === 'mob') this.hurtMob(e, Math.floor((imp * imp + imp) / 2 * 7 * r + 1), null, ddx / dl * imp, ddz / dl * imp, imp);
       else if (e.kind === 'item' && imp > 0.5) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); continue; }
       else if (e.kind === 'cart') { this.cartBlasted(e); if (!this.entities.has(e.id)) continue; }
+      else if (e.kind === 'frame') { this.breakFrame(e, true); continue; }
       e.vx += ddx / dl * imp * 20; e.vy += ddy / dl * imp * 20; e.vz += ddz / dl * imp * 20;
     }
     for (const p of this.players.values()) {
@@ -4254,7 +4494,11 @@ export class WorldSim {
 
   private containerSlots(x: number, y: number, z: number): (ItemStack | null)[][] | null {
     const id = blockId(this.get(x, y, z));
-    if (id !== B.CHEST && id !== B.BARREL && id !== B.HOPPER && id !== B.DROPPER && id !== B.DISPENSER && id !== B.FURNACE && id !== B.FURNACE_LIT && id !== B.BLAST_FURNACE && id !== B.SMOKER && id !== CB.SHULKER_BOX) return null;
+    if (id !== B.CHEST && id !== B.BARREL && id !== B.HOPPER && id !== B.DROPPER && id !== B.DISPENSER && id !== B.FURNACE && id !== B.FURNACE_LIT && id !== B.BLAST_FURNACE && id !== B.SMOKER && id !== CB.SHULKER_BOX) {
+      if (isSolid(this.get(x, y, z))) return null;
+      const c = this.cartAt(x, y, z);
+      return c ? [this.cargo(c)!] : null;
+    }
     const be = this.ensureBlockEntity(x, y, z);
     if (!be) return null;
     if (id !== B.CHEST) return [be.items];
@@ -4290,6 +4534,8 @@ export class WorldSim {
   }
 
   private containerTouched(x: number, y: number, z: number): void {
+    const c = isSolid(this.get(x, y, z)) ? null : this.cartAt(x, y, z);
+    if (c) { this.emit({ e: 'container', key: posKey(CARGO_X + c.id, -64, 0) }); return; }
     const k = posKey(x, y, z);
     this.emit({ e: 'container', key: k });
     const id = blockId(this.get(x, y, z));
@@ -4678,7 +4924,7 @@ export class WorldSim {
       case CB.CHORUS_FLOWER: this.growChorus(x, y, z, v); break;
       case B.CAULDRON: {
         const cm = blockMeta(v);
-        if (this.weather !== 'clear' && !(cm & CAULDRON_LAVA) && (cm & 3) < 3 && !isNether(x) && this.info.exposed(x, y + 1, z) && this.rng.int(20) === 0) this.setBlock(x, y, z, makeBlock(B.CAULDRON, (cm & 3) + 1));
+        if (this.weather !== 'clear' && !(cm & CAULDRON_LAVA) && (cm & 3) < 3 && dimOf(x) === 'overworld' && this.info.exposed(x, y + 1, z) && this.rng.int(20) === 0) this.setBlock(x, y, z, makeBlock(B.CAULDRON, (cm & 3) + 1));
         break;
       }
       case B.NETHER_PORTAL: {
@@ -5009,7 +5255,7 @@ export class WorldSim {
     e.age++;
     if (e.hurt > 0) e.hurt--;
     if (e.portalCd) e.portalCd--;
-    else if (e.kind !== 'fireball' && e.age % 4 === 0 && blockId(this.get(Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z))) === B.NETHER_PORTAL && !e.rider && !this.game) { this.entityPortal(e); return; }
+    else if (e.kind !== 'fireball' && e.age % 4 === 0 && !isEnd(e.x) && blockId(this.get(Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z))) === B.NETHER_PORTAL && !e.rider && !this.game) { this.entityPortal(e); return; }
     if (e.kind === 'item') return this.tickItem(e);
     if (e.kind === 'arrow' && e.type === 'pearl') return this.tickPearl(e);
     if (e.kind === 'arrow' && e.type === 'xpbottle') return this.tickXpBottle(e);
@@ -5018,6 +5264,7 @@ export class WorldSim {
     if (e.kind === 'arrow') return this.tickArrow(e);
     if (e.kind === 'tnt') return this.tickTnt(e);
     if (e.kind === 'cart') return this.tickCart(e);
+    if (e.kind === 'frame') return this.tickFrame(e);
     if (e.kind === 'fireball' && e.type === 'dfire') return this.tickDragonFire(e);
     if (e.kind === 'fireball') return this.tickFireball(e);
     this.tickMob(e);
@@ -5113,11 +5360,19 @@ export class WorldSim {
     if (e.shooterP) {
       for (const m of this.entities.values()) {
         if (m.kind !== 'mob' || m.health <= 0) continue;
+        const parts = m.type === 'voidwyrm' ? dragonParts(m.x, m.y, m.z, m.yaw) : null;
         for (let s = 0; s <= 6; s++) {
           const t = (s / 6) * reach;
           const ax = e.x + dx * t, ay = e.y + dy * t, az = e.z + dz * t;
-          if (Math.abs(ax - m.x) < m.hw + 0.15 && Math.abs(az - m.z) < m.hw + 0.15 && ay > m.y && ay < m.y + m.h) {
+          const part = parts ? pointPart(parts, ax, ay, az, 0.15) : null;
+          if (parts ? part : Math.abs(ax - m.x) < m.hw + 0.15 && Math.abs(az - m.z) < m.hw + 0.15 && ay > m.y && ay < m.y + m.h) {
             if (e.pierced?.includes(m.id)) continue;
+            if (part && (m.phase === 'perch' || m.phase === 'takeoff' && (m.pt ?? 0) < 10)) {
+              e.vx *= -0.1; e.vy = Math.abs(e.vy) * 0.1; e.vz *= -0.1; e.shooterP = undefined; e.fire = Math.max(e.fire, 20);
+              this.emit({ e: 'sound', s: 'arrow.hit', x: e.x, y: e.y, z: e.z });
+              return;
+            }
+            this.dragonPart = part;
             if (m.type === 'voidstalker') { if (!m.dodgeT || this.tickCount - m.dodgeT > 4) { m.dodgeT = this.tickCount; this.endermanTeleport(m); } break; }
             if (m.type === 'shellward' && (m.peek ?? 0) < 0.3) { e.vx *= -0.1; e.vy = Math.abs(e.vy) * 0.1; e.vz *= -0.1; e.shooterP = undefined; this.emit({ e: 'sound', s: 'shulker.bounce', x: e.x, y: e.y, z: e.z }); return; }
             const l = Math.hypot(dx, dz) || 1;
@@ -5145,7 +5400,7 @@ export class WorldSim {
           const sh = e.shooterP ? this.players.get(e.shooterP) : undefined;
           if (e.fire > 0) p.fireT = Math.max(p.fireT, 100);
           this.projectileHit = true;
-          this.damage(p, e.shooterP ? this.arrowHit(e, sp) : Math.max(1, Math.round((e.dmg ?? 3) * DIFF_DMG[this.difficulty])), e.shooterP ? 'player' : 'arrow', e.x - e.vx, e.z - e.vz, true, false, sh?.name);
+          this.damage(p, e.shooterP ? this.arrowHit(e, sp) : difficultyDamage(e.dmg ?? 3, this.difficulty), e.shooterP ? 'player' : 'arrow', e.x - e.vx, e.z - e.vz, true, false, sh?.name);
           this.projectileHit = false;
           this.entities.delete(e.id);
           this.emit({ e: 'remove', id: e.id, why: 'hit' });
@@ -5177,7 +5432,7 @@ export class WorldSim {
     if (med.water || (med.lava && !def.lavaWalker)) this.pushByFluid(e, 0.5);
     if (def.fireImmune) { e.fire = 0; if (e.type === 'wailer') return this.tickGhast(e, def); if (e.type === 'emberslime') return this.tickCube(e, def, med); if (e.type === 'lavastrider') return this.tickStrider(e, def, med); if (e.type === 'flarewisp') return this.tickBlaze(e, def, med); }
     if (med.lava && !def.fireImmune) { e.fire = 160; if (e.age % 10 === 0) this.hurtMob(e, 4, null, 0, 0); }
-    if (def.burnsInDay && this.dayFactor() > 0.6 && this.weather === 'clear' && !med.water && e.age % 20 === 0 && this.skyExposed(e.x, e.y + e.h, e.z)) e.fire = 100;
+    if (def.burnsInDay && dimOf(e.x) === 'overworld' && this.dayFactor() > 0.6 && this.weather === 'clear' && !med.water && e.age % 20 === 0 && this.skyExposed(e.x, e.y + e.h, e.z)) e.fire = 100;
     if (med.water) e.fire = 0;
     if (e.fire > 0) { e.fire--; if (e.fire % 20 === 0) this.hurtMob(e, 1, null, 0, 0); if (!this.entities.has(e.id)) return; }
     if (med.cactus && e.age % 10 === 0) { this.hurtMob(e, 1, null, 0, 0); if (!this.entities.has(e.id)) return; }
@@ -5244,7 +5499,7 @@ export class WorldSim {
             e.attackCd = 20;
             flags |= 4;
             this.hitBy = { mob: e, breach: 0 };
-            this.damage(target, Math.max(1, Math.round(def.damage * DIFF_DMG[this.difficulty] * 2) / 2), e.type, e.x, e.z, true, false, undefined, e.type === 'hoglin' || e.type === 'zoglin' ? 1.2 : 0.4);
+            this.damage(target, difficultyDamage(e.type === 'hoglin' || e.type === 'zoglin' ? def.damage / 2 + this.rng.int(def.damage) : e.type === 'piglin' && e.wield === 1 ? 5 : def.damage, this.difficulty), e.type, e.x, e.z, true, false, undefined, e.type === 'hoglin' || e.type === 'zoglin' ? 1.2 : 0.4);
             this.hitBy = null;
             if (e.type === 'witherbone' && !target.dead) target.witherT = 200;
           }
@@ -5637,7 +5892,8 @@ export class WorldSim {
     if (!st.alive) { this.checkRespawnCrystals(); return; }
     let dragon: Entity | null = null;
     for (const e of this.entities.values()) if (e.type === 'voidwyrm') { dragon = e; break; }
-    if (!dragon) this.spawnDragon();
+    if (!dragon) dragon = this.spawnDragon();
+    if (dragon.phase !== 'dying') st.hp = Math.round(dragon.health * 10) / 10;
     for (const p of this.endPillarsWorld()) {
       if (st.lost.includes(p.i) || !this.store.isLoaded(p.x, p.z)) continue;
       let has = false;
@@ -5649,6 +5905,8 @@ export class WorldSim {
   private spawnDragon(): Entity {
     const e = this.spawnMob('voidwyrm', END_X + 0.5, EXIT_Y + 40, 30.5);
     e.persistent = true; e.phase = 'circle'; e.pt = 0; e.ang = this.rng.next() * Math.PI * 2; e.taken = 0;
+    const hp = this.endState.hp;
+    if (hp !== undefined && hp > 0 && hp < e.maxHealth) e.health = hp;
     return e;
   }
 
@@ -5658,19 +5916,25 @@ export class WorldSim {
     this.entities.delete(e.id);
     this.emit({ e: 'remove', id: e.id, why: 'death' });
     if (e.pil !== undefined && !this.endState.lost.includes(e.pil)) this.endState.lost.push(e.pil);
-    for (const d of this.entities.values()) if (d.type === 'voidwyrm' && d.phase !== 'dying' && Math.hypot(d.x - e.x, d.y - e.y, d.z - e.z) < 32 && d.pil === e.id) { d.pil = undefined; this.hurtDragon(d, 10, null); }
+    for (const d of this.entities.values()) if (d.type === 'voidwyrm' && d.phase !== 'dying' && Math.hypot(d.x - e.x, d.y - e.y, d.z - e.z) < 32 && d.pil === e.id) { d.pil = undefined; this.hurtDragon(d, 10, null, true); }
     this.explode(e.x, e.y, e.z, 6, { noBlocks: isEnd(e.x) && Math.hypot(e.x - END_X, e.z) < 12 });
   }
 
-  private hurtDragon(e: Entity, dmg: number, by: string | null): void {
+  private dragonPart: DragonPart | null = null;
+
+  private hurtDragon(e: Entity, dmg: number, by: string | null, head = false): void {
+    const part = this.dragonPart;
+    this.dragonPart = null;
     if (e.phase === 'dying' || e.health <= 0) return;
+    if (!head && !part?.head) dmg = dmg / 4 + Math.min(dmg, 1);
+    if (dmg < 0.01) return;
     if (e.hurt > 0 && dmg <= (e.lastHurt ?? 0)) return;
+    const was = e.health;
+    e.health -= e.hurt > 0 ? dmg - (e.lastHurt ?? 0) : dmg;
     e.lastHurt = dmg; e.hurt = 10;
-    if (by && e.phase !== 'perch') dmg = dmg / 4 + 1;
-    e.health -= dmg;
-    e.taken = (e.taken ?? 0) + dmg;
+    e.taken = (e.taken ?? 0) + (was - e.health);
     this.emit({ e: 'sound', s: 'mob.voidwyrm.hurt', x: e.x, y: e.y + 2, z: e.z, vol: 3 });
-    if (e.phase === 'perch' && e.taken > 25) { e.phase = 'takeoff'; e.pt = 0; }
+    if (e.phase === 'perch' && e.taken > 0.25 * e.maxHealth) { e.phase = 'takeoff'; e.pt = 0; }
     if (by) e.target = by;
     if (e.health <= 0) {
       e.health = 0.01; e.phase = 'dying'; e.pt = 0; e.vx = e.vy = e.vz = 0; e.flags |= 0x10000;
@@ -5680,6 +5944,7 @@ export class WorldSim {
   }
 
   private tickDragon(e: Entity): void {
+    this.dragonPart = null;
     e.age++;
     if (e.hurt > 0) e.hurt--;
     const cx = END_X + 0.5, cz = 0.5;
@@ -5735,7 +6000,7 @@ export class WorldSim {
         if (near && e.pt % 50 === 25) {
           const dx = near.x - cx, dz = near.z - cz, l = Math.hypot(dx, dz) || 1;
           const bx = cx + (dx / l) * Math.min(8, l), bz = cz + (dz / l) * Math.min(8, l);
-          this.addCloud(bx, EXIT_Y + 1, bz, 2.5, 100);
+          this.addCloud(bx, EXIT_Y + 1, bz, 5, 200);
           this.emit({ e: 'sound', s: 'mob.voidwyrm.breath', x: cx, y: e.y, z: cz, vol: 3 });
         }
         if (e.pt > 260) { e.phase = 'takeoff'; e.pt = 0; }
@@ -5761,28 +6026,42 @@ export class WorldSim {
   }
 
   private dragonContact(e: Entity): void {
+    if (e.hurt > 0) return;
+    const parts = dragonParts(e.x, e.y, e.z, e.yaw);
+    const within = (pt: DragonPart, p: SimPlayer, gx: number, gy: number, down: number) => {
+      const y0 = pt.y - gy - down, y1 = pt.y + pt.h + gy - down;
+      return Math.abs(p.x - pt.x) < pt.hw + gx + 0.3 && Math.abs(p.z - pt.z) < pt.hw + gx + 0.3 && p.y + 1.8 > y0 && p.y < y1;
+    };
+    const sitting = e.phase === 'perch';
+    const scale = (d: number) => difficultyDamage(d, this.difficulty);
+    const body = parts.find((q) => q.n === 'body')!;
     for (const p of this.players.values()) {
-      if (p.dead || p.mode !== 'survival') continue;
-      const dx = p.x - e.x, dz = p.z - e.z, dy = p.y - e.y;
-      if (Math.abs(dx) < e.hw + 0.3 && Math.abs(dz) < e.hw + 0.3 && dy > -2 && dy < e.h) {
-        if ((p.lastDragonHit ?? 0) > this.now - 500) continue;
+      if (p.dead || p.mode !== 'survival' || (p.lastDragonHit ?? 0) > this.now - 500) continue;
+      if (parts.some((q) => (q.n === 'head' || q.n === 'neck') && within(q, p, 1, 1, 0))) {
         p.lastDragonHit = this.now;
-        const l = Math.hypot(dx, dz) || 1;
-        this.damage(p, 10 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal || 5, 'voidwyrm', e.x, e.z, true, false, undefined, 1.6);
-        this.emit({ e: 'knock', p, x: (dx / l) * 18, y: 9, z: (dz / l) * 18, set: true });
+        this.damage(p, scale(10), 'voidwyrm', e.x, e.z, true, false, undefined, 1);
+        continue;
+      }
+      if (parts.some((q) => q.n.startsWith('wing') && within(q, p, 4, 2, 2))) {
+        const dx = p.x - body.x, dz = p.z - body.z, l = Math.max(0.32, Math.hypot(dx, dz));
+        if (e.age % 5 === 0) this.emit({ e: 'knock', p, x: (dx / l) * Math.min(24, 80 / l), y: 4, z: (dz / l) * Math.min(24, 80 / l), set: true });
+        if (!sitting) { p.lastDragonHit = this.now; this.damage(p, scale(5), 'voidwyrm', e.x, e.z, true, false, undefined, 0); }
       }
     }
   }
 
   private dragonCrush(e: Entity): void {
     if (this.game) return;
-    const x0 = Math.floor(e.x - 3), x1 = Math.floor(e.x + 3), z0 = Math.floor(e.z - 3), z1 = Math.floor(e.z + 3), y0 = Math.floor(e.y), y1 = Math.floor(e.y + 3);
     let broke = false;
-    for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
-      const v = this.get(x, y, z);
-      if (!v || DRAGON_IMMUNE.has(blockId(v)) || getBlock(v).hardness < 0 || isFluid(v)) continue;
-      this.setBlock(x, y, z, 0);
-      broke = true;
+    for (const pt of dragonParts(e.x, e.y, e.z, e.yaw)) {
+      if (pt.n === 'body' && e.phase === 'perch') continue;
+      const x0 = Math.floor(pt.x - pt.hw), x1 = Math.floor(pt.x + pt.hw), z0 = Math.floor(pt.z - pt.hw), z1 = Math.floor(pt.z + pt.hw), y0 = Math.floor(pt.y), y1 = Math.floor(pt.y + pt.h);
+      for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+        const v = this.get(x, y, z);
+        if (!v || DRAGON_IMMUNE.has(blockId(v)) || getBlock(v).hardness < 0 || isFluid(v)) continue;
+        this.setBlock(x, y, z, 0);
+        broke = true;
+      }
     }
     if (broke) this.emit({ e: 'sound', s: 'mob.voidwyrm.crush', x: e.x, y: e.y, z: e.z });
   }
@@ -5810,24 +6089,29 @@ export class WorldSim {
       const hx = wall ? e.x + dx * wall.dist : e.x, hy = wall ? e.y + dy * wall.dist : e.y, hz = wall ? e.z + dz * wall.dist : e.z;
       this.entities.delete(e.id);
       this.emit({ e: 'remove', id: e.id, why: 'hit' });
-      this.addCloud(hx, hy, hz, 3, 300);
+      this.addCloud(hx, hy, hz, 3, 600, (7 - 3) / 600);
       return;
     }
     e.x += e.vx * DT; e.y += e.vy * DT; e.z += e.vz * DT;
     if (e.age % 3 === 0) this.emit({ e: 'particles', k: 'breath', x: e.x, y: e.y, z: e.z });
   }
 
-  private addCloud(x: number, y: number, z: number, r: number, t: number): void {
+  private addCloud(x: number, y: number, z: number, r: number, t: number, grow = 0): void {
     if (this.clouds.length > 32) this.clouds.shift();
-    this.clouds.push({ x, y, z, r, t });
+    this.clouds.push({ x, y, z, r, t, grow });
   }
 
   private tickClouds(): void {
     for (const c of this.clouds) {
       c.t--;
+      c.r += c.grow ?? 0;
       if (this.tickCount % 6 === 0) this.emit({ e: 'particles', k: 'breath', x: c.x + (this.rng.next() - 0.5) * c.r * 2, y: c.y + 0.2, z: c.z + (this.rng.next() - 0.5) * c.r * 2 });
       if (this.tickCount % 20 !== 0) continue;
       for (const p of this.players.values()) if (!p.dead && p.mode === 'survival' && Math.hypot(p.x - c.x, p.z - c.z) < c.r && p.y > c.y - 1.5 && p.y < c.y + 2) this.damage(p, 6, 'breath', c.x, c.z, false, true);
+      for (const m of [...this.entities.values()]) {
+        if (m.kind !== 'mob' || m.health <= 0 || m.type === 'voidwyrm' || m.type === 'riftcore' || UNDEAD.has(m.type as MobType)) continue;
+        if (Math.hypot(m.x - c.x, m.z - c.z) < c.r && m.y > c.y - 1.5 && m.y < c.y + 2) this.hurtMob(m, 6, null, 0, 0, 0);
+      }
     }
     this.clouds = this.clouds.filter((c) => c.t > 0 && c.r > 0.4);
   }
@@ -5851,8 +6135,9 @@ export class WorldSim {
     this.emit({ e: 'remove', id: e.id, why: 'death', by: e.attacker ?? undefined });
     this.emit({ e: 'boom', x: e.x, y: e.y, z: e.z, r: 6 });
     const first = st.kills === 0;
-    st.kills++; st.alive = false; st.lastKill = Date.now(); st.warned = false; st.auto = false;
-    for (const p of this.players.values()) if (!p.dead && p.mode === 'survival' && isEnd(p.x) && Math.hypot(p.x - e.x, p.z - e.z) < 160) this.giveXp(p, first ? 1200 : 100);
+    st.kills++; st.alive = false; st.lastKill = Date.now(); st.warned = false; st.auto = false; st.hp = undefined;
+    const near = [...this.players.values()].filter((p) => !p.dead && p.mode === 'survival' && isEnd(p.x) && Math.hypot(p.x - e.x, p.z - e.z) < 160);
+    for (const p of near) this.giveXp(p, Math.floor((first ? 12000 : 500) / near.length));
     this.setExitPortal(true);
     if (first) this.setBlock(END_X, EXIT_Y + 4, 0, makeBlock(CB.DRAGON_EGG, 0));
     this.spawnGateway();
@@ -6100,8 +6385,8 @@ export class WorldSim {
       const r = small ? 0.5 : 0.9;
       if (Math.abs(p.x - e.x) < r && Math.abs(p.z - e.z) < r && e.y > p.y - (small ? 0.2 : 0.5) && e.y < p.y + (small ? 1.9 : 2.2)) {
         hit = true;
-        if (small) { this.damage(p, 5 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal, 'small_fireball', e.x, e.z); if (p.mode === 'survival' && !p.dead) p.fireT = Math.max(p.fireT, 100); }
-        else this.damage(p, 6 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal, 'fireball', e.x, e.z);
+        if (small) { this.damage(p, difficultyDamage(5, this.difficulty), 'small_fireball', e.x, e.z); if (p.mode === 'survival' && !p.dead) p.fireT = Math.max(p.fireT, 100); }
+        else this.damage(p, difficultyDamage(6, this.difficulty), 'fireball', e.x, e.z);
         break;
       }
     }
@@ -6157,7 +6442,7 @@ export class WorldSim {
       e.attackCd = 20;
       flags |= 4;
       this.hitBy = { mob: e, breach: 0 };
-      this.damage(target, Math.max(1, Math.round([0, 3, 4, 0, 6][n] * DIFF_DMG[this.difficulty] * 2) / 2), e.type, e.x, e.z);
+      this.damage(target, difficultyDamage([0, 3, 4, 0, 6][n], this.difficulty), e.type, e.x, e.z);
       this.hitBy = null;
     }
     if (!e.onGround) flags |= 4096;
@@ -6188,7 +6473,7 @@ export class WorldSim {
         if (e.attackCd! <= 0) {
           e.attackCd = 20; flags |= 4;
           this.hitBy = { mob: e, breach: 0 };
-          this.damage(target, Math.max(1, Math.round(def.damage * DIFF_DMG[this.difficulty] * 2) / 2), e.type, e.x, e.z);
+          this.damage(target, difficultyDamage(def.damage, this.difficulty), e.type, e.x, e.z);
           this.hitBy = null;
         }
       } else if (!e.los || dist > 12) { wx = (dx / dist) * def.speed; wz = (dz / dist) * def.speed; }
@@ -6283,7 +6568,7 @@ export class WorldSim {
       vx: (dx / dist) * speed + (this.rng.next() - 0.5) * speed * inacc, vy: dy / time + 10 * time + (this.rng.next() - 0.5) * speed * inacc,
       vz: (dz / dist) * speed + (this.rng.next() - 0.5) * speed * inacc,
       hw: 0.1, h: 0.1, onGround: false, hitH: false, hitCeil: false, yaw: e.yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0,
-      shooter: e.id, dmg: 3,
+      shooter: e.id, dmg: Math.ceil(1.6 * (2 + { easy: 1, normal: 2, hard: 3, peaceful: 0 }[this.difficulty] * 0.11 + (this.rng.next() - this.rng.next()) * 0.57425)),
     };
     this.entities.set(a.id, a);
     this.emit({ e: 'spawn', ent: a });
@@ -6426,6 +6711,62 @@ export class WorldSim {
     this.emit({ e: 'tp', p });
   }
 
+  combatLeft(p: SimPlayer): number { return Math.max(0, (p.combatT ?? 0) - this.tickCount); }
+
+  tagCombat(p: SimPlayer): void {
+    const t = Math.round((this.settings.combatTime ?? 15) * 20);
+    if (t <= 0 || p.mode === 'creative' || p.dead || !this.authoritative) return;
+    if (!p.inCombat) this.emit({ e: 'msg', text: `You are in combat for ${t / 20}s. Teleports are blocked and logging out will kill you.`, kind: 'error', to: p.id });
+    p.inCombat = true;
+    p.combatT = this.tickCount + t;
+  }
+
+  combatLog(p: SimPlayer): boolean {
+    if (!p.inCombat || this.combatLeft(p) <= 0 || p.dead || p.mode === 'creative') return false;
+    this.kill(p, 'combatlog');
+    return true;
+  }
+
+  warpPlayer(p: SimPlayer, x: number, y: number, z: number, safe: boolean, done: string, after?: () => void): { ok: boolean; msg: string } {
+    if (p.dead) return { ok: false, msg: 'You cannot do that while dead.' };
+    const c = this.combatLeft(p);
+    if (p.inCombat && c > 0) return { ok: false, msg: `You cannot teleport while in combat (${Math.ceil(c / 20)}s left).` };
+    const d = Math.round((this.settings.tpDelay ?? 3) * 20);
+    if (d <= 0) { this.teleportTo(p, x, y, z, safe); after?.(); return { ok: true, msg: done }; }
+    p.tpWarm = { x, y, z, safe, at: this.tickCount + d, ox: p.x, oy: p.y, oz: p.z, done, after };
+    this.emit({ e: 'sound', s: 'portal.trigger', x: p.x, y: p.y + 1, z: p.z, vol: 0.3 });
+    return { ok: true, msg: `Teleporting in ${d / 20} second${d === 20 ? '' : 's'}. Do not move.` };
+  }
+
+  private tickWarps(): void {
+    for (const p of this.players.values()) {
+      if (p.inCombat && this.combatLeft(p) <= 0) { p.inCombat = false; this.emit({ e: 'msg', text: 'You are no longer in combat.', kind: 'info', to: p.id }); }
+      const w = p.tpWarm;
+      if (!w) continue;
+      if (p.dead) { p.tpWarm = undefined; continue; }
+      if (Math.hypot(p.x - w.ox, p.y - w.oy, p.z - w.oz) > 0.6) { p.tpWarm = undefined; this.emit({ e: 'msg', text: 'Teleport cancelled: you moved.', kind: 'error', to: p.id }); continue; }
+      if (this.tickCount < w.at) continue;
+      p.tpWarm = undefined;
+      this.teleportTo(p, w.x, w.y, w.z, w.safe);
+      w.after?.();
+      this.emit({ e: 'msg', text: w.done, kind: 'info', to: p.id });
+    }
+  }
+
+  private maxEnchant(held: ItemStack): string[] {
+    const pref = ['protection', 'sharpness', 'fortune', 'mending', 'depth_strider', 'multishot', 'density', 'power', 'efficiency', 'unbreaking'];
+    const order = [...new Set([...pref, ...ENCHANTS.map((e) => e.key)])];
+    const en: Record<string, number> = {};
+    for (const k of order) {
+      const def = ENCH.get(k);
+      if (!def || def.curse || !supports(k, held.id)) continue;
+      if (Object.keys(en).some((o) => !compatible(o, k))) continue;
+      en[k] = def.max;
+    }
+    if (Object.keys(en).length) held.en = en;
+    return Object.keys(en);
+  }
+
   private homeCommand(p: SimPlayer, cmd: string, parts: string[]): string {
     const base = this.settings.maxHomes ?? 2;
     if (base <= 0) return 'Homes are turned off in this world.';
@@ -6446,8 +6787,7 @@ export class WorldSim {
     }
     const h = homes[name] ?? (parts[1] ? undefined : homes[list[0]]);
     if (!h) return list.length ? `No home called "${name}". Your homes: ${list.join(', ')}` : 'You have no homes. Set one with /sethome [name].';
-    this.teleportTo(p, h.x, h.y, h.z);
-    return `Teleported home.`;
+    return this.warpPlayer(p, h.x, h.y, h.z, true, `Teleported home.`).msg;
   }
 
   private tpaCommand(p: SimPlayer, cmd: string, parts: string[]): string {
@@ -6469,10 +6809,10 @@ export class WorldSim {
     if (cmd === 'tpdeny') { this.emit({ e: 'msg', text: `${p.name} declined your teleport request.`, kind: 'info', to: from.id }); return 'Request declined.'; }
     const mover = r.here ? p : from, target = r.here ? from : p;
     if (mover.dead) return 'That player is dead right now.';
-    this.teleportTo(mover, target.x, target.y, target.z, false);
-    this.emit({ e: 'msg', text: `Teleported to ${target.name}.`, kind: 'info', to: mover.id });
-    if (mover !== p) return `${mover.name} teleported to you.`;
-    return `Teleported to ${target.name}.`;
+    const w = this.warpPlayer(mover, target.x, target.y, target.z, false, `Teleported to ${target.name}.`, () => { if (mover !== p) this.emit({ e: 'msg', text: `${mover.name} teleported to you.`, kind: 'info', to: p.id }); });
+    if (mover === p) return w.msg;
+    this.emit({ e: 'msg', text: w.msg, kind: w.ok ? 'info' : 'error', to: mover.id });
+    return w.ok ? `${mover.name} is on the way.` : `${mover.name} cannot teleport right now.`;
   }
 
   command(p: SimPlayer, raw: string): string {
@@ -6490,17 +6830,18 @@ export class WorldSim {
         if (this.settings.tpa === false && (this.settings.maxHomes ?? 2) <= 0) return 'Teleport commands are turned off in this world.';
         if (!p.back) return 'There is nowhere to go back to.';
         const b = p.back;
-        this.teleportTo(p, b.x, b.y, b.z);
-        return 'Returned to your previous location.';
+        return this.warpPlayer(p, b.x, b.y, b.z, true, 'Returned to your previous location.').msg;
       }
       case 'help': {
-        const base = 'Teleports: /spawn, /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Other: /coords, /clearsel, /help.';
+        const base = 'Teleports: /spawn, /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Teleports take a short warm-up and are blocked in combat. Other: /coords, /clearsel, /help.';
         if (!allowed) return base;
-        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
+        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /enchantmax, /repair, /heal, /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
       }
       case 'seed': if (this.serverMode && !p.op) return 'Only operators can see the seed on a server.'; return `Seed: ${this.seed}`;
       case 'gamerule': {
         const rules: Record<string, [() => string, (v: string) => string | null]> = {
+          teleportdelay: [() => String(this.settings.tpDelay ?? 3), (v) => { const n = Number(v); if (!Number.isFinite(n) || n < 0 || n > 10) return 'Use seconds from 0 to 10.'; this.settings.tpDelay = Math.round(n * 2) / 2; return null; }],
+          combattimer: [() => String(this.settings.combatTime ?? 15), (v) => { const n = Math.floor(Number(v)); if (!Number.isFinite(n) || n < 0 || n > 120) return 'Use seconds from 0 to 120 (0 turns it off).'; this.settings.combatTime = n; return null; }],
           randomtickspeed: [() => String(this.settings.randomTickSpeed ?? 3), (v) => { const n = Math.floor(Number(v)); if (!Number.isFinite(n) || n < 0 || n > 64) return 'Use a number from 0 to 64.'; this.settings.randomTickSpeed = n; return null; }],
           dofiretick: [() => String(this.settings.fireTick !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.fireTick = v === 'true'; return null; }],
           domobspawning: [() => String(this.settings.mobSpawning !== false), (v) => { if (v !== 'true' && v !== 'false') return 'Use true or false.'; this.settings.mobSpawning = v === 'true'; return null; }],
@@ -6580,6 +6921,31 @@ export class WorldSim {
         this.emit({ e: 'inv', p });
         return `Applied ${enchantLabel(key, level)}.`;
       }
+      case 'enchantmax': case 'maxenchant': {
+        if (!allowed) return need();
+        const held = heldStack(p.inv);
+        if (!held || held.id === I.BOOK || held.id === I.ENCHANTED_BOOK) return 'Hold a tool, weapon or piece of armour.';
+        const got = this.maxEnchant(held);
+        if (!got.length) return 'That item cannot be enchanted.';
+        this.emit({ e: 'inv', p });
+        this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
+        return `Applied ${got.map((k) => enchantLabel(k, held.en![k])).join(', ')}.`;
+      }
+      case 'repair': {
+        if (!allowed) return need();
+        const held = heldStack(p.inv);
+        if (!held || !held.dmg) return 'Hold a damaged item to repair it.';
+        held.dmg = 0;
+        this.emit({ e: 'inv', p });
+        return 'Repaired.';
+      }
+      case 'heal': {
+        if (!allowed) return need();
+        if (p.dead) return 'You cannot do that while dead.';
+        p.health = 20; p.food = 20; p.sat = 20; p.exh = 0; p.fireT = 0; p.air = 300; p.witherT = 0;
+        this.emit({ e: 'vitals', p });
+        return 'Healed and fed.';
+      }
       case 'give': {
         if (!allowed) return need();
         let args = parts.slice(1);
@@ -6609,22 +6975,16 @@ export class WorldSim {
           const who = parts.length === 3 ? this.findPlayer(parts[1]) : p;
           const to = this.findPlayer(parts[parts.length - 1]);
           if (!who || !to) return 'No player by that name.';
-          who.back = { x: who.x, y: who.y, z: who.z };
-          who.x = to.x; who.y = to.y; who.z = to.z; who.peakY = to.y;
-          this.emit({ e: 'tp', p: who });
-          return `Teleported ${who === p ? 'to' : `${who.name} to`} ${to.name}.`;
+          const w = this.warpPlayer(who, to.x, to.y, to.z, false, `Teleported to ${to.name}.`);
+          if (who !== p) { this.emit({ e: 'msg', text: w.msg, kind: w.ok ? 'info' : 'error', to: who.id }); return w.ok ? `Sending ${who.name} to ${to.name}.` : `${who.name} cannot teleport right now.`; }
+          return w.msg;
         }
         const xyz = cmdXYZ(p, parts.slice(1, 4), parts[4]);
         if (!xyz) return 'Usage: /tp <x> <y> <z> [overworld|nether] (use ~ for relative) or /tp <player> or /tp <player> <player>';
-        p.back = { x: p.x, y: p.y, z: p.z };
-        [p.x, p.y, p.z] = xyz; p.peakY = p.y;
-        this.emit({ e: 'tp', p });
-        return `Teleported to ${+localX(p.x).toFixed(2)} ${+p.y.toFixed(2)} ${+p.z.toFixed(2)}${isNether(p.x) ? ' in the Nether' : ''}.`;
+        return this.warpPlayer(p, xyz[0], xyz[1], xyz[2], false, `Teleported to ${+localX(xyz[0]).toFixed(2)} ${+xyz[1].toFixed(2)} ${+xyz[2].toFixed(2)}${isNether(xyz[0]) ? ' in the Nether' : ''}.`).msg;
       }
       case 'spawn': {
-        if (p.dead) return 'You cannot do that while dead.';
-        this.teleportTo(p, this.spawn.x, this.spawn.y, this.spawn.z);
-        return 'Teleported to the world spawn.';
+        return this.warpPlayer(p, this.spawn.x, this.spawn.y, this.spawn.z, true, 'Teleported to the world spawn.').msg;
       }
       case 'setspawn': {
         if (!allowed) return need();
