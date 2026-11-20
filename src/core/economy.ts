@@ -1,4 +1,4 @@
-import { B } from './blocks';
+import { B, CB } from './blocks';
 import { I, ITEMS, getItem, toolId, armorId } from './items';
 import { RECIPES, SMELTING, ingredientExample } from './crafting';
 import type { ItemStack } from './inventory';
@@ -19,7 +19,20 @@ const BASE: [number, number][] = [
   [I.COAL, 8], [I.CHARCOAL, 6], [I.IRON_INGOT, 25], [I.GOLD_INGOT, 40], [I.AETHERITE, 200], [I.EMERALD, 150], [I.FLINT, 3],
   [I.FEATHER, 3], [I.STRING, 4], [I.BONE, 4], [I.LEATHER, 8], [I.ROTTEN_FLESH, 2], [I.RAW_PORK, 5], [I.RAW_MUTTON, 5], [I.RAW_POULTRY, 4],
   [I.COOKED_PORK, 9], [I.COOKED_MUTTON, 9], [I.COOKED_POULTRY, 8], [I.WHEAT, 3], [I.SEEDS, 1], [I.APPLE, 6], [I.CLAY_BALL, 1],
+  [I.LAPIS, 6], [I.REDSTONE, 4], [I.ENDER_PEARL, 30], [I.QUARTZ, 6], [I.GHAST_TEAR, 60], [I.BLAZE_ROD, 25], [I.GUNPOWDER, 5],
 ];
+
+export const NEVER_STOCK = new Set<number>([I.ELYTRA, CB.DRAGON_EGG, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.END_GATEWAY]);
+const NEVER_SELL = new Set<number>([I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2, I.CROSSBOW_PULL0, I.CROSSBOW_PULL1, I.CROSSBOW_PULL2, I.CROSSBOW_LOADED]);
+
+function fallbackPrice(id: number): number {
+  const it = getItem(id);
+  if (!it) return 0;
+  if (it.tool) return Math.max(5, it.tool.tier * 20);
+  if (it.armor) return Math.max(5, it.armor.points * 15);
+  if (it.food) return Math.max(1, it.food.hunger);
+  return it.kind === 'block' ? 1 : 2;
+}
 
 let cache: Map<number, number> | null = null;
 
@@ -46,7 +59,11 @@ export function defaultSellPrices(): Map<number, number> {
     return out;
   };
   for (const it of ITEMS) if (it) value(it.id);
-  for (const id of [I.WATER_BUCKET, I.LAVA_BUCKET, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2, I.CROSSBOW_PULL0, I.CROSSBOW_PULL1, I.CROSSBOW_PULL2, I.CROSSBOW_LOADED]) m.set(id, 0);
+  for (const it of ITEMS) if (it && !m.get(it.id)) m.set(it.id, fallbackPrice(it.id));
+  for (const id of NEVER_SELL) m.set(id, 0);
+  const bucket = m.get(I.BUCKET) || 60;
+  m.set(I.WATER_BUCKET, bucket + 1);
+  m.set(I.LAVA_BUCKET, bucket + 8);
   cache = m;
   return m;
 }
@@ -74,7 +91,8 @@ export const SHOP: ShopCategory[] = [
     e('iron_sword', toolId(2, 3), 1, 600), e('iron_pickaxe', toolId(2, 0), 1, 800), e('iron_axe', toolId(2, 1), 1, 800), e('iron_shovel', toolId(2, 2), 1, 300),
     e('iron_helmet', armorId(1, 0), 1, 1000), e('iron_chestplate', armorId(1, 1), 1, 1600), e('iron_leggings', armorId(1, 2), 1, 1400), e('iron_boots', armorId(1, 3), 1, 800),
     e('aetherite_sword', toolId(4, 3), 1, 6000), e('aetherite_pickaxe', toolId(4, 0), 1, 8000), e('aetherite_chestplate', armorId(3, 1), 1, 16000),
-    e('bow', I.BOW, 1, 400), e('arrow', I.ARROW, 16, 120),
+    e('aetherite_helmet', armorId(3, 0), 1, 10000), e('aetherite_leggings', armorId(3, 2), 1, 14000), e('aetherite_boots', armorId(3, 3), 1, 8000),
+    e('bow', I.BOW, 1, 400), e('arrow', I.ARROW, 16, 120), e('shield', I.SHIELD, 1, 500),
   ] },
   { id: 'blocks', name: 'Blocks', icon: B.BRICKS, items: [
     e('oak_log', B.OAK_LOG, 64, 1200), e('spruce_log', B.SPRUCE_LOG, 64, 1200), e('stone', B.STONE, 64, 500), e('stone_bricks', B.STONE_BRICKS, 64, 900),
@@ -88,12 +106,43 @@ export const SHOP: ShopCategory[] = [
   ] },
   { id: 'rare', name: 'Rare', icon: I.AETHERITE, items: [
     e('obsidian', B.OBSIDIAN, 8, 1600), e('bookshelf', B.BOOKSHELF, 4, 1400), e('emerald', I.EMERALD, 1, 900), e('aetherite', I.AETHERITE, 1, 1500),
+    e('lapis_lazuli', I.LAPIS, 16, 400), e('ender_pearl', I.ENDER_PEARL, 4, 600),
     e('lily_pad', B.LILY_PAD, 8, 300), e('golden_apple_8', I.GOLDEN_APPLE, 8, 19000), e('lava_bucket', I.LAVA_BUCKET, 1, 1200),
   ] },
 ];
 
-export function shopEntry(key: string): ShopEntry | null {
-  for (const c of SHOP) for (const it of c.items) if (it.key === key) return it;
+export const SHOP_MAX_CATS = 9;
+export const SHOP_MAX_ITEMS = 45;
+
+export function cloneShop(c: ShopCategory[] = SHOP): ShopCategory[] { return c.map((k) => ({ ...k, items: k.items.map((i) => ({ ...i })) })); }
+
+export function validShop(raw: unknown): ShopCategory[] | null {
+  if (!Array.isArray(raw) || raw.length > SHOP_MAX_CATS) return null;
+  const out: ShopCategory[] = [];
+  const keys = new Set<string>();
+  for (const c of raw as Record<string, unknown>[]) {
+    if (!c || typeof c !== 'object' || !Array.isArray(c.items) || c.items.length > SHOP_MAX_ITEMS) return null;
+    const id = String(c.id ?? '').replace(/[^a-z0-9_]/gi, '').slice(0, 24).toLowerCase(), name = String(c.name ?? '').slice(0, 24).trim();
+    const icon = Number(c.icon);
+    if (!id || !name || !getItem(icon)) return null;
+    const items: ShopEntry[] = [];
+    for (const i of c.items as Record<string, unknown>[]) {
+      const iid = Number(i?.id), count = Math.floor(Number(i?.count)), price = Math.floor(Number(i?.price));
+      let key = String(i?.key ?? '').replace(/[^a-z0-9_]/gi, '').slice(0, 40).toLowerCase();
+      if (!getItem(iid) || NEVER_SELL.has(iid) || NEVER_STOCK.has(iid) || !(count >= 1 && count <= 64) || !(price >= 1 && price <= MAX_PRICE)) return null;
+      if (!key) key = getItem(iid)!.key;
+      let k = key, n = 2;
+      while (keys.has(k)) k = `${key}_${n++}`;
+      keys.add(k);
+      items.push({ key: k, id: iid, count, price });
+    }
+    out.push({ id, name, icon, items });
+  }
+  return out;
+}
+
+export function shopEntry(key: string, cat: ShopCategory[] = SHOP): ShopEntry | null {
+  for (const c of cat) for (const it of c.items) if (it.key === key) return it;
   return null;
 }
 

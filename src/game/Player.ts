@@ -1,5 +1,5 @@
 import { NETHER_EDGE } from '../core/dimension';
-import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium } from '../core/physics';
+import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium, bubbleColumn, bubbleSurface } from '../core/physics';
 import { getBlock, blockId, B, isDoorBlock, isTrapdoor, TD_OPEN } from '../core/blocks';
 import { MF } from '../core/sim/WorldSim';
 import type { InputState } from '../controls/InputState';
@@ -42,6 +42,13 @@ export class LocalPlayer {
   stepSound: ((material: string) => void) | null = null;
   swimSound: (() => void) | null = null;
   usingItem = false;
+  blocking = false;
+  inBubbles = 0;
+  levitateT = 0;
+  elytra = false;
+  gliding = false;
+  rocketT = 0;
+  private jumpWas = false;
   depthStrider = 0;
   flow: ((x: number, y: number, z: number) => [number, number] | null) | null = null;
 
@@ -67,9 +74,12 @@ export class LocalPlayer {
     const b = this.body, m = this.medium;
     if (b.onGround) f |= MF.GROUND;
     if (this.crouching) f |= MF.CROUCH;
+    if (this.blocking) f |= MF.BLOCK;
     if (this.swimming) f |= MF.PRONE;
     if (this.sprinting) f |= MF.SPRINT;
     if (this.flying) f |= MF.FLY;
+    if (this.gliding) f |= MF.GLIDE;
+    if (this.levitateT > 0) f |= MF.LEVITATE;
     if (m.water) f |= MF.WATER;
     if (m.eyeWater) f |= MF.EYE_WATER;
     if (m.lava) f |= MF.LAVA;
@@ -162,7 +172,27 @@ export class LocalPlayer {
 
     if (this.noJumpDelay > 0) this.noJumpDelay--;
     const inFluid = m.water || m.lava;
-    if (this.flying) {
+    const jumpEdge = input.jump && !this.jumpWas;
+    this.jumpWas = input.jump;
+    if (this.levitateT > 0) this.levitateT--;
+    if (this.gliding && (b.onGround || inFluid || !this.elytra || this.flying || this.levitateT > 0)) this.gliding = false;
+    else if (!this.gliding && jumpEdge && this.elytra && !b.onGround && !inFluid && !this.flying && !m.ladder && b.vy < 0) this.gliding = true;
+    if (!this.gliding) this.rocketT = 0;
+    if (this.gliding) {
+      const cp = Math.cos(this.pitch);
+      const lx = -sin * cp, ly = Math.sin(this.pitch), lz = -cos * cp;
+      const jp = -this.pitch;
+      const hLook = Math.hypot(lx, lz), hVel = Math.hypot(b.vx, b.vz);
+      const c2 = Math.cos(jp) ** 2;
+      b.vy += GRAVITY * (-1 + c2 * 0.75);
+      if (b.vy < 0 && hLook > 0) { const d = b.vy * -0.1 * c2; b.vx += (lx * d) / hLook; b.vy += d; b.vz += (lz * d) / hLook; }
+      if (jp < 0 && hLook > 0) { const d = hVel * -Math.sin(jp) * 0.04; b.vx -= (lx * d) / hLook; b.vy += d * 3.2; b.vz -= (lz * d) / hLook; }
+      if (hLook > 0) { b.vx += ((lx / hLook) * hVel - b.vx) * 0.1; b.vz += ((lz / hLook) * hVel - b.vz) * 0.1; }
+      if (this.rocketT > 0) { this.rocketT--; b.vx += lx * 0.1 + (lx * 1.5 - b.vx) * 0.5; b.vy += ly * 0.1 + (ly * 1.5 - b.vy) * 0.5; b.vz += lz * 0.1 + (lz * 1.5 - b.vz) * 0.5; }
+      b.vx *= 0.99; b.vy *= 0.98; b.vz *= 0.99;
+      this.move(world, b.vx, b.vy, b.vz);
+      if (b.hitH || b.onGround) this.gliding = b.onGround ? false : this.gliding;
+    } else if (this.flying) {
       if (input.crouch) b.vy -= 0.15;
       if (input.jump) b.vy += 0.15;
     } else if (input.jump || this.shouldAutoJump(world, strafe, forward)) {
@@ -202,6 +232,12 @@ export class LocalPlayer {
       this.move(world, b.vx, b.vy, b.vz);
       if (b.hitH && m.ladder) b.vy = 0.2;
       b.vx *= f; b.vy *= 0.8; b.vz *= f;
+      const bc = bubbleColumn(world, b.x, b.y + 0.2, b.z);
+      if (bc) {
+        const top = bubbleSurface(world, b.x, b.y + 0.2, b.z);
+        b.vy = bc > 0 ? Math.min(top ? 1.8 : 0.7, b.vy + (top ? 0.1 : 0.06)) : Math.max(top ? -0.9 : -0.3, b.vy - 0.03);
+        this.inBubbles = bc;
+      } else this.inBubbles = 0;
       if (!this.sprinting) b.vy -= GRAVITY / 16;
       if (b.hitH && !boxCollides(world, b.x - HW + b.vx, b.y + 0.6 - (b.y - oy) + b.vy, b.z - HW + b.vz, b.x + HW + b.vx, b.y + b.h + 0.6 - (b.y - oy) + b.vy, b.z + HW + b.vz)) b.vy = 0.3;
       if (input.jump && Math.random() < 0.1) this.swimSound?.();
@@ -233,7 +269,7 @@ export class LocalPlayer {
         if (ub === B.HONEY_BLOCK) { b.vx *= 0.4; b.vz *= 0.4; }
       }
       if ((b.hitH || input.jump) && m.ladder) b.vy = 0.2;
-      b.vy = (b.vy - GRAVITY) * 0.98;
+      b.vy = this.levitateT > 0 ? b.vy + (0.05 - b.vy) * 0.2 : (b.vy - GRAVITY) * 0.98;
       b.vx *= f; b.vz *= f;
     }
     if (b.onGround && !wasGround && vyBefore < -0.4) this.landed = true;

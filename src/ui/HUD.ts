@@ -165,7 +165,37 @@ export class HUD {
     root.style.setProperty('--slot-img', u.slot ? `url(${u.slot})` : 'none');
   }
 
-  setAtlas(a: TextureAtlas): void { this.atlas = a; this.lastInvKey = ''; this.lastVit = ''; this.applySprites(); }
+  private bossEl: HTMLElement | null = null;
+  setBoss(name: string | null, frac = 0): void {
+    if (!name) { if (this.bossEl) { this.bossEl.remove(); this.bossEl = null; } return; }
+    if (!this.bossEl) {
+      this.bossEl = h('div', { class: 'hud-boss' }, h('div', { class: 'hud-boss-name' }), h('div', { class: 'hud-boss-bar' }, h('div', { class: 'hud-boss-fill' })));
+      this.root.appendChild(this.bossEl);
+    }
+    (this.bossEl.firstChild as HTMLElement).textContent = name;
+    ((this.bossEl.lastChild as HTMLElement).firstChild as HTMLElement).style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
+  }
+
+  private cdEl: HTMLElement | null = null;
+  private cdTimer = 0;
+  setCountdown(ms: number, label: string): void {
+    window.clearInterval(this.cdTimer);
+    if (ms <= 0) { this.cdEl?.remove(); this.cdEl = null; return; }
+    const end = Date.now() + ms;
+    if (!this.cdEl) { this.cdEl = h('div', { class: 'hud-countdown' }); this.root.appendChild(this.cdEl); }
+    const el = this.cdEl;
+    const draw = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      const hh = Math.floor(left / 3600), mm = Math.floor((left % 3600) / 60), ss = left % 60;
+      el.textContent = `${label || 'Countdown'}  ${hh ? `${hh}:${String(mm).padStart(2, '0')}` : mm}:${String(ss).padStart(2, '0')}`;
+      el.classList.toggle('urgent', left <= 10);
+      if (left <= 0) window.clearInterval(this.cdTimer);
+    };
+    draw();
+    this.cdTimer = window.setInterval(draw, 250);
+  }
+
+  setAtlas(a: TextureAtlas): void { this.atlas = a; this.lastInvKey = ''; for (const el of this.slots) el.dataset.k = ''; const os = this.offEl.firstElementChild as HTMLElement | null; if (os) os.dataset.k = ''; this.lastVit = ''; this.applySprites(); }
 
   show(v: boolean): void { this.root.classList.toggle('show', v); }
 
@@ -177,12 +207,12 @@ export class HUD {
     const off = inv.off?.[0] ?? null;
     this.offEl.style.display = off ? 'block' : 'none';
     const os = this.offEl.firstElementChild as HTMLElement;
-    clear(os);
-    if (off) for (const n of slotContent(this.atlas, off, size)) os.appendChild(n);
+    const ok = JSON.stringify(off) + size;
+    if (os.dataset.k !== ok) { os.dataset.k = ok; clear(os); if (off) for (const n of slotContent(this.atlas, off, size)) os.appendChild(n); }
     for (let i = 0; i < 9; i++) {
       const el = this.slots[i];
-      clear(el);
-      for (const n of slotContent(this.atlas, inv.slots[i], size)) el.appendChild(n);
+      const k = JSON.stringify(inv.slots[i] ?? null) + size;
+      if (el.dataset.k !== k) { el.dataset.k = k; clear(el); for (const n of slotContent(this.atlas, inv.slots[i], size)) el.appendChild(n); }
       el.classList.toggle('sel', i === inv.selected);
     }
     this.selEl.style.left = `calc(var(--hs) * ${inv.selected * 20 - 1})`;

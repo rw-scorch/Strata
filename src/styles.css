@@ -670,3 +670,17 @@ body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; mi
 .bp-hud .row { gap: 6px; flex-wrap: wrap; justify-content: center; }
 .bp-hud button { min-width: 64px; min-height: 40px; touch-action: manipulation; }
 .load-skip { margin-top: 14px; min-width: 160px; }
+.eco-edit { max-height: 60vh; overflow-y: auto; touch-action: pan-y; gap: 10px; }
+.eco-edit-cat { border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.eco-edit-head, .eco-edit-row { align-items: center; gap: 6px; }
+.eco-edit-head .input { flex: 1; }
+.eco-num { width: 72px; flex: none; }
+
+.hud-countdown { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 50%; transform: translateX(-50%); padding: 6px 14px; background: rgba(12, 14, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.18); color: #f3e6b0; font: 600 15px/1.2 var(--font, system-ui); letter-spacing: 0.04em; border-radius: 6px; pointer-events: none; z-index: 30; white-space: nowrap; }
+.hud-countdown.urgent { color: #ff8a6a; border-color: rgba(255, 120, 90, 0.6); }
+.dim-load.to-end { background: radial-gradient(circle at 50% 45%, #1e3a36 0%, #0c1416 45%, #040608 80%); }
+
+.hud-boss { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 44px); left: 50%; transform: translateX(-50%); width: min(420px, 70vw); text-align: center; pointer-events: none; z-index: 29; }
+.hud-boss-name { color: #f2e8ff; font: 600 14px/1.2 var(--font, system-ui); text-shadow: 0 1px 2px #000; margin-bottom: 4px; letter-spacing: 0.03em; }
+.hud-boss-bar { height: 9px; background: rgba(20, 10, 30, 0.75); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 2px; overflow: hidden; }
+.hud-boss-fill { height: 100%; background: linear-gradient(#f088e8, #b03aa8); transition: width 0.2s; }

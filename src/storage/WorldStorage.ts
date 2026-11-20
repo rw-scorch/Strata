@@ -4,7 +4,7 @@ import { dbGet, dbPut, dbDelete, dbKeys, dbAll, dbPutMany, prefixRange } from '.
 import { encodeRLE, decodeRLE, u16ToBase64, base64ToU16, type BlockArray } from '../core/chunk';
 import { SAVE_VERSION, GameMode, Difficulty } from '../core/constants';
 import type { PlayerInv } from '../core/inventory';
-import type { BlockEntity, Weather } from '../core/sim/WorldSim';
+import type { BlockEntity, Weather, EndState } from '../core/sim/WorldSim';
 import type { MobType } from '../core/sim/mobs';
 
 export interface WorldMeta {
@@ -38,7 +38,8 @@ export interface WorldState {
   spawn: { x: number; y: number; z: number } | null;
   blockEntities: [string, BlockEntity][];
   beChunks: string[];
-  mobs: { type: MobType; x: number; y: number; z: number; health: number }[];
+  mobs: { type: MobType; x: number; y: number; z: number; health: number; att?: number }[];
+  end?: EndState;
   dayCycle: boolean;
   populated?: number[];
   genBase?: number;

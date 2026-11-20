@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX, ID_LIMIT, isBaseId, CAVE_TEX } from '../core/blocks';
+import { CB, BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX, ID_LIMIT, isBaseId, CAVE_TEX } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
 import { BIOMES } from '../core/worldgen/biomes';
 import { defaultBlockTexture, defaultItemTexture, cloudTexture, hudIcon, Px } from './DefaultTextures';
@@ -75,6 +75,7 @@ export class TextureAtlas {
   readonly entityTextures = new Map<string, THREE.Texture>();
   readonly entityCanvases = new Map<string, HTMLCanvasElement>();
   sunTexture!: THREE.Texture;
+  endSkyTexture!: THREE.Texture;
   moonTexture!: THREE.Texture;
   cloudTexture!: THREE.Texture;
   readonly packHash: string;
@@ -104,6 +105,7 @@ export class TextureAtlas {
         if (packPath && pack?.files.has(packPath)) {
           src = { canvas: toCanvas(pack.files.get(packPath)!), anim: pack.animations.get(packPath), fromPack: true };
           if ((k === 'water_flow' || k === 'lava_flow') && src.canvas.width >= 32) src.canvas = flowQuadrant(src.canvas);
+          if (k === 'end_portal' && src.canvas.width > 16) { const c = document.createElement('canvas'); c.width = c.height = 16; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false; g.drawImage(src.canvas, 0, 0, 64, 64, 0, 0, 16, 16); src.canvas = c; }
         }
         else {
           const def = defaultBlockTexture(k.includes('/') ? k.split('/').pop()! : k);
@@ -143,7 +145,7 @@ export class TextureAtlas {
     [0, 1, 1, 2].forEach((st, i) => { special[`wart${i}`] = get(`nether_wart_stage${st}`); });
     for (const c of ['carrots', 'potatoes', 'beetroots']) for (let i = 0; i < 4; i++) special[`${c}${i}`] = get(`${c}_stage${i}`);
     for (let i = 0; i < 10; i++) special[`destroy${i}`] = get(`destroy_stage_${i}`);
-    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top']) special[k] = get(k);
+    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top', 'cauldron_inner', 'chorus_flower_dead', 'end_portal_frame_eye', 'end_portal']) special[k] = get(k);
     for (const k of CAVE_TEX) special[k] = get(k);
     special.doorTop = get('oak_door_top');
     special.doorBottom = get('oak_door_bottom');
@@ -231,7 +233,7 @@ export class TextureAtlas {
       const src = this.pack.files.get(path);
       if (!src) continue;
       const c = toCanvas(src);
-      if ((c.width !== 64 && c.width !== 128) || ![32, 64, 128].includes(c.height)) continue;
+      if (!(k.startsWith('ent_arrow') && c.width === 32 && c.height === 32) && ((c.width !== 64 && c.width !== 128) || ![32, 64, 128].includes(c.height))) continue;
       const t = new THREE.CanvasTexture(c);
       t.magFilter = THREE.NearestFilter;
       t.minFilter = THREE.NearestMipmapLinearFilter;
@@ -458,6 +460,7 @@ export class TextureAtlas {
       return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }, { b: [0, 0.5, 0, 1, 1, 0.5], ...tl }];
     }
     if (BLOCKS[id]?.render === 'trapdoor') return [{ b: [0, 0, 0, 1, 3 / 16, 1], top: t[o + 2], left: t[o + 4], right: t[o] }];
+    if (id === CB.POINTED_DRIPSTONE) return null;
     if (isBaseId(id) && CUSTOM_BOX[id]) return customBoxes(id).map((b) => ({ b: [...b], top: t[o + 2], left: t[o + 4], right: t[o + 4] }));
     if (id === B.STONE_PRESSURE_PLATE || id === B.OAK_PRESSURE_PLATE) return [{ b: px([1, 7, 1, 15, 8, 15]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
     if (id === B.STONE_BUTTON || id === B.OAK_BUTTON) return [{ b: px([5, 6, 6, 11, 10, 10]), top: t[o + 2], left: t[o + 2], right: t[o + 2] }];
@@ -526,7 +529,8 @@ export class TextureAtlas {
         let src: HTMLCanvasElement | null = null;
         if (it.kind === 'block') {
           const bd = BLOCKS[it.id];
-          if (bd?.render === 'door' || (bd?.render === 'redstone' && this.pack?.itemTextures.has(it.key) && this.pack.files.has(this.pack.itemTextures.get(it.key)!))) src = this.itemSource(it);
+          const packItem = !!this.pack?.itemTextures.has(it.key) && this.pack.files.has(this.pack.itemTextures.get(it.key)!);
+          if (bd?.render === 'door' || ((bd?.render === 'redstone' || bd?.render === 'cave') && packItem) || (bd?.render === 'cave' && !packItem && defaultItemTexture(it.key))) src = this.itemSource(it);
           else {
             const tile = it.id === B.WHEAT ? this.data.special.wheat7 : this.data.blockTiles[it.id * FACE_SLOTS + (bd?.render === 'redstone' || bd?.render === 'rail' ? 2 : 4)];
             src = this.tileCanvases[tile] ?? null;
@@ -699,6 +703,7 @@ export class TextureAtlas {
     this.sunTexture = mk('sun', () => defaultBlockTexture('sun'));
     this.moonTexture = mk('moon', () => defaultBlockTexture('moon'));
     this.cloudTexture = mk('clouds', () => cloudTexture(96), true);
+    this.endSkyTexture = mk('end_sky', () => defaultBlockTexture('end_sky'), true);
   }
 
   updateAnimations(renderer: THREE.WebGLRenderer, ticks: number): void {
@@ -728,6 +733,7 @@ export class TextureAtlas {
     this.iconTexture.dispose();
     for (const a of this.anims) { a.scratch.dispose(); for (const t of a.scratchMips) t.dispose(); }
     this.sunTexture?.dispose();
+    this.endSkyTexture?.dispose();
     this.moonTexture?.dispose();
     this.cloudTexture?.dispose();
     for (const t of this.entityTextures.values()) t.dispose();

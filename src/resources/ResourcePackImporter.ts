@@ -42,7 +42,7 @@ export interface PackManifest {
   catalog?: string;
 }
 
-export const IMPORTER_VERSION = 25;
+export const IMPORTER_VERSION = 28;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -77,14 +77,10 @@ export interface PackFiles { [path: string]: Uint8Array; }
 
 export interface ImportedPack { manifest: PackManifest; files: PackFiles; icon: Uint8Array | null; }
 
-export const JAVA_BLOCK_NAMES: Record<string, { name: string; state?: string }> = {
-  aetherite_ore: { name: 'diamond_ore' }, aetherite_block: { name: 'diamond_block' }, cinderite_block: { name: 'netherite_block' }, tall_grass: { name: 'short_grass' },
-  snowy_grass: { name: 'grass_block', state: 'snowy=true' }, copper_lamp: { name: 'copper_bulb', state: 'lit=true,powered=false' }, trial_spawner: { name: 'trial_spawner', state: 'ominous=false,trial_spawner_state=inactive' }, vault: { name: 'vault', state: 'facing=north,ominous=false,vault_state=inactive' }, furnace: { name: 'furnace', state: 'facing=north,lit=false' },
-  furnace_lit: { name: 'furnace', state: 'facing=north,lit=true' }, grass: { name: 'grass_block', state: 'snowy=false' },
-  farmland: { name: 'farmland', state: 'moisture=7' }, wheat: { name: 'wheat', state: 'age=0' },
-};
+export { JAVA_BLOCK_NAMES } from './javaNames';
+import { JAVA_BLOCK_NAMES } from './javaNames';
 
-const SKIP_MODEL = new Set(['moss_carpet', 'azalea', 'flowering_azalea', 'hanging_roots', 'cave_vines', 'cave_vines_lit', 'spore_blossom', 'big_dripleaf', 'big_dripleaf_stem', 'small_dripleaf', 'glow_lichen', 'pointed_dripstone', 'sculk_vein', 'sculk_sensor', 'sculk_shrieker', 'chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'nether_wart', 'nether_brick_fence', 'carrots', 'potatoes', 'beetroots', 'lectern', 'brewing_stand', 'cauldron', 'grindstone', 'stonecutter', 'bell', 'lantern', 'cake', 'composter', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser']);
+const SKIP_MODEL = new Set(['moss_carpet', 'azalea', 'flowering_azalea', 'hanging_roots', 'cave_vines', 'cave_vines_lit', 'spore_blossom', 'big_dripleaf', 'big_dripleaf_stem', 'small_dripleaf', 'glow_lichen', 'pointed_dripstone', 'sculk_vein', 'sculk_sensor', 'sculk_shrieker', 'chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'nether_wart', 'nether_brick_fence', 'carrots', 'potatoes', 'beetroots', 'lectern', 'brewing_stand', 'cauldron', 'grindstone', 'stonecutter', 'bell', 'lantern', 'cake', 'composter', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser', 'end_rod', 'chorus_plant', 'chorus_flower', 'end_portal_frame', 'end_portal', 'end_gateway', 'dragon_egg', 'dragon_head']);
 
 const all6 = (t: string) => ({ px: t, nx: t, py: t, ny: t, pz: t, nz: t });
 const RS_FACES: Record<string, Record<string, string>> = {
@@ -410,7 +406,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       for (const t of extra[b.key] ?? []) needTex.add(t);
       if (b.render === 'boxes' || b.id >= 1024) for (const f of new Set([...Object.values(b.faces), b.front].filter(Boolean) as string[])) needTex.add(`block/${f}`);
     }
-    for (const t of [...RS6_TEX, ...CAVE_TEX]) needTex.add(`block/${t}`);
+    for (const t of [...RS6_TEX, ...CAVE_TEX, 'chorus_flower_dead', 'end_portal_frame_eye']) needTex.add(`block/${t}`);
     for (let i = 0; i < 10; i++) needTex.add(`block/destroy_stage_${i}`);
     for (const k of ['grass_block_top', 'grass_block_side', 'grass_block_side_overlay', 'grass_block_snow', 'farmland_moist']) needTex.add(`block/${k}`);
     const itemModelNames = new Map<string, string>();
@@ -418,7 +414,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       if (!it || it.kind === 'block' || it.blockIcon || it.key === 'wither_skeleton_skull') continue;
       itemModelNames.set(it.key, javaItemName(it.key));
     }
-    for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door' && !itemModelNames.has(it.key)) itemModelNames.set(it.key, BLOCKS[it.id]?.render === 'redstone' ? it.key : '');
+    for (const it of ITEMS) if (it && it.kind === 'block' && !it.blockIcon && it.key !== 'oak_door' && !itemModelNames.has(it.key)) itemModelNames.set(it.key, BLOCKS[it.id]?.render === 'redstone' || BLOCKS[it.id]?.render === 'cave' ? it.key : '');
     itemModelNames.set('hopper', 'hopper');
     r.load([...itemModelNames.values()].filter(Boolean).map((n) => `assets/minecraft/models/item/${n}.json`));
     for (const [key, jn] of itemModelNames) {
@@ -440,6 +436,8 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     special.armor = 'gui/sprites/hud/armor_full'; special.armor_half = 'gui/sprites/hud/armor_half'; special.armor_empty = 'gui/sprites/hud/armor_empty';
     special.bubble = 'gui/sprites/hud/air';
     special.fire_0 = 'block/fire_0'; special.fire_1 = 'block/fire_1';
+    if (z.has('assets/minecraft/textures/entity/end_portal/end_portal.png')) special['tex:end_portal'] = 'entity/end_portal/end_portal';
+    if (z.has('assets/minecraft/textures/environment/end_sky.png')) special.end_sky = 'environment/end_sky';
     for (const g of GUI_SPRITES) if (z.has(`assets/minecraft/textures/gui/sprites/${g}.png`)) special[`gs:${g}`] = `gui/sprites/${g}`;
     for (const g of GUI_TEXTURES) if (z.has(`assets/minecraft/textures/gui/${g}.png`)) special[`gt:${g}`] = `gui/${g}`;
     if (z.has('assets/minecraft/textures/font/ascii.png')) {
@@ -473,6 +471,10 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       ent_piglin: firstOf('entity/piglin/piglin'),
       ent_piglin_brute: firstOf('entity/piglin/piglin_brute'),
       ent_hoglin: firstOf('entity/hoglin/hoglin'),
+      ent_enderman: firstOf('entity/enderman/enderman'),
+      ent_arrow: firstOf('entity/projectiles/arrow'),
+      ent_arrow_spectral: firstOf('entity/projectiles/arrow_spectral'),
+      ent_enderman_eyes: firstOf('entity/enderman/enderman_eyes'),
       ent_chest: firstOf('entity/chest/normal'),
       ent_chest_left: firstOf('entity/chest/normal_left'),
       ent_chest_right: firstOf('entity/chest/normal_right'),
@@ -588,6 +590,8 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     add('s:ent_skeleton', ['textures/entity/skeleton/skeleton']);
     add('s:ent_spider', ['textures/entity/spider/spider']);
     add('s:ent_spider_eyes', ['textures/entity/spider/spider_eyes', 'textures/entity/spider_eyes']);
+    add('s:ent_enderman', ['textures/entity/enderman/enderman']);
+    add('s:ent_enderman_eyes', ['textures/entity/enderman/enderman_eyes']);
     add('s:ent_player0', ['textures/entity/steve']);
     add('s:ent_villager', ['textures/entity/villager2/villager', 'textures/entity/villager/villager']);
     add('s:ent_villager_type', ['textures/entity/villager2/biomes/biome_plains']);

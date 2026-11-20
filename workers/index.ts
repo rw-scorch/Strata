@@ -122,7 +122,7 @@ function failure(err: unknown): Response {
   console.error(busy ? 'room busy' : 'route error', e?.message ?? err);
   return new Response(JSON.stringify({ error: busy ? 'World is busy, retrying shortly' : 'Server hiccup, please retry', retry }), {
     status: retry ? 503 : 500,
-    headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...(retry ? { 'retry-after': '2' } : {}) },
+    headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...(retry ? { 'retry-after': busy ? String(5 + Math.floor(Math.random() * 10)) : '2' } : {}) },
   });
 }
 

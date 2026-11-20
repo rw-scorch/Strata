@@ -5,6 +5,7 @@ export class InputState {
   jump = false;
   crouch = false;
   crouchToggle = false;
+  crouchLatch = false;
   lookDX = 0;
   lookDY = 0;
   breaking = false;
@@ -45,7 +46,8 @@ export class InputState {
 
   reset(): void {
     this.moveX = this.moveZ = 0;
-    this.sprint = this.jump = this.crouch = this.breaking = this.using = false;
+    this.sprint = this.jump = this.breaking = this.using = false;
+    this.crouch = this.crouchLatch;
     this.touchAim = null;
     this.endFrame();
   }

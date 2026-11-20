@@ -289,6 +289,10 @@ export class AudioEngine {
       case 'mace': this.noiseHit(dest, t, 300, 0.7, 'lowpass', { a: 0.003, d: 0.45, v: 1 }, 0.4); this.tone(dest, t, 90, 'sine', { a: 0.003, d: 0.3, v: 0.4 }, 40); break;
       case 'tnt': this.noiseHit(dest, t, 3500, 1, 'highpass', { a: 0.02, d: 0.9, v: 0.3 }, 0.8); break;
       case 'portal': this.tone(dest, t, sub === 'travel' ? 70 : 110, 'sine', { a: 0.3, d: sub === 'travel' ? 2.2 : 1.2, v: 0.35 }, sub === 'travel' ? 220 : 60, 5); this.noiseHit(dest, t, 500, 0.6, 'lowpass', { a: 0.4, d: 1.5, v: 0.25 }, 0.6); break;
+      case 'shield': this.noiseHit(dest, t, sub === 'break' ? 700 : 1100, 2, 'bandpass', { a: 0.002, d: sub === 'break' ? 0.35 : 0.14, v: 0.6 }, 0.7); this.tone(dest, t, sub === 'break' ? 160 : 240, 'triangle', { a: 0.002, d: 0.12, v: 0.2 }, 120); break;
+      case 'pearl': if (sub === 'land') { this.tone(dest, t, 300, 'sine', { a: 0.01, d: 0.5, v: 0.35 }, 900, 3); this.noiseHit(dest, t, 1500, 1, 'bandpass', { a: 0.01, d: 0.3, v: 0.2 }); } else this.noiseHit(dest, t, 2200, 2, 'bandpass', { a: 0.004, d: 0.12, v: 0.35 }, 1.4); break;
+      case 'enderman': this.tone(dest, t, sub === 'scream' ? 520 : sub === 'teleport' ? 260 : 140, 'sawtooth', { a: 0.02, d: sub === 'scream' ? 0.9 : 0.45, v: sub === 'scream' ? 0.22 : 0.14 }, sub === 'scream' ? 380 : sub === 'teleport' ? 820 : 90, 6); break;
+      case 'bubble': this.tone(dest, t, 600 + Math.random() * 500, 'sine', { a: 0.005, d: 0.08, v: 0.12 }, 1400); break;
       case 'bell': for (const [f, v] of [[784, 0.3], [1568, 0.12], [2350, 0.06]] as const) this.tone(dest, t, f, 'sine', { a: 0.002, d: 2.4, v }, f * 0.998); break;
       case 'composter': this.noiseHit(dest, t, sub === 'empty' ? 500 : 900, 1.5, 'bandpass', { a: 0.01, d: sub === 'fill_success' ? 0.35 : 0.2, v: 0.35 }); break;
       case 'fire': this.noiseHit(dest, t, 2500, 2, 'bandpass', { a: 0.002, d: 0.25, v: 0.35 }, 1.3); break;

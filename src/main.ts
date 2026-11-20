@@ -60,6 +60,14 @@ class App {
       else toast('Checkout cancelled. Nothing was charged.', 'info');
     }
     if (getAccount()) void supporterRequest('status');
+    let rejoin: string | null = null;
+    try { rejoin = sessionStorage.getItem('strata.rejoin'); sessionStorage.removeItem('strata.rejoin'); } catch { /* storage blocked */ }
+    if (rejoin && isValidRoomCode(rejoin)) {
+      this.menus.title();
+      toast('The world was refreshed. Rejoining the new world...', 'info', 5000);
+      void this.playRemote(rejoin);
+      return;
+    }
     const m = location.pathname.match(/^\/join\/([A-Za-z0-9]+)/);
     if (m) {
       const code = normalizeRoomCode(m[1]);

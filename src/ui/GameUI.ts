@@ -138,6 +138,7 @@ export interface PauseActions {
   shaper?(): void;
   mischief?(): void;
   blueprints?(): void;
+  waypoints?(): void;
   packs(): void;
   datapacks?(): void;
   economy?(cmd: string): void;
@@ -157,7 +158,7 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
       mcButton('Back to Game', () => { close(); a.resume(); }, 204),
       row(a.invite ? mcButton('Invite Friends', () => a.invite!(), 98) : null, a.players ? mcButton('Players', () => a.players!(), 98) : null),
       row(a.room ? mcButton('World Settings', () => a.room!(), 98) : null, a.shaper ? mcButton('World Shaper', () => a.shaper!(), 98) : null),
-      a.blueprints ? mcButton('Blueprints', () => a.blueprints!(), 204) : null,
+      row(a.blueprints ? mcButton('Blueprints', () => a.blueprints!(), a.waypoints ? 98 : 204) : null, a.waypoints ? mcButton('Waypoints', () => a.waypoints!(), a.blueprints ? 98 : 204) : null),
       a.mischief ? mcButton('Mischief Console', () => a.mischief!(), 204) : null,
       a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
       row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
@@ -224,6 +225,7 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
   const s = { ...room.settings };
   const r = { map: rules.allowMinimap !== false, coords: rules.allowCoords !== false, homes: rules.maxHomes ?? 2, tpa: rules.tpa !== false, bp: rules.allowBlueprints !== false, day: rules.dayLength ?? DEFAULT_DAY_LENGTH, night: rules.nightLength ?? DEFAULT_NIGHT_LENGTH };
   let name = room.name, diff = room.difficulty, max = room.maxPlayers;
+  let cdT = '', cdL = '';
   let pack = room.pack;
   const packLine = h('div', { class: 'small muted' });
   const renderPack = () => { packLine.textContent = pack ? `Shared pack: ${pack.name}. Players who have it installed see it; others see default textures.` : 'No shared resource pack. Everyone uses default textures unless personal packs are allowed.'; };
@@ -247,6 +249,20 @@ export function showRoomSettings(room: RoomMeta, onSave: (patch: { name?: string
     toggle('Blueprints', r.bp, (v) => { r.bp = v; }, 'Players can build their saved blueprints here if they carry every block needed and the spot is clear.'),
     slider('Daytime length', 1, 20, 1, Math.round(r.day * 2), (v) => `${v / 2}x (${Math.round((10 * v) / 2)} min)`, (v) => { r.day = v / 2; }),
     slider('Night length', 1, 8, 1, Math.round(r.night * 4), (v) => `${v / 4}x (${((25 * v) / 12).toFixed(1)} min)`, (v) => { r.night = v / 4; }),
+    h('div', { class: 'section-title' }, 'Countdown and world refresh'),
+    h('div', { class: 'small muted' }, 'Show everyone a timer at the top of the screen, for events or a planned refresh. Times look like 30s, 10m, 1h30m or 2d.'),
+    h('div', { class: 'row' },
+      h('input', { class: 'input', placeholder: '10m', maxlength: 12, style: 'width:6em', oninput: (e: Event) => { cdT = (e.target as HTMLInputElement).value.trim(); } }),
+      h('input', { class: 'input', placeholder: 'Label (optional)', maxlength: 40, oninput: (e: Event) => { cdL = (e.target as HTMLInputElement).value.trim(); } }),
+    ),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn small primary', onclick: () => { if (cdT) onRules?.([`/countdown ${cdT}${cdL ? ` ${cdL}` : ''}`]); } }, 'Start countdown'),
+      h('button', { class: 'btn small ghost', onclick: () => onRules?.(['/countdown cancel']) }, 'Cancel countdown'),
+      h('button', { class: 'btn small danger', onclick: async () => {
+        if (!cdT) { cdT = '5m'; }
+        if (await confirmDialog('Refresh world', `In ${cdT}, the map is replaced with a brand new world. Every build, chest, home and bed is wiped. Money, inventories and the shop are kept. Continue?`, 'Schedule refresh', true)) onRules?.([`/resetworld ${cdT} confirm`]);
+      } }, 'Refresh world...'),
+    ),
     h('div', { class: 'section-title' }, 'Shared resource pack'),
     packLine,
     h('div', { class: 'row' },

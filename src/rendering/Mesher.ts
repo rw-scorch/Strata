@@ -1,6 +1,6 @@
 import type { BlockArray } from '../core/chunk';
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -17,7 +17,7 @@ export interface MeshBuffers { pos: Int16Array; uv: Int16Array; light: Uint8Arra
 export const SECTIONS = Math.ceil(WORLD_HEIGHT / 16);
 export const POS_SCALE = 64;
 export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_GLOW = 32, F_WATER = 64, F_FLOWV = 128;
-export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; vis?: Uint16Array; }
+export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; cages?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
 const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20, cave: 21 };
@@ -431,17 +431,18 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (B
     }
   }
 
-  const chests: number[] = [];
+  const chests: number[] = [], cages: number[] = [];
   for (let y = 0; y < top; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const rx = x + 16, rz = z + 16;
     const v = region[ridx(rx, y, rz)];
     const id = bid(v);
+    if (id === B.SPAWNER && (v >>> 8) & 0xff) cages.push(x, y, z, ((v >>> 8) & 0xff) - 1);
     const code = RENDER[id];
     if (code < 5) continue;
     if (code === 12) { chests.push(x, y, z, (v >>> 8) & 3); continue; }
     special(ctx, code, id, v, x, y, z, rx, rz, smooth);
   }
-  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish(), chests: chests.length ? new Int32Array(chests) : null, vis: visGraph() };
+  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish(), chests: chests.length ? new Int32Array(chests) : null, cages: cages.length ? new Int32Array(cages) : null, vis: visGraph() };
 }
 
 const visSeen = new Uint8Array(4096);
@@ -794,6 +795,40 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
     case 16: {
       const tl = ctx.atlas.blockTiles;
       const TE = LIGHT_EMIT[id] > 0 ? F_EMIT : 0;
+      if (id === CB.END_ROD || id === CB.END_PORTAL_FRAME || id === CB.END_PORTAL || id === CB.CHORUS_FLOWER) {
+        const o = builders[0], q = 1 / 16, t0 = tl[id * FS], up = tl[id * FS + 2], dn = tl[id * FS + 3];
+        const sideUV = (u0: number, v0: number, u1: number, v1: number) => [[u0 * q, v1 * q], [u1 * q, v1 * q], [u1 * q, v0 * q], [u0 * q, v0 * q]];
+        const flatUV = (u0: number, v0: number, u1: number, v1: number) => [[u0 * q, v1 * q], [u1 * q, v1 * q], [u1 * q, v0 * q], [u0 * q, v0 * q]];
+        if (id === CB.END_ROD) {
+          boxFaces(o, x + 6 * q, y, z + 6 * q, x + 10 * q, y + q, z + 10 * q, () => t0, sk, bl, 255, 255, 255, undefined, (d) => d === 2 || d === 3 ? flatUV(2, 2, 6, 6) : sideUV(2, 6, 6, 7), F_EMIT);
+          boxFaces(o, x + 7 * q, y + q, z + 7 * q, x + 9 * q, y + 1, z + 9 * q, () => t0, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? flatUV(2, 0, 4, 2) : sideUV(0, 0, 2, 15), F_EMIT);
+        } else if (id === CB.END_PORTAL) {
+          const fy = y + 12 * q, c = [[x, fy, z + 1], [x + 1, fy, z + 1], [x + 1, fy, z], [x, fy, z]];
+          quadRaw(o, c, [[0, 1], [1, 1], [1, 0], [0, 0]], sp.end_portal ?? t0, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+        } else if (id === CB.CHORUS_FLOWER) {
+          const tile = ((v >>> 8) & 7) >= CHORUS_DEAD ? sp.chorus_flower_dead ?? t0 : t0;
+          for (const bx of customBoxes(v)!) boxFaces(o, x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5], () => tile, sk, bl, 255, 255, 255);
+        } else {
+          const side = t0;
+          boxFaces(o, x, y, z, x + 1, y + 13 * q, z + 1, (d) => d === 2 ? up : d === 3 ? dn : side, sk, bl, 255, 255, 255, undefined);
+          if ((v >>> 8) & FRAME_EYE) { const eye = sp.end_portal_frame_eye ?? up; boxFaces(o, x + 4 * q, y + 13 * q, z + 4 * q, x + 12 * q, y + 1, z + 12 * q, () => eye, sk, bl, 255, 255, 255, (d) => d === 3, (d) => d === 2 ? flatUV(4, 4, 12, 12) : sideUV(4, 0, 12, 3)); }
+        }
+        return;
+      }
+      if (id === B.CAULDRON) {
+        const side = tl[id * FS], top = tl[id * FS + 2], bot = tl[id * FS + 3], inner = sp.cauldron_inner ?? side, o = builders[0], q = 1 / 16;
+        const bx = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, inside: number) => boxFaces(o, x + x0 * q, y + y0 * q, z + z0 * q, x + x1 * q, y + y1 * q, z + z1 * q, (d) => d === 2 ? top : d === 3 ? bot : d === inside ? inner : side, sk, bl, 255, 255, 255);
+        bx(0, 3, 0, 2, 16, 16, 0); bx(14, 3, 0, 16, 16, 16, 1); bx(2, 3, 0, 14, 16, 2, 4); bx(2, 3, 14, 14, 16, 16, 5);
+        boxFaces(o, x + 2 * q, y + 3 * q, z + 2 * q, x + 14 * q, y + 4 * q, z + 14 * q, (d) => d === 3 ? bot : inner, sk, bl, 255, 255, 255, (d) => d !== 2 && d !== 3);
+        for (const l of [[0, 0, 0, 4, 3, 2], [0, 0, 2, 2, 3, 4], [12, 0, 0, 16, 3, 2], [14, 0, 2, 16, 3, 4], [0, 0, 14, 4, 3, 16], [0, 0, 12, 2, 3, 14], [12, 0, 14, 16, 3, 16], [14, 0, 12, 16, 3, 14]]) bx(l[0], l[1], l[2], l[3], l[4], l[5], -1);
+        const lava = !!(meta & 4), lvl = lava ? 3 : meta & 3;
+        if (lvl) {
+          const fy = y + (lava ? 15 : 6 + lvl * 3) * q, c = [[x + 2 * q, fy, z + 14 * q], [x + 14 * q, fy, z + 14 * q], [x + 14 * q, fy, z + 2 * q], [x + 2 * q, fy, z + 2 * q]], uvq = [[2 * q, 14 * q], [14 * q, 14 * q], [14 * q, 2 * q], [2 * q, 2 * q]];
+          if (lava) quadRaw(o, c, uvq, sp.lava, sk, 255, 255, 255, 255, 255, F_EMIT, false);
+          else { tintAt(x, z, 0); quadRaw(builders[2], c, uvq, sp.water, sk, bl, 255, tintOut[0], tintOut[1], tintOut[2], F_TINT | F_WATER, false); }
+        }
+        return;
+      }
       const cb = customBoxes(v);
       const anvil = id === B.ANVIL, ew = anvil && (meta & 1) === 1;
       cb.forEach((b, i) => {

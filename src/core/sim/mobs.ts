@@ -1,7 +1,7 @@
 import { I } from '../items';
 import { B } from '../blocks';
 
-export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider' | 'flarewisp' | 'witherbone' | 'piglin' | 'piglin_brute' | 'hoglin';
+export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider' | 'flarewisp' | 'witherbone' | 'piglin' | 'piglin_brute' | 'hoglin' | 'voidstalker' | 'voidwyrm' | 'riftcore' | 'shellward';
 
 export interface MobDrop { item: number; min: number; max: number; chance?: number; }
 
@@ -19,6 +19,7 @@ export interface MobDef {
   xp: number;
   lure?: number[];
   burnsInDay?: boolean;
+  follow?: number;
   ranged?: boolean;
   climbs?: boolean;
   npc?: boolean;
@@ -139,8 +140,30 @@ export const MOBS: Record<MobType, MobDef> = {
     nether: { crimson_forest: { weight: 9, min: 3, max: 4 } },
     desc: 'A tusked beast of the Crimson Forest that tosses you into the air. It flees from Warped Fungus.',
   },
+  voidstalker: {
+    type: 'voidstalker', code: 18, name: 'Enderman', hostile: false, neutral: true, health: 40, speed: 3.0, hw: 0.3, h: 2.9, damage: 7,
+    drops: [{ item: I.ENDER_PEARL, min: 0, max: 1 }], xp: 5,
+    spawn: { weight: 10, min: 1, max: 4 },
+    nether: { nether_wastes: { weight: 1, min: 4, max: 4 }, soul_sand_valley: { weight: 1, min: 4, max: 4 } },
+    desc: 'A tall wanderer from somewhere else. Leaves you alone unless you meet its eyes. Hates water and slips away from arrows.',
+  },
+  voidwyrm: {
+    type: 'voidwyrm', code: 19, name: 'Ender Dragon', hostile: true, health: 200, speed: 0, hw: 3.5, h: 3.5, damage: 10,
+    drops: [], xp: 0, flying: true, fireImmune: true,
+    desc: 'The great black dragon that rules the End. The crystals on the pillars heal it; break them first.',
+  },
+  riftcore: {
+    type: 'riftcore', code: 20, name: 'End Crystal', hostile: false, health: 1, speed: 0, hw: 1, h: 2, damage: 0,
+    drops: [], xp: 0, fireImmune: true,
+    desc: 'A spinning crystal that heals the Ender Dragon. Any blow sets it off.',
+  },
+  shellward: {
+    type: 'shellward', code: 21, name: 'Shulker', hostile: true, health: 30, speed: 0, hw: 0.5, h: 1, damage: 4,
+    drops: [{ item: I.SHULKER_SHELL, min: 1, max: 1, chance: 0.5 }], xp: 5, fireImmune: true,
+    desc: 'A purpur box that hides on End city walls and lobs homing bullets that make you float.',
+  },
 };
 
 export const MOB_BY_CODE: MobDef[] = Object.values(MOBS).sort((a, b) => a.code - b.code);
 export const PASSIVE_TYPES: MobType[] = ['woolhorn', 'mudsnout', 'fernhen'];
-export const HOSTILE_TYPES: MobType[] = ['hollowed', 'rattlebone', 'duskweaver'];
+export const HOSTILE_TYPES: MobType[] = ['hollowed', 'rattlebone', 'duskweaver', 'voidstalker'];

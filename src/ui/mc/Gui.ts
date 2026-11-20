@@ -68,7 +68,11 @@ export function itemTooltipLines(st: ItemStack, advanced = false): { text: strin
   const enchanted = !!st.en && Object.keys(st.en).length > 0;
   const out: { text: string; color: string }[] = [{ text: st.nm ? `"${st.nm}"` : it.name, color: st.nm ? '#55ffff' : enchanted ? '#55ffff' : '#ffffff' }];
   if (st.en) for (const [k, l] of Object.entries(st.en)) out.push({ text: enchantLabel(k, l), color: ENCH.get(k)?.curse ? '#ff5555' : '#aaaaaa' });
-  if (it.desc && !enchanted) out.push({ text: it.desc, color: '#aaaaaa' });
+  if (st.box) {
+    const held = st.box.filter((x): x is ItemStack => !!x);
+    for (const x of held.slice(0, 5)) out.push({ text: `${x.nm ?? getItem(x.id)?.name ?? '?'} x${x.count}`, color: '#ffffff' });
+    if (held.length > 5) out.push({ text: `and ${held.length - 5} more...`, color: '#aaaaaa' });
+  } else if (it.desc && !enchanted) out.push({ text: it.desc, color: '#aaaaaa' });
   if (it.food) out.push({ text: `Hunger +${it.food.hunger / 2}  Saturation +${Math.round(it.food.saturation * 10) / 10}`, color: '#ffaa00' });
   if (it.tool) {
     out.push({ text: '', color: '#aaaaaa' }, { text: 'When in Main Hand:', color: '#aaaaaa' });

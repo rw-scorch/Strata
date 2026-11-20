@@ -1,8 +1,9 @@
 import { ENCH } from './enchants';
 import { getItem, maxStack, fuelSeconds } from './items';
+import { CB } from './blocks';
 import { findRecipe, findSmelt, ingredientMatches, Recipe, RecipeBook, BASE_BOOK, Ingredient } from './crafting';
 
-export interface ItemStack { id: number; count: number; dmg?: number; ld?: number; en?: Record<string, number>; rc?: number; nm?: string; }
+export interface ItemStack { id: number; count: number; dmg?: number; ld?: number; en?: Record<string, number>; rc?: number; nm?: string; box?: (ItemStack | null)[]; }
 
 export const INV_SIZE = 36;
 export const CHEST_SIZE = 27;
@@ -45,6 +46,7 @@ export interface InvContext {
   crafted?: (recipe: Recipe, times: number) => void;
   split?: ((joined: (ItemStack | null)[]) => void) | null;
   book?: RecipeBook;
+  sealed?: boolean;
 }
 
 export function emptyInv(): PlayerInv {
@@ -67,6 +69,7 @@ export function cloneStack(s: ItemStack | null): ItemStack | null {
   if (s.en && Object.keys(s.en).length) c.en = { ...s.en };
   if (s.rc) c.rc = s.rc;
   if (s.nm) c.nm = s.nm;
+  if (s.box) c.box = s.box.map(cloneStack);
   return c;
 }
 
@@ -83,7 +86,7 @@ export function cloneInv(inv: PlayerInv): PlayerInv {
 }
 
 export function sameKind(a: ItemStack | null, b: ItemStack | null): boolean {
-  return !!a && !!b && a.id === b.id && (a.dmg ?? 0) === (b.dmg ?? 0) && (a.ld ?? 0) === (b.ld ?? 0) && enKey(a) === enKey(b) && (a.rc ?? 0) === (b.rc ?? 0) && (a.nm ?? '') === (b.nm ?? '');
+  return !!a && !!b && a.id === b.id && (a.dmg ?? 0) === (b.dmg ?? 0) && (a.ld ?? 0) === (b.ld ?? 0) && enKey(a) === enKey(b) && (a.rc ?? 0) === (b.rc ?? 0) && (a.nm ?? '') === (b.nm ?? '') && !a.box && !b.box;
 }
 
 function enKey(s: ItemStack): string {
@@ -97,7 +100,15 @@ export function validStack(s: unknown): s is ItemStack {
   return Number.isInteger(o.id) && !!getItem(o.id) && Number.isInteger(o.count) && o.count > 0 && o.count <= maxStack(o.id)
     && (o.dmg === undefined || (Number.isInteger(o.dmg) && o.dmg >= 0)) && (o.ld === undefined || o.ld === 0 || o.ld === 1)
     && (o.en === undefined || validEn(o.en)) && (o.rc === undefined || (Number.isInteger(o.rc) && o.rc >= 0 && o.rc < 1 << 20))
-    && (o.nm === undefined || (typeof o.nm === 'string' && o.nm.length > 0 && o.nm.length <= 50 && !/[\u0000-\u001f<>]/.test(o.nm)));
+    && (o.nm === undefined || (typeof o.nm === 'string' && o.nm.length > 0 && o.nm.length <= 50 && !/[\u0000-\u001f<>]/.test(o.nm)))
+    && (o.box === undefined || validBox(o.box));
+}
+
+export const BOX_SIZE = 27;
+
+function validBox(b: unknown): boolean {
+  if (!Array.isArray(b) || b.length > BOX_SIZE) return false;
+  return b.every((x) => x === null || (validStack(x) && x.id !== CB.SHULKER_BOX && !(x as ItemStack).box));
 }
 
 function validEn(en: unknown): boolean {
@@ -144,6 +155,7 @@ function slotCount(ctx: InvContext, g: SlotGroup): number {
 
 export function canPlaceIn(ctx: InvContext, s: SlotRef, stack: ItemStack): boolean {
   if (s.c === 'out') return false;
+  if (s.c === 'cont' && ctx.sealed && (stack.id === CB.SHULKER_BOX || stack.box)) return false;
   if (s.c === 'armor') return getItem(stack.id)?.armor?.slot === s.i;
   if (s.c === 'cont' && ctx.containerKind === 'enchant' && s.i === 1) return stack.id === 389;
   if (s.c === 'cont' && ctx.containerKind === 'furnace') {
@@ -331,6 +343,7 @@ function quickMove(ctx: InvContext, s: SlotRef, one = false): boolean {
   let left = total;
   if (s.c === 'inv') {
     if (ctx.container) {
+      if (ctx.sealed && (moving.id === CB.SHULKER_BOX || moving.box)) return false;
       if (ctx.containerKind === 'furnace') {
         const target = findSmelt(moving.id, ctx.book) ? 0 : fuelSeconds(moving.id) > 0 ? 1 : -1;
         if (target < 0) return false;

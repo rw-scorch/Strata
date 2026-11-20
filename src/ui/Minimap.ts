@@ -16,6 +16,9 @@ interface MapHost {
   sendChat(text: string): void;
   toast(text: string): void;
   setModal(open: boolean): void;
+  roster?(): { id: string; name: string }[];
+  shareState?(): { all: boolean; to: string[] };
+  setShare?(to: string[], all: boolean): void;
 }
 
 const COLORS = WP_COLORS;
@@ -87,6 +90,36 @@ export class Minimap {
     this.root = h('div', { class: 'minimap', title: 'Open map and waypoints', onclick: () => this.openBig() }, this.canvas, this.coords);
     this.markers = h('div', { class: 'wp-markers' });
     hudRoot.append(this.root, this.markers);
+    try {
+      const sv = JSON.parse(localStorage.getItem(`strata.share.${worldKey}`) ?? 'null') as { all?: boolean; to?: string[] } | null;
+      if (sv && host.setShare && (sv.all || sv.to?.length)) host.setShare((sv.to ?? []).filter((x) => typeof x === 'string').slice(0, 64), !!sv.all);
+    } catch { /* storage blocked */ }
+  }
+
+  private saveShare(all: boolean, to: string[]): void {
+    this.host.setShare?.(to, all);
+    try { localStorage.setItem(`strata.share.${this.worldKey}`, JSON.stringify({ all, to })); } catch { /* storage blocked */ }
+  }
+
+  private sharePanel(): HTMLElement | null {
+    if (!this.host.setShare || !this.host.roster || !this.host.shareState) return null;
+    const box = h('div', { class: 'wp-share stack' });
+    const draw = () => {
+      clear(box);
+      const st = this.host.shareState!();
+      const people = this.host.roster!();
+      box.append(h('div', { class: 'small muted' }, 'Players only appear on maps when they choose to share their location. Pick who can see you.'));
+      box.append(h('div', { class: 'row' }, h('b', { class: 'grow' }, 'Everyone in this world'),
+        h('button', { class: `btn small${st.all ? ' primary' : ''}`, onclick: () => { this.saveShare(!st.all, st.to); draw(); } }, st.all ? 'Sharing' : 'Off')));
+      if (!people.length) box.append(h('div', { class: 'small muted' }, 'Nobody else is online.'));
+      for (const pl of people) {
+        const on = st.all || st.to.includes(pl.id);
+        box.append(h('div', { class: 'row' }, h('span', { class: 'grow' }, pl.name),
+          h('button', { class: `btn small${on ? ' primary' : ''}`, disabled: st.all ? '' : null, onclick: () => { const to = on ? st.to.filter((x) => x !== pl.id) : [...st.to, pl.id]; this.saveShare(st.all, to); draw(); } }, on ? 'Sharing' : 'Share')));
+      }
+    };
+    draw();
+    return box;
   }
 
   version = 0;
@@ -98,7 +131,7 @@ export class Minimap {
   get coordsAllowed(): boolean { return this.serverCoords; }
   get mapAllowed(): boolean { return this.serverMap; }
 
-  visibleWaypoints(): Waypoint[] { return this.hideAll || !this.serverMap ? [] : this.waypoints.filter((w) => w.shown); }
+  visibleWaypoints(): Waypoint[] { return this.hideAll ? [] : this.waypoints.filter((w) => w.shown); }
 
   toggleHideAll(): void { this.hideAll = !this.hideAll; this.version++; this.host.toast(this.hideAll ? 'Waypoints hidden.' : 'Waypoints shown.'); }
 
@@ -207,9 +240,10 @@ export class Minimap {
       return [mx, mz, inside];
     };
     for (const o of this.host.players()) {
-      const [mx, mz] = toMap(o.x, o.z);
-      g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1.5;
+      const [mx, mz, inside] = toMap(o.x, o.z);
+      g.fillStyle = '#7fd8ff'; g.strokeStyle = '#000'; g.lineWidth = 1.5;
       g.beginPath(); g.arc(mx, mz, 3.5, 0, Math.PI * 2); g.fill(); g.stroke();
+      if (inside && size > 200) { g.fillStyle = '#fff'; g.font = '10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(o.name, mx, mz - 6); }
     }
     for (const w of this.visibleWaypoints()) {
       const [mx, mz, inside] = toMap(w.x + 0.5, w.z + 0.5);
@@ -371,7 +405,8 @@ export class Minimap {
             h('button', { class: 'btn primary', onclick: addHere }, 'New here'),
             h('button', { class: 'btn', onclick: importMenu }, 'Import'),
             h('button', { class: 'btn', onclick: exportMenu }, 'Export'),
-            h('button', { class: 'btn ghost', onclick: () => { this.toggleHideAll(); close(); } }, this.hideAll ? 'Show in world' : 'Hide in world')),
+            h('button', { class: 'btn ghost', onclick: () => { this.toggleHideAll(); close(); } }, this.hideAll ? 'Show in world' : 'Hide in world'),
+            this.host.setShare ? h('button', { class: 'btn', onclick: () => { const p = this.sharePanel(); if (p) this.subModal('Share my location', p); } }, 'Share location') : null),
           search,
           list)));
     document.getElementById('modals')!.appendChild(this.big);

@@ -54,6 +54,7 @@ export interface Settings {
   leftHanded: boolean;
   invertY: boolean;
   autoJump: boolean;
+  toggleCrouch: boolean;
   tapToInteract: boolean;
   buttonLayout: ButtonLayout;
   master: number;
@@ -145,7 +146,7 @@ function defaults(): Settings {
     packNames: true,
     preset, renderDistance: 6, lodDistance: 32, lodQuality: 'medium', caveCulling: true, idleFps: true, voiceEnabled: false, foodStats: true, sidebar: true, lookInfo: true, dynamicLights: true, fallingLeaves: true, connectedGlass: true, betterGrass: 'off', cloudStyle: 'realistic', soundPhysics: true, mouseTweaks: true, voiceMode: 'ptt', voiceVolume: 1, micGain: 1, voiceThreshold: 0.03, resolutionScale: 1, adaptiveResolution: true, shadows: false, particles: 'high', smoothLighting: true, clouds: true,
     fov: 72, showFps: false, sensitivity: 1, touchSensitivity: 1, joystickSize: 1, buttonSize: 1, leftHanded: false, invertY: false,
-    controlScheme: 'auto', labs: false, guiScale: 0, touchLayout: 'full', buttonOpacity: 0.85, fireOverlay: 'low', chatTimestamps: false, showCoords: true, showMinimap: true, menuBlur: 5, advancedTooltips: false, autoJump: touch, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
+    controlScheme: 'auto', labs: false, guiScale: 0, touchLayout: 'full', buttonOpacity: 0.85, fireOverlay: 'low', chatTimestamps: false, showCoords: true, showMinimap: true, menuBlur: 5, advancedTooltips: false, autoJump: touch, toggleCrouch: false, tapToInteract: true, buttonLayout: {}, master: 0.8, music: 0.5, effects: 0.8, ambient: 0.6, muted: false,
     difficulty: 'normal', viewBobbing: true, reconnect: true, region: 'auto', activePacks: [],
     playerName: '', appearance: { skin: Math.floor(Math.random() * 6), hair: Math.floor(Math.random() * 8), shirt: Math.floor(Math.random() * 12), pants: Math.floor(Math.random() * 12) },
     hudScale: 1, chatOpacity: 0.55, brightness: 0.5,

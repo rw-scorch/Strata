@@ -29,6 +29,8 @@ export interface ItemDef {
 
 export const I = {
   GLOW_BERRIES: 4096,
+  SHIELD: 490, ENDER_PEARL: 491,
+  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499,
   STICK: 256, APPLE: 258, COAL: 260, CHARCOAL: 261, IRON_INGOT: 262, FLINT: 263, AETHERITE: 264,
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
@@ -70,6 +72,8 @@ for (const b of BLOCKS) {
   });
 }
 
+if (items[CB.SHULKER_BOX]) items[CB.SHULKER_BOX].maxStack = 1;
+
 export const SPEAR_MATS = [
   { key: 'wooden', name: 'Wooden', dmg: 2, dur: 59 }, { key: 'stone', name: 'Stone', dmg: 3, dur: 131 }, { key: 'iron', name: 'Iron', dmg: 4, dur: 250 },
   { key: 'golden', name: 'Golden', dmg: 2, dur: 32 }, { key: 'aetherite', name: 'Diamond', dmg: 5, dur: 1561 },
@@ -101,6 +105,16 @@ for (let i = 0; i < 3; i++) add({ id: I.CROSSBOW_PULL0 + i, key: `crossbow_pulli
 add({ id: I.CROSSBOW_LOADED, key: 'crossbow_arrow', name: 'Crossbow', desc: '', kind: 'material', texture: 'crossbow_arrow', maxStack: 1, tab: 'combat' });
 add({ id: I.MACE, key: 'mace', name: 'Mace', desc: 'Strike while falling: every block you drop adds damage, and the impact throws back everyone nearby. Landing a smash cancels your fall damage.', kind: 'material', texture: 'mace', maxStack: 1, durability: 500, tab: 'combat' });
 SPEAR_MATS.forEach((m, i) => add({ id: I.SPEAR + i, key: `${m.key}_spear`, name: `${m.name} Spear`, desc: 'Jab from 2 to 4.5 blocks away. Hold use to lower it for a charge: anything you run into takes damage that grows with your closing speed.', kind: 'material', texture: `${m.key}_spear`, maxStack: 1, durability: m.dur, tab: 'combat' }));
+add({ id: I.SHIELD, key: 'shield', name: 'Shield', desc: 'Hold use to raise it. Blocks attacks and arrows from the front. Works from your off hand too. An axe blow knocks it down for a moment.', kind: 'material', texture: 'shield', maxStack: 1, durability: 336, tab: 'combat' });
+add({ id: I.ENDER_PEARL, key: 'ender_pearl', name: 'Ender Pearl', desc: 'Throw it to teleport where it lands. The landing stings a little.', kind: 'material', texture: 'ender_pearl', maxStack: 16, tab: 'materials' });
+add({ id: I.EYE_OF_ENDER, key: 'ender_eye', name: 'Eye of Ender', desc: 'Throw it and it flies toward the nearest stronghold. Set twelve in the portal frames to open the End.', kind: 'material', texture: 'ender_eye', tab: 'materials' });
+add({ id: I.END_CRYSTAL, key: 'end_crystal', name: 'End Crystal', desc: 'Place on obsidian or bedrock. Four on the exit portal summon the Ender Dragon again. Explodes when hit.', kind: 'material', texture: 'end_crystal', tab: 'combat' });
+add({ id: I.CHORUS_FRUIT, key: 'chorus_fruit', name: 'Chorus Fruit', desc: 'Eating it teleports you somewhere nearby. Smelt it into popped chorus fruit.', kind: 'food', texture: 'chorus_fruit', food: { hunger: 4, saturation: 2.4 }, tab: 'food' });
+add({ id: I.POPPED_CHORUS_FRUIT, key: 'popped_chorus_fruit', name: 'Popped Chorus Fruit', desc: 'Crafts into purpur blocks and end rods.', kind: 'material', texture: 'popped_chorus_fruit', tab: 'materials' });
+add({ id: I.SHULKER_SHELL, key: 'shulker_shell', name: 'Shulker Shell', desc: 'Two shells and a chest make a shulker box.', kind: 'material', texture: 'shulker_shell', tab: 'materials' });
+add({ id: I.ELYTRA, key: 'elytra', name: 'Elytra', desc: 'Wear in the chest slot, then jump while falling to glide. Fireworks give a boost. Only found aboard End ships.', kind: 'armor', texture: 'elytra', maxStack: 1, durability: 432, armor: { slot: 1, points: 0, durability: 432 }, tab: 'combat' });
+add({ id: I.FIREWORK_ROCKET, key: 'firework_rocket', name: 'Firework Rocket', desc: 'Launch it for a show, or use it while gliding for a burst of speed.', kind: 'material', texture: 'firework_rocket', tab: 'tools' });
+add({ id: I.DRAGON_BREATH, key: 'dragon_breath', name: "Dragon's Breath", desc: 'Bottled from the purple cloud the Ender Dragon breathes.', kind: 'material', texture: 'dragon_breath', tab: 'materials' });
 add({ id: I.FLINT_AND_STEEL, key: 'firestriker', name: 'Flint and Steel', desc: 'Strike it on TNT to light the fuse.', kind: 'material', texture: 'firestriker', maxStack: 1, durability: 64, tab: 'tools' });
 mat(I.FEATHER, 'feather', 'Feather', 'Plucked from a Chicken. Fletches arrows.');
 mat(I.STRING, 'string', 'Silk Thread', 'Spun by a Spider. Strong and fine.');

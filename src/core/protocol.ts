@@ -82,6 +82,7 @@ export type C2S =
   | { t: 'bp'; x: number; y: number; z: number; n: number; name: string }
   | { t: 'ping'; c: number }
   | { t: 'resync' }
+  | { t: 'share'; to: string[]; all?: boolean }
   | { t: 'buy'; k: string }
   | { t: 'ue'; id: number }
   | { t: 'ench'; i: number }
@@ -95,7 +96,7 @@ export type S2C =
   | { t: 'rules'; r: RuleSet }
   | { t: 'recipes'; d: DataRecipes[] }
   | { t: 'eco'; k: 'stats'; money: number; kills: number; deaths: number; playtime: number }
-  | { t: 'eco'; k: 'prices'; sell: Record<number, number>; shop: Record<string, number>; on?: boolean }
+  | { t: 'eco'; k: 'prices'; sell: Record<number, number>; shop: Record<string, number>; cat?: import('./economy').ShopCategory[]; on?: boolean }
   | { t: 'eco'; k: 'view'; view: EcoView }
   | { t: 'rtc'; from: string; d: unknown }
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; wd?: number; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
@@ -108,9 +109,9 @@ export type S2C =
   | { t: 'pq'; id: string; name: string }
   | { t: 'ent'; a: number[][]; u: number[][]; r: number[] }
   | { t: 'vit'; h: number; f: number; s: number; a: number; xp: number; dead: boolean; mode: GameMode; fire?: boolean; ab?: number }
-  | { t: 'inv'; inv: PlayerInv }
+  | { t: 'inv'; inv: PlayerInv; q?: number }
   | { t: 'ack'; s: number; ok: boolean; h: number }
-  | { t: 'cont'; k: string; type: 'chest' | 'furnace'; items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number }
+  | { t: 'cont'; k: string; type: 'chest' | 'furnace'; items: (ItemStack | null)[]; burn?: number; burnMax?: number; cook?: number; q?: number }
   | { t: 'scr'; type: ScreenType | null; x: number; y: number; z: number; title?: string }
   | { t: 'snd'; s: string; x: number; y: number; z: number; v?: number; p?: number }
   | { t: 'fx'; k: string; x: number; y: number; z: number; d?: number }
@@ -120,7 +121,7 @@ export type S2C =
   | { t: 'ride'; id: number }
   | { t: 'knock'; x: number; y: number; z: number; s?: number }
   | { t: 'dark'; d: number }
-  | { t: 'trv'; s: 0 | 1; n: 0 | 1 }
+  | { t: 'trv'; s: 0 | 1; n: 0 | 1 | 2 }
   | { t: 'eo'; o: { cost: number; clue: string | null; clueLvl: number }[] }
   | { t: 'boom'; x: number; y: number; z: number; r: number }
   | { t: 'death'; msg: string }
@@ -132,6 +133,10 @@ export type S2C =
   | { t: 'bolt'; x: number; y: number; z: number }
   | { t: 'room'; room: RoomMeta; players: PublicPlayer[] }
   | { t: 'pong'; c: number; s: number }
+  | { t: 'spos'; l: [string, string, number, number, number][] }
+  | { t: 'cd'; ms: number; l: string }
+  | { t: 'eff'; k: string; d: number }
+  | { t: 'reset'; msg: string }
   | { t: 'mode'; mode: GameMode }
   | { t: 'crafted'; r: string; n: number }
   | { t: 'game'; s: GameState }

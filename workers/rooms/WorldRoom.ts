@@ -6,7 +6,7 @@ import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator, type GeneratedChunk } from '../../src/core/worldgen/WorldGenerator';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
-import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot, entTypeCode } from '../../src/core/sim/WorldSim';
+import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot, entTypeCode, EndState, freshEndState } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
 import { Minigame } from '../../src/core/labs/minigames/Minigame';
 import { isArenaKind } from '../../src/core/labs/minigames/arena';
@@ -36,7 +36,7 @@ export interface Env {
   SUPPORTER_AMOUNT?: string;
 }
 
-interface StoredMeta extends RoomMeta { genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
+interface StoredMeta extends RoomMeta { end?: EndState; peak?: number; genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
 
 interface Session {
   ws: WebSocket;
@@ -65,6 +65,11 @@ interface Session {
   oreQueue?: string[];
   chunkReq?: string[];
   bpParts?: string[];
+  queuedAt?: number;
+  invAck?: number;
+  shareAll?: boolean;
+  shareTo?: Set<string>;
+  hadShares?: boolean;
 }
 
 interface Attachment { pid: string | null; name: string; op: boolean; }
@@ -105,13 +110,14 @@ export class WorldRoom extends DurableObject<Env> {
   private eco!: Economy;
   private playStart = new Map<string, number>();
   private sessions = new Map<WebSocket, Session>();
-  private loop: ReturnType<typeof setInterval> | null = null;
+  private loop: ReturnType<typeof setTimeout> | null = null;
   private loadQueue: string[] = [];
   private blockBatch: number[][] = [];
   private dirtyBE = new Set<string>();
   private lastFlush = 0;
   private ticks = 0;
   private loaded = false;
+  private cd: { end: number; label: string; reset: boolean; said: number } | null | undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -141,8 +147,9 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private async wipe(): Promise<void> {
-    if (this.loop) clearInterval(this.loop);
+    if (this.loop) clearTimeout(this.loop);
     if (this.pumpT !== null) clearTimeout(this.pumpT);
+    this.joinQueue = [];
     this.loop = null; this.pumpT = null;
     this.sessions.clear();
     this.cache.clear();
@@ -164,7 +171,9 @@ export class WorldRoom extends DurableObject<Env> {
 
   private loadMeta(): StoredMeta | null {
     if (this.meta) return this.meta;
-    const row = this.sql.exec(`SELECT v FROM kv WHERE k = 'meta'`).toArray()[0];
+    let row: Record<string, SqlStorageValue> | undefined;
+    try { row = this.sql.exec(`SELECT v FROM kv WHERE k = 'meta'`).toArray()[0]; }
+    catch { this.tables(); row = this.sql.exec(`SELECT v FROM kv WHERE k = 'meta'`).toArray()[0]; }
     if (!row) return null;
     this.meta = JSON.parse(row.v as string) as StoredMeta;
     return this.meta;
@@ -172,7 +181,7 @@ export class WorldRoom extends DurableObject<Env> {
 
   private saveMeta(): void {
     if (!this.meta) return;
-    if (this.sim) { this.meta.time = this.sim.time; this.meta.weather = this.sim.weather; this.meta.dayCycle = this.sim.settings.dayCycle; this.meta.rules = ruleSnapshot(this.sim.settings); }
+    if (this.sim) { this.meta.time = this.sim.time; this.meta.weather = this.sim.weather; this.meta.dayCycle = this.sim.settings.dayCycle; this.meta.rules = ruleSnapshot(this.sim.settings); this.meta.end = this.sim.endState; }
     this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('meta', ?)`, JSON.stringify(this.meta));
   }
 
@@ -218,6 +227,8 @@ export class WorldRoom extends DurableObject<Env> {
     this.sim.serverMode = true;
     this.sim.onVirtualClose = (pp, kind, items) => this.eco.virtualClosed(pp, kind, items);
     this.sim.time = m.time ?? 1000;
+    this.sim.endState = { ...freshEndState(), ...(m.end ?? {}) };
+    this.sim.peakPlayers = m.peak ?? 0;
     this.sim.weather = (m.weather as 'clear') ?? 'clear';
     this.sim.settings = { pvp: m.settings.pvp, cheats: m.settings.cheats, guestsBuild: m.settings.guestsBuild, dayCycle: m.dayCycle ?? true, weatherCycle: true, ...(m.rules ?? {}) };
     const dpRow = this.sql.exec(`SELECT v FROM kv WHERE k = 'datapacks'`).toArray()[0];
@@ -233,6 +244,7 @@ export class WorldRoom extends DurableObject<Env> {
           if (be.type === 'furnace') this.sim.activeFurnaces.add(row.k as string);
         } catch { /* skip corrupt */ }
       }
+      this.loadPersistentMobs();
       this.loaded = true;
     }
     const cx = Math.floor(spawn.x / 16), cz = Math.floor(spawn.z / 16);
@@ -348,7 +360,7 @@ export class WorldRoom extends DurableObject<Env> {
 
   private schedulePump(): void {
     if (this.pumpT !== null || !this.sim) return;
-    this.pumpT = setTimeout(() => { this.pumpT = null; this.pump(); }, 0);
+    this.pumpT = setTimeout(() => { this.pumpT = null; this.pump(); }, this.strain > 0 ? 40 : 6);
   }
 
   private hasWork(): boolean {
@@ -362,7 +374,7 @@ export class WorldRoom extends DurableObject<Env> {
     this.cost = 0;
     let n = 0;
     try {
-      while (this.cost < 1.2 && n++ < 300) if (!this.pumpOnce()) return;
+      while (this.cost < (this.strain > 0 ? 0.6 : 1) && n++ < 300) if (!this.pumpOnce()) return;
     } catch (err) { console.error('pump error', err); }
     if (this.hasWork()) this.schedulePump();
   }
@@ -522,8 +534,15 @@ export class WorldRoom extends DurableObject<Env> {
     this.sql.exec(`INSERT OR REPLACE INTO chunks (k, d) VALUES (?, ?)`, k, new Uint8Array(rle.buffer, rle.byteOffset, rle.byteLength));
   }
 
-  private flush(): void {
-    for (const [k, e] of this.cache) if (e.dirty) { this.writeChunk(k, e.c); e.dirty = false; }
+  private saveSome(n: number): void {
+    for (const [k, e] of this.cache) {
+      if (n <= 0) return;
+      if (e.dirty) { this.writeChunk(k, e.c); e.dirty = false; n--; }
+    }
+  }
+
+  private flush(all = true): void {
+    if (all) for (const [k, e] of this.cache) if (e.dirty) { this.writeChunk(k, e.c); e.dirty = false; }
     if (this.sim) {
       for (const k of this.dirtyBE) {
         const be = this.sim.blockEntities.get(k);
@@ -532,9 +551,30 @@ export class WorldRoom extends DurableObject<Env> {
       }
       this.dirtyBE.clear();
       for (const p of this.sim.players.values()) this.savePlayer(p);
+      this.savePersistentMobs();
     }
     this.saveMeta();
     this.lastFlush = Date.now();
+  }
+
+  private savePersistentMobs(): void {
+    if (!this.sim) return;
+    const out: number[][] = [];
+    for (const e of this.sim.entities.values()) if (e.type === 'shellward' && out.length < 4000) out.push([Math.round(e.x * 10) / 10, Math.round(e.y * 10) / 10, Math.round(e.z * 10) / 10, Math.ceil(e.health), e.att ?? 3]);
+    this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('pmobs', ?)`, JSON.stringify(out));
+  }
+
+  private loadPersistentMobs(): void {
+    const row = this.sql.exec(`SELECT v FROM kv WHERE k = 'pmobs'`).toArray()[0];
+    if (!row || !this.sim) return;
+    let list: unknown;
+    try { list = JSON.parse(row.v as string); } catch { return; }
+    if (!Array.isArray(list)) return;
+    for (const r of list.slice(0, 4000)) {
+      if (!Array.isArray(r) || r.length < 5 || !r.every((n) => typeof n === 'number' && Number.isFinite(n))) continue;
+      const e = this.sim.spawnMob('shellward', r[0], r[1], r[2]);
+      e.persistent = true; e.health = Math.max(1, Math.min(30, r[3])); e.att = Math.max(0, Math.min(5, r[4] | 0));
+    }
   }
 
   private savePlayer(p: SimPlayer): void {
@@ -550,7 +590,7 @@ export class WorldRoom extends DurableObject<Env> {
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (url.pathname === '/init' && req.method === 'POST') return this.handleInit(req);
-    if (url.pathname === '/info') return Response.json(this.info());
+    if (url.pathname === '/info') { try { return Response.json(this.info()); } catch (err) { console.error('info error', err); return Response.json({ error: 'World is busy, please retry.', retry: true }, { status: 503, headers: { 'retry-after': '3' } }); } }
     if (url.pathname === '/delete' && req.method === 'POST') return this.handleDelete(req);
     if (url.pathname === '/admin' && req.method === 'POST') return this.handleAdmin(req);
     if (url.pathname === '/ws') {
@@ -688,17 +728,32 @@ export class WorldRoom extends DurableObject<Env> {
     return Response.json({ error: 'Unknown action' }, { status: 400 });
   }
 
+  private nextTick = 0;
+  strain = 0;
+  private slowLog = 0;
+
   private startLoop(): void {
     if (this.loop) return;
-    this.loop = setInterval(() => {
+    this.nextTick = Date.now() + TICK_MS;
+    const run = () => {
+      const now = Date.now();
+      const late = now - this.nextTick;
+      if (late > 250) {
+        this.strain = Math.min(400, this.strain + 40);
+        if (now - this.slowLog > 15000) { this.slowLog = now; console.warn('room strained', late, 'ms behind', JSON.stringify({ players: this.sim?.players.size ?? 0, ents: this.sim?.entities.size ?? 0, cache: this.cache.size, loadQ: this.loadQueue.length, joinQ: this.joinQueue.length })); }
+        this.nextTick = now;
+      } else if (this.strain > 0) this.strain--;
+      this.nextTick += TICK_MS;
       try { this.tick(); } catch (err) { console.error('tick error', err); }
-    }, TICK_MS);
+      if (this.loop) this.loop = setTimeout(run, Math.max(1, this.nextTick - Date.now()));
+    };
+    this.loop = setTimeout(run, TICK_MS);
   }
 
   private stopLoopIfIdle(): void {
     const active = [...this.sessions.values()].some((s) => s.pid);
     if (!active && this.sessions.size === 0 && this.loop) {
-      clearInterval(this.loop);
+      clearTimeout(this.loop);
       this.loop = null;
       if (this.sim) this.flush();
       for (const [k, e] of this.cache) if (!e.dirty) this.cache.delete(k);
@@ -706,7 +761,25 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private send(s: Session, msg: S2C): void {
+    if ((msg.t === 'inv' || msg.t === 'cont') && s.invAck !== undefined) msg = { ...msg, q: s.invAck };
     try { s.ws.send(JSON.stringify(msg)); } catch { /* socket gone */ }
+  }
+
+  private sendSharedPositions(sim: WorldSim): void {
+    const sharers: Session[] = [];
+    for (const s of this.sessions.values()) if (s.pid && (s.shareAll || s.shareTo?.size)) sharers.push(s);
+    for (const s of this.sessions.values()) {
+      if (!s.pid) continue;
+      const l: [string, string, number, number, number][] = [];
+      for (const o of sharers) {
+        if (o === s || !(o.shareAll || o.shareTo!.has(s.pid))) continue;
+        const p = sim.players.get(o.pid!);
+        if (!p || p.vanished) continue;
+        l.push([p.id, p.name, Math.round(p.x * 10) / 10, Math.round(p.y), Math.round(p.z * 10) / 10]);
+      }
+      if (l.length || s.hadShares) this.send(s, { t: 'spos', l });
+      s.hadShares = l.length > 0;
+    }
   }
 
   private sendErr(s: Session, code: Extract<S2C, { t: 'err' }>['code'], msg: string): void {
@@ -748,8 +821,18 @@ export class WorldRoom extends DurableObject<Env> {
     if (!msg || typeof msg !== 'object' || typeof (msg as { t?: unknown }).t !== 'string') { s.strikes++; return; }
     if (s.strikes > 60) { this.sendErr(s, 'invalid', 'Too many invalid messages.'); return; }
     this.startLoop();
-    if (msg.t === 'hello') { try { await this.handleHello(s, msg); } catch (err) { console.error('hello error', err); this.sendErr(s, 'invalid', 'World is busy, please retry.'); } return; }
-    if (msg.t === 'ping') { if (isNum(msg.c)) this.send(s, { t: 'pong', c: msg.c, s: now }); return; }
+    if (msg.t === 'hello') {
+      if (s.pid || s.queuedAt) return;
+      if (this.joinQueue.length || !this.takeJoinToken(now)) {
+        if (this.joinQueue.length >= 40) { this.sendErr(s, 'invalid', 'World is busy, please retry.'); return; }
+        s.queuedAt = now;
+        this.joinQueue.push({ s, msg });
+        return;
+      }
+      await this.admit(s, msg);
+      return;
+    }
+    if (msg.t === 'ping') { if (isNum(msg.c, 0, 1e14)) this.send(s, { t: 'pong', c: msg.c, s: now }); return; }
     if (!s.pid) return;
     const sim = this.ensureSim();
     let p = sim.players.get(s.pid);
@@ -818,6 +901,40 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private joining = new Set<string>();
+  private joinQueue: { s: Session; msg: Extract<C2S, { t: 'hello' }> }[] = [];
+  private joinTokens = 4;
+  private joinT = 0;
+
+  private takeJoinToken(now: number): boolean {
+    const rate = this.strain > 0 ? 0.6 : this.sim && this.loadQueue.length + this.pendingChunkWork() > 600 ? 1.2 : 2.5;
+    this.joinTokens = Math.min(4, this.joinTokens + ((now - (this.joinT || now)) / 1000) * rate);
+    this.joinT = now;
+    if (this.joinTokens < 1) return false;
+    this.joinTokens--;
+    return true;
+  }
+
+  private pendingChunkWork(): number {
+    let n = 0;
+    for (const s of this.sessions.values()) n += (s.oreQueue?.length ?? 0) + Math.min(200, s.chunkReq?.length ?? 0);
+    return n;
+  }
+
+  private async admit(s: Session, msg: Extract<C2S, { t: 'hello' }>): Promise<void> {
+    s.queuedAt = undefined;
+    s.lastSeen = Date.now();
+    try { await this.handleHello(s, msg); } catch (err) { console.error('hello error', err); this.sendErr(s, 'invalid', 'World is busy, please retry.'); }
+  }
+
+  private drainJoins(now: number): void {
+    while (this.joinQueue.length) {
+      const q = this.joinQueue[0];
+      if (!this.sessions.has(q.s.ws)) { this.joinQueue.shift(); continue; }
+      if (!this.takeJoinToken(now)) return;
+      this.joinQueue.shift();
+      void this.admit(q.s, q.msg);
+    }
+  }
 
   private async finishHello(s: Session, msg: Extract<C2S, { t: 'hello' }>, m: NonNullable<ReturnType<WorldRoom['loadMeta']>>, id: string, secret: string, spectate: boolean): Promise<void> {
     const hash = await sha256(secret);
@@ -863,6 +980,7 @@ export class WorldRoom extends DurableObject<Env> {
     const pcx = Math.floor(p.x / 16), pcz = Math.floor(p.z / 16);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.getChunk(pcx + dx, pcz + dz);
     sim.addPlayer(p);
+    { const m = this.meta!; const n = sim.players.size; if (n > (m.peak ?? 0)) { m.peak = n; sim.peakPlayers = n; } }
     this.playStart.set(p.id, Date.now());
     if (!spectate) this.savePlayer(p);
     s.pid = id; s.name = name; s.op = p.op;
@@ -874,6 +992,8 @@ export class WorldRoom extends DurableObject<Env> {
       you: { id, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, op: p.op, sup: p.supporter },
     });
     for (const nm of sim.namedMobs()) this.send(s, { t: 'mn', id: nm.id, n: nm.name });
+    const cdNow = this.countdownState();
+    if (cdNow) this.send(s, { t: 'cd', ms: Math.max(0, cdNow.end - Date.now()), l: cdNow.label });
     if (!spectate) this.eco.joined(p);
     if (spectate) { this.systemChat('You are spectating as a server admin. Other players cannot see you.', 'info', s); this.report(true); return; }
     this.broadcast({ t: 'pj', p: this.publicPlayer(p) }, s);
@@ -962,12 +1082,21 @@ export class WorldRoom extends DurableObject<Env> {
       case 'inv': {
         const op = validateOp(msg.op);
         if (!op || !isInt(msg.s, 0, 1e9)) { s.strikes++; return; }
+        s.invAck = msg.s;
         const r = sim.invOp(p, op);
         this.send(s, { t: 'ack', s: msg.s, ok: r.ok, h: r.hash });
         return;
       }
+      case 'share': {
+        if (!Array.isArray(msg.to) || msg.to.length > 64) { s.strikes++; return; }
+        s.shareAll = msg.all === true;
+        s.shareTo = new Set(msg.to.filter((x): x is string => typeof x === 'string' && x.length <= 64));
+        return;
+      }
       case 'resync': {
         this.send(s, { t: 'inv', inv: p.inv });
+        const v = p.screen.type ? sim.containerView(p) : null;
+        if (v) this.send(s, v.type === 'furnace' ? { t: 'cont', k: v.key, type: 'furnace', items: v.items, burn: v.burn, burnMax: v.burnMax, cook: v.cook } : { t: 'cont', k: v.key, type: 'chest', items: v.items });
         this.send(s, { t: 'vit', h: p.health, f: p.food, s: p.sat, a: p.air, xp: p.xp, dead: p.dead, mode: p.mode });
         return;
       }
@@ -1041,6 +1170,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (lc === 'kick') this.kick(s, target.id, 'kicked'); else this.mute(s, target.id, lc === 'mute');
         return;
       }
+      if (lc === 'countdown' || lc === 'resetworld') { this.countdownCommand(s, p, lc, text.slice(1 + cmd.length).trim()); return; }
       if (this.eco.command(p, text)) return;
       const out = sim.command(p, text);
       if (out) this.systemChat(out, out.startsWith('Unknown') || out.startsWith('You do not') ? 'error' : 'info', s);
@@ -1151,6 +1281,96 @@ export class WorldRoom extends DurableObject<Env> {
     await this.webSocketClose(ws);
   }
 
+  private countdownState(): { end: number; label: string; reset: boolean; said: number } | null {
+    if (this.cd === undefined) {
+      const r = this.sql.exec(`SELECT v FROM kv WHERE k = 'countdown'`).toArray()[0];
+      try { this.cd = r ? JSON.parse(r.v as string) : null; } catch { this.cd = null; }
+    }
+    return this.cd ?? null;
+  }
+
+  private setCountdown(c: { end: number; label: string; reset: boolean; said: number } | null): void {
+    this.cd = c;
+    if (c) this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('countdown', ?)`, JSON.stringify(c));
+    else this.sql.exec(`DELETE FROM kv WHERE k = 'countdown'`);
+    this.broadcast({ t: 'cd', ms: c ? Math.max(0, c.end - Date.now()) : 0, l: c?.label ?? '' });
+  }
+
+  private countdownCommand(s: Session, p: SimPlayer, cmd: string, rest: string): void {
+    const m = this.meta!;
+    const owner = p.op && p.id === m.ownerId;
+    if (!p.op || (cmd === 'resetworld' && !owner)) { this.systemChat(cmd === 'resetworld' ? 'Only the world owner can refresh the world.' : 'You do not have permission for that command.', 'error', s); return; }
+    const words = rest.split(/\s+/).filter(Boolean);
+    const cur = this.countdownState();
+    if (!words.length) {
+      if (cur) this.systemChat(`${cur.reset ? 'World refresh' : `"${cur.label}"`} in ${fmtSpan(cur.end - Date.now())}. Use /${cmd} cancel to stop it.`, 'info', s);
+      else this.systemChat(cmd === 'resetworld' ? 'Usage: /resetworld <time> confirm (for example /resetworld 10m confirm). Players keep money and inventories; the map, homes, beds and builds are wiped.' : 'Usage: /countdown <time> [label], for example /countdown 5m Boss fight. /countdown cancel stops it.', 'info', s);
+      return;
+    }
+    if (words[0].toLowerCase() === 'cancel') {
+      if (!cur || (cmd === 'countdown' && cur.reset && !owner)) { this.systemChat('There is no countdown to cancel.', 'error', s); return; }
+      this.setCountdown(null);
+      this.systemChat(`${p.name} cancelled the ${cur.reset ? 'world refresh' : 'countdown'}.`, 'info');
+      return;
+    }
+    const ms = parseSpan(words[0]);
+    if (ms === null || ms < 5000 || ms > 7 * 86400000) { this.systemChat('Give a time from 5s to 7d, such as 30s, 10m, 1h30m or 2d.', 'error', s); return; }
+    if (cur?.reset && !owner) { this.systemChat('A world refresh countdown is running; only the owner can replace it.', 'error', s); return; }
+    if (cmd === 'resetworld') {
+      if ((words[1] ?? '').toLowerCase() !== 'confirm') { this.systemChat(`This wipes the whole map, every build, home and bed. Money and inventories are kept. Type /resetworld ${words[0]} confirm to schedule it.`, 'error', s); return; }
+      this.setCountdown({ end: Date.now() + ms, label: 'World refresh', reset: true, said: 1e12 });
+      this.systemChat(`The world will be refreshed in ${fmtSpan(ms)}. Money and inventories are kept; homes and builds are not.`, 'info');
+      return;
+    }
+    const label = cleanText(words.slice(1).join(' '), 40) || 'Countdown';
+    this.setCountdown({ end: Date.now() + ms, label, reset: false, said: 1e12 });
+    this.systemChat(`${label}: ${fmtSpan(ms)}.`, 'info');
+  }
+
+  private tickCountdown(now: number): void {
+    const c = this.countdownState();
+    if (!c) return;
+    const left = Math.ceil((c.end - now) / 1000);
+    if (left <= 0) {
+      this.setCountdown(null);
+      if (c.reset) { this.resetWorld(); return; }
+      this.systemChat(`${c.label}: time is up!`, 'info');
+      return;
+    }
+    const marks = [3600, 1800, 600, 300, 120, 60, 30, 10, 5, 4, 3, 2, 1];
+    const mark = marks.find((x) => left <= x && x < (c.said ?? 1e12));
+    if (mark !== undefined && left <= mark && left > mark - 2) {
+      c.said = mark;
+      this.systemChat(`${c.label} in ${fmtSpan(left * 1000)}.`, mark <= 10 ? 'error' : 'info');
+    } else if (mark !== undefined) c.said = mark;
+  }
+
+  private resetWorld(): void {
+    const m = this.meta!;
+    for (const s of [...this.sessions.values()]) if (s.pid) this.send(s, { t: 'reset', msg: 'The world was refreshed. Rejoining the new world...' });
+    for (const s of [...this.sessions.values()]) { this.handleLeave(s); try { s.ws.close(4006, 'World refreshed'); } catch { /* gone */ } }
+    this.sessions.clear();
+    if (this.pumpT !== null) clearTimeout(this.pumpT);
+    this.pumpT = null;
+    this.joinQueue = [];
+    for (const t of ['chunks', 'be', 'genbe', 'genlv', 'gcache']) this.sql.exec(`DELETE FROM ${t}`);
+    for (const k of ['spawn', 'genpts', 'oreSeed', 'countdown', 'pmobs']) this.sql.exec(`DELETE FROM kv WHERE k = ?`, k);
+    m.end = undefined;
+    for (const row of this.sql.exec(`SELECT id, data FROM players`).toArray()) {
+      let d: Record<string, unknown>;
+      try { d = row.data ? JSON.parse(row.data as string) : {}; } catch { continue; }
+      for (const k of ['x', 'y', 'z', 'spawn', 'homes', 'back', 'dead']) delete d[k];
+      d.health = 20; d.food = 20; d.air = 300; d.fire = 0;
+      this.sql.exec(`UPDATE players SET data = ? WHERE id = ?`, JSON.stringify(d), row.id as string);
+    }
+    m.seed = (Math.random() * 0xffffffff) >>> 0;
+    m.genBase = GEN_LEVEL; m.time = 1000; m.weather = 'clear';
+    this.sim = null; this.gen = null; this.levels = null; this.loaded = false; this.cd = null;
+    this.cache.clear(); this.loadQueue = []; this.blockBatch = []; this.dirtyBE.clear();
+    this.saveMeta();
+    this.report(true);
+  }
+
   private handleLeave(s: Session): void {
     this.sessions.delete(s.ws);
     if (!s.pid || !this.sim) return;
@@ -1245,7 +1465,8 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       case 'lightning': this.broadcast({ t: 'bolt', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z) }); return;
       case 'dark': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'dark', d: ev.t }); return; }
-      case 'travel': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trv', s: ev.phase === 'end' ? 1 : 0, n: ev.nether ? 1 : 0 }); return; }
+      case 'travel': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trv', s: ev.phase === 'end' ? 1 : 0, n: ev.end ? 2 : ev.nether ? 1 : 0 }); return; }
+      case 'effect': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'eff', k: ev.k, d: ev.t }); return; }
       case 'knock': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'knock', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), ...(ev.set ? { s: 1 } : {}) }); return; }
       case 'ride': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'ride', id: ev.id }); return; }
       case 'work': {
@@ -1289,11 +1510,14 @@ export class WorldRoom extends DurableObject<Env> {
     if (this.ticks % 200 === 0) this.report();
     const now = Date.now();
     for (const s of [...this.sessions.values()]) {
-      if (!s.pid && now - s.joinedAt > 15000) { this.sendErr(s, 'invalid', 'Handshake timed out.'); this.sessions.delete(s.ws); }
+      if (!s.pid && (s.queuedAt ? now - s.queuedAt > 45000 : now - s.joinedAt > 15000)) { this.sendErr(s, 'invalid', s.queuedAt ? 'World is busy, please retry.' : 'Handshake timed out.'); this.sessions.delete(s.ws); }
       else if (s.pid && now - s.lastSeen > 30000) { try { s.ws.close(4010, 'Connection timed out'); } catch { /* ignore */ } this.handleLeave(s); }
     }
     if (!this.sessions.size) { this.stopLoopIfIdle(); return; }
+    if (this.joinQueue.length) this.drainJoins(now);
+    if (this.ticks % 10 === 3) { this.tickCountdown(now); if (!this.sim && !this.sessions.size) { this.stopLoopIfIdle(); return; } }
     const sim = this.ensureSim();
+    if (this.ticks % 20 === 7) this.sendSharedPositions(sim);
     if (this.hasWork()) this.schedulePump();
     if (this.ticks % 200 === 0) this.eco.tick(now);
     if (this.ticks % 1200 === 600) for (const pp of sim.players.values()) if (!pp.vanished) this.eco.stats(pp);
@@ -1301,8 +1525,9 @@ export class WorldRoom extends DurableObject<Env> {
     sim.tick();
     this.flushBlocks();
     this.flushPlayers();
-    if (this.ticks % 2 === 0) this.flushEntities();
-    if (now - this.lastFlush > 5000) this.flush();
+    if (this.ticks % (this.strain > 0 ? 4 : 2) === 0) this.flushEntities();
+    this.saveSome(this.strain > 0 ? 4 : 12);
+    if (now - this.lastFlush > 5000) this.flush(false);
   }
 
   private flushBlocks(): void {
@@ -1355,7 +1580,7 @@ export class WorldRoom extends DurableObject<Env> {
       const a: number[][] = [], u: number[][] = [], r: number[] = [];
       const seen = new Set<number>();
       for (const e of sim.entities.values()) {
-        if (Math.abs(e.x - p.x) > ENTITY_RANGE || Math.abs(e.z - p.z) > ENTITY_RANGE) continue;
+        if ((Math.abs(e.x - p.x) > ENTITY_RANGE || Math.abs(e.z - p.z) > ENTITY_RANGE) && !(e.type === 'voidwyrm' && Math.abs(e.x - p.x) < 320 && Math.abs(e.z - p.z) < 320)) continue;
         seen.add(e.id);
         const row = this.entRow(e);
         const key = row.slice(3).join(',');
@@ -1370,3 +1595,20 @@ export class WorldRoom extends DurableObject<Env> {
 }
 
 export function blockIsAir(v: number): boolean { return blockId(v) === 0; }
+
+function parseSpan(t: string): number | null {
+  const v = t.toLowerCase();
+  if (/^\d+$/.test(v)) return Number(v) * 1000;
+  const m = /^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/.exec(v);
+  if (!m || !m.slice(1).some(Boolean)) return null;
+  return (((Number(m[1] ?? 0) * 24 + Number(m[2] ?? 0)) * 60 + Number(m[3] ?? 0)) * 60 + Number(m[4] ?? 0)) * 1000;
+}
+
+function fmtSpan(ms: number): string {
+  let s = Math.max(0, Math.round(ms / 1000));
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  const out = [d && `${d}d`, h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean);
+  return out.length ? out.join(' ') : '0s';
+}

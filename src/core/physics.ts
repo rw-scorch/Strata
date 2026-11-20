@@ -1,4 +1,4 @@
-import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid } from './blocks';
+import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand } from './blocks';
 
 export interface BlockReader {
   getBlock(x: number, y: number, z: number): number;
@@ -125,6 +125,7 @@ export function sampleMedium(world: BlockReader, x: number, y: number, z: number
       if (y + e >= top) continue;
       if (id === B.LAVA) m.lava = true; else m.water = true;
     } else if (by >= y0 && id === B.LADDER) m.ladder = true;
+    else if (id === B.CAULDRON && ((v >>> 8) & 4) && y + e < by + 15 / 16 && y + e >= by + 3 / 16 && x > bx + 0.1 && x < bx + 0.9 && z > bz + 0.1 && z < bz + 0.9) m.lava = true;
   }
   for (let bz = Math.floor(z - hw - 0.05); bz <= Math.floor(z + hw + 0.05); bz++) for (let bx = Math.floor(x - hw - 0.05); bx <= Math.floor(x + hw + 0.05); bx++) {
     for (let by = y0; by <= y1; by++) if ((bid(world.getBlock(bx, by, bz))) === B.CACTUS) m.cactus = true;
@@ -222,4 +223,21 @@ export function fluidFlow(world: BlockReader, px: number, py: number, pz: number
     return l > 1e-4 ? { x: fx / l, z: fz / l, lava: fl === B.LAVA } : null;
   }
   return null;
+}
+
+export function bubbleColumn(world: BlockReader, x: number, y: number, z: number): number {
+  const bx = Math.floor(x), bz = Math.floor(z);
+  let by = Math.floor(y);
+  if (bid(world.getBlock(bx, by, bz)) !== B.WATER) return 0;
+  for (let n = 0; n < 48 && by > 0; n++) {
+    by--;
+    const v = world.getBlock(bx, by, bz), id = bid(v);
+    if (id === B.WATER) continue;
+    return isSoulSand(v) ? 1 : id === B.MAGMA_BLOCK ? -1 : 0;
+  }
+  return 0;
+}
+
+export function bubbleSurface(world: BlockReader, x: number, y: number, z: number): boolean {
+  return bid(world.getBlock(Math.floor(x), Math.floor(y) + 1, Math.floor(z))) === 0;
 }

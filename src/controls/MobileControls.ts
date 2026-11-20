@@ -143,6 +143,7 @@ export class MobileControls {
     fly.style.display = this.hooks.canFly() ? '' : 'none';
     fly.classList.toggle('on', this.hooks.isFlying());
     this.buttons.get('players')!.style.display = this.hooks.isMultiplayer() ? '' : 'none';
+    if (this.crouchOn && this.hooks.isFlying()) { this.crouchOn = false; this.input.crouchLatch = this.input.crouch = false; }
     this.buttons.get('crouch')!.classList.toggle('on', this.crouchOn);
     this.buttons.get('sprint')!.classList.toggle('on', this.sprintLock);
   }
@@ -274,8 +275,8 @@ export class MobileControls {
         }
         break;
       case 'crouch':
-        if (this.hooks.isFlying()) { i.crouch = down; break; }
-        if (down) { this.crouchOn = !this.crouchOn; i.crouch = this.crouchOn; this.hooks.setCrouchToggled(this.crouchOn); }
+        if (this.hooks.isFlying()) { this.crouchOn = false; i.crouchLatch = false; i.crouch = down; this.refreshState(); break; }
+        if (down) { this.crouchOn = !this.crouchOn; i.crouchLatch = i.crouch = this.crouchOn; this.hooks.setCrouchToggled(this.crouchOn); this.refreshState(); }
         break;
       case 'break': i.breaking = down; if (down) { i.attackPressed = true; i.touchAim = null; } break;
       case 'place': case 'use':
@@ -307,7 +308,7 @@ export class MobileControls {
     i.touchAim = null;
   }
 
-  resetCrouch(): void { this.crouchOn = false; this.input.crouch = false; this.refreshState(); }
+  resetCrouch(): void { this.crouchOn = false; this.input.crouch = this.input.crouchLatch = false; this.refreshState(); }
 
   private dragEl: HTMLButtonElement | null = null;
   private dragOff = { x: 0, y: 0 };

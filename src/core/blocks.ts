@@ -454,8 +454,13 @@ export const CB = {
   ROOTED_DIRT: 1030, HANGING_ROOTS: 1031, CAVE_VINES: 1032, CAVE_VINES_LIT: 1033, SPORE_BLOSSOM: 1034, BIG_DRIPLEAF: 1035,
   BIG_DRIPLEAF_STEM: 1036, SMALL_DRIPLEAF: 1037, GLOW_LICHEN: 1038, POINTED_DRIPSTONE: 1039, SCULK: 1040, SCULK_VEIN: 1041,
   SCULK_SENSOR: 1042, SCULK_SHRIEKER: 1043, SCULK_CATALYST: 1044, DEEPSLATE: 1045, COBBLED_DEEPSLATE: 1046,
+  END_STONE: 1047, END_STONE_BRICKS: 1048, PURPUR_BLOCK: 1049, PURPUR_PILLAR: 1050, END_ROD: 1051, CHORUS_PLANT: 1052, CHORUS_FLOWER: 1053,
+  END_PORTAL_FRAME: 1054, END_PORTAL: 1055, END_GATEWAY: 1056, DRAGON_EGG: 1057, SHULKER_BOX: 1058, DRAGON_HEAD: 1059,
 } as const;
+export const FRAME_EYE = 4, CHORUS_DEAD = 5;
 export const VINE_BODY = 1, DL_TILT_SHIFT = 2, SMALL_UPPER = 1, DRIP_DOWN = 8, SENSOR_ACTIVE = 1, SENSOR_COOL = 2, SHRIEK_ON = 1, SHRIEK_SUMMON = 2;
+export const CAULDRON_LAVA = 4;
+export function cauldronLevel(v: number): number { return bid(v) === B.CAULDRON ? (((v >>> 8) & CAULDRON_LAVA) ? 3 : (v >>> 8) & 3) : 0; }
 export const DRIP_THICK = ['tip_merge', 'tip', 'frustum', 'middle', 'base'] as const;
 const CAVE_PLANT: Partial<BlockDef> = { render: 'cave', solid: false, opaque: false, lightFilter: 0, hardness: 0, sound: 'grass', category: 'plants' };
 const HALF_SIDES = (side: string, top: string, bottom: string): FaceTextures => ({ px: side, nx: side, pz: side, nz: side, py: top, ny: bottom });
@@ -482,6 +487,19 @@ def(CB.SCULK_SHRIEKER, 'sculk_shrieker', 'Sculk Shrieker', 'Shrieks when a playe
 def(CB.SCULK_CATALYST, 'sculk_catalyst', 'Sculk Catalyst', 'Blooms and spreads sculk when a creature dies close by.', { faces: HALF_SIDES('sculk_catalyst_side', 'sculk_catalyst_top', 'sculk_catalyst_bottom'), lightEmit: 6, hardness: 3, tool: 'hoe', sound: 'cloth', xp: [5, 5], category: 'functional' });
 def(CB.DEEPSLATE, 'deepslate', 'Deepslate', 'Dense dark rock from deep underground.', { faces: COL('deepslate', 'deepslate_top'), hardness: 3, tool: 'pickaxe', tier: 1, drops: [{ item: CB.COBBLED_DEEPSLATE }] });
 def(CB.COBBLED_DEEPSLATE, 'cobbled_deepslate', 'Cobbled Deepslate', 'Broken deepslate. Builds like cobblestone.', { faces: ALL('cobbled_deepslate'), hardness: 3.5, tool: 'pickaxe', tier: 1 });
+def(CB.END_STONE, 'end_stone', 'End Stone', 'Pale stone from the floating islands of the End.', { faces: ALL('end_stone'), hardness: 3, tool: 'pickaxe', tier: 1, category: 'nature' });
+def(CB.END_STONE_BRICKS, 'end_stone_bricks', 'End Stone Bricks', 'Neatly cut End Stone.', { faces: ALL('end_stone_bricks'), hardness: 3, tool: 'pickaxe', tier: 1 });
+def(CB.PURPUR_BLOCK, 'purpur_block', 'Purpur Block', 'Lilac blocks from the towers of End cities.', { faces: ALL('purpur_block'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+def(CB.PURPUR_PILLAR, 'purpur_pillar', 'Purpur Pillar', 'A ridged column of purpur.', { faces: COL('purpur_pillar_side', 'purpur_pillar_top'), hardness: 1.5, tool: 'pickaxe', tier: 1 });
+def(CB.END_ROD, 'end_rod', 'End Rod', 'A glowing white rod that sheds soft light.', { faces: ALL('end_rod'), render: 'boxes', solid: false, opaque: false, lightFilter: 0, lightEmit: 14, hardness: 0, sound: 'glass', category: 'functional' });
+def(CB.CHORUS_PLANT, 'chorus_plant', 'Chorus Plant', 'A branching purple plant of the outer End islands. Break it at the base and the whole plant falls.', { faces: ALL('chorus_plant'), render: 'boxes', opaque: false, lightFilter: 0, hardness: 0.4, tool: 'axe', sound: 'wood', drops: [{ item: 494, chance: 0.5 }], category: 'plants' });
+def(CB.CHORUS_FLOWER, 'chorus_flower', 'Chorus Flower', 'Plant it on End Stone and it slowly grows into a chorus plant.', { faces: ALL('chorus_flower'), render: 'boxes', opaque: false, lightFilter: 0, hardness: 0.4, tool: 'axe', sound: 'wood', category: 'plants' });
+def(CB.END_PORTAL_FRAME, 'end_portal_frame', 'End Portal Frame', 'Twelve of these ring the portal to the End. Each needs an Eye of Ender.', { faces: HALF_SIDES('end_portal_frame_side', 'end_portal_frame_top', 'end_stone'), render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 1, hardness: -1, drops: null, interactive: true, category: 'functional' });
+def(CB.END_PORTAL, 'end_portal', 'End Portal', 'A window onto the void. Step in to travel.', { faces: ALL('end_portal'), render: 'boxes', solid: false, opaque: false, lightFilter: 0, lightEmit: 15, hardness: -1, drops: null, category: 'hidden' });
+def(CB.END_GATEWAY, 'end_gateway', 'End Gateway', 'A beacon of the void that flings you to the far islands.', { faces: ALL('end_portal'), solid: false, opaque: false, lightFilter: 0, lightEmit: 15, hardness: -1, drops: null, category: 'hidden', cullSelf: true });
+def(CB.DRAGON_EGG, 'dragon_egg', 'Dragon Egg', 'The prize for defeating the Ender Dragon. Touch it and it slips away.', { faces: ALL('dragon_egg'), render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 1, hardness: 3, interactive: true, category: 'functional' });
+def(CB.SHULKER_BOX, 'shulker_box', 'Shulker Box', 'A chest that keeps its contents when you break it. Carry 27 stacks in one slot.', { faces: ALL('shulker_box'), hardness: 2, tool: 'pickaxe', interactive: true, drops: null, category: 'functional' });
+def(CB.DRAGON_HEAD, 'dragon_head', 'Dragon Head', 'A trophy from the bow of an End ship.', { faces: ALL('dragon_head'), render: 'boxes', opaque: false, lightFilter: 0, hardness: 1, category: 'functional' });
 export const CAVE_TEX = [
   ...['up', 'down'].flatMap((d) => DRIP_THICK.map((t) => `pointed_dripstone_${d}_${t}`)),
   'cave_vines', 'cave_vines_lit', 'cave_vines_plant', 'cave_vines_plant_lit', 'spore_blossom', 'spore_blossom_base',
@@ -614,6 +632,7 @@ export const SHAPE_MATS: { id: number; key: string; name: string }[] = [
   { id: 600 + 6, key: 'nether_brick', name: 'Nether Brick' },
   { id: 600 + 9, key: 'polished_blackstone_brick', name: 'Polished Blackstone Brick' }, { id: 600 + 3, key: 'blackstone', name: 'Blackstone' },
   { id: SPB, key: 'acacia', name: 'Acacia' }, { id: SPB + 4, key: 'dark_oak', name: 'Dark Oak' }, { id: SPB + 12, key: 'cherry', name: 'Cherry' }, { id: SPB + 16, key: 'mangrove', name: 'Mangrove' },
+  { id: CB.PURPUR_BLOCK, key: 'purpur', name: 'Purpur' }, { id: CB.END_STONE_BRICKS, key: 'end_stone_brick', name: 'End Stone Brick' },
 ];
 export const SLAB_ITEM = 400, STAIRS_ITEM = 440, SLAB_TOP = 32, STAIRS_UP = 128;
 export function slabItem(i: number): number { return i < 21 ? SLAB_ITEM + i : 470 + (i - 21); }
@@ -660,6 +679,13 @@ export function customBoxes(v: number): Box[] {
     case CB.MOSS_CARPET: return [p(0, 0, 0, 16, 1, 16)];
     case CB.SCULK_SENSOR: case CB.SCULK_SHRIEKER: return [p(0, 0, 0, 16, 8, 16)];
     case CB.BIG_DRIPLEAF: return ((v >>> 8) & 15) >> DL_TILT_SHIFT >= 2 ? [] : [p(0, 11, 0, 16, 15, 16)];
+    case CB.END_ROD: return [p(6, 0, 6, 10, 1, 10), p(7, 1, 7, 9, 16, 9)];
+    case CB.CHORUS_PLANT: { const m = (v >>> 8) & 63; const out = [p(4, 4, 4, 12, 12, 12)]; if (m & 1) out.push(p(12, 4, 4, 16, 12, 12)); if (m & 2) out.push(p(0, 4, 4, 4, 12, 12)); if (m & 4) out.push(p(4, 12, 4, 12, 16, 12)); if (m & 8) out.push(p(4, 0, 4, 12, 4, 12)); if (m & 16) out.push(p(4, 4, 12, 12, 12, 16)); if (m & 32) out.push(p(4, 4, 0, 12, 12, 4)); return out; }
+    case CB.CHORUS_FLOWER: return [p(2, 0, 2, 14, 14, 14), p(0, 2, 2, 16, 14, 14), p(2, 2, 0, 14, 14, 16), p(2, 14, 2, 14, 16, 14)];
+    case CB.END_PORTAL_FRAME: return ((v >>> 8) & FRAME_EYE) ? [p(0, 0, 0, 16, 13, 16), p(4, 13, 4, 12, 16, 12)] : [p(0, 0, 0, 16, 13, 16)];
+    case CB.END_PORTAL: return [p(0, 0, 0, 16, 12, 16)];
+    case CB.DRAGON_EGG: return [p(6, 15, 6, 10, 16, 10), p(5, 14, 5, 11, 15, 11), p(4, 13, 4, 12, 14, 12), p(3, 11, 3, 13, 13, 13), p(2, 8, 2, 14, 11, 14), p(1, 3, 1, 15, 8, 15), p(2, 1, 2, 14, 3, 14), p(3, 0, 3, 13, 1, 13)];
+    case CB.DRAGON_HEAD: return [p(4, 0, 4, 12, 8, 12)];
     case CB.POINTED_DRIPSTONE: { const t = (v >>> 8) & 7, dn = ((v >>> 8) & DRIP_DOWN) !== 0, r = t <= 1 ? 3 : t === 2 ? 4 : t === 3 ? 5 : 6; return [p(8 - r, t === 1 && dn ? 5 : 0, 8 - r, 8 + r, t === 1 && !dn ? 11 : 16, 8 + r)]; }
   }
   if (id === B.ANVIL) {
@@ -668,6 +694,13 @@ export function customBoxes(v: number): Box[] {
     return [b(2, 0, 2, 14, 4, 14), b(4, 4, 3, 12, 5, 13), b(6, 5, 4, 10, 10, 12), b(3, 10, 0, 13, 16, 16)];
   }
   return [];
+}
+
+export function isSoulSand(v: number): boolean { return bid(v) === B.EXT && ((v >>> 8) & 0xff) === XV.SOUL_SAND; }
+
+export function isFullCube(v: number): boolean {
+  const bs = blockBoxes(v);
+  return !!bs && bs.some((b) => b[0] <= 0 && b[1] <= 0 && b[2] <= 0 && b[3] >= 1 && b[4] >= 1 && b[5] >= 1);
 }
 
 export function blockBoxes(v: number): [number, number, number, number, number, number][] | null {
@@ -693,6 +726,7 @@ export function blockBox(v: number): [number, number, number, number, number, nu
   if (id === B.CHEST) return [1 / 16, 0, 1 / 16, 15 / 16, 14 / 16, 15 / 16];
   if (id === B.SLAB) return shapeBoxes(v)[0];
   if (id === B.ENCHANTING_TABLE) return [0, 0, 0, 1, 0.75, 1];
+  if (id === B.MUD || isSoulSand(v)) return [0, 0, 0, 1, 14 / 16, 1];
   if (!d.solid) return null;
   return [0, 0, 0, 1, 1, 1];
 }
@@ -727,6 +761,7 @@ export function selectionBox(v: number): [number, number, number, number, number
     if (bs.length) return [Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.min(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3])), Math.max(...bs.map((b) => b[4])), Math.max(...bs.map((b) => b[5]))];
   }
   if (id === CB.SCULK_VEIN) return [0, 0, 0, 1, 1 / 16, 1];
+  if (id === B.MUD || isSoulSand(v)) return [0, 0, 0, 1, 1, 1];
   const solid = blockBox(v);
   if (solid) return solid;
   switch (d.render) {
@@ -742,7 +777,7 @@ export function selectionBox(v: number): [number, number, number, number, number
   }
 }
 
-for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE]) CUSTOM_BOX[id] = 1;
+for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE, CB.END_ROD, CB.CHORUS_PLANT, CB.CHORUS_FLOWER, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.DRAGON_EGG, CB.DRAGON_HEAD]) CUSTOM_BOX[id] = 1;
 export const CROPS: Record<number, { max: number; tex: string; stages: number[] }> = {
   [B.WHEAT]: { max: 7, tex: 'wheat', stages: [0, 1, 2, 3, 4, 5, 6, 7] },
   [B.CARROTS]: { max: 7, tex: 'carrots', stages: [0, 0, 1, 1, 2, 2, 2, 3] },

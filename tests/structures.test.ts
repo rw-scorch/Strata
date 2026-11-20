@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { WorldGenerator } from '../src/core/worldgen/WorldGenerator';
-import { B } from '../src/core/blocks';
+import { B, CB, bid } from '../src/core/blocks';
 import { I } from '../src/core/items';
 import { Rng } from '../src/core/rng';
 import { trialLoot, vaultLoot } from '../src/core/worldgen/structures';
@@ -9,25 +9,26 @@ function scan(g: WorldGenerator, type: 'stronghold' | 'trial') {
   const p = g.locate(type, 0, 0)!;
   const counts = new Map<number, number>();
   const ents: string[] = [];
+  let frames = 0;
   const b = p.bounds;
   for (let cz = b.z0 >> 4; cz <= b.z1 >> 4; cz++) for (let cx = b.x0 >> 4; cx <= b.x1 >> 4; cx++) {
     const c = g.generate(cx, cz);
     expect(c.special).toBe(true);
-    for (const v of c.blocks) counts.set(v & 0xff, (counts.get(v & 0xff) ?? 0) + 1);
+    for (const v of c.blocks) { counts.set(v & 0xff, (counts.get(v & 0xff) ?? 0) + 1); if (bid(v) === CB.END_PORTAL_FRAME) frames++; }
     for (const e of c.entities) ents.push(e.type);
   }
-  return { p, counts, ents };
+  return { p, counts, ents, frames };
 }
 
 describe('structures', () => {
   const g = new WorldGenerator(12345);
 
   it('places a stronghold with a portal room and spawner', () => {
-    const { p, counts, ents } = scan(g, 'stronghold');
+    const { p, counts, ents, frames } = scan(g, 'stronghold');
     expect(p.pieces.length).toBeGreaterThan(6);
     expect(p.pieces.some((x) => x.kind === 'portal')).toBe(true);
     expect(counts.get(B.STONE_BRICKS) ?? 0).toBeGreaterThan(500);
-    expect(counts.get(B.OBSIDIAN) ?? 0).toBeGreaterThanOrEqual(8);
+    expect(frames).toBe(12);
     expect(ents).toContain('spawner');
     expect(ents).toContain('chest');
   });

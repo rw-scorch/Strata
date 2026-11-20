@@ -146,6 +146,7 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
             mcToggle('Auto-Jump', s.autoJump, (v) => set({ autoJump: v }))),
           mcRow(mcSlider('Sensitivity', 0.2, 3, 0.05, s.sensitivity, (v) => pct(v / 2), (v) => set({ sensitivity: v })),
             mcToggle('Invert Mouse', s.invertY, (v) => set({ invertY: v }))),
+          mcRow(mcCycle('Crouch', [['hold', 'Hold'], ['toggle', 'Toggle']], s.toggleCrouch ? 'toggle' : 'hold', (v) => set({ toggleCrouch: v === 'toggle' }), { tip: 'Keyboard crouch. Toggle: tap the crouch key once to crouch and again to stand. The touch Crouch button always toggles.' })),
           mcHeading('Key Binds'),
           mcText('Tap a binding, then press the new key or mouse button. Escape cancels.', { small: true, center: true }),
           ...BIND_GROUPS.flatMap(([group, list]) => [

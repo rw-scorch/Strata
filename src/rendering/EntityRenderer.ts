@@ -159,6 +159,50 @@ const MOB_PARTS: Partial<Record<MobType, PartSpec[]>> = {
     { n: 'leg0', s: [0.25, 1, 0.25], p: [-0.25, 1, 0], o: [0, -0.5, 0], c: 0x5a1a2a },
     { n: 'leg1', s: [0.25, 1, 0.25], p: [0.25, 1, 0], o: [0, -0.5, 0], c: 0x5a1a2a },
   ],
+  voidwyrm: [
+    { n: 'body', s: [3, 2.2, 6], p: [0, 2.2, 0], c: 0x16141a },
+    { n: 'belly', s: [2.4, 0.4, 5], p: [0, 1.05, 0], c: 0x2a2630 },
+    ...[0, 1, 2, 3].map((i) => ({ n: `spine${i}`, s: [0.3, 0.6, 0.6] as [number, number, number], p: [0, 3.55, -2 + i * 1.4] as [number, number, number], c: 0x3a3442 })),
+    ...[0, 1, 2].map((i) => ({ n: `neck${i}`, s: [1.1, 1, 1.3] as [number, number, number], p: [0, 2.5 + i * 0.15, -3.6 - i * 1.25] as [number, number, number], c: 0x1c1a22 })),
+    { n: 'head', s: [1.7, 1.3, 2.4], p: [0, 3.0, -8.2], c: 0x121016 },
+    { n: 'snout', s: [1.2, 0.6, 1.4], p: [0, 2.75, -9.9], c: 0x18161c },
+    { n: 'jaw', s: [1.2, 0.35, 1.8], p: [0, 2.2, -9.2], c: 0x1e1a24 },
+    { n: 'eyeL', s: [0.35, 0.18, 0.06], p: [-0.55, 3.25, -9.42], c: 0xd27bff, e: true },
+    { n: 'eyeR', s: [0.35, 0.18, 0.06], p: [0.55, 3.25, -9.42], c: 0xd27bff, e: true },
+    { n: 'hornL', s: [0.2, 0.5, 0.6], p: [-0.55, 3.85, -7.6], c: 0xd8d0c8 },
+    { n: 'hornR', s: [0.2, 0.5, 0.6], p: [0.55, 3.85, -7.6], c: 0xd8d0c8 },
+    { n: 'wingL', s: [0.1, 0.1, 0.1], p: [-1.5, 3.0, -1.2], c: 0x16141a },
+    { n: 'wingBoneL', s: [7, 0.35, 0.35], p: [0, 0, 0], o: [-3.5, 0, 0], c: 0x26222c, parent: 'wingL' },
+    { n: 'wingSkinL', s: [7, 0.08, 4.2], p: [0, 0, 0], o: [-3.5, 0, 2.1], c: 0x3c2e48, parent: 'wingL' },
+    { n: 'wingR', s: [0.1, 0.1, 0.1], p: [1.5, 3.0, -1.2], c: 0x16141a },
+    { n: 'wingBoneR', s: [7, 0.35, 0.35], p: [0, 0, 0], o: [3.5, 0, 0], c: 0x26222c, parent: 'wingR' },
+    { n: 'wingSkinR', s: [7, 0.08, 4.2], p: [0, 0, 0], o: [3.5, 0, 2.1], c: 0x3c2e48, parent: 'wingR' },
+    ...[0, 1, 2, 3, 4, 5].map((i) => ({ n: `tail${i}`, s: [1 - i * 0.12, 0.9 - i * 0.1, 1.4] as [number, number, number], p: [0, 2.3 - i * 0.12, 3.7 + i * 1.35] as [number, number, number], c: 0x1c1a22 })),
+    ...[0, 1].flatMap((side) => [0, 1].map((f) => ({ n: `leg${side}${f}`, s: [0.6, 1.4, 0.6] as [number, number, number], p: [side ? 1.2 : -1.2, 1.4, f ? 1.8 : -1.8] as [number, number, number], o: [0, -0.7, 0] as [number, number, number], c: 0x1a1820 }))),
+  ],
+  riftcore: [
+    { n: 'base', s: [1.2, 0.25, 1.2], p: [0, 0.12, 0], c: 0x2c2a30 },
+    { n: 'frame', s: [0.05, 0.05, 0.05], p: [0, 1.3, 0], c: 0xd8e8f0 },
+    ...[[0, 1, 1], [0, 1, -1], [0, -1, 1], [0, -1, -1], [1, 0, 1], [1, 0, -1], [-1, 0, 1], [-1, 0, -1], [1, 1, 0], [1, -1, 0], [-1, 1, 0], [-1, -1, 0]].map(([a, b, c], i) => ({ n: `bar${i}`, s: (a === 0 ? [0.95, 0.07, 0.07] : b === 0 ? [0.07, 0.95, 0.07] : [0.07, 0.07, 0.95]) as [number, number, number], p: [0, 0, 0] as [number, number, number], o: [a * 0.45, b * 0.45, c * 0.45] as [number, number, number], c: 0xd8ecf8, e: true, parent: 'frame' })),
+    { n: 'core', s: [0.5, 0.5, 0.5], p: [0, 1.3, 0], c: 0xf06ab0, e: true },
+  ],
+  shellward: [
+    { n: 'base', s: [1, 0.5, 1], p: [0, -0.25, 0], c: 0x7e4e8a },
+    { n: 'head', s: [0.55, 0.55, 0.55], p: [0, -0.05, 0], c: 0xe8d8a0 },
+    { n: 'eyeL', s: [0.1, 0.08, 0.02], p: [-0.12, 0.05, -0.28], c: 0x3a2a20 },
+    { n: 'eyeR', s: [0.1, 0.08, 0.02], p: [0.12, 0.05, -0.28], c: 0x3a2a20 },
+    { n: 'lid', s: [1.02, 0.55, 1.02], p: [0, 0, 0], o: [0, 0.27, 0], c: 0x9a6aa8 },
+  ],
+  voidstalker: [
+    { n: 'body', s: [0.5, 0.75, 0.25], p: [0, 2.1, 0], c: 0x111116 },
+    { n: 'head', s: [0.5, 0.5, 0.5], p: [0, 2.45, 0], o: [0, 0.25, 0], c: 0x16161c },
+    { n: 'eyeL', s: [0.16, 0.05, 0.02], p: [0, 0, 0], o: [-0.12, 0.22, -0.26], c: 0xd27bff, e: true, parent: 'head' },
+    { n: 'eyeR', s: [0.16, 0.05, 0.02], p: [0, 0, 0], o: [0.12, 0.22, -0.26], c: 0xd27bff, e: true, parent: 'head' },
+    { n: 'armL', s: [0.12, 1.85, 0.12], p: [-0.32, 2.4, 0], o: [0, -0.9, 0], c: 0x111116 },
+    { n: 'armR', s: [0.12, 1.85, 0.12], p: [0.32, 2.4, 0], o: [0, -0.9, 0], c: 0x111116 },
+    { n: 'legL', s: [0.12, 1.75, 0.12], p: [-0.12, 1.75, 0], o: [0, -0.875, 0], c: 0x111116 },
+    { n: 'legR', s: [0.12, 1.75, 0.12], p: [0.12, 1.75, 0], o: [0, -0.875, 0], c: 0x111116 },
+  ],
   hollowed: [
     { n: 'body', s: [0.5, 0.7, 0.28], p: [0, 1.04, 0], c: 0x3a3a4a },
     { n: 'rags', s: [0.52, 0.18, 0.3], p: [0, 0.74, 0], c: 0x2a2a34 },
@@ -247,6 +291,7 @@ interface Snap { t: number; x: number; y: number; z: number; yaw: number; pitch:
 
 export interface EntityView {
   squish?: number;
+  cage?: boolean;
   id: string;
   kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'player';
   type: number;
@@ -336,9 +381,10 @@ export class EntityRenderer {
     let overlay: THREE.ShaderMaterial | null = null, emissive: THREE.ShaderMaterial | null = null;
     const ovTex = spec.overlay ? this.atlas.entityTextures.get(spec.overlay) : undefined;
     if (ovTex) {
-      const m = this.material(ovTex, spec.overlay === 'spider_eyes');
+      const glow = spec.overlay === 'spider_eyes' || spec.overlay === 'enderman_eyes';
+      const m = this.material(ovTex, glow);
       mats.push(m);
-      if (spec.overlay === 'spider_eyes') emissive = m; else overlay = m;
+      if (glow) emissive = m; else overlay = m;
     }
     const b = buildVanilla(spec, main, overlay, emissive);
     return { obj: b.obj, parts: b.parts, mats, spec, rig: b.rig };
@@ -764,9 +810,9 @@ export class EntityRenderer {
       } else if (kind === 'fireball') {
         const g = new THREE.Group();
         const m = this.material(null, true);
-        const core = new THREE.Mesh(boxGeo([0.5, 0.5, 0.5], 0xf8b030), m);
+        const core = new THREE.Mesh(boxGeo([0.5, 0.5, 0.5], type === 1 ? 0xe080f0 : 0xf8b030), m);
         core.position.y = 0.25;
-        const shell = new THREE.Mesh(boxGeo([0.7, 0.7, 0.7], 0x8a2a08), this.material(null, true));
+        const shell = new THREE.Mesh(boxGeo([0.7, 0.7, 0.7], type === 1 ? 0x5a1a7a : 0x8a2a08), this.material(null, true));
         shell.position.y = 0.25;
         (shell.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.5;
         (shell.material as THREE.ShaderMaterial).transparent = true;
@@ -777,6 +823,37 @@ export class EntityRenderer {
       } else if (kind === 'tnt') {
         built = { obj: new THREE.Group(), parts: new Map(), mats: [] };
         hw = 0.49; h = 0.98;
+      } else if (kind === 'arrow' && type === 60001) {
+        const g = new THREE.Group();
+        const m = this.material(null, true);
+        const core = new THREE.Mesh(boxGeo([0.3, 0.3, 0.3], 0xf8f0c0), m);
+        const shell = new THREE.Mesh(boxGeo([0.42, 0.42, 0.42], 0xb87ad8), this.material(null, true));
+        (shell.material as THREE.ShaderMaterial).uniforms.uOpacity.value = 0.45;
+        (shell.material as THREE.ShaderMaterial).transparent = true;
+        g.add(core, shell);
+        built = { obj: g, parts: new Map(), mats: [m, shell.material as THREE.ShaderMaterial] };
+        hw = 0.15; h = 0.3;
+      } else if (kind === 'arrow' && type > 0) {
+        const m = this.itemModel(type);
+        m.obj.scale.multiplyScalar(0.6);
+        built = { obj: m.obj, parts: new Map(), mats: m.mats };
+        hw = 0.12; h = 0.24;
+      } else if (kind === 'arrow' && this.atlas.entityTextures.get('arrow')) {
+        const m = this.material(this.atlas.entityTextures.get('arrow')!);
+        m.side = THREE.DoubleSide;
+        const g = new THREE.Group();
+        const geo = new THREE.BufferGeometry();
+        const zb = 0.7, zt = -0.2, w = 0.1125, zc = zb - 0.05625, q = 1 / 32;
+        const pos = [0, w, zb, 0, w, zt, 0, -w, zt, 0, -w, zb, -w, 0, zb, -w, 0, zt, w, 0, zt, w, 0, zb, -w, w, zc, w, w, zc, w, -w, zc, -w, -w, zc];
+        const uv = [0, 0, 16 * q, 0, 16 * q, 5 * q, 0, 5 * q, 0, 0, 16 * q, 0, 16 * q, 5 * q, 0, 5 * q, 0, 5 * q, 5 * q, 5 * q, 5 * q, 10 * q, 0, 10 * q];
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(36).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(new Array(36).fill(1), 3));
+        geo.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11]);
+        g.add(new THREE.Mesh(geo, m));
+        built = { obj: g, parts: new Map(), mats: [m] };
+        hw = 0.05; h = 0.05;
       } else {
         const g = new THREE.Group();
         const m = this.material();
@@ -869,8 +946,17 @@ export class EntityRenderer {
         v.bob += dt * 2;
         v.obj.position.y += 0.18 + Math.sin(v.bob) * 0.06;
         v.obj.rotation.y += dt * 1.6;
+      } else if (v.kind === 'arrow' && v.type > 0) {
+        v.obj.rotation.set(0, v.age * 0.25, 0);
       } else if (v.kind === 'arrow') {
-        v.obj.rotation.set(0, v.yaw, 0);
+        const a = v as EntityView & { py?: number; px?: number; pz?: number; ay?: number; ap?: number };
+        if (a.px !== undefined) {
+          const dx = v.x - a.px, dy = v.y - a.py!, dz = v.z - a.pz!, hz = Math.hypot(dx, dz);
+          if (hz + Math.abs(dy) > 1e-3) { a.ay = Math.atan2(-dx, -dz); a.ap = Math.atan2(dy, hz); }
+        }
+        a.px = v.x; a.py = v.y; a.pz = v.z;
+        v.obj.rotation.order = 'YXZ';
+        v.obj.rotation.set(a.ap ?? 0, a.ay ?? v.yaw, 0);
       } else {
         v.obj.rotation.y = v.yaw;
         v.obj.scale.setScalar(v.kind === 'mob' && (v.flags & 128) ? 0.55 : 1);
@@ -914,6 +1000,13 @@ export class EntityRenderer {
           v.obj.position.y -= crouch ? 0.12 : 0;
           if (v.tag) v.tag.visible = !crouch;
           v.obj.visible = !(v.flags & (1 << 14));
+        }
+        if (v.cage) {
+          const sc = Math.min(0.45, 0.75 / Math.max(v.h, v.hw * 2, 0.5));
+          v.obj.scale.setScalar(sc);
+          v.obj.rotation.y = now * 0.0025;
+          v.obj.position.y = v.y + 0.5 - Math.min(v.h, 1.6) * sc * 0.5;
+          if (v.tag) v.tag.visible = false;
         }
         if (v.hurtT > 0) v.hurtT -= dt;
         if (v.dying > 0) {
@@ -1008,12 +1101,34 @@ export class EntityRenderer {
     }
     const head = p.get('head');
     if (head) head.rotation.x = v.kind === 'player' ? v.pitch * 0.8 : 0;
+    if (mtype === 'voidwyrm') {
+      const flap = Math.sin(v.age * 0.12) * 0.55, wl = p.get('wingL'), wr = p.get('wingR');
+      const perched = (v.flags & 0x10000) === 0 && v.snaps.length > 1 && Math.hypot(v.snaps[v.snaps.length - 1].x - v.snaps[0].x, v.snaps[v.snaps.length - 1].z - v.snaps[0].z) < 0.05;
+      if (wl) wl.rotation.z = perched ? -0.9 : flap;
+      if (wr) wr.rotation.z = perched ? 0.9 : -flap;
+      for (let i = 0; i < 6; i++) { const t = p.get(`tail${i}`); if (t) t.rotation.y = Math.sin(v.age * 0.06 - i * 0.6) * 0.12 * i; }
+      const jaw = p.get('jaw'); if (jaw) jaw.rotation.x = Math.max(0, Math.sin(v.age * 0.05)) * 0.25;
+      if (v.flags & 0x10000) { v.obj.rotation.z = Math.sin(v.age * 0.4) * 0.05; }
+    } else if (mtype === 'riftcore') {
+      const f = p.get('frame'), c = p.get('core');
+      if (f) { f.rotation.y = v.age * 0.08; f.rotation.x = v.age * 0.05; f.position.y = 1.3 + Math.sin(v.age * 0.1) * 0.25; }
+      if (c) { c.rotation.y = -v.age * 0.12; c.rotation.z = v.age * 0.07; c.position.y = 1.3 + Math.sin(v.age * 0.1) * 0.25; }
+    } else if (mtype === 'shellward') {
+      const peek = ((v.flags >> 8) & 15) / 15, att = (v.flags >> 12) & 7;
+      const lid = p.get('lid'); if (lid) lid.position.y = peek * 0.45;
+      const hd = p.get('head'); if (hd) hd.scale.setScalar(0.6 + peek * 0.4);
+      const rot: [number, number][] = [[0, Math.PI / 2], [0, -Math.PI / 2], [Math.PI, 0], [0, 0], [-Math.PI / 2, 0], [Math.PI / 2, 0]];
+      const [rx, rz] = rot[att] ?? [0, 0];
+      v.obj.rotation.order = 'YXZ';
+      v.obj.rotation.x = rx; v.obj.rotation.z = rz;
+      v.obj.position.y += 0.5;
+    }
   }
 
   pick(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, filter: (v: EntityView) => boolean): { view: EntityView; dist: number } | null {
     let best: { view: EntityView; dist: number } | null = null;
     for (const v of this.views.values()) {
-      if (!filter(v) || v.dying) continue;
+      if (!filter(v) || v.dying || v.cage) continue;
       const pad = v.kind === 'fireball' ? 0.45 : 0;
       const x0 = v.x - v.hw - pad, x1 = v.x + v.hw + pad, y0 = v.y - pad, y1 = v.y + v.h + pad, z0 = v.z - v.hw - pad, z1 = v.z + v.hw + pad;
       let tmin = 0, tmax = maxDist;

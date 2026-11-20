@@ -159,7 +159,7 @@ export function wireConnected(shape: number, side: number): boolean {
 }
 
 export function isAnalogSource(id: number): boolean {
-  return id === B.CHEST || id === B.FURNACE || id === B.FURNACE_LIT || id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER;
+  return id === B.CHEST || id === B.FURNACE || id === B.FURNACE_LIT || id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER || id === B.CAULDRON;
 }
 
 export function analogOf(items: (ItemStack | null)[]): number {
@@ -781,6 +781,7 @@ export class Redstone {
   private analogAt(x: number, y: number, z: number): number {
     const id = blockId(this.g(x, y, z));
     if (!isAnalogSource(id)) return -1;
+    if (id === B.CAULDRON) { const m = blockMeta(this.g(x, y, z)); return m & 4 ? 3 : m & 3; }
     const items = this.h.container(x, y, z);
     return items ? analogOf(items) : 0;
   }

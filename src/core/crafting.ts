@@ -38,6 +38,7 @@ shapeless('dark_oak_planks', 'basics', SB.DARK_OAK_PLANKS, 4, [SB.DARK_OAK_LOG])
 shapeless('cherry_planks', 'basics', SB.CHERRY_PLANKS, 4, [SB.CHERRY_LOG]);
 shapeless('mangrove_planks', 'basics', SB.MANGROVE_PLANKS, 4, [SB.MANGROVE_LOG]);
 shaped('stick', 'basics', I.STICK, 4, ['P', 'P'], { P: 'planks' });
+shaped('shield', 'tools', I.SHIELD, 1, ['PIP', 'PPP', ' P '], { P: 'planks', I: I.IRON_INGOT });
 shaped('crafting_table', 'basics', B.WORKBENCH, 1, ['PP', 'PP'], { P: 'planks' });
 shaped('torch', 'basics', B.TORCH, 4, ['C', 'S'], { C: 'coals', S: I.STICK });
 shaped('furnace', 'basics', B.FURNACE, 1, ['CCC', 'C C', 'CCC'], { C: 'stones' });
@@ -143,6 +144,7 @@ shaped('cinderite_upgrade_copy', 'basics', I.UPGRADE_TEMPLATE, 2, ['DTD', 'DND',
 shaped('chiseled_polished_blackstone', 'building', XB + XV.CHISELED_POLISHED_BLACKSTONE, 1, ['S', 'S'], { S: slabItem(19) });
 shaped('saddle', 'tools', I.SADDLE, 1, [' L ', 'LIL'], { L: I.LEATHER, I: I.IRON_INGOT });
 shaped('warped_fungus_on_a_stick', 'tools', I.FUNGUS_STICK, 1, ['  S', ' SX', 'S F'], { S: 4, X: I.STRING, F: B.WARPED_FUNGUS });
+shaped('purpur_pillar', 'building', CB.PURPUR_PILLAR, 1, ['S', 'S'], { S: slabItem(SHAPE_MATS.findIndex((m) => m.id === CB.PURPUR_BLOCK)) });
 const OAK_SLAB = slabItem(SHAPE_MATS.findIndex((m) => m.id === B.OAK_PLANKS));
 const STONE_SLAB = slabItem(SHAPE_MATS.findIndex((m) => m.id === B.SMOOTH_STONE));
 shaped('composter', 'decor', B.COMPOSTER, 1, ['S S', 'S S', 'SSS'], { S: OAK_SLAB });
@@ -161,6 +163,13 @@ shaped('lantern', 'decor', B.LANTERN, 1, ['NNN', 'NTN', 'NNN'], { N: I.IRON_NUGG
 shaped('compass', 'tools', I.COMPASS, 1, [' I ', 'IRI', ' I '], { I: I.IRON_INGOT, R: I.REDSTONE });
 shaped('clock', 'tools', I.CLOCK, 1, [' G ', 'GRG', ' G '], { G: I.GOLD_INGOT, R: I.REDSTONE });
 shaped('glass_bottle', 'basics', I.GLASS_BOTTLE, 3, ['G G', ' G '], { G: B.GLASS });
+shapeless('ender_eye', 'basics', I.EYE_OF_ENDER, 1, [I.ENDER_PEARL, I.BLAZE_POWDER]);
+shaped('end_crystal', 'decor', I.END_CRYSTAL, 1, ['GGG', 'GEG', 'GTG'], { G: B.GLASS, E: I.EYE_OF_ENDER, T: I.GHAST_TEAR });
+shaped('end_stone_bricks', 'building', CB.END_STONE_BRICKS, 4, ['EE', 'EE'], { E: CB.END_STONE });
+shaped('purpur_block', 'building', CB.PURPUR_BLOCK, 4, ['PP', 'PP'], { P: I.POPPED_CHORUS_FRUIT });
+shaped('end_rod', 'decor', CB.END_ROD, 4, ['B', 'P'], { B: I.BLAZE_ROD, P: I.POPPED_CHORUS_FRUIT });
+shaped('shulker_box', 'decor', CB.SHULKER_BOX, 1, ['S', 'C', 'S'], { S: I.SHULKER_SHELL, C: B.CHEST });
+shapeless('firework_rocket', 'basics', I.FIREWORK_ROCKET, 3, [I.PAPER, I.GUNPOWDER]);
 shapeless('writable_book', 'basics', I.WRITABLE_BOOK, 1, [I.BOOK, I.INK_SAC, I.FEATHER]);
 shaped('golden_carrot', 'food', I.GOLDEN_CARROT, 1, ['NNN', 'NCN', 'NNN'], { N: I.GOLD_NUGGET, C: I.CARROT });
 shaped('glistering_melon', 'food', I.GLISTERING_MELON, 1, ['NNN', 'NMN', 'NNN'], { N: I.GOLD_NUGGET, M: I.MELON_SLICE });
@@ -349,6 +358,7 @@ export const SMELTING: SmeltRecipe[] = [
   { input: I.CLAY_BALL, result: I.BRICK, xp: 0.3 },
   { input: 'logs', result: I.CHARCOAL, xp: 0.15 },
   { input: I.RAW_PORK, result: I.COOKED_PORK, xp: 0.35 },
+  { input: I.CHORUS_FRUIT, result: I.POPPED_CHORUS_FRUIT, xp: 0.1 },
   { input: I.RAW_MUTTON, result: I.COOKED_MUTTON, xp: 0.35 },
   { input: I.RAW_POULTRY, result: I.COOKED_POULTRY, xp: 0.35 },
   { input: B.CLAY, result: B.TERRACOTTA, xp: 0.35 },

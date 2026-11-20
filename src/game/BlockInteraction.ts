@@ -1,7 +1,7 @@
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import * as THREE from 'three';
 import { raycast, RayHit } from '../core/physics';
-import { getBlock, selectionBox, blockId, B, tix } from '../core/blocks';
+import { getBlock, selectionBox, blockId, B, CB, tix } from '../core/blocks';
 import { getItem, I, spearIndex } from '../core/items';
 import { attackStats, attackRange, attackCharge, SPEAR_MIN } from '../core/sim/combat';
 import { breakTime, canHarvest } from '../core/sim/WorldSim';
@@ -30,6 +30,7 @@ export class BlockInteraction {
   eating = 0;
   lastSwing = 0;
   drawing = 0;
+  blocking = false;
   charging = false;
   strengthT = 0;
   private seenId = -1;
@@ -143,11 +144,19 @@ export class BlockInteraction {
       this.progress = 0;
     }
 
+    const off = me.inv.off?.[0] ?? null;
+    const offItem = off ? getItem(off.id) : undefined;
+    const tInteractive = !!t && !!getBlock(world.getBlock(t.x, t.y, t.z)).interactive;
+    const mainIdle = !held || (item?.places === undefined && !item?.food && held.id !== I.BOW && held.id !== I.CROSSBOW && held.id !== I.ENDER_PEARL && held.id !== I.EYE_OF_ENDER && held.id !== I.SHIELD);
+    const shieldUp = !me.dead && input.using && !tInteractive && !this.entityTarget && (held?.id === I.SHIELD || (off?.id === I.SHIELD && mainIdle));
+    this.blocking = shieldUp;
+    if (held?.id === I.FIREWORK_ROCKET && input.usePressed && !me.dead && (player.gliding || !t)) { if (player.gliding) player.rocketT = 26; session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
+    const pearlMain = held?.id === I.ENDER_PEARL || (held?.id === I.EYE_OF_ENDER && !(t && blockId(world.getBlock(t.x, t.y, t.z)) === CB.END_PORTAL_FRAME)), pearlOff = off?.id === I.ENDER_PEARL && mainIdle;
+    if ((pearlMain || pearlOff) && input.usePressed && !tInteractive && !me.dead) { session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
     const bow = held?.id === I.BOW;
     const xbow = held?.id === I.CROSSBOW;
-    const tInteractive = !!t && !!getBlock(world.getBlock(t.x, t.y, t.z)).interactive;
     if (xbow) {
-      const hasArrow = creative || me.inv.slots.some((s) => s?.id === I.ARROW);
+      const hasArrow = creative || off?.id === I.ARROW || me.inv.slots.some((s) => s?.id === I.ARROW);
       if (held!.ld) {
         this.drawing = 0; this.xbSent = false;
         if (input.usePressed && !tInteractive && !me.dead) { session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
@@ -156,7 +165,7 @@ export class BlockInteraction {
         if (this.drawing >= 1.25 - 0.25 * Math.min(3, held!.en?.quick_charge ?? 0) && !this.xbSent) { session.shoot(-1, player.yaw, player.pitch); this.xbSent = true; }
       } else { this.drawing = 0; this.xbSent = false; }
     } else if (bow) {
-      const hasArrow = creative || me.inv.slots.some((s) => s?.id === I.ARROW);
+      const hasArrow = creative || off?.id === I.ARROW || me.inv.slots.some((s) => s?.id === I.ARROW);
       if (input.using && hasArrow && !tInteractive && !me.dead) this.drawing += dt;
       else if (this.drawing > 0) {
         const f = Math.min(1, this.drawing);
@@ -166,7 +175,8 @@ export class BlockInteraction {
       }
     } else this.drawing = 0;
     const plantable = !!item?.places && !!t && blockId(world.getBlock(t.x, t.y, t.z)) === B.FARMLAND && t.ny === 1;
-    const food = item?.food && !creative && !plantable;
+    const offFood = !item?.food && mainIdle && !!offItem?.food && !creative;
+    const food = (item?.food || offFood) && !creative && !plantable;
     const wantsUse = input.usePressed || (input.using && this.useCd <= 0 && !food);
     if (food && input.using && !(t && getBlock(world.getBlock(t.x, t.y, t.z)).interactive)) {
       if (me.food < 20 || session.info.difficulty === 'peaceful') {

@@ -324,6 +324,55 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - Crawling: you now go prone in gaps under 1.5 blocks, move at sneak speed, and other players see a crawl animation. Swimming uses a dedicated flag so it shows reliably.
   - Plain names: Diamond, TNT, Flint and Steel, Gunpowder, Slime Block, Observer, Zombie, Skeleton and friends use ordinary English names. Old `/give` keys still work.
   - Piston Head and other technical blocks no longer appear in the creative inventory.
+- **v39.1 Farms, spawners and world refresh:**
+  - Sugar cane farms: mud and soul sand are 14/16 tall to stand on (full selection box), and hoppers pull items from the block above unless that block is a full cube. Items resting on mud over a hopper are collected, so piston and observer cane farms work.
+  - Soul sand bubble columns now detect real soul sand (v39 checked the wrong id, so upward columns never formed).
+  - Mob spawners: a placed spawner works without world generation, shows its creature spinning inside, activates for any player within 16 blocks, spawns up to 4 at a time in a 9x3x9 area, caps at 6 nearby, needs block light 11 or less for monsters, and its creatures despawn normally, as in Java.
+  - Mobs: Zombies and Zombified Piglins notice players from 35 blocks (Java follow range); skeleton arrows fly at the Java 1.6 blocks per tick.
+  - Cauldrons: water (three levels) and lava, drawn with the inner, rim and leg textures. Buckets fill and empty them, rain tops up water, comparators read the level, and standing in a lava cauldron burns.
+  - Dripstone farms: a stalactite tip under a block with a water or lava source above fills the first cauldron up to 11 blocks below (45/256 chance per random tick for water, 15/256 for lava; no water in the Nether).
+  - Arrows: textured from the pack's arrow entity texture with the Java cross-plane model, tilt along their flight path, slow sharply in water, catch fire in lava or fire, light TNT when burning, press wooden buttons, fall when the block holding them breaks, and stay stuck for a minute.
+  - Inventory: no tooltip on every tap, long press (550 ms) shows the tooltip and only splits a stack when the cursor is empty, releasing a long press with a held stack places all of it, and the hotbar only redraws slots that changed.
+  - Everyone can use /spawn and /sethome. Operators can run `/countdown <time> [label]` (shown to all players at the top of the screen, `/countdown cancel` to stop). The owner can run `/resetworld <time> confirm` or use World settings > Refresh world: when the timer ends the map gets a new seed and every build, chest, home, bed and spawn point is wiped, while money, inventories, XP and the shop are kept. Players are sent back into the new world automatically.
+- **v40 The Riven Expanse (the End):**
+  - Strongholds generated at world level 14 have a real portal room: 12 End Portal Frames (each with a 10 percent chance of an eye already in place), a lava pool and a monster spawner. Throw an Eye of Ender (crafted from an Ender Pearl and Blaze Powder) to see which way the nearest stronghold lies; it flies off, then drops or breaks (20 percent). Fill all 12 frames and the portal opens. Older worlds keep their old portal rooms.
+  - The End is a separate band of the same world (far out on the negative X axis), so nothing needs migrating. It is always on. You arrive on an obsidian platform 100 blocks from the main island. Stepping into the exit portal or dying sends you home.
+  - The main island: end stone, ten obsidian pillars with End Crystals (two inside iron bar cages), and the Ender Dragon. The dragon circles, strafes with purple fireballs that leave lingering breath clouds, dives at players, perches on the exit portal and takes off again. Crystals heal it within 32 blocks; shooting or hitting a crystal makes it explode and hurts the dragon. When it dies it drops XP, opens the exit portal, leaves the Dragon Egg on top (right click teleports the egg) and opens an End Gateway (up to 20, in Java's order).
+  - Dragon respawn, both ways: place four End Crystals on the edges of the exit portal to summon a new fight, or, on servers where 10 or more players have been online at once, the dragon returns on its own every 2 days (with a five minute warning).
+  - End Gateways throw you 1,000+ blocks out to the outer islands: end stone highlands with chorus plants (chorus fruit teleports you up to 8 blocks; popped chorus fruit smelts from it) and End Cities built from purpur, end stone bricks and end rods, with loot chests. Every city near the inner ring has an End Ship with an Elytra and a Dragon Head. Elytra only come from End Ships; the shop refuses to stock them, the egg or portal blocks.
+  - Elytra: wear in the chest slot, jump while falling to glide, with Java glide physics. Firework Rockets (paper and gunpowder) boost you while gliding. Elytra lose 1 durability per second of flight. Gliding and levitation never cause fall damage, and the server only accepts fast flight from players with working Elytra.
+  - Shulkers (Shellward) sit on city walls, peek open and fire homing bullets that cause Levitation for 10 seconds. Closed shulkers deflect arrows. They teleport when hurt and drop a Shulker Shell half the time.
+  - Shulker farms work as in Java: when a shulker bullet hits another shulker, that shulker tries to teleport and then may duplicate. The chance of failure is (n - 1) / 5, where n counts the shulkers within 8 blocks of its old spot after the teleport (the shulker itself is excluded), so a shulker with 6 or more neighbours never duplicates. Shulkers are saved with the world.
+  - Shulker Boxes (two shulker shells and a chest): keep their 27 slots when broken and placed again, show their first five stacks in the tooltip, stack to 1, and cannot hold other shulker boxes (by hand, hopper or dropper). The lid will not open with a full block on top. An empty box broken in creative leaves nothing.
+  - Building blocks: End Stone, End Stone Bricks, Purpur Block and Pillar, Purpur and End Stone Brick slabs and stairs, End Rods (light 14), Dragon Egg, Dragon Head. All textures are original; your Minecraft pack replaces them on your device if active.
+  - Endermen spawn on end stone. The End has its own dark purple sky and fog, no weather and no day cycle, and a boss bar for the dragon. Dragon's Breath can be collected with a glass bottle.
+  - `/tp x y z end` and `/tp x y z overworld` work for operators.
+  - Protocol 34: update clients and server together.
+- **v39 Ender, off hand and fixes:**
+  - Off hand works. If your main hand has nothing to do, right-click uses the off-hand item: place blocks and torches, eat food, throw pearls, raise a shield. Bows and crossbows take arrows from the off hand first. The off-hand item now shows in first person.
+  - Shield (planks and an iron ingot, also in the shop). Hold use to raise it. It blocks attacks, arrows and blasts from the front, wears down as it blocks, and an axe hit knocks it down for 5 seconds.
+  - Endermen. Neutral until you look one in the eyes, then they scream and come for you. They teleport around, dodge arrows, are hurt by water and rain, and drop Ender Pearls. They spawn in the dark and rarely in the Nether. `/summon enderman`.
+  - Ender Pearls. Throw to teleport where they land, for 2.5 hearts of damage. One second cooldown.
+  - Bubble columns. Water above soul sand lifts you, mobs and items upward. Water above a magma block drags them down. Bubble columns refill your air.
+  - Lava now sets nearby wood, leaves and other flammable blocks on fire (Java rules). `/gamerule doFireTick false` stops it, along with fire spread.
+  - Blueprints can be imported from Litematica `.litematic` files into either slot (Pause > Blueprints > Import Litematica file). Slabs, stairs, doors, trapdoors and facing are kept. Blocks Strata does not have yet, fluids and other unplaceable blocks are left out and listed.
+  - Waypoints work even when the minimap is hidden or turned off by the world owner. Pause > Waypoints opens them on any device.
+  - Players no longer appear on the minimap unless they share their location with you. Map and waypoints > Share location lets you share with everyone or chosen players. The choice is remembered per world. Shared players show on the map even when far away.
+  - Shop: every item can be sold now. The default shop stocks Lapis Lazuli, full diamond (aetherite) armour, Shields and Ender Pearls. Operators can edit the shop from the Shop screen (Edit shop: add, remove and reprice items, rename or add categories, reset to default) or with `/eco shop add|remove|reset`.
+  - Inventory: items no longer snap back or flicker when you click quickly in chests and furnaces in multiplayer. Slots only redraw when they change. On touch screens, dragging a stack moves the whole stack (long-press first to spread one item per slot), and letting go outside a slot puts it back.
+  - Crouch: opening the inventory, a chest or any screen no longer stands you up, the Crouch button always matches your real state, and starting to fly clears it. New keyboard option Settings > Controls > Crouch: Hold or Toggle.
+  - Pointed dripstone has a proper icon in the inventory and hotbar.
+  - Fixed a busy world sometimes being reported as deleted on the join screen and in world lists.
+  - Protocol 33.
+- **v38.1 Busy-world fix:**
+  - Fixes "Durable Object is overloaded" errors when many players join one world at once, for example after a restart or deploy, or a whole class joining together. Each world runs on a single Cloudflare thread, and a burst of joins used to queue up behind world loading until Cloudflare started refusing connections.
+    - Joins are staged: a few players get in straight away, and the rest wait a few seconds in turn instead of all loading at once.
+    - Chunk building and saving now leave gaps for player actions, so the world stays responsive while new areas load.
+    - When the world falls behind, it automatically eases off (slower chunk building, fewer entity updates, slower joins) until it catches up, and logs a "room strained" line in Cloudflare with the player, entity and queue counts.
+    - Dropped players reconnect after a random delay that grows each time, so a server hiccup no longer turns into a reconnect stampede. The join screen also retries busy worlds a few times on its own.
+  - The ping display works again (the server was ignoring ping messages).
+  - Fixed a "no such table" error when looking up a world while it was being deleted.
+  - `scripts/load-test.mjs <server> [bots] [seconds] [radius] [stagger ms]` simulates a crowd of players for capacity testing.
 - **v38 Blueprints, fire and speed:**
   - Blueprints (Litematica-style, with survival rules). Every player has two blueprint slots, kept on their device. Pause > Blueprints.
     - Saving: blueprints are drawn in the new Drafting Studio world type (singleplayer, creative). It is a flat, still, mob-free plot of 128 by 128 blocks with a cobblestone border. Select a region with `/pos1` and `/pos2` (up to 128 blocks on each side), open Blueprints and choose Save selection here.
@@ -581,6 +630,9 @@ What has been run:
 - `scripts/v16-smoke.mjs <server>`: places a lever, Emberdust and a lamp through the server and checks the lamp turns on and off.
 - `scripts/v18-smoke.mjs <server>`: checks piston animation data, slab placement and stacking, a powered Thunder Keg becoming a lit entity and exploding, and that player updates carry health.
 - `scripts/v23-smoke.mjs <server>`: builds an obsidian frame, lights it with Flint and Steel, travels to the Nether region and back to the same portal.
+- `scripts/v40-smoke.mjs <server>`: checks old clients are refused, `/tp ... end` and back, End chunks streaming, and that the dragon and crystals appear.
+- `scripts/v391-smoke.mjs <server>`: checks /sethome and /spawn for guests, countdown permissions and broadcast, and a full world refresh (seed changes, homes cleared, players can rejoin).
+- `scripts/v39-smoke.mjs <server>`: checks world lookups, location sharing, inventory update tagging, and admin shop editing.
 - `scripts/v38-smoke.mjs <server>`: uploads a blueprint in two parts and checks it is built, then checks overlap, missing survival materials, the owner toggle and a malformed upload are all refused.
 - `scripts/v21-smoke.mjs <server>`: opens an Enchanting Table with 15 bookshelves, checks the level 30 offer, enchants a sword, and checks another player receives the held item and its glint.
 - `scripts/v20-smoke.mjs <server>`: checks a same-tick swap from mace to sword hits for 6 with the sword taking the wear, and a normal swap gives a weak hit.

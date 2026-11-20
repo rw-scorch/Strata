@@ -70,7 +70,7 @@ describe('v35 /tp uses the current dimension', () => {
   });
   it('rejects coordinates that would cross dimensions', () => {
     expect(cmdXYZ({ x: 10, y: 70, z: 5 }, ['440000', '64', '0'])).toBeNull();
-    expect(cmdXYZ({ x: 10, y: 70, z: 5 }, ['1', '64', '2'], 'end')).toBeNull();
+    expect(cmdXYZ({ x: 10, y: 70, z: 5 }, ['1', '64', '2'], 'mars')).toBeNull();
   });
 });
 

@@ -2,13 +2,13 @@ import type { BlockArray } from '../chunk';
 import { fortressAt, fortressesNear, bastionsNear } from '../worldgen/fortress';
 import { PORTAL_GRID } from '../worldgen/ruinedPortal';
 import { smithResult } from '../smithing';
-import { CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON } from '../blocks';
+import { FRAME_EYE, CHORUS_DEAD, isFluid, CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON } from '../blocks';
 import { isRail, railShape, railPowered, railHeight, railLine, RAIL_EXITS, shapeFor, reshapeNeighbor, neighborRails } from '../rails';
 import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
-  B, BLOCKS, isPowder, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
+  B, BLOCKS, CAULDRON_LAVA, isPowder, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE, isWaterPlant, isWaterLike,
-  SHAPE_MATS, SLAB_TOP, STAIRS_UP, slabItem, stairsItem, BLAST_RES, X, XV,
+  SHAPE_MATS, SLAB_TOP, STAIRS_UP, slabItem, stairsItem, BLAST_RES, X, XV, isFullCube,
 } from '../blocks';
 import { getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorId, toolId } from '../items';
 import { lvl, tableOffers, tableList, anvilResult, JavaRandom, ENCH, ENCHANTS, supports, compatible, enchantLabel, type TableOffer } from '../enchants';
@@ -24,16 +24,18 @@ import { Redstone, isButton, isPlate, isTorch, isDiode, attachOut, DIR6, LEVER_O
 import { TreeSet, megaJungle, megaSpruce, jungleVines, acacia, darkOak, cherry, mangrove } from '../worldgen/trees';
 import { enchantBonus, WIND_BURST, attackStats, attackCharge, scaledDamage, armorReduce, armorToughness, maceBonus, arrowDamage, attackRange, SPEAR_STATS, SPEAR_MIN, SPEAR_MARGIN, CHARGE_HURT_SPEED, CHARGE_KNOCK_SPEED, chargeDamage, SMASH_RANGE, SMASH_PUSH, SMASH_HEAVY, type AttackStats } from './combat';
 import { JOB_SITES, JOB_BLOCK, PROFESSIONS, villagerOffers, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
-import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium, fluidFlow } from '../physics';
+import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium, fluidFlow, bubbleColumn, bubbleSurface } from '../physics';
 import { Rng } from '../rng';
 import { WorldGenerator } from '../worldgen/WorldGenerator';
-import { MOBS, MobType, MobDef, PASSIVE_TYPES, HOSTILE_TYPES } from './mobs';
+import { MOBS, MobType, MobDef, PASSIVE_TYPES, HOSTILE_TYPES, MOB_BY_CODE } from './mobs';
 import { findPath, standable, PathNode } from './pathfind';
 import { tickFluid, fluidDelay, FluidWorld } from './fluids';
 import { ChunkInfo, chunkNum } from './light';
 import { Mischief } from './mischief';
 import { Blueprint, bpCosts, bpItem } from '../blueprint';
-import { isNether, toNether, toOverworld, NETHER_HEIGHT, NETHER_LAVA, localX, cmdXYZ } from '../dimension';
+import { isNether, isEnd, toNether, toOverworld, NETHER_HEIGHT, NETHER_LAVA, localX, cmdXYZ, END_X, END_SPAWN } from '../dimension';
+import { portalRoomCenter } from '../worldgen/structures';
+import { EXIT_Y, exitPortalCells, gatewaySpot } from '../worldgen/end';
 
 export interface WorldStore extends BlockReader {
   setBlock(x: number, y: number, z: number, v: number): void;
@@ -56,7 +58,10 @@ export function entTypeCode(e: Entity): number {
   if (e.kind === 'mob') return MOBS[e.type as MobType].code;
   if (e.kind === 'item') return e.item!.id;
   if (e.kind === 'cart') return e.type === 'tntcart' ? 1 : 0;
-  if (e.kind === 'fireball') return 0;
+  if (e.kind === 'fireball') return e.type === 'dfire' ? 1 : 0;
+  if (e.kind === 'arrow' && e.type === 'bullet') return 60001;
+  if (e.kind === 'arrow' && e.type === 'pearl') return I.ENDER_PEARL;
+  if (e.kind === 'arrow' && e.type === 'eye') return I.EYE_OF_ENDER;
   return 0;
 }
 
@@ -75,8 +80,7 @@ const RAYS: Float32Array = (() => {
 
 export const MF = {
   GROUND: 1, CROUCH: 2, SPRINT: 4, FLY: 8, WATER: 16, EYE_WATER: 32, LAVA: 64, LADDER: 128, CACTUS: 256,
-  JUMP: 512, SWING: 1024, EAT: 2048, FORWARD: 4096, RIDE: 8192, PRONE: 16384, CHARGE: 32768,
-} as const;
+  JUMP: 512, SWING: 1024, EAT: 2048, FORWARD: 4096, RIDE: 8192, PRONE: 16384, CHARGE: 32768, BLOCK: 65536, GLIDE: 131072, LEVITATE: 262144 } as const;
 
 export interface SimPlayer {
   id: string;
@@ -91,6 +95,11 @@ export interface SimPlayer {
   screen: { type: ScreenType | null; x: number; y: number; z: number };
   dig: { x: number; y: number; z: number; t: number } | null;
   portalT?: number; portalLock?: boolean;
+  endTrip?: { x: number; y: number; z: number; t: number; toEnd: boolean; gate?: { x: number; y: number; z: number } };
+  levT?: number;
+  glideWear?: number;
+  rocketAt?: number;
+  lastDragonHit?: number;
   travel?: { tx: number; ty: number; tz: number; t: number; ox: number; oy: number; oz: number; axis: number; nether: boolean; src?: string; dest?: { x: number; y: number; z: number; axis: number; exist: boolean } };
   hurtCd: number; fireT: number; peakY: number; absorb?: number; absorbT?: number; regenT?: number; witherT?: number;
   t: { lava: number; suffocate?: number; drown: number; cactus: number; void: number; starve: number; regen: number; fire: number };
@@ -102,7 +111,7 @@ export interface SimPlayer {
   strengthAt?: number;
   charge?: { t0: number; hits: Record<string, number>; done: boolean };
   eseed?: number;
-  lastAttack: number; lastEat: number; lastMove: number; lastShot?: number; wasFire?: boolean; lastSwing?: number; lastHurt?: number;
+  lastAttack: number; lastEat: number; lastMove: number; lastShot?: number; blockAt?: number; shieldCd?: number; pearlCd?: number; wasFire?: boolean; lastSwing?: number; lastHurt?: number;
   op: boolean;
   sel: [number[] | null, number[] | null];
   homes?: Record<string, { x: number; y: number; z: number }>;
@@ -145,7 +154,10 @@ export interface GameHooks {
 export interface Entity extends Body {
   id: number;
   kind: EntityKind;
-  type: MobType | 'item' | 'arrow' | 'tnt' | 'cart' | 'tntcart' | 'fireball';
+  type: MobType | 'item' | 'arrow' | 'tnt' | 'cart' | 'tntcart' | 'fireball' | 'pearl' | 'eye' | 'bullet' | 'firework' | 'dfire';
+  tx?: number;
+  tz?: number;
+  ty?: number;
   size?: number;
   charge?: number;
   wield?: number;
@@ -164,6 +176,7 @@ export interface Entity extends Body {
   wob?: number;
   fuse?: number;
   portalCd?: number;
+  dodgeT?: number;
   count?: number;
   base?: number;
   crit?: boolean;
@@ -185,6 +198,7 @@ export interface Entity extends Body {
   pickup?: boolean;
   dmg?: number;
   stuck?: number;
+  sb?: number[];
   target?: string | null;
   path?: PathNode[] | null;
   pathT?: number;
@@ -194,6 +208,19 @@ export interface Entity extends Body {
   provoked?: number;
   attacker?: string;
   persistent?: boolean;
+  phase?: string;
+  pt?: number;
+  ang?: number;
+  gx?: number;
+  gy?: number;
+  gz?: number;
+  pil?: number;
+  att?: number;
+  peek?: number;
+  peekT?: number;
+  taken?: number;
+  bulletCd?: number;
+  homeT?: number;
   inWater?: boolean;
   love?: number;
   breedCd?: number;
@@ -228,7 +255,7 @@ export type Weather = 'clear' | 'rain' | 'thunder';
 export type SimEvent =
   | { e: 'block'; x: number; y: number; z: number; v: number; old: number; src?: string }
   | { e: 'sound'; s: string; x: number; y: number; z: number; vol?: number; pitch?: number; src?: string; to?: string }
-  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit' | 'heart' | 'sweep' | 'shriek'; x: number; y: number; z: number; d?: number; src?: string }
+  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit' | 'heart' | 'sweep' | 'shriek' | 'portal' | 'breath' | 'firework' | 'dragon'; x: number; y: number; z: number; d?: number; src?: string }
   | { e: 'spawn'; ent: Entity }
   | { e: 'remove'; id: number; why: 'death' | 'pickup' | 'despawn' | 'hit'; by?: string }
   | { e: 'vitals'; p: SimPlayer }
@@ -245,7 +272,7 @@ export type SimEvent =
   | { e: 'ride'; p: SimPlayer; id: number }
   | { e: 'knock'; p: SimPlayer; x: number; y: number; z: number; set?: boolean }
   | { e: 'dark'; p: SimPlayer; t: number }
-  | { e: 'travel'; p: SimPlayer; phase: 'start' | 'end'; nether: boolean }
+  | { e: 'travel'; p: SimPlayer; phase: 'start' | 'end'; nether: boolean; end?: boolean }
   | { e: 'work'; p: SimPlayer; items: (ItemStack | null)[]; offers?: TableOffer[] }
   | { e: 'boom'; x: number; y: number; z: number; r: number }
   | { e: 'reject'; p: SimPlayer; x: number; y: number; z: number }
@@ -259,7 +286,8 @@ export type SimEvent =
   | { e: 'title'; text: string; sub: string; to?: string }
   | { e: 'trade'; p: SimPlayer; v: Entity }
   | { e: 'mobname'; id: number; name: string }
-  | { e: 'chestLid'; x: number; y: number; z: number; n: number };
+  | { e: 'chestLid'; x: number; y: number; z: number; n: number }
+  | { e: 'effect'; p: SimPlayer; k: 'levitation'; t: number };
 
 export interface SimOptions {
   seed: number;
@@ -300,6 +328,7 @@ export function villagerPhase(time: number): 'idle' | 'work' | 'meet' | 'rest' {
 }
 
 const MONSTER_CAP = 70;
+const FOLLOW: Record<string, number> = { hollowed: 35, cinderhusk: 35, piglin_brute: 16 };
 const CREATURE_CAP = 10;
 const SPAWN_RANGE = 128;
 const DIR4H = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -332,7 +361,7 @@ const V_SCALE = 384 / WORLD_HEIGHT;
 const mobDist2 = (dx: number, dy: number, dz: number): number => dx * dx + (dy * V_SCALE) ** 2 + dz * dz;
 const MAX_NATURAL = 480;
 const TICKABLE = new Uint8Array(ID_LIMIT);
-for (const id of [B.KELP, B.VINE, B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE, B.FIRE, B.NETHER_WART, B.CARROTS, B.POTATOES, B.BEETROOTS, CB.CAVE_VINES, CB.CAVE_VINES_LIT, B.NETHER_PORTAL]) TICKABLE[id] = 1;
+for (const id of [B.KELP, B.VINE, B.WHEAT, B.OAK_SAPLING, B.BIRCH_SAPLING, B.SPRUCE_SAPLING, B.JUNGLE_SAPLING, B.SUGAR_CANE, B.CACTUS, B.GRASS, B.SNOWY_GRASS, B.ICE, B.FIRE, B.NETHER_WART, B.CARROTS, B.POTATOES, B.BEETROOTS, CB.CAVE_VINES, CB.CAVE_VINES_LIT, B.NETHER_PORTAL, B.LAVA, CB.POINTED_DRIPSTONE, B.CAULDRON, CB.CHORUS_FLOWER]) TICKABLE[id] = 1;
 const PLAYER_HW = 0.3, PLAYER_H = 1.8;
 
 export function posKey(x: number, y: number, z: number): string { return `${x},${y},${z}`; }
@@ -417,6 +446,12 @@ export function newPlayer(id: string, name: string, mode: GameMode, spawn: { x: 
   };
 }
 
+export interface EndState { started: boolean; alive: boolean; kills: number; lastKill: number; exitOpen: boolean; gates: number[]; lost: number[]; warned?: boolean; summon?: number; auto?: boolean; }
+export function freshEndState(): EndState { return { started: false, alive: true, kills: 0, lastKill: 0, exitOpen: false, gates: [], lost: [] }; }
+export const DRAGON_RESPAWN_MS = 2 * 86400000, DRAGON_PEAK = 10;
+const RIM: [number, number][] = [[0, 3], [0, -3], [3, 0], [-3, 0]];
+const DRAGON_IMMUNE = new Set<number>([B.OBSIDIAN, B.BEDROCK, B.IRON_BARS, CB.END_STONE, CB.END_PORTAL, CB.END_GATEWAY, CB.END_PORTAL_FRAME, B.CRYING_OBSIDIAN]);
+
 export class WorldSim {
   readonly seed: number;
   readonly store: WorldStore;
@@ -445,6 +480,9 @@ export class WorldSim {
   tickCount = 0;
   weather: Weather = 'clear';
   weatherTimer = 12000;
+  endState: EndState = freshEndState();
+  peakPlayers = 0;
+  private clouds: { x: number; y: number; z: number; r: number; t: number; by?: number }[] = [];
   rng: Rng;
   private nextEntityId = 1;
   private fluidQueue = new Map<string, number>();
@@ -617,6 +655,12 @@ export class WorldSim {
       if (!(nid === B.FURNACE || nid === B.FURNACE_LIT) || oid === B.CHEST) this.removeBlockEntity(x, y, z, true);
     }
     if ((oid === B.HOPPER || oid === B.DROPPER || oid === B.DISPENSER) && nid !== oid) this.removeBlockEntity(x, y, z, true);
+    if (oid === CB.SHULKER_BOX && nid !== oid) this.sealShulker(x, y, z);
+    if (nid === B.SPAWNER && this.authoritative && !this.blockEntities.has(posKey(x, y, z))) {
+      const m = blockMeta(v), def = m ? MOB_BY_CODE[m - 1] : undefined;
+      this.blockEntities.set(posKey(x, y, z), { type: 'spawner', items: [], mob: def && def.code === m - 1 ? def.type : 'hollowed', delay: 200 });
+    }
+    if (oid === B.SPAWNER && nid !== B.SPAWNER && this.blockEntities.get(posKey(x, y, z))?.type === 'spawner') this.blockEntities.delete(posKey(x, y, z));
     if (this.authoritative && nid !== oid && (oid === B.NETHER_PORTAL || oid === B.OBSIDIAN)) {
       if (oid === B.NETHER_PORTAL && this.blockEntities.delete(posKey(x, y, z))) this.emit({ e: 'container', key: posKey(x, y, z) });
       for (const [ax, ay, az] of DIR6) this.checkPortal(x + ax, y + ay, z + az);
@@ -630,6 +674,11 @@ export class WorldSim {
     for (let f = 0; f < 4; f++) {
       const [dx, dz] = FACING_DIRS[f];
       this.checkSupport(x - dx, y, z - dz);
+    }
+    if (this.authoritative && (oid === CB.CHORUS_PLANT || nid === CB.CHORUS_PLANT || oid === CB.CHORUS_FLOWER || nid === CB.CHORUS_FLOWER)) {
+      for (const [dx, dy, dz] of SIX) this.fixChorus(x + dx, y + dy, z + dz);
+      if (nid === CB.CHORUS_PLANT) this.fixChorus(x, y, z);
+      if (nid === 0) for (const [dx, dy, dz] of SIX) if (dy >= 0) this.checkSupport(x + dx, y + dy, z + dz);
     }
     if (this.authoritative && (oid === CB.POINTED_DRIPSTONE || nid === CB.POINTED_DRIPSTONE)) { this.fixDripstone(x, y + 1, z); this.fixDripstone(x, y - 1, z); if (nid === CB.POINTED_DRIPSTONE) this.fixDripstone(x, y, z); }
     if (!this.noLeafDecay && (oid === B.OAK_LOG || oid === B.BIRCH_LOG || oid === B.SPRUCE_LOG || oid === B.JUNGLE_LOG)) this.scheduleLeafDecay(x, y, z);
@@ -1112,6 +1161,17 @@ export class WorldSim {
         return b === CB.BIG_DRIPLEAF_STEM || b === B.GRASS || b === B.DIRT || b === B.CLAY || b === CB.MOSS_BLOCK || b === CB.ROOTED_DIRT || b === B.MUD || b === B.FARMLAND;
       }
     }
+    if (id === CB.CHORUS_PLANT || id === CB.CHORUS_FLOWER) {
+      const b = blockId(this.get(x, y - 1, z));
+      if (b === CB.CHORUS_PLANT || b === CB.END_STONE) return true;
+      for (const [dx, dz] of FACING_DIRS) {
+        if (blockId(this.get(x + dx, y, z + dz)) !== CB.CHORUS_PLANT) continue;
+        if (id === CB.CHORUS_FLOWER && b === 0) return true;
+        const nb = blockId(this.get(x + dx, y - 1, z + dz));
+        if (nb === CB.CHORUS_PLANT || nb === CB.END_STONE) return true;
+      }
+      return false;
+    }
     const below = blockId(this.get(x, y - 1, z));
     if (d.needsSupport === 'nylium') { const bv = this.get(x, y - 1, z); return bv === X(XV.CRIMSON_NYLIUM) || bv === X(XV.WARPED_NYLIUM) || bv === X(XV.SOUL_SOIL) || below === B.GRASS || below === B.DIRT || below === B.FARMLAND || below === B.MUD; }
     if (d.needsSupport === 'hang') { const a = this.get(x, y + 1, z); return blockId(a) === id || isSolid(a); }
@@ -1226,13 +1286,32 @@ export class WorldSim {
     let be = this.blockEntities.get(k);
     if (be) return be;
     const id = blockId(this.get(x, y, z));
-    if (id === B.CHEST || id === B.BARREL) be = { type: 'chest', items: new Array(CHEST_SIZE).fill(null) };
+    if (id === B.CHEST || id === B.BARREL || id === CB.SHULKER_BOX) be = { type: 'chest', items: new Array(CHEST_SIZE).fill(null) };
     else if (id === B.FURNACE || id === B.FURNACE_LIT || id === B.BLAST_FURNACE || id === B.SMOKER) be = { type: 'furnace', items: new Array(FURNACE_SIZE).fill(null), burn: 0, burnMax: 0, cook: 0, xp: 0 };
     else if (id === B.HOPPER) be = { type: 'chest', items: new Array(5).fill(null) };
     else if (id === B.DROPPER || id === B.DISPENSER) be = { type: 'chest', items: new Array(9).fill(null) };
     else return null;
     this.blockEntities.set(k, be);
     return be;
+  }
+
+  private breaker: SimPlayer | null = null;
+
+  private sealShulker(x: number, y: number, z: number): void {
+    const be = this.blockEntities.get(posKey(x, y, z));
+    const kept: (ItemStack | null)[] = [];
+    const loose: ItemStack[] = [];
+    for (const s of be?.items ?? []) {
+      if (s && (s.id === CB.SHULKER_BOX || s.box)) { loose.push(s); kept.push(null); } else kept.push(s ? cloneStack(s) : null);
+    }
+    this.removeBlockEntity(x, y, z, false);
+    if (!this.authoritative) return;
+    for (const s of loose) this.spawnItem(x + 0.5, y + 0.5, z + 0.5, s);
+    const full = kept.some((s) => s);
+    if (!full && this.breaker?.mode === 'creative') return;
+    const item: ItemStack = { id: CB.SHULKER_BOX, count: 1 };
+    if (full) { while (kept.length && !kept[kept.length - 1]) kept.pop(); item.box = kept; }
+    this.spawnItem(x + 0.5, y + 0.5, z + 0.5, item);
   }
 
   private removeBlockEntity(x: number, y: number, z: number, drop: boolean): void {
@@ -1250,7 +1329,7 @@ export class WorldSim {
 
   addGeneratedChest(x: number, y: number, z: number, items: (ItemStack | null)[], type: 'chest' | 'spawner' | 'trial' | 'vault' | 'mob' = 'chest', mob = 'hollowed'): void {
     if (type === 'mob') {
-      if (!this.authoritative || !MOBS[mob as MobType]) return;
+      if (!this.authoritative || !MOBS[mob as MobType] || mob === 'riftcore' || mob === 'voidwyrm') return;
       const e = this.spawnMob(mob as MobType, x + 0.5, y, z + 0.5);
       e.persistent = true;
       return;
@@ -1271,14 +1350,21 @@ export class WorldSim {
       if (!this.store.isLoaded(x, z)) continue;
       const id = blockId(this.get(x, y, z));
       if ((be.type === 'spawner' && id !== B.SPAWNER) || (be.type === 'trial' && id !== B.TRIAL_SPAWNER)) { this.blockEntities.delete(k); continue; }
-      let near: SimPlayer[] = [];
-      for (const p of this.players.values()) if (!p.dead && p.mode === 'survival' && Math.abs(p.x - x) < 15 && Math.abs(p.y - y) < 10 && Math.abs(p.z - z) < 15) near.push(p);
-      if (this.difficulty === 'peaceful') near = [];
       const type = (MOBS[be.mob as MobType] ? be.mob : 'hollowed') as MobType;
+      if (be.type === 'spawner') {
+        const want = Math.min(255, MOBS[type].code + 1);
+        if (blockMeta(this.get(x, y, z)) !== want) this.setBlock(x, y, z, makeBlock(B.SPAWNER, want));
+      }
+      let near: SimPlayer[] = [];
+      for (const p of this.players.values()) {
+        if (p.dead) continue;
+        if (be.type === 'trial' ? p.mode === 'survival' && Math.abs(p.x - x) < 15 && Math.abs(p.y - y) < 10 && Math.abs(p.z - z) < 15 : Math.hypot(p.x - x - 0.5, p.y - y - 0.5, p.z - z - 0.5) <= 16) near.push(p);
+      }
+      if (this.difficulty === 'peaceful' && MOBS[type].hostile) near = [];
       const place = (): Entity | null => {
         for (let tries = 0; tries < 8; tries++) {
           const sx = x + this.rng.int(9) - 4, sz = z + this.rng.int(9) - 4, sy = y + this.rng.int(3) - 1;
-          if (standable(this.store, sx, sy, sz, true)) { const e = this.spawnMob(type, sx + 0.5, sy, sz + 0.5); e.persistent = true; this.emit({ e: 'particles', k: 'smoke', x: sx + 0.5, y: sy + 1, z: sz + 0.5 }); return e; }
+          if (standable(this.store, sx, sy, sz, MOBS[type].h > 1) && (MOBS[type].hw <= 0.5 || standable(this.store, sx + 1, sy, sz, false)) && (!MOBS[type].hostile || be.type === 'trial' || this.info.blockLight(sx, sy, sz) <= 11)) { const e = this.spawnMob(type, sx + 0.5, sy, sz + 0.5); e.persistent = be.type === 'trial'; this.emit({ e: 'particles', k: 'smoke', x: sx + 0.5, y: sy + 1, z: sz + 0.5 }); return e; }
         }
         return null;
       };
@@ -1288,9 +1374,12 @@ export class WorldSim {
         if (be.delay > 0) continue;
         be.delay = 200 + this.rng.int(600);
         let count = 0;
-        for (const e of this.entities.values()) if (e.kind === 'mob' && e.type === type && Math.abs(e.x - x) < 9 && Math.abs(e.z - z) < 9) count++;
-        if (count >= 6) continue;
-        for (let i = 0, n = 1 + this.rng.int(4); i < n; i++) place();
+        for (const e of this.entities.values()) if (e.kind === 'mob' && e.type === type && Math.abs(e.x - x) < 9 && Math.abs(e.y - y) < 5 && Math.abs(e.z - z) < 9) count++;
+        if (count >= 6) { be.delay = 40; continue; }
+        let made = 0;
+        for (let i = 0; i < 4 && count + made < 6; i++) if (place()) made++;
+        if (!made) be.delay = 20;
+        else this.emit({ e: 'particles', k: 'smoke', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
         continue;
       }
       if (be.state === 'cooldown') { if (this.now >= be.until) be.state = 'idle'; continue; }
@@ -1405,9 +1494,18 @@ export class WorldSim {
   }
 
   private tickPortal(p: SimPlayer): void {
+    if (p.endTrip) { this.tickEndTrip(p); return; }
     if (p.travel) { this.tickTravel(p); return; }
     const bx = Math.floor(p.x), bz = Math.floor(p.z), by = Math.floor(p.y + 0.1);
     const v0 = this.get(bx, by, bz), v1 = this.get(bx, by + 1, bz);
+    if (blockId(v0) === CB.END_PORTAL || blockId(this.get(bx, Math.floor(p.y), bz)) === CB.END_PORTAL) {
+      if (!p.portalLock && p.riding === undefined && !p.dead) this.startEndTrip(p);
+      return;
+    }
+    if (blockId(v0) === CB.END_GATEWAY || blockId(v1) === CB.END_GATEWAY) {
+      if (!p.portalLock && p.riding === undefined && !p.dead && isEnd(p.x)) this.gatewayJump(p);
+      return;
+    }
     const pv = blockId(v0) === B.NETHER_PORTAL ? v0 : blockId(v1) === B.NETHER_PORTAL ? v1 : 0;
     if (!pv) { p.portalLock = false; if (p.portalT) p.portalT = Math.max(0, p.portalT - 4); return; }
     if (p.portalLock || p.riding !== undefined) return;
@@ -1422,6 +1520,124 @@ export class WorldSim {
     this.emit({ e: 'sound', s: 'portal.travel', x: p.x, y: p.y, z: p.z, to: p.id });
     this.emit({ e: 'travel', p, phase: 'start', nether });
     this.movePlayerTo(p, tx + 0.5, ty, tz + 0.5);
+  }
+
+  private startEndTrip(p: SimPlayer): void {
+    const toEnd = !isEnd(p.x);
+    const dest = toEnd ? { x: END_X + END_SPAWN.x, y: END_SPAWN.y, z: END_SPAWN.z } : { x: Math.floor(p.spawn.x), y: Math.floor(p.spawn.y), z: Math.floor(p.spawn.z) };
+    if (!toEnd && isEnd(dest.x)) { dest.x = Math.floor(this.spawn.x); dest.y = Math.floor(this.spawn.y); dest.z = Math.floor(this.spawn.z); }
+    p.endTrip = { ...dest, t: 0, toEnd };
+    p.portalLock = true;
+    if (p.screen.type) this.closeScreen(p);
+    this.emit({ e: 'sound', s: 'portal.travel', x: p.x, y: p.y, z: p.z, to: p.id });
+    this.emit({ e: 'travel', p, phase: 'start', nether: false, end: toEnd });
+    this.movePlayerTo(p, dest.x + 0.5, dest.y, dest.z + 0.5);
+  }
+
+  private tickEndTrip(p: SimPlayer): void {
+    const tr = p.endTrip!;
+    tr.t++;
+    for (let ox = -16; ox <= 16; ox += 16) for (let oz = -16; oz <= 16; oz += 16) { this.store.ensure?.(tr.x + ox, tr.z + oz); if (!this.store.isLoaded(tr.x + ox, tr.z + oz)) { if (tr.t < 600) { p.vel = undefined; return; } } }
+    if (tr.t < 3) return;
+    p.endTrip = undefined;
+    if (tr.gate) {
+      const g = tr.gate;
+      if (blockId(this.get(g.x, g.y, g.z)) !== CB.END_GATEWAY) { this.setBlock(g.x, g.y, g.z, makeBlock(CB.END_GATEWAY, 0)); this.setBlock(g.x, g.y - 1, g.z, B.BEDROCK); this.setBlock(g.x, g.y + 1, g.z, B.BEDROCK); }
+      this.movePlayerTo(p, tr.x + 0.5, tr.y, tr.z + 0.5);
+      this.makeSafe(p);
+      this.emit({ e: 'tp', p });
+      this.emit({ e: 'sound', s: 'portal.gateway', x: p.x, y: p.y, z: p.z, to: p.id });
+      return;
+    }
+    if (tr.toEnd) {
+      for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+        this.setBlock(tr.x + dx, tr.y - 1, tr.z + dz, B.OBSIDIAN);
+        for (let dy = 0; dy < 3; dy++) if (this.get(tr.x + dx, tr.y + dy, tr.z + dz)) this.setBlock(tr.x + dx, tr.y + dy, tr.z + dz, 0);
+      }
+      this.movePlayerTo(p, tr.x + 0.5, tr.y, tr.z + 0.5);
+      p.yaw = Math.PI / 2;
+    } else {
+      this.movePlayerTo(p, tr.x + 0.5, tr.y, tr.z + 0.5);
+      this.makeSafe(p);
+      this.emit({ e: 'tp', p });
+    }
+    p.fireT = Math.min(p.fireT, 0);
+    this.emit({ e: 'travel', p, phase: 'end', nether: false, end: tr.toEnd });
+    this.emit({ e: 'sound', s: 'portal.travel', x: p.x, y: p.y, z: p.z, to: p.id });
+  }
+
+  private endFrameRing(): [number, number][] {
+    const out: [number, number][] = [];
+    for (let d = -1; d <= 1; d++) out.push([d, -2], [d, 2], [-2, d], [2, d]);
+    return out;
+  }
+
+  private tryOpenEndPortal(x: number, y: number, z: number): boolean {
+    const ring = this.endFrameRing();
+    for (const [ox, oz] of ring) {
+      const cx = x - ox, cz = z - oz;
+      if (!ring.every(([rx, rz]) => { const v = this.get(cx + rx, y, cz + rz); return blockId(v) === CB.END_PORTAL_FRAME && (blockMeta(v) & FRAME_EYE); })) continue;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.setBlock(cx + dx, y, cz + dz, makeBlock(CB.END_PORTAL, 0));
+      this.emit({ e: 'sound', s: 'portal.end_open', x: cx + 0.5, y: y + 0.5, z: cz + 0.5 });
+      this.emit({ e: 'particles', k: 'portal', x: cx + 0.5, y: y + 1, z: cz + 0.5 });
+      return true;
+    }
+    return false;
+  }
+
+  private eggHop(x: number, y: number, z: number): void {
+    for (let i = 0; i < 1000; i++) {
+      const nx = x + this.rng.int(31) - 15, ny = y + this.rng.int(15) - 7, nz = z + this.rng.int(31) - 15;
+      if (ny < 1 || ny >= WORLD_HEIGHT - 1 || !this.store.isLoaded(nx, nz) || this.get(nx, ny, nz) !== 0) continue;
+      this.setBlock(x, y, z, 0);
+      this.setBlock(nx, ny, nz, makeBlock(CB.DRAGON_EGG, 0));
+      this.emit({ e: 'particles', k: 'portal', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+      this.emit({ e: 'sound', s: 'pearl.land', x: nx + 0.5, y: ny + 0.5, z: nz + 0.5 });
+      return;
+    }
+  }
+
+  private throwEye(p: SimPlayer, yaw: number, pitch: number): boolean {
+    if (this.now < (p.pearlCd ?? 0)) return false;
+    const st = heldStack(p.inv);
+    if (!st || st.id !== I.EYE_OF_ENDER) return false;
+    if (isNether(p.x) || isEnd(p.x)) return false;
+    const plan = this.gen.locate('stronghold', p.x, p.z);
+    const c = plan ? portalRoomCenter(plan) : null;
+    if (!c) return false;
+    p.pearlCd = this.now + 600;
+    if (p.mode !== 'creative' && --st.count <= 0) p.inv.slots[p.inv.selected] = null;
+    const e: Entity = {
+      id: this.allocId(), kind: 'arrow', type: 'eye', x: p.x - Math.sin(yaw) * 0.4, y: p.y + 1.6, z: p.z - Math.cos(yaw) * 0.4,
+      vx: 0, vy: 0, vz: 0, hw: 0.12, h: 0.24, onGround: false, hitH: false, hitCeil: false, yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0,
+      shooterP: p.id, dmg: 0, tx: c.x + 0.5, tz: c.z + 0.5,
+    };
+    this.entities.set(e.id, e);
+    this.emit({ e: 'spawn', ent: e });
+    this.emit({ e: 'inv', p });
+    this.emit({ e: 'sound', s: 'eye.launch', x: p.x, y: p.y + 1.5, z: p.z });
+    return true;
+  }
+
+  private tickEye(e: Entity): void {
+    e.age++;
+    const dx = (e.tx ?? e.x) - e.x, dz = (e.tz ?? e.z) - e.z, d = Math.hypot(dx, dz);
+    const far = d > 12;
+    const gx = far ? e.x + (dx / d) * 12 : e.tx!, gz = far ? e.z + (dz / d) * 12 : e.tz!;
+    const gy = far ? e.y + 8 : e.y - 0.6;
+    const hx = gx - e.x, hz = gz - e.z, hd = Math.hypot(hx, hz) || 1;
+    const sp = Math.hypot(e.vx, e.vz) * 0.05;
+    const target = Math.min(0.5, sp + (0.5 - sp) * 0.0025 * 20) * 20;
+    e.vx = (hx / hd) * target; e.vz = (hz / hd) * target;
+    e.vy += ((gy > e.y ? 1 : -1) * 3 - e.vy) * 0.15;
+    e.x += e.vx * DT; e.y += e.vy * DT; e.z += e.vz * DT;
+    e.yaw = Math.atan2(-hx, -hz);
+    if (e.age % 2 === 0) this.emit({ e: 'particles', k: 'portal', x: e.x, y: e.y, z: e.z });
+    if (e.age < 80) return;
+    this.entities.delete(e.id);
+    this.emit({ e: 'remove', id: e.id, why: 'despawn' });
+    if (this.rng.next() < 0.8) this.spawnItem(e.x, e.y, e.z, { id: I.EYE_OF_ENDER, count: 1 });
+    else { this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y, z: e.z }); this.emit({ e: 'sound', s: 'glass.break', x: e.x, y: e.y, z: e.z }); }
   }
 
   private movePlayerTo(p: SimPlayer, x: number, y: number, z: number): void {
@@ -1586,8 +1802,9 @@ export class WorldSim {
     if (this.validateMoves) {
       const dtMs = Math.max(50, this.now - p.lastMove);
       const dist = Math.hypot(x - p.x, z - p.z);
-      const maxH = (p.mode === 'creative' && flags & MF.FLY ? 32 : 13) * (dtMs / 1000) + 1.5;
-      const maxUp = (p.mode === 'creative' ? 32 : 14) * (dtMs / 1000) + 1.6;
+      const glide = !!(flags & MF.GLIDE) && this.wearsElytra(p);
+      const maxH = (glide ? 80 : p.mode === 'creative' && flags & MF.FLY ? 32 : 13) * (dtMs / 1000) + 1.5;
+      const maxUp = (glide ? 40 : p.mode === 'creative' ? 32 : 14) * (dtMs / 1000) + 1.6;
       if (dist > maxH || y - p.y > maxUp || y < -64 || y > WORLD_HEIGHT + 64) {
         this.emit({ e: 'tp', p });
         return false;
@@ -1598,14 +1815,23 @@ export class WorldSim {
     p.x = x; p.y = y; p.z = z; p.yaw = yaw; p.pitch = pitch;
     p.lastMove = this.now;
     const prevFlags = p.flags;
+    if (flags & MF.BLOCK && !(prevFlags & MF.BLOCK)) p.blockAt = this.now;
+    if (flags & MF.BLOCK && !this.holdsShield(p)) flags &= ~MF.BLOCK;
+    if (flags & MF.GLIDE && !this.wearsElytra(p)) flags &= ~MF.GLIDE;
+    if (flags & MF.LEVITATE && (p.levT ?? 0) < this.tickCount) flags &= ~MF.LEVITATE;
     p.flags = flags;
+    if (flags & MF.GLIDE && p.mode === 'survival' && this.now - (p.glideWear ?? 0) >= 1000) {
+      p.glideWear = this.now;
+      const el = p.inv.armor[1];
+      if (el && el.id === I.ELYTRA) { el.dmg = Math.min(maxDurability(I.ELYTRA) - 1, (el.dmg ?? 0) + 1); this.emit({ e: 'inv', p }); }
+    }
     if (p.mode === 'survival' && this.difficulty !== 'peaceful') {
       if (flags & MF.SPRINT) p.exh += horiz * 0.1;
       else if (flags & MF.WATER) p.exh += horiz * 0.01;
       if (flags & MF.JUMP && !(prevFlags & MF.JUMP)) p.exh += flags & MF.SPRINT ? 0.2 : 0.05;
     }
     const onSlime = !(flags & MF.CROUCH) && blockId(this.get(Math.floor(x), Math.floor(y - 0.6), Math.floor(z))) === B.SLIME_BLOCK;
-    const safe = flags & (MF.WATER | MF.LADDER | MF.FLY) || p.mode === 'creative' || onSlime;
+    const safe = flags & (MF.WATER | MF.LADDER | MF.FLY | MF.GLIDE | MF.LEVITATE) || p.mode === 'creative' || onSlime;
     if (safe) p.peakY = y;
     else if (flags & MF.GROUND) {
       const under = blockId(this.get(Math.floor(x), Math.floor(y - 0.2), Math.floor(z)));
@@ -1708,6 +1934,55 @@ export class WorldSim {
     }
   }
 
+  private fixChorus(x: number, y: number, z: number): void {
+    const v = this.get(x, y, z);
+    if (blockId(v) !== CB.CHORUS_PLANT) return;
+    const c = (dx: number, dy: number, dz: number) => { const b = blockId(this.get(x + dx, y + dy, z + dz)); return b === CB.CHORUS_PLANT || b === CB.CHORUS_FLOWER || (dy === -1 && b === CB.END_STONE); };
+    const m = (c(1, 0, 0) ? 1 : 0) | (c(-1, 0, 0) ? 2 : 0) | (c(0, 1, 0) ? 4 : 0) | (c(0, -1, 0) ? 8 : 0) | (c(0, 0, 1) ? 16 : 0) | (c(0, 0, -1) ? 32 : 0);
+    if (m !== blockMeta(v)) { this.store.setBlock(x, y, z, makeBlock(CB.CHORUS_PLANT, m)); this.emit({ e: 'block', x, y, z, v: makeBlock(CB.CHORUS_PLANT, m), old: v }); }
+  }
+
+  private growChorus(x: number, y: number, z: number, v: number): void {
+    const age = blockMeta(v) & 7;
+    if (age >= CHORUS_DEAD || this.get(x, y + 1, z) !== 0 || y >= WORLD_HEIGHT - 2) return;
+    if (!this.rng.chance(0.3)) return;
+    let stem = 0;
+    while (stem < 6 && blockId(this.get(x, y - 1 - stem, z)) === CB.CHORUS_PLANT) stem++;
+    const onStone = blockId(this.get(x, y - 1 - stem, z)) === CB.END_STONE;
+    const grow = stem < (onStone ? 4 : 2) || (stem < 5 && this.rng.chance(0.25));
+    const free = (ax: number, ay: number, az: number) => this.get(ax, ay, az) === 0 && this.get(ax, ay - 1, az) === 0 && FACING_DIRS.every(([dx, dz]) => this.get(ax + dx, ay, az + dz) === 0 || (ax + dx === x && az + dz === z));
+    if (grow && this.get(x, y + 2, z) === 0) {
+      this.setBlock(x, y, z, makeBlock(CB.CHORUS_PLANT, 0));
+      this.setBlock(x, y + 1, z, makeBlock(CB.CHORUS_FLOWER, age));
+      return;
+    }
+    if (age < 4) {
+      let placed = 0;
+      for (let i = 0, n = 1 + this.rng.int(age === 0 ? 4 : 3); i < n; i++) {
+        const [dx, dz] = FACING_DIRS[this.rng.int(4)];
+        if (!free(x + dx, y, z + dz)) continue;
+        this.setBlock(x + dx, y, z + dz, makeBlock(CB.CHORUS_FLOWER, age + 1));
+        placed++;
+      }
+      if (placed) { this.setBlock(x, y, z, makeBlock(CB.CHORUS_PLANT, 0)); return; }
+    }
+    this.setBlock(x, y, z, makeBlock(CB.CHORUS_FLOWER, CHORUS_DEAD));
+  }
+
+  private chorusTeleport(p: SimPlayer): void {
+    for (let i = 0; i < 16; i++) {
+      const x = Math.floor(p.x) + this.rng.int(17) - 8, z = Math.floor(p.z) + this.rng.int(17) - 8;
+      let y = Math.min(WORLD_HEIGHT - 3, Math.floor(p.y) + this.rng.int(17) - 8);
+      if (!this.store.isLoaded(x, z)) continue;
+      while (y > 1 && !isSolid(this.get(x, y - 1, z))) y--;
+      if (y <= 1 || this.get(x, y, z) !== 0 || this.get(x, y + 1, z) !== 0 || isFluid(this.get(x, y - 1, z))) continue;
+      this.emit({ e: 'particles', k: 'portal', x: p.x, y: p.y + 1, z: p.z });
+      this.teleportTo(p, x + 0.5, y, z + 0.5, false);
+      this.emit({ e: 'sound', s: 'chorus.teleport', x: p.x, y: p.y, z: p.z });
+      return;
+    }
+  }
+
   fixDripstone(x: number, y: number, z: number): void {
     const v = this.get(x, y, z);
     if (blockId(v) !== CB.POINTED_DRIPSTONE) return;
@@ -1772,6 +2047,7 @@ export class WorldSim {
     if (p.dead || p.mode === 'creative' || amount <= 0 || p.travel) return;
     if (this.game) { if (this.game.protectedPlayer(p)) return; amount *= this.game.damageScale(p); }
     const exempt = cause === 'void' || cause === 'drown' || cause === 'starve';
+    if (!exempt && this.shieldBlocks(p, amount, cause, fx, fz)) return;
     if (p.hurtCd > 0 && !exempt) {
       if (amount <= (p.lastHurt ?? 0)) return;
       const add = amount - (p.lastHurt ?? 0);
@@ -1821,7 +2097,7 @@ export class WorldSim {
     p.dig = null;
     const msgs: Record<string, string> = {
       fall: 'hit the ground too hard', stalagmite: 'was impaled on a stalagmite', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death', wither: 'withered away', small_fireball: 'was fireballed by a Blaze',
-      void: 'fell out of the world', starve: 'starved to death', fire: 'burned to a crisp', arrow: 'was shot by a Skeleton',
+      void: 'fell out of the world', breath: "was withered by the Ender Dragon's breath", starve: 'starved to death', fire: 'burned to a crisp', arrow: 'was shot by a Skeleton',
       kill: 'gave up on this life', player: `was struck down by ${killer ?? 'a rival'}`,
     };
     const mob = MOBS[cause as MobType];
@@ -1880,6 +2156,7 @@ export class WorldSim {
     }
     return {
       inv: p.inv, container, containerKind: kind, creative: p.mode === 'creative', split,
+      sealed: kind === 'chest' && blockId(this.get(p.screen.x, p.screen.y, p.screen.z)) === CB.SHULKER_BOX,
       drop: (s: ItemStack) => {
         const yaw = p.yaw;
         this.spawnItem(p.x, p.y + 1.3, p.z, s, -Math.sin(yaw) * 5, 2.5, -Math.cos(yaw) * 5, 30);
@@ -2190,8 +2467,10 @@ export class WorldSim {
     }
     const be = this.getBlockEntity(x, y, z);
     let replacement = 0;
+    this.breaker = p;
     if (id === B.ICE && p?.mode === 'survival' && isSolid(this.get(x, y - 1, z))) replacement = B.WATER;
     this.setBlock(x, y, z, replacement, p?.id);
+    this.breaker = null;
     if (this.authoritative && p) this.vibrate(x, y, z, p.id);
     if (be) this.removeBlockEntity(x, y, z, true);
     this.emit({ e: 'particles', k: 'break', x: x + 0.5, y: y + 0.5, z: z + 0.5, d: v, src: p?.id });
@@ -2210,6 +2489,36 @@ export class WorldSim {
   }
 
   use(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number, forcePlace = false, hy = 0.5): boolean {
+    if (this.useMain(p, x, y, z, nx, ny, nz, forcePlace, hy)) return true;
+    const off = p.inv.off?.[0];
+    if (!off || p.dead) return false;
+    const main = heldStack(p.inv);
+    if (main && getItem(main.id)?.places !== undefined) return false;
+    return this.withOff(p, () => this.useMain(p, x, y, z, nx, ny, nz, true, hy));
+  }
+
+  private withOff<T>(p: SimPlayer, fn: () => T): T {
+    const sel = p.inv.selected;
+    const a = p.inv.slots[sel] ?? null, b = p.inv.off[0] ?? null;
+    p.inv.slots[sel] = b; p.inv.off[0] = a;
+    try { return fn(); }
+    finally {
+      const na = p.inv.slots[sel] ?? null, nb = p.inv.off[0] ?? null;
+      p.inv.slots[sel] = nb; p.inv.off[0] = na && na.count > 0 ? na : null;
+      this.emit({ e: 'inv', p });
+    }
+  }
+
+  wearsElytra(p: SimPlayer): boolean {
+    const el = p.inv.armor[1];
+    return !!el && el.id === I.ELYTRA && (el.dmg ?? 0) < maxDurability(I.ELYTRA) - 1;
+  }
+
+  holdsShield(p: SimPlayer): boolean {
+    return heldStack(p.inv)?.id === I.SHIELD || p.inv.off?.[0]?.id === I.SHIELD;
+  }
+
+  private useMain(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number, forcePlace = false, hy = 0.5): boolean {
     if (p.dead) return false;
     if (Math.abs(nx) + Math.abs(ny) + Math.abs(nz) !== 1) return false;
     if (!this.inReach(p, x, y, z)) { this.emit({ e: 'reject', p, x: x + nx, y: y + ny, z: z + nz }); return false; }
@@ -2225,8 +2534,18 @@ export class WorldSim {
       if (id === B.ANVIL) { this.openScreen(p, 'anvil', x, y, z); return true; }
       if (id === B.SMITHING_TABLE) { this.openScreen(p, 'smith', x, y, z); return true; }
       if (id === B.BARREL) { this.openScreen(p, 'chest', x, y, z); return true; }
+      if (id === CB.SHULKER_BOX) { if (isFullCube(this.get(x, y + 1, z))) return true; this.openScreen(p, 'chest', x, y, z); return true; }
       if (id === B.BLAST_FURNACE || id === B.SMOKER) { this.openScreen(p, 'furnace', x, y, z); return true; }
       if (id === B.BELL) { this.emit({ e: 'sound', s: 'bell.ring', x: x + 0.5, y: y + 0.5, z: z + 0.5 }); return true; }
+      if (id === CB.END_PORTAL_FRAME) {
+        if (stack?.id !== I.EYE_OF_ENDER || (blockMeta(v) & FRAME_EYE)) return true;
+        this.setBlock(x, y, z, makeBlock(CB.END_PORTAL_FRAME, blockMeta(v) | FRAME_EYE), p.id);
+        if (p.mode !== 'creative') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+        this.emit({ e: 'sound', s: 'portal.eye', x: x + 0.5, y: y + 1, z: z + 0.5 });
+        this.tryOpenEndPortal(x, y, z);
+        return true;
+      }
+      if (id === CB.DRAGON_EGG) { this.eggHop(x, y, z); return true; }
       if (id === CB.CAVE_VINES_LIT) {
         this.setBlock(x, y, z, makeBlock(CB.CAVE_VINES, blockMeta(v)), p.id);
         this.spawnItem(x + 0.5, y + 0.3, z + 0.5, { id: I.GLOW_BERRIES, count: 1 });
@@ -2304,6 +2623,9 @@ export class WorldSim {
       return true;
     }
     if (stack?.id === I.BONE_MEAL) return this.boneMeal(p, x, y, z);
+    if (stack?.id === I.END_CRYSTAL && this.placeCrystal(p, x, y, z, ny)) return true;
+    if (stack?.id === I.FIREWORK_ROCKET) return this.useFirework(p, [x + nx + 0.5, y + ny, z + nz + 0.5]);
+    if (stack?.id === I.GLASS_BOTTLE && this.clouds.length && this.bottleBreath(p)) return true;
     if (item?.kind === 'bucket') return this.useBucket(p, x, y, z, nx, ny, nz, stack!);
     if (item?.kind === 'food' && !(item.places)) return false;
     const off = p.inv.off?.[0];
@@ -2414,6 +2736,7 @@ export class WorldSim {
 
   private useBucket(p: SimPlayer, x: number, y: number, z: number, nx: number, ny: number, nz: number, stack: ItemStack): boolean {
     const v = this.get(x, y, z);
+    if (blockId(v) === B.CAULDRON && !(p.flags & MF.CROUCH)) return this.bucketCauldron(p, x, y, z, v, stack);
     if (stack.id === I.BUCKET) {
       const id = blockId(v);
       if ((id === B.WATER || id === B.LAVA) && blockMeta(v) === 0) {
@@ -2446,6 +2769,27 @@ export class WorldSim {
       this.emit({ e: 'sound', s: 'bucket.empty', x: tx, y: ty, z: tz });
     }
     if (p.mode === 'survival') { p.inv.slots[p.inv.selected] = { id: I.BUCKET, count: 1 }; this.emit({ e: 'inv', p }); }
+    return true;
+  }
+
+  private bucketCauldron(p: SimPlayer, x: number, y: number, z: number, v: number, stack: ItemStack): boolean {
+    const cm = blockMeta(v), lava = !!(cm & CAULDRON_LAVA), lvl = cm & 3;
+    let give: number | null = null, nv = v, snd = '';
+    if (stack.id === I.BUCKET) {
+      if (lava) { give = I.LAVA_BUCKET; nv = B.CAULDRON; snd = 'bucket.fill_lava'; }
+      else if (lvl === 3) { give = I.WATER_BUCKET; nv = B.CAULDRON; snd = 'bucket.fill'; }
+      else return true;
+    } else if (stack.id === I.WATER_BUCKET) { if (lava || lvl === 3) return true; give = I.BUCKET; nv = makeBlock(B.CAULDRON, 3); snd = 'bucket.empty'; }
+    else if (stack.id === I.LAVA_BUCKET) { if (lava || lvl > 0) return true; give = I.BUCKET; nv = makeBlock(B.CAULDRON, CAULDRON_LAVA | 3); snd = 'bucket.empty_lava'; }
+    else return false;
+    this.setBlock(x, y, z, nv, p.id);
+    this.emit({ e: 'sound', s: snd, x: x + 0.5, y: y + 0.8, z: z + 0.5 });
+    if (p.mode === 'survival' && give !== null) {
+      const out = { id: give, count: 1 };
+      if (stack.count <= 1) p.inv.slots[p.inv.selected] = out;
+      else { consumeHeld(p.inv); if (giveItem(p.inv, out) > 0) this.invCtx(p).drop(out); }
+      this.emit({ e: 'inv', p });
+    }
     return true;
   }
 
@@ -2561,6 +2905,10 @@ export class WorldSim {
     }
     if (bid === B.OAK_DOOR && !td) this.setBlock(tx, ty + 1, tz, makeBlock(B.OAK_DOOR, doorMeta(look, true, false)), p.id);
     if (bid === CB.SMALL_DRIPLEAF) this.setBlock(tx, ty + 1, tz, makeBlock(CB.SMALL_DRIPLEAF, SMALL_UPPER), p.id);
+    if (bid === CB.SHULKER_BOX && stack.box && this.authoritative) {
+      const be = this.ensureBlockEntity(tx, ty, tz);
+      if (be) for (let i = 0; i < be.items.length; i++) be.items[i] = cloneStack(stack.box[i] ?? null);
+    }
     if (this.authoritative) this.vibrate(tx, ty, tz, p.id);
     this.emit({ e: 'sound', s: `place.${def.sound}`, x: tx + 0.5, y: ty + 0.5, z: tz + 0.5, src: p.id });
     if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
@@ -2568,6 +2916,14 @@ export class WorldSim {
   }
 
   eat(p: SimPlayer): boolean {
+    if (p.dead) return false;
+    const mainFood = getItem(heldStack(p.inv)?.id ?? -1)?.food;
+    const offFood = getItem(p.inv.off?.[0]?.id ?? -1)?.food;
+    if (!mainFood && offFood) return this.withOff(p, () => this.eatMain(p));
+    return this.eatMain(p);
+  }
+
+  private eatMain(p: SimPlayer): boolean {
     if (p.dead) return false;
     const stack = heldStack(p.inv);
     const food = stack ? getItem(stack.id)?.food : undefined;
@@ -2580,6 +2936,7 @@ export class WorldSim {
     const eatenId = stack!.id;
     if (eatenId === I.ROTTEN_FLESH && this.rng.chance(0.8)) p.exh += 6;
     if (eatenId === I.GOLDEN_APPLE) { p.absorb = Math.max(p.absorb ?? 0, 4); p.absorbT = 2400; p.regenT = 100; }
+    if (eatenId === I.CHORUS_FRUIT) this.chorusTeleport(p);
     if (p.mode === 'survival') {
       consumeHeld(p.inv);
       if (eatenId === I.MUSHROOM_STEW) { if (!heldStack(p.inv)) p.inv.slots[p.inv.selected] = { id: I.BOWL, count: 1 }; else if (giveItem(p.inv, { id: I.BOWL, count: 1 }) > 0) this.spawnItem(p.x, p.y + 1, p.z, { id: I.BOWL, count: 1 }); }
@@ -2808,6 +3165,138 @@ export class WorldSim {
     }
   }
 
+  private shieldBlocks(p: SimPlayer, amount: number, cause: string, fx: number, fz: number): boolean {
+    if (!(p.flags & MF.BLOCK) || !this.holdsShield(p)) return false;
+    if (this.now - (p.blockAt ?? this.now) < 250 || this.now < (p.shieldCd ?? 0)) return false;
+    const blockable = cause === 'player' || cause === 'arrow' || cause === 'explosion' || cause === 'fireball' || !!MOBS[cause as MobType];
+    if (!blockable) return false;
+    const dx = fx - p.x, dz = fz - p.z, d = Math.hypot(dx, dz);
+    if (d > 0.01) {
+      const lx = -Math.sin(p.yaw), lz = -Math.cos(p.yaw);
+      if ((dx * lx + dz * lz) / d < 0) return false;
+    }
+    const inMain = heldStack(p.inv)?.id === I.SHIELD;
+    if (p.mode === 'survival' && amount >= 3) {
+      const st = inMain ? p.inv.slots[p.inv.selected]! : p.inv.off[0]!;
+      st.dmg = (st.dmg ?? 0) + 1 + Math.floor(amount);
+      if (st.dmg >= 336) { if (inMain) p.inv.slots[p.inv.selected] = null; else p.inv.off[0] = null; this.emit({ e: 'sound', s: 'item.break', x: p.x, y: p.y + 1, z: p.z }); }
+      this.emit({ e: 'inv', p });
+    }
+    if (this.hitBy?.mob && d > 0.01) { const m = this.hitBy.mob; m.vx = (m.vx ?? 0) - (dx / d) * 4; m.vz = (m.vz ?? 0) - (dz / d) * 4; }
+    this.emit({ e: 'sound', s: 'shield.block', x: p.x, y: p.y + 1, z: p.z });
+    return true;
+  }
+
+  private tickEnderman(e: Entity, inWater: boolean): void {
+    const wet = inWater || ((this.weather === 'rain' || this.weather === 'thunder') && !isNether(e.x) && e.age % 10 === 0 && this.skyExposed(e.x, e.y + e.h, e.z));
+    if (wet && e.age % 10 === 0) { this.hurtMob(e, 1, null, 0, 0); return; }
+    if (e.age % 5 === 0 && !(e.provoked! > 0 && e.target) && this.difficulty !== 'peaceful') {
+      const ex = e.x, ey = e.y + 2.55, ez = e.z;
+      for (const p of this.players.values()) {
+        if (p.dead || p.mode !== 'survival') continue;
+        const vx = ex - p.x, vy = ey - (p.y + 1.62), vz = ez - p.z, d = Math.hypot(vx, vy, vz);
+        if (d > 64 || d < 0.5) continue;
+        const cp = Math.cos(p.pitch);
+        const lx = -Math.sin(p.yaw) * cp, ly = Math.sin(p.pitch), lz = -Math.cos(p.yaw) * cp;
+        if ((vx * lx + vy * ly + vz * lz) / d > 1 - 0.025 / d && this.lineOfSight(e, p)) {
+          e.target = p.id; e.provoked = 600; e.path = null;
+          e.yaw = Math.atan2(vx, vz);
+          this.emit({ e: 'sound', s: 'enderman.scream', x: e.x, y: e.y + 2.5, z: e.z });
+          break;
+        }
+      }
+    }
+    const t = e.target ? this.players.get(e.target) : undefined;
+    if (t && e.provoked! > 0) {
+      const d = Math.hypot(t.x - e.x, t.y - e.y, t.z - e.z);
+      if (d < 32) e.provoked = Math.max(e.provoked!, 200);
+      if (d > 16 && e.age % 30 === 0 && this.rng.chance(0.5)) this.endermanTeleportNear(e, t.x, t.y, t.z);
+    } else if (e.age % 400 === 0 && this.rng.chance(0.1)) this.endermanTeleport(e);
+  }
+
+  private endermanTeleport(e: Entity): boolean {
+    return this.endermanTeleportNear(e, e.x + (this.rng.next() - 0.5) * 64, e.y + this.rng.int(64) - 32, e.z + (this.rng.next() - 0.5) * 64);
+  }
+
+  private endermanTeleportNear(e: Entity, tx: number, ty: number, tz: number): boolean {
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const x = Math.floor(attempt ? tx + (this.rng.next() - 0.5) * 16 : tx), z = Math.floor(attempt ? tz + (this.rng.next() - 0.5) * 16 : tz);
+      let y = Math.min(WORLD_HEIGHT - 4, Math.max(2, Math.floor(ty)));
+      while (y > 1 && !isSolid(this.get(x, y - 1, z))) y--;
+      if (y <= 1 || isNether(x) !== isNether(e.x)) continue;
+      let clear = true;
+      for (let dy = 0; dy < 3; dy++) { const v = this.get(x, y + dy, z); if (isSolid(v) || getBlock(v).fluid) { clear = false; break; } }
+      if (!clear || getBlock(this.get(x, y - 1, z)).fluid) continue;
+      this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y + 1.5, z: e.z });
+      this.emit({ e: 'sound', s: 'enderman.teleport', x: e.x, y: e.y + 1.5, z: e.z });
+      e.x = x + 0.5; e.y = y; e.z = z + 0.5; e.vx = e.vy = e.vz = 0; e.path = null;
+      this.emit({ e: 'sound', s: 'enderman.teleport', x: e.x, y: e.y + 1.5, z: e.z });
+      return true;
+    }
+    return false;
+  }
+
+  private tickPearl(e: Entity): void {
+    e.age++;
+    const owner = e.shooterP ? this.players.get(e.shooterP) : undefined;
+    if (!owner || owner.dead || e.age > 400 || e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    e.vy -= 20 * DT;
+    const sp = Math.hypot(e.vx, e.vy, e.vz) || 1e-6;
+    const step = sp * DT;
+    const dx = e.vx / sp, dy = e.vy / sp, dz = e.vz / sp;
+    e.vx *= 0.99; e.vy *= 0.99; e.vz *= 0.99;
+    const wall = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
+    let hit: [number, number, number] | null = wall && isSolid(wall.value) ? [e.x + dx * wall.dist, e.y + dy * wall.dist, e.z + dz * wall.dist] : null;
+    const reach = hit ? wall!.dist : step;
+    let mobHit = false;
+    outer: for (const m of this.entities.values()) {
+      if (m.kind !== 'mob' || m.health <= 0) continue;
+      for (let k = 0; k <= 4; k++) {
+        const t = (reach * k) / 4, px = e.x + dx * t, py = e.y + dy * t, pz = e.z + dz * t;
+        if (Math.abs(px - m.x) < m.hw + 0.15 && py > m.y - 0.1 && py < m.y + m.h + 0.1 && Math.abs(pz - m.z) < m.hw + 0.15) {
+          this.hurtMob(m, 0.01, owner.id, dx * 0.3, dz * 0.3, 0.2);
+          hit = [px, py, pz]; mobHit = true;
+          break outer;
+        }
+      }
+    }
+    if (!hit) { e.x += dx * step; e.y += dy * step; e.z += dz * step; e.yaw = Math.atan2(-dx, -dz); return; }
+    this.entities.delete(e.id);
+    this.emit({ e: 'remove', id: e.id, why: 'hit' });
+    this.emit({ e: 'particles', k: 'smoke', x: hit[0], y: hit[1], z: hit[2] });
+    let tx = hit[0] - dx * 0.3, ty = hit[1] - dy * 0.3, tz = hit[2] - dz * 0.3;
+    if (!mobHit && wall && isSolid(wall.value) && wall.ny === 1) ty = wall.y + 1;
+    else ty = Math.floor(ty);
+    for (let n = 0; n < 3 && (this.solidAt(tx, ty, tz) || this.solidAt(tx, ty + 1, tz)); n++) ty++;
+    if (owner.travel || (isNether(owner.x) !== isNether(tx))) return;
+    owner.x = tx; owner.y = ty; owner.z = tz; owner.peakY = ty;
+    this.emit({ e: 'tp', p: owner });
+    this.emit({ e: 'sound', s: 'pearl.land', x: owner.x, y: owner.y + 1, z: owner.z });
+    if (owner.mode === 'survival') this.damage(owner, 5, 'fall', owner.x, owner.z, false, true);
+  }
+
+  private solidAt(x: number, y: number, z: number): boolean { return isSolid(this.get(Math.floor(x), Math.floor(y), Math.floor(z))); }
+
+  private throwPearl(p: SimPlayer, yaw: number, pitch: number): boolean {
+    if (this.now < (p.pearlCd ?? 0)) return false;
+    const st = heldStack(p.inv);
+    if (!st || st.id !== I.ENDER_PEARL) return false;
+    p.pearlCd = this.now + 1000;
+    if (p.mode !== 'creative' && --st.count <= 0) p.inv.slots[p.inv.selected] = null;
+    const cy = Math.cos(pitch), sp = 30;
+    const e: Entity = {
+      id: this.allocId(), kind: 'arrow', type: 'pearl', x: p.x - Math.sin(yaw) * 0.3, y: p.y + 1.5, z: p.z - Math.cos(yaw) * 0.3,
+      vx: -Math.sin(yaw) * cy * sp, vy: Math.sin(pitch) * sp, vz: -Math.cos(yaw) * cy * sp,
+      hw: 0.12, h: 0.24, onGround: false, hitH: false, hitCeil: false, yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0,
+      shooterP: p.id, dmg: 0,
+    };
+    this.entities.set(e.id, e);
+    this.emit({ e: 'spawn', ent: e });
+    this.emit({ e: 'inv', p });
+    this.emit({ e: 'sound', s: 'pearl.throw', x: p.x, y: p.y + 1.5, z: p.z });
+    return true;
+  }
+
   attackPlayer(p: SimPlayer, targetId: string): boolean {
     if (!this.settings.pvp || p.dead) return false;
     const t = this.players.get(targetId);
@@ -2823,6 +3312,10 @@ export class WorldSim {
     if (st.smash) this.smashAround(p, t.x, t.y, t.z, null, t.id, st.fall);
     if (st.crit) this.emit({ e: 'particles', k: 'crit', x: t.x, y: t.y + 1.8, z: t.z });
     this.afterStrike(p, st);
+    if (getItem(heldStack(p.inv)?.id ?? -1)?.tool?.type === 'axe' && t.flags & MF.BLOCK && this.holdsShield(t)) {
+      t.shieldCd = this.now + 5000;
+      this.emit({ e: 'sound', s: 'shield.break', x: t.x, y: t.y + 1, z: t.z });
+    }
     this.hitBy = { pl: p, breach: lvl(heldStack(p.inv), 'breach') };
     this.damage(t, st.dmg, 'player', p.x, p.z, true, false, p.name, st.knock);
     this.hitBy = null;
@@ -2834,6 +3327,12 @@ export class WorldSim {
   hurtMob(e: Entity, dmg: number, by: string | null, kx: number, kz: number, knock = 0.4): void {
     if (e.health <= 0) return;
     if (this.game?.mobInvulnerable(e)) return;
+    if (e.type === 'riftcore') { this.burstCrystal(e); return; }
+    if (e.type === 'voidwyrm') { this.hurtDragon(e, dmg, by); return; }
+    if (e.type === 'shellward') {
+      if ((e.peek ?? 0) < 0.3) dmg = Math.max(0, dmg - 8);
+      if (e.health - dmg < e.maxHealth / 2 && e.health - dmg > 0 && this.rng.chance(0.25)) this.shulkerTeleport(e);
+    }
     let fresh = true;
     if (e.hurt > 0) {
       if (dmg <= (e.lastHurt ?? 0)) return;
@@ -2855,6 +3354,7 @@ export class WorldSim {
       if (e.type === 'flarewisp' && this.players.has(by)) for (const o of this.entities.values()) if (o.type === 'flarewisp' && o !== e && !o.target && Math.hypot(o.x - e.x, o.y - e.y, o.z - e.z) < 24) o.target = by;
     }
     this.emit({ e: 'sound', s: `mob.${e.type}.hurt`, x: e.x, y: e.y + 0.5, z: e.z });
+    if (e.type === 'voidstalker' && !by && e.health > 0 && this.rng.chance(0.9)) this.endermanTeleport(e);
     this.emit({ e: 'particles', k: 'hurt', x: e.x, y: e.y + e.h * 0.6, z: e.z });
     if (e.health <= 0) {
       this.entities.delete(e.id);
@@ -2933,6 +3433,9 @@ export class WorldSim {
     this.tickFalling();
     this.mergeTnt();
     for (const e of [...this.entities.values()]) this.tickEntity(e);
+    if (this.tickCount % 20 === 7 || this.endState.summon !== undefined) this.tickEndFight();
+    if (this.clouds.length) this.tickClouds();
+    if (this.fireworkShows.length) this.fireworkShows = this.fireworkShows.filter((f) => { if (f.t > this.tickCount) return true; this.emit({ e: 'particles', k: 'firework', x: f.x, y: f.y, z: f.z }); this.emit({ e: 'sound', s: 'firework.blast', x: f.x, y: f.y, z: f.z, vol: 3 }); return false; });
     this.runBlasts();
     this.tickPlates();
     this.rs.tickMoving();
@@ -3005,7 +3508,8 @@ export class WorldSim {
       if (p.absorbT && --p.absorbT <= 0) { p.absorb = 0; changed = true; }
       if (p.witherT && p.witherT > 0) { if (p.witherT-- % 40 === 0) this.damage(p, 1, 'wither', p.x, p.z, false, true); }
       if (p.regenT && p.regenT > 0) { if (p.regenT-- % 25 === 0 && p.health < 20) { p.health = Math.min(20, p.health + 1); changed = true; } }
-      if (f & MF.EYE_WATER) {
+      if (f & MF.EYE_WATER && bubbleColumn(this.store, p.x, p.y + 1.62, p.z)) { if (p.air < 300) { p.air = 300; changed = true; } }
+      else if (f & MF.EYE_WATER) {
         const resp = lvl(p.inv.armor[0], 'respiration');
         if (resp <= 0 || this.rng.int(resp + 1) === 0) p.air--;
         if (p.air <= 0) { p.air = 0; if (--p.t.drown <= 0) { p.t.drown = 20; this.damage(p, 2, 'drown', p.x, p.z, false, true); } }
@@ -3511,7 +4015,7 @@ export class WorldSim {
 
   private containerSlots(x: number, y: number, z: number): (ItemStack | null)[][] | null {
     const id = blockId(this.get(x, y, z));
-    if (id !== B.CHEST && id !== B.BARREL && id !== B.HOPPER && id !== B.DROPPER && id !== B.DISPENSER && id !== B.FURNACE && id !== B.FURNACE_LIT && id !== B.BLAST_FURNACE && id !== B.SMOKER) return null;
+    if (id !== B.CHEST && id !== B.BARREL && id !== B.HOPPER && id !== B.DROPPER && id !== B.DISPENSER && id !== B.FURNACE && id !== B.FURNACE_LIT && id !== B.BLAST_FURNACE && id !== B.SMOKER && id !== CB.SHULKER_BOX) return null;
     const be = this.ensureBlockEntity(x, y, z);
     if (!be) return null;
     if (id !== B.CHEST) return [be.items];
@@ -3532,6 +4036,7 @@ export class WorldSim {
     const groups = this.containerSlots(x, y, z);
     if (!groups) return false;
     let slots: number[] | null = null;
+    if (id === CB.SHULKER_BOX && (s.id === CB.SHULKER_BOX || s.box)) return false;
     if (id === B.FURNACE || id === B.FURNACE_LIT) {
       if (from === 2) slots = [0];
       else if (getItem(s.id)?.fuel) slots = [1];
@@ -3593,7 +4098,7 @@ export class WorldSim {
         for (const e of this.entities.values()) {
           if (e.kind !== 'item' || !e.item) continue;
           if (e.x < x || e.x > x + 1 || e.z < z || e.z > z + 1 || e.y < y + 0.6 || e.y > y + 2) continue;
-          if (isSolid(this.get(x, y + 1, z)) && e.y >= y + 1.01) continue;
+          if (e.y >= y + 1.01 && isFullCube(this.get(x, y + 1, z))) continue;
           let left = e.item.count;
           for (let j = 0; j < be.items.length && left > 0; j++) {
             const t = be.items[j];
@@ -3905,8 +4410,37 @@ export class WorldSim {
     return f;
   }
 
+  private dripInto(x: number, y: number, z: number, v: number): void {
+    const m = blockMeta(v);
+    if (!(m & DRIP_DOWN) || (m & 7) > 1) return;
+    let root = y;
+    while (root < WORLD_HEIGHT - 3 && blockId(this.get(x, root + 1, z)) === CB.POINTED_DRIPSTONE && blockMeta(this.get(x, root + 1, z)) & DRIP_DOWN) root++;
+    if (!isSolid(this.get(x, root + 1, z))) return;
+    const src = this.get(x, root + 2, z), sid = blockId(src);
+    const water = (sid === B.WATER && blockMeta(src) === 0) || (isWaterPlant(sid) && sid !== B.WATER);
+    const lava = sid === B.LAVA && blockMeta(src) === 0;
+    if (!water && !lava) return;
+    if (water && isNether(x)) return;
+    for (let yy = y - 1; yy >= Math.max(0, y - 11); yy--) {
+      const b = this.get(x, yy, z), id = blockId(b);
+      if (id === 0) continue;
+      if (id !== B.CAULDRON) return;
+      const cm = blockMeta(b);
+      if (lava) { if (cm === 0 && this.rng.int(256) < 15) { this.setBlock(x, yy, z, makeBlock(B.CAULDRON, CAULDRON_LAVA | 3)); this.emit({ e: 'sound', s: 'drip.lava', x: x + 0.5, y: yy + 1, z: z + 0.5 }); } }
+      else if (!(cm & CAULDRON_LAVA) && (cm & 3) < 3 && this.rng.int(256) < 45) { this.setBlock(x, yy, z, makeBlock(B.CAULDRON, (cm & 3) + 1)); this.emit({ e: 'sound', s: 'drip.water', x: x + 0.5, y: yy + 1, z: z + 0.5 }); }
+      return;
+    }
+  }
+
   private randomTick(x: number, y: number, z: number, v: number, id: number): void {
     switch (id) {
+      case CB.POINTED_DRIPSTONE: this.dripInto(x, y, z, v); break;
+      case CB.CHORUS_FLOWER: this.growChorus(x, y, z, v); break;
+      case B.CAULDRON: {
+        const cm = blockMeta(v);
+        if (this.weather !== 'clear' && !(cm & CAULDRON_LAVA) && (cm & 3) < 3 && !isNether(x) && this.info.exposed(x, y + 1, z) && this.rng.int(20) === 0) this.setBlock(x, y, z, makeBlock(B.CAULDRON, (cm & 3) + 1));
+        break;
+      }
       case B.NETHER_PORTAL: {
         if (isNether(x) || this.game || this.settings.mobSpawning === false || this.difficulty === 'peaceful') break;
         const lvl = this.difficulty === 'easy' ? 1 : this.difficulty === 'normal' ? 2 : 3;
@@ -3928,6 +4462,29 @@ export class WorldSim {
       }
       case B.FIRE: {
         if (!this.fireQueue.has(posKey(x, y, z))) this.scheduleFire(x, y, z, 1 + this.rng.int(20));
+        break;
+      }
+      case B.LAVA: {
+        if (this.settings.fireTick === false || this.game) break;
+        const n = this.rng.int(3);
+        if (n > 0) {
+          let px = x, py = y, pz = z;
+          for (let k = 0; k < n; k++) {
+            px += this.rng.int(3) - 1; py++; pz += this.rng.int(3) - 1;
+            if (py >= WORLD_HEIGHT) break;
+            const t = this.get(px, py, pz);
+            if (blockId(t) === 0) {
+              let near = false;
+              for (const [dx, dy, dz] of SIX) if (this.flam(this.get(px + dx, py + dy, pz + dz))[0] > 0) { near = true; break; }
+              if (near) { this.setBlock(px, py, pz, B.FIRE); break; }
+            } else if (isSolid(t)) break;
+          }
+        } else {
+          for (let k = 0; k < 3; k++) {
+            const px = x + this.rng.int(3) - 1, pz = z + this.rng.int(3) - 1;
+            if (blockId(this.get(px, y + 1, pz)) === 0 && this.flam(this.get(px, y, pz))[0] > 0) this.setBlock(px, y + 1, pz, B.FIRE);
+          }
+        }
         break;
       }
       case B.WHEAT: case B.CARROTS: case B.POTATOES: case B.BEETROOTS: {
@@ -4127,6 +4684,7 @@ export class WorldSim {
 
   private spawnForChunk(hostile: boolean, cx: number, cz: number): number {
     if (isNether(cx * 16)) return this.spawnNether(hostile, cx, cz);
+    if (isEnd(cx * 16)) return this.spawnEnd(hostile, cx, cz);
     const sx = cx * 16 + this.rng.int(16), sz = cz * 16 + this.rng.int(16);
     const top = this.info.top(sx, sz);
     if (top < 0 && !this.info.heightMap(cx, cz)) return 0;
@@ -4213,14 +4771,23 @@ export class WorldSim {
     if (e.portalCd) e.portalCd--;
     else if (e.kind !== 'fireball' && e.age % 4 === 0 && blockId(this.get(Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z))) === B.NETHER_PORTAL && !e.rider && !this.game) { this.entityPortal(e); return; }
     if (e.kind === 'item') return this.tickItem(e);
+    if (e.kind === 'arrow' && e.type === 'pearl') return this.tickPearl(e);
+    if (e.kind === 'arrow' && e.type === 'eye') return this.tickEye(e);
+    if (e.kind === 'arrow' && e.type === 'bullet') return this.tickBullet(e);
     if (e.kind === 'arrow') return this.tickArrow(e);
     if (e.kind === 'tnt') return this.tickTnt(e);
     if (e.kind === 'cart') return this.tickCart(e);
+    if (e.kind === 'fireball' && e.type === 'dfire') return this.tickDragonFire(e);
     if (e.kind === 'fireball') return this.tickFireball(e);
     this.tickMob(e);
   }
 
   private pushByFluid(e: Entity, k: number): void {
+    const bc = e.kind === 'arrow' ? 0 : bubbleColumn(this.store, e.x, e.y + 0.1, e.z);
+    if (bc) {
+      const top = bubbleSurface(this.store, e.x, e.y + 0.1, e.z);
+      e.vy = bc > 0 ? Math.min(top ? 20 : 14, e.vy + (top ? 2 : 1.2)) : Math.max(top ? -12 : -6, e.vy - 0.6);
+    }
     const f = fluidFlow(this.store, e.x, e.y, e.z);
     if (!f) return;
     const m = f.lava ? (isNether(e.x) ? 0.5 : 0.17) : 1;
@@ -4272,6 +4839,10 @@ export class WorldSim {
     if (e.age > 400 && e.stuck === undefined) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
     if (e.stuck !== undefined) {
       e.stuck++;
+      if (e.sb && e.stuck % 4 === 0) {
+        const sv = this.get(e.sb[0], e.sb[1], e.sb[2]);
+        if (!isSolid(sv) && blockId(sv) !== B.OAK_BUTTON) { e.stuck = undefined; e.sb = undefined; e.vx = e.vz = 0; e.vy = -1; e.crit = false; e.flags &= ~4; return; }
+      }
       if (e.pickup && e.stuck > 5) {
         for (const p of this.players.values()) {
           if (p.dead || Math.abs(p.x - e.x) > 1.3 || Math.abs(p.z - e.z) > 1.3 || e.y < p.y - 0.8 || e.y > p.y + 2.2) continue;
@@ -4282,16 +4853,21 @@ export class WorldSim {
           return;
         }
       }
-      if (e.stuck > (e.pickup ? 1200 : 60)) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); }
+      if (e.stuck > 1200) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); }
       return;
     }
-    if (e.stuck === undefined && blockId(this.get(Math.floor(e.x), Math.floor(e.y), Math.floor(e.z))) === B.WATER) this.pushByFluid(e, 0.2);
+    const here = blockId(this.get(Math.floor(e.x), Math.floor(e.y), Math.floor(e.z)));
+    const wet = here === B.WATER || isWaterPlant(here);
+    if (wet) { this.pushByFluid(e, 0.2); e.fire = 0; if (e.age % 4 === 0) this.emit({ e: 'particles', k: 'splash', x: e.x, y: e.y, z: e.z }); }
+    else if (here === B.LAVA || here === B.FIRE) e.fire = 1;
     e.vy -= 20 * DT;
-    const sp = Math.hypot(e.vx, e.vy, e.vz);
+    const sp = Math.hypot(e.vx, e.vy, e.vz) || 1e-6;
     const step = sp * DT;
     const dx = e.vx / sp, dy = e.vy / sp, dz = e.vz / sp;
-    e.vx *= 0.99; e.vy *= 0.99; e.vz *= 0.99;
+    const drag = wet ? 0.6 : 0.99;
+    e.vx *= drag; e.vy *= drag; e.vz *= drag;
     const wall = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
+    if (wall && blockId(wall.value) === B.OAK_BUTTON && !(blockMeta(wall.value) & LEVER_ON) && this.authoritative) this.rs.use(wall.x, wall.y, wall.z, wall.value);
     const reach = wall && isSolid(wall.value) ? wall.dist : step;
     if (e.shooterP) {
       for (const m of this.entities.values()) {
@@ -4301,6 +4877,8 @@ export class WorldSim {
           const ax = e.x + dx * t, ay = e.y + dy * t, az = e.z + dz * t;
           if (Math.abs(ax - m.x) < m.hw + 0.15 && Math.abs(az - m.z) < m.hw + 0.15 && ay > m.y && ay < m.y + m.h) {
             if (e.pierced?.includes(m.id)) continue;
+            if (m.type === 'voidstalker') { if (!m.dodgeT || this.tickCount - m.dodgeT > 4) { m.dodgeT = this.tickCount; this.endermanTeleport(m); } break; }
+            if (m.type === 'shellward' && (m.peek ?? 0) < 0.3) { e.vx *= -0.1; e.vy = Math.abs(e.vy) * 0.1; e.vz *= -0.1; e.shooterP = undefined; this.emit({ e: 'sound', s: 'shulker.bounce', x: e.x, y: e.y, z: e.z }); return; }
             const l = Math.hypot(dx, dz) || 1;
             this.hurtMob(m, this.arrowHit(e, sp), e.shooterP, dx / l * 0.6, dz / l * 0.6, 0.4 + 0.6 * (e.punch ?? 0));
             if (m.fire === 0 && e.fire > 0) m.fire = 100;
@@ -4335,10 +4913,11 @@ export class WorldSim {
       }
     }
     const hit = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
-    if (hit && isSolid(hit.value)) {
+    if (hit && (isSolid(hit.value) || blockId(hit.value) === B.OAK_BUTTON)) {
       e.x = hit.hx - dx * 0.1; e.y = hit.hy - dy * 0.1; e.z = hit.hz - dz * 0.1;
       e.vx = e.vy = e.vz = 0;
-      e.stuck = 0;
+      e.stuck = 0; e.sb = [hit.x, hit.y, hit.z];
+      if (e.fire > 0 && blockId(hit.value) === B.TNT && this.authoritative) { this.primeTnt(hit.x, hit.y, hit.z, 80); }
       this.emit({ e: 'sound', s: 'arrow.hit', x: e.x, y: e.y, z: e.z });
       return;
     }
@@ -4348,6 +4927,9 @@ export class WorldSim {
 
   private tickMob(e: Entity): void {
     if (this.game?.tickNpc(e)) return;
+    if (e.type === 'voidwyrm') return this.tickDragon(e);
+    if (e.type === 'riftcore') { e.age++; e.vx = e.vy = e.vz = 0; return; }
+    if (e.type === 'shellward') return this.tickShulker(e);
     const def = MOBS[e.type as MobType];
     const med = sampleMedium(this.store, e.x, e.y, e.z, e.hw, e.h, e.h * 0.8);
     e.inWater = med.water;
@@ -4376,15 +4958,17 @@ export class WorldSim {
       e.admire--; e.path = null; flags |= 64;
       if (e.admire === 0) this.barter(e);
     }
+    if (e.type === 'voidstalker') { this.tickEnderman(e, med.water); if (!this.entities.has(e.id)) return; }
     const angry = !e.admire && (def.hostile || (def.neutral && e.provoked! > 0 && !!e.target));
     if (def.neutral && !angry) e.target = null;
     if (angry) {
       if (e.type === 'duskweaver' && e.age % 20 === 1) e.dim = !this.brightAtLeast(Math.floor(e.x), Math.floor(e.y + 0.5), Math.floor(e.z), 12);
       const aggressive = e.type !== 'duskweaver' || e.provoked! > 0 || e.dim !== false;
       let target = e.target ? this.players.get(e.target) : undefined;
-      if (target && (target.dead || target.mode !== 'survival' || Math.hypot(target.x - e.x, target.z - e.z) > 32)) { target = undefined; e.target = null; }
+      const follow = def.follow ?? FOLLOW[e.type] ?? 16;
+      if (target && (target.dead || target.mode !== 'survival' || Math.hypot(target.x - e.x, target.y - e.y, target.z - e.z) > Math.max(32, follow + 6))) { target = undefined; e.target = null; }
       if (!target && aggressive && def.hostile && e.age % 10 === 0) {
-        const near = this.nearestPlayer(e, 16, true);
+        const near = this.nearestPlayer(e, follow, true);
         if (near && this.lineOfSight(e, near)) { e.target = near.id; target = near; }
       }
       if (target && this.difficulty !== 'peaceful') {
@@ -4562,6 +5146,25 @@ export class WorldSim {
     if (e.prof !== undefined && e.prof >= 0) flags |= (e.prof + 1) << 9;
     if (e.wield === 1) flags |= 32;
     e.flags = flags;
+  }
+
+  private spawnEnd(hostile: boolean, cx: number, cz: number): number {
+    if (!hostile || this.difficulty === 'peaceful') return 0;
+    const sx = cx * 16 + this.rng.int(16), sz = cz * 16 + this.rng.int(16);
+    if (!this.store.isLoaded(sx, sz) || !this.isTicking(sx, sz)) return 0;
+    let y = WORLD_HEIGHT - 2;
+    while (y > 1 && this.get(sx, y - 1, sz) === 0) y--;
+    if (y <= 1 || blockId(this.get(sx, y - 1, sz)) !== CB.END_STONE || this.get(sx, y, sz) !== 0 || this.get(sx, y + 1, sz) !== 0 || this.get(sx, y + 2, sz) !== 0) return 0;
+    if (this.info.blockLight(sx, y, sz) > 0) return 0;
+    for (const p of this.players.values()) if (Math.hypot(p.x - sx, p.y - y, p.z - sz) < 24) return 0;
+    let n = 0;
+    for (let i = 0, k = 1 + this.rng.int(4); i < k; i++) {
+      const x = sx + this.rng.int(5) - 2, z = sz + this.rng.int(5) - 2;
+      if (this.get(x, y, z) !== 0 || this.get(x, y + 1, z) !== 0 || this.get(x, y + 2, z) !== 0 || blockId(this.get(x, y - 1, z)) !== CB.END_STONE) continue;
+      this.spawnMob('voidstalker', x + 0.5, y, z + 0.5);
+      n++;
+    }
+    return n;
   }
 
   private spawnNether(hostile: boolean, cx: number, cz: number): number {
@@ -4756,6 +5359,475 @@ export class WorldSim {
     if (e.age % 300 === 0 && this.rng.chance(0.5)) this.emit({ e: 'sound', s: 'mob.wailer.ambient', x: e.x, y: e.y + 2, z: e.z });
   }
 
+  private endPillarsWorld(): { i: number; x: number; z: number; r: number; h: number; caged: boolean }[] {
+    return this.gen.endGen().pillars().map((p, i) => ({ i, x: END_X + p.x, z: p.z, r: p.r, h: p.h, caged: p.caged }));
+  }
+
+  private say(text: string): void { this.emit({ e: 'msg', text, kind: 'info' }); }
+
+  private tickEndFight(): void {
+    const st = this.endState;
+    const here = [...this.players.values()].filter((p) => !p.dead && isEnd(p.x) && Math.hypot(p.x - END_X, p.z) < 260);
+    if (st.summon !== undefined) { this.tickSummon(here.length > 0); return; }
+    if (!st.alive && st.kills > 0 && this.peakPlayers >= DRAGON_PEAK) {
+      const now = Date.now(), due = st.lastKill + DRAGON_RESPAWN_MS;
+      if (!st.warned && now >= due - 300000) { st.warned = true; this.say('The End stirs. The Ender Dragon returns within five minutes.'); }
+      if (now >= due && here.length && this.store.isLoaded(END_X, 0)) { st.auto = true; this.beginSummon(); return; }
+    }
+    if (!here.length || !this.store.isLoaded(END_X, 0)) return;
+    if (!st.started) { st.started = true; st.alive = true; }
+    if (!st.alive) { this.checkRespawnCrystals(); return; }
+    let dragon: Entity | null = null;
+    for (const e of this.entities.values()) if (e.type === 'voidwyrm') { dragon = e; break; }
+    if (!dragon) this.spawnDragon();
+    for (const p of this.endPillarsWorld()) {
+      if (st.lost.includes(p.i) || !this.store.isLoaded(p.x, p.z)) continue;
+      let has = false;
+      for (const e of this.entities.values()) if (e.type === 'riftcore' && e.pil === p.i) { has = true; break; }
+      if (!has) { const c = this.spawnMob('riftcore', p.x + 0.5, p.h + 1, p.z + 0.5); c.persistent = true; c.pil = p.i; }
+    }
+  }
+
+  private spawnDragon(): Entity {
+    const e = this.spawnMob('voidwyrm', END_X + 0.5, EXIT_Y + 40, 30.5);
+    e.persistent = true; e.phase = 'circle'; e.pt = 0; e.ang = this.rng.next() * Math.PI * 2; e.taken = 0;
+    return e;
+  }
+
+  private burstCrystal(e: Entity): void {
+    if (e.health <= 0) return;
+    e.health = 0;
+    this.entities.delete(e.id);
+    this.emit({ e: 'remove', id: e.id, why: 'death' });
+    if (e.pil !== undefined && !this.endState.lost.includes(e.pil)) this.endState.lost.push(e.pil);
+    for (const d of this.entities.values()) if (d.type === 'voidwyrm' && d.phase !== 'dying' && Math.hypot(d.x - e.x, d.y - e.y, d.z - e.z) < 32 && d.pil === e.id) { d.pil = undefined; this.hurtDragon(d, 10, null); }
+    this.explode(e.x, e.y, e.z, 6, { noBlocks: isEnd(e.x) && Math.hypot(e.x - END_X, e.z) < 12 });
+  }
+
+  private hurtDragon(e: Entity, dmg: number, by: string | null): void {
+    if (e.phase === 'dying' || e.health <= 0) return;
+    if (e.hurt > 0 && dmg <= (e.lastHurt ?? 0)) return;
+    e.lastHurt = dmg; e.hurt = 10;
+    if (by && e.phase !== 'perch') dmg = dmg / 4 + 1;
+    e.health -= dmg;
+    e.taken = (e.taken ?? 0) + dmg;
+    this.emit({ e: 'sound', s: 'mob.voidwyrm.hurt', x: e.x, y: e.y + 2, z: e.z, vol: 3 });
+    if (e.phase === 'perch' && e.taken > 25) { e.phase = 'takeoff'; e.pt = 0; }
+    if (by) e.target = by;
+    if (e.health <= 0) {
+      e.health = 0.01; e.phase = 'dying'; e.pt = 0; e.vx = e.vy = e.vz = 0; e.flags |= 0x10000;
+      e.attacker = by ?? e.attacker;
+      this.emit({ e: 'sound', s: 'mob.voidwyrm.death', x: e.x, y: e.y, z: e.z, vol: 4 });
+    }
+  }
+
+  private tickDragon(e: Entity): void {
+    e.age++;
+    if (e.hurt > 0) e.hurt--;
+    const cx = END_X + 0.5, cz = 0.5;
+    if (!isEnd(e.x)) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    if (e.phase === 'dying') {
+      e.pt = (e.pt ?? 0) + 1;
+      e.y += 0.1;
+      if (e.pt % 4 === 0) this.emit({ e: 'particles', k: 'dragon', x: e.x + (this.rng.next() - 0.5) * 6, y: e.y + this.rng.next() * 4, z: e.z + (this.rng.next() - 0.5) * 6 });
+      if (e.pt >= 200) this.dragonDeath(e);
+      return;
+    }
+    let best: Entity | null = null, bd = 32;
+    for (const c of this.entities.values()) if (c.type === 'riftcore') { const d = Math.hypot(c.x - e.x, c.y - e.y, c.z - e.z); if (d < bd) { bd = d; best = c; } }
+    e.pil = best ? best.id : undefined;
+    if (best && e.age % 10 === 0 && e.health < e.maxHealth) e.health = Math.min(e.maxHealth, e.health + 1);
+    const players = [...this.players.values()].filter((p) => !p.dead && p.mode === 'survival' && isEnd(p.x) && Math.hypot(p.x - cx, p.z - cz) < 200);
+    const crystals = [...this.entities.values()].filter((c) => c.type === 'riftcore').length;
+    e.pt = (e.pt ?? 0) + 1;
+    let tx = e.gx ?? cx, ty = e.gy ?? EXIT_Y + 40, tz = e.gz ?? cz, speed = 18;
+    const reach = (x: number, y: number, z: number, r: number) => Math.hypot(x - e.x, y - e.y, z - e.z) < r;
+    switch (e.phase) {
+      case 'circle': {
+        const R = 46 + Math.sin((e.ang ?? 0) * 3) * 10;
+        tx = cx + Math.cos(e.ang!) * R; tz = cz + Math.sin(e.ang!) * R; ty = EXIT_Y + 22 + Math.sin((e.ang ?? 0) * 2) * 8;
+        if (reach(tx, ty, tz, 10)) {
+          e.ang = (e.ang ?? 0) + 0.45;
+          const roll = this.rng.next();
+          if (roll < 1 / (crystals + 3)) { e.phase = 'approach'; e.pt = 0; }
+          else if (players.length && roll > 0.78) { e.phase = 'strafe'; e.pt = 0; e.target = players[this.rng.int(players.length)].id; }
+        }
+        break;
+      }
+      case 'strafe': {
+        const t = e.target ? this.players.get(e.target) : undefined;
+        if (!t || t.dead || !isEnd(t.x) || e.pt > 300) { e.phase = 'circle'; break; }
+        tx = t.x; ty = t.y + 14; tz = t.z;
+        if (reach(t.x, t.y, t.z, 48) && e.pt % 30 === 0) this.dragonFireball(e, t);
+        if (e.pt > 90 && reach(tx, ty, tz, 18)) { e.phase = 'circle'; e.pt = 0; }
+        break;
+      }
+      case 'approach': {
+        tx = cx; tz = cz; ty = EXIT_Y + 4.6; speed = 12;
+        if (reach(tx, ty + 6, tz, 30)) { ty = EXIT_Y + 4.6; speed = 8; }
+        if (reach(tx, ty, tz, 2.2)) { e.phase = 'perch'; e.pt = 0; e.taken = 0; e.x = cx; e.y = EXIT_Y + 4.6; e.z = cz; }
+        if (e.pt > 600) { e.phase = 'circle'; e.pt = 0; }
+        break;
+      }
+      case 'perch': {
+        e.vx = e.vy = e.vz = 0; e.x = cx; e.y = EXIT_Y + 4.6; e.z = cz;
+        let near: SimPlayer | null = null, nd = 40;
+        for (const p of players) { const d = Math.hypot(p.x - cx, p.z - cz); if (d < nd) { nd = d; near = p; } }
+        if (near) e.yaw = Math.atan2(-(near.x - cx), -(near.z - cz));
+        if (near && e.pt % 50 === 25) {
+          const dx = near.x - cx, dz = near.z - cz, l = Math.hypot(dx, dz) || 1;
+          const bx = cx + (dx / l) * Math.min(8, l), bz = cz + (dz / l) * Math.min(8, l);
+          this.addCloud(bx, EXIT_Y + 1, bz, 2.5, 100);
+          this.emit({ e: 'sound', s: 'mob.voidwyrm.breath', x: cx, y: e.y, z: cz, vol: 3 });
+        }
+        if (e.pt > 260) { e.phase = 'takeoff'; e.pt = 0; }
+        return this.dragonContact(e);
+      }
+      case 'takeoff': {
+        tx = cx + Math.cos(e.ang ?? 0) * 30; tz = cz + Math.sin(e.ang ?? 0) * 30; ty = EXIT_Y + 30; speed = 14;
+        if (reach(tx, ty, tz, 8) || e.pt > 200) { e.phase = 'circle'; e.pt = 0; }
+        break;
+      }
+      default: e.phase = 'circle';
+    }
+    e.gx = tx; e.gy = ty; e.gz = tz;
+    const dx = tx - e.x, dy = ty - e.y, dz = tz - e.z, l = Math.hypot(dx, dy, dz) || 1;
+    const want = Math.min(speed, l * 3);
+    const k = 0.06;
+    e.vx += ((dx / l) * want - e.vx) * k; e.vy += ((dy / l) * want - e.vy) * k; e.vz += ((dz / l) * want - e.vz) * k;
+    e.x += e.vx * DT; e.y += e.vy * DT; e.z += e.vz * DT;
+    const hs = Math.hypot(e.vx, e.vz);
+    if (hs > 0.5) e.yaw = Math.atan2(-e.vx, -e.vz);
+    if (e.age % 2 === 0) this.dragonCrush(e);
+    this.dragonContact(e);
+  }
+
+  private dragonContact(e: Entity): void {
+    for (const p of this.players.values()) {
+      if (p.dead || p.mode !== 'survival') continue;
+      const dx = p.x - e.x, dz = p.z - e.z, dy = p.y - e.y;
+      if (Math.abs(dx) < e.hw + 0.3 && Math.abs(dz) < e.hw + 0.3 && dy > -2 && dy < e.h) {
+        if ((p.lastDragonHit ?? 0) > this.now - 500) continue;
+        p.lastDragonHit = this.now;
+        const l = Math.hypot(dx, dz) || 1;
+        this.damage(p, 10 * DIFF_DMG[this.difficulty] / DIFF_DMG.normal || 5, 'voidwyrm', e.x, e.z, true, false, undefined, 1.6);
+        this.emit({ e: 'knock', p, x: (dx / l) * 18, y: 9, z: (dz / l) * 18, set: true });
+      }
+    }
+  }
+
+  private dragonCrush(e: Entity): void {
+    if (this.game) return;
+    const x0 = Math.floor(e.x - 3), x1 = Math.floor(e.x + 3), z0 = Math.floor(e.z - 3), z1 = Math.floor(e.z + 3), y0 = Math.floor(e.y), y1 = Math.floor(e.y + 3);
+    let broke = false;
+    for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+      const v = this.get(x, y, z);
+      if (!v || DRAGON_IMMUNE.has(blockId(v)) || getBlock(v).hardness < 0 || isFluid(v)) continue;
+      this.setBlock(x, y, z, 0);
+      broke = true;
+    }
+    if (broke) this.emit({ e: 'sound', s: 'mob.voidwyrm.crush', x: e.x, y: e.y, z: e.z });
+  }
+
+  private dragonFireball(e: Entity, t: SimPlayer): void {
+    const ox = e.x - Math.sin(e.yaw) * 4, oy = e.y + 1.5, oz = e.z - Math.cos(e.yaw) * 4;
+    const dx = t.x - ox, dy = t.y + 1 - oy, dz = t.z - oz, l = Math.hypot(dx, dy, dz) || 1;
+    const f: Entity = {
+      id: this.allocId(), kind: 'fireball', type: 'dfire', x: ox, y: oy, z: oz, vx: (dx / l) * 14, vy: (dy / l) * 14, vz: (dz / l) * 14,
+      hw: 0.5, h: 1, onGround: false, hitH: false, hitCeil: false, yaw: 0, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 2, shooter: e.id,
+    };
+    this.entities.set(f.id, f);
+    this.emit({ e: 'spawn', ent: f });
+    this.emit({ e: 'sound', s: 'mob.voidwyrm.shoot', x: ox, y: oy, z: oz, vol: 3 });
+  }
+
+  private tickDragonFire(e: Entity): void {
+    e.age++;
+    if (e.age > 200) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
+    const sp = Math.hypot(e.vx, e.vy, e.vz) || 1, step = sp * DT, dx = e.vx / sp, dy = e.vy / sp, dz = e.vz / sp;
+    const wall = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
+    let hit = !!(wall && isSolid(wall.value));
+    if (!hit) for (const p of this.players.values()) if (!p.dead && Math.abs(p.x - e.x) < 0.9 && Math.abs(p.z - e.z) < 0.9 && e.y > p.y - 0.5 && e.y < p.y + 2.2) { hit = true; break; }
+    if (hit) {
+      const hx = wall ? e.x + dx * wall.dist : e.x, hy = wall ? e.y + dy * wall.dist : e.y, hz = wall ? e.z + dz * wall.dist : e.z;
+      this.entities.delete(e.id);
+      this.emit({ e: 'remove', id: e.id, why: 'hit' });
+      this.addCloud(hx, hy, hz, 3, 300);
+      return;
+    }
+    e.x += e.vx * DT; e.y += e.vy * DT; e.z += e.vz * DT;
+    if (e.age % 3 === 0) this.emit({ e: 'particles', k: 'breath', x: e.x, y: e.y, z: e.z });
+  }
+
+  private addCloud(x: number, y: number, z: number, r: number, t: number): void {
+    if (this.clouds.length > 32) this.clouds.shift();
+    this.clouds.push({ x, y, z, r, t });
+  }
+
+  private tickClouds(): void {
+    for (const c of this.clouds) {
+      c.t--;
+      if (this.tickCount % 6 === 0) this.emit({ e: 'particles', k: 'breath', x: c.x + (this.rng.next() - 0.5) * c.r * 2, y: c.y + 0.2, z: c.z + (this.rng.next() - 0.5) * c.r * 2 });
+      if (this.tickCount % 20 !== 0) continue;
+      for (const p of this.players.values()) if (!p.dead && p.mode === 'survival' && Math.hypot(p.x - c.x, p.z - c.z) < c.r && p.y > c.y - 1.5 && p.y < c.y + 2) this.damage(p, 6, 'breath', c.x, c.z, false, true);
+    }
+    this.clouds = this.clouds.filter((c) => c.t > 0 && c.r > 0.4);
+  }
+
+  private bottleBreath(p: SimPlayer): boolean {
+    const st = heldStack(p.inv);
+    if (st?.id !== I.GLASS_BOTTLE) return false;
+    const c = this.clouds.find((q) => Math.hypot(p.x - q.x, p.z - q.z) < q.r + 1.5 && Math.abs(p.y - q.y) < 3);
+    if (!c) return false;
+    c.r -= 0.5;
+    if (p.mode !== 'creative') consumeHeld(p.inv);
+    if (giveItem(p.inv, { id: I.DRAGON_BREATH, count: 1 }) > 0) this.invCtx(p).drop({ id: I.DRAGON_BREATH, count: 1 });
+    this.emit({ e: 'inv', p });
+    this.emit({ e: 'sound', s: 'bottle.fill_dragonbreath', x: p.x, y: p.y + 1, z: p.z });
+    return true;
+  }
+
+  private dragonDeath(e: Entity): void {
+    const st = this.endState;
+    this.entities.delete(e.id);
+    this.emit({ e: 'remove', id: e.id, why: 'death', by: e.attacker ?? undefined });
+    this.emit({ e: 'boom', x: e.x, y: e.y, z: e.z, r: 6 });
+    const first = st.kills === 0;
+    st.kills++; st.alive = false; st.lastKill = Date.now(); st.warned = false; st.auto = false;
+    for (const p of this.players.values()) if (!p.dead && p.mode === 'survival' && isEnd(p.x) && Math.hypot(p.x - e.x, p.z - e.z) < 160) this.giveXp(p, first ? 1200 : 100);
+    this.setExitPortal(true);
+    if (first) this.setBlock(END_X, EXIT_Y + 4, 0, makeBlock(CB.DRAGON_EGG, 0));
+    this.spawnGateway();
+    this.clouds = [];
+    const killer = e.attacker ? this.players.get(e.attacker) : undefined;
+    this.say(killer ? `${killer.name} defeated the Ender Dragon!` : 'The Ender Dragon has been defeated!');
+    this.emit({ e: 'title', text: 'The Ender Dragon falls', sub: 'The exit portal is open', to: undefined });
+  }
+
+  private setExitPortal(open: boolean): void {
+    for (const [dx, dz] of exitPortalCells()) this.setBlock(END_X + dx, EXIT_Y, dz, open ? makeBlock(CB.END_PORTAL, 0) : 0);
+    this.endState.exitOpen = open;
+  }
+
+  private gatewayOrder(): number[] {
+    const r = new Rng(this.gen.seed ^ 0x6a7e);
+    const o = Array.from({ length: 20 }, (_, i) => i);
+    for (let i = 19; i > 0; i--) { const j = r.int(i + 1); [o[i], o[j]] = [o[j], o[i]]; }
+    return o;
+  }
+
+  private spawnGateway(): void {
+    const st = this.endState;
+    if (st.gates.length >= 20) return;
+    const i = this.gatewayOrder()[st.gates.length];
+    st.gates.push(i);
+    const g = gatewaySpot(i);
+    const x = END_X + g.x;
+    this.setBlock(x, g.y, g.z, makeBlock(CB.END_GATEWAY, 0));
+    this.setBlock(x, g.y - 1, g.z, B.BEDROCK);
+    this.setBlock(x, g.y + 1, g.z, B.BEDROCK);
+    this.emit({ e: 'sound', s: 'portal.end_open', x, y: g.y, z: g.z });
+  }
+
+  private checkRespawnCrystals(): void {
+    const found: Entity[] = [];
+    for (const [dx, dz] of RIM) {
+      for (const e of this.entities.values()) if (e.type === 'riftcore' && e.pil === undefined && Math.abs(e.x - (END_X + dx + 0.5)) < 0.6 && Math.abs(e.z - (dz + 0.5)) < 0.6 && Math.abs(e.y - (EXIT_Y + 1)) < 0.6) { found.push(e); break; }
+    }
+    if (found.length === 4) { this.endState.auto = false; this.beginSummon(); }
+  }
+
+  private beginSummon(): void {
+    this.endState.summon = 0;
+    this.say(this.endState.auto ? 'The Ender Dragon is returning to the End!' : 'The crystals sing. The Ender Dragon is being summoned!');
+  }
+
+  private tickSummon(anyone: boolean): void {
+    const st = this.endState;
+    const t = st.summon!;
+    if (!anyone && t === 0) return;
+    st.summon = t + 1;
+    if (t % 10 === 0) for (const [dx, dz] of RIM) this.emit({ e: 'particles', k: 'portal', x: END_X + dx + 0.5, y: EXIT_Y + 2 + (t % 40) / 10, z: dz + 0.5 });
+    if (t === 100) {
+      for (const p of this.endPillarsWorld()) {
+        if (!this.store.isLoaded(p.x, p.z)) continue;
+        for (let dz = -p.r; dz <= p.r; dz++) for (let dx = -p.r; dx <= p.r; dx++) if (dx * dx + dz * dz <= p.r * p.r + 1) for (let y = p.h - 14; y < p.h; y++) if (!this.get(p.x + dx, y, p.z + dz)) this.setBlock(p.x + dx, y, p.z + dz, B.OBSIDIAN);
+        this.setBlock(p.x, p.h, p.z, B.BEDROCK);
+        for (let y = p.h + 1; y <= p.h + 4; y++) if (blockId(this.get(p.x, y, p.z)) !== B.IRON_BARS) this.setBlock(p.x, y, p.z, 0);
+      }
+      st.lost = [];
+    }
+    if (t === 200) {
+      for (const e of [...this.entities.values()]) if (e.type === 'riftcore' && e.pil === undefined && isEnd(e.x) && Math.hypot(e.x - END_X - 0.5, e.z - 0.5) < 5) this.burstCrystal(e);
+      this.setExitPortal(false);
+      st.alive = true; st.summon = undefined; st.warned = false;
+      this.spawnDragon();
+      this.say('The Ender Dragon has returned!');
+    }
+  }
+
+  private placeCrystal(p: SimPlayer, x: number, y: number, z: number, ny: number): boolean {
+    const b = blockId(this.get(x, y, z));
+    if (ny !== 1 || (b !== B.OBSIDIAN && b !== B.BEDROCK)) return false;
+    if (this.get(x, y + 1, z) !== 0 || this.get(x, y + 2, z) !== 0) return true;
+    for (const e of this.entities.values()) if (e.kind === 'mob' && Math.abs(e.x - x - 0.5) < 1 && Math.abs(e.z - z - 0.5) < 1 && Math.abs(e.y - y - 1) < 2) return true;
+    const c = this.spawnMob('riftcore', x + 0.5, y + 1, z + 0.5);
+    c.persistent = true;
+    if (p.mode !== 'creative') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+    if (!this.endState.alive && isEnd(x)) this.checkRespawnCrystals();
+    return true;
+  }
+
+  private gatewayJump(p: SimPlayer): void {
+    const lx = p.x - END_X, lz = p.z, d = Math.hypot(lx, lz) || 1;
+    const eg = this.gen.endGen();
+    let dest: { x: number; y: number; z: number } | null = null, gate: { x: number; y: number; z: number } | undefined;
+    if (d < 400) {
+      const ux = lx / d, uz = lz / d;
+      for (let r = 1024; r < 1800 && !dest; r += 6) {
+        const X = Math.round(ux * r), Z = Math.round(uz * r), top = eg.topAt(X, Z);
+        if (top > 0) dest = { x: END_X + X, y: top + 1, z: Z };
+      }
+      dest ??= { x: END_X + Math.round(ux * 1030), y: 70, z: Math.round(uz * 1030) };
+      gate = { x: dest.x + 3, y: dest.y + 6, z: dest.z };
+    } else {
+      let bi = -1, ba = Infinity;
+      const a = Math.atan2(lz, lx);
+      for (const i of this.endState.gates) { const g = gatewaySpot(i); const da = Math.abs(Math.atan2(Math.sin(Math.atan2(g.z, g.x) - a), Math.cos(Math.atan2(g.z, g.x) - a))); if (da < ba) { ba = da; bi = i; } }
+      const g = bi >= 0 ? gatewaySpot(bi) : { x: 80, y: EXIT_Y, z: 0 };
+      const X = Math.round(g.x * 0.8), Z = Math.round(g.z * 0.8);
+      dest = { x: END_X + X, y: Math.max(eg.topAt(X, Z) + 1, 40), z: Z };
+    }
+    p.endTrip = { x: dest.x, y: dest.y, z: dest.z, t: 0, toEnd: false, gate };
+    p.portalLock = true;
+    this.emit({ e: 'sound', s: 'portal.gateway', x: p.x, y: p.y, z: p.z, to: p.id });
+  }
+
+  private attachFace(x: number, y: number, z: number): number {
+    if (isSolid(this.get(x, y - 1, z))) return 3;
+    for (let i = 0; i < 6; i++) { const [dx, dy, dz] = SIX[i]; if (isSolid(this.get(x + dx, y + dy, z + dz))) return i; }
+    return -1;
+  }
+
+  private tickShulker(e: Entity): void {
+    e.age++;
+    e.vx = e.vy = e.vz = 0;
+    if (e.hurt > 0) e.hurt--;
+    if (e.attackCd! > 0) e.attackCd!--;
+    const bx = Math.floor(e.x), by = Math.floor(e.y), bz = Math.floor(e.z);
+    if (e.att === undefined) e.att = this.attachFace(bx, by, bz);
+    if (e.age % 10 === 0) {
+      const [dx, dy, dz] = e.att >= 0 ? SIX[e.att] : [0, -1, 0];
+      if (!isSolid(this.get(bx + dx, by + dy, bz + dz))) { const f = this.attachFace(bx, by, bz); if (f >= 0) e.att = f; else this.shulkerTeleport(e); }
+    }
+    const t = this.difficulty !== 'peaceful' ? this.nearestPlayer(e, 16, true) : null;
+    const sees = !!t && this.lineOfSight(e, t);
+    if (sees) {
+      e.target = t!.id;
+      e.peekT = 0.5;
+      e.bulletCd = (e.bulletCd ?? 20) - 1;
+      if (e.bulletCd <= 0) { e.bulletCd = 20 + this.rng.int(10) * 10; this.shulkerBullet(e, t!); }
+    } else {
+      e.target = null;
+      if (e.peekT && e.peekT > 0 && this.rng.chance(0.02)) e.peekT = 0;
+      else if (!e.peekT && this.rng.chance(1 / 120)) e.peekT = 0.3 + this.rng.next() * 0.7;
+    }
+    const want = e.peekT ?? 0, cur = e.peek ?? 0;
+    e.peek = Math.abs(want - cur) < 0.05 ? want : cur + Math.sign(want - cur) * 0.05;
+    e.flags = (e.flags & ~0xf00) | (Math.round(e.peek * 15) << 8) | ((e.att ?? 3) << 12);
+  }
+
+  private shulkerBullet(e: Entity, t: SimPlayer): void {
+    const b: Entity = {
+      id: this.allocId(), kind: 'arrow', type: 'bullet', x: e.x, y: e.y + 0.5, z: e.z, vx: 0, vy: 0, vz: 0, hw: 0.15, h: 0.3,
+      onGround: false, hitH: false, hitCeil: false, yaw: 0, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0, shooter: e.id, target: t.id, dmg: 4,
+    };
+    this.entities.set(b.id, b);
+    this.emit({ e: 'spawn', ent: b });
+    this.emit({ e: 'sound', s: 'shulker.shoot', x: e.x, y: e.y + 0.5, z: e.z });
+  }
+
+  private tickBullet(e: Entity): void {
+    e.age++;
+    const gone = () => { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'hit' }); this.emit({ e: 'particles', k: 'crit', x: e.x, y: e.y, z: e.z }); };
+    if (e.age > 300) return gone();
+    const t = e.target ? this.players.get(e.target) : undefined;
+    if (t && !t.dead) {
+      const dx = t.x - e.x, dy = t.y + 1 - e.y, dz = t.z - e.z, l = Math.hypot(dx, dy, dz) || 1;
+      e.vx += ((dx / l) * 6 - e.vx) * 0.15; e.vy += ((dy / l) * 6 - e.vy) * 0.15; e.vz += ((dz / l) * 6 - e.vz) * 0.15;
+    } else e.vy -= 0.4;
+    const nx = e.x + e.vx * DT, ny = e.y + e.vy * DT, nz = e.z + e.vz * DT;
+    if (isSolid(this.get(Math.floor(nx), Math.floor(ny), Math.floor(nz)))) return gone();
+    e.x = nx; e.y = ny; e.z = nz;
+    for (const p of this.players.values()) {
+      if (p.dead || p.mode !== 'survival') continue;
+      if (Math.abs(p.x - e.x) < 0.5 && Math.abs(p.z - e.z) < 0.5 && e.y > p.y - 0.1 && e.y < p.y + 1.9) {
+        this.damage(p, 4, 'shellward', e.x, e.z, true, false);
+        this.levitate(p, 200);
+        return gone();
+      }
+    }
+    for (const m of this.entities.values()) {
+      if (m.kind !== 'mob' || m.id === e.shooter || m.health <= 0) continue;
+      if (Math.abs(m.x - e.x) < m.hw + 0.15 && Math.abs(m.z - e.z) < m.hw + 0.15 && e.y > m.y && e.y < m.y + m.h) {
+        if (m.type === 'shellward') this.shulkerBulletHit(m);
+        else { this.hurtMob(m, 4, null, 0, 0); if (m.health > 0) m.vy = 8; }
+        return gone();
+      }
+    }
+  }
+
+  private shulkerBulletHit(m: Entity): void {
+    const ox = m.x, oy = m.y, oz = m.z, open = (m.peek ?? 0) >= 0.3;
+    this.hurtMob(m, 4, null, 0, 0);
+    if (!open || m.health <= 0 || !this.entities.has(m.id)) return;
+    if (!this.shulkerTeleport(m)) return;
+    let count = 0;
+    for (const o of this.entities.values()) if (o.type === 'shellward' && Math.abs(o.x - ox) < 8.5 && Math.abs(o.y - oy) < 8.5 && Math.abs(o.z - oz) < 8.5) count++;
+    if (this.rng.next() < (count - 1) / 5) return;
+    const c = this.spawnMob('shellward', ox, oy, oz);
+    c.persistent = true;
+    this.emit({ e: 'sound', s: 'shulker.duplicate', x: ox, y: oy + 0.5, z: oz });
+  }
+
+  shulkerTeleport(e: Entity): boolean {
+    const bx = Math.floor(e.x), by = Math.floor(e.y), bz = Math.floor(e.z);
+    for (let i = 0; i < 5; i++) {
+      const x = bx + this.rng.int(17) - 8, y = by + this.rng.int(17) - 8, z = bz + this.rng.int(17) - 8;
+      if (y < 1 || y >= WORLD_HEIGHT - 1 || !this.store.isLoaded(x, z) || this.get(x, y, z) !== 0) continue;
+      const f = this.attachFace(x, y, z);
+      if (f < 0) continue;
+      let blocked = false;
+      for (const o of this.entities.values()) if (o !== e && o.kind === 'mob' && Math.abs(o.x - x - 0.5) < o.hw + 0.5 && Math.abs(o.z - z - 0.5) < o.hw + 0.5 && o.y < y + 1 && o.y + o.h > y) { blocked = true; break; }
+      if (blocked) continue;
+      this.emit({ e: 'particles', k: 'portal', x: e.x, y: e.y + 0.5, z: e.z });
+      e.x = x + 0.5; e.y = y; e.z = z + 0.5; e.att = f; e.peek = 0; e.peekT = 0;
+      this.emit({ e: 'sound', s: 'shulker.teleport', x: e.x, y: e.y + 0.5, z: e.z });
+      return true;
+    }
+    return false;
+  }
+
+  private useFirework(p: SimPlayer, at: [number, number, number] | null): boolean {
+    if (p.dead || this.now - (p.rocketAt ?? -1e9) < 400) return false;
+    const st = heldStack(p.inv);
+    if (!st || st.id !== I.FIREWORK_ROCKET) return false;
+    p.rocketAt = this.now;
+    if (p.mode !== 'creative') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+    if (!at && p.flags & MF.GLIDE) { this.emit({ e: 'sound', s: 'firework.launch', x: p.x, y: p.y, z: p.z }); this.emit({ e: 'particles', k: 'firework', x: p.x, y: p.y, z: p.z }); return true; }
+    const [x, y, z] = at ?? [p.x - Math.sin(p.yaw) * 1.5, p.y + 1.5, p.z - Math.cos(p.yaw) * 1.5];
+    this.emit({ e: 'sound', s: 'firework.launch', x, y, z });
+    this.fireworkShows.push({ x, y: y + 10 + this.rng.int(4), z, t: this.tickCount + 22 });
+    return true;
+  }
+
+  private fireworkShows: { x: number; y: number; z: number; t: number }[] = [];
+
+  levitate(p: SimPlayer, ticks: number): void {
+    p.levT = this.tickCount + ticks;
+    this.emit({ e: 'effect', p, k: 'levitation', t: ticks });
+  }
+
   private tickFireball(e: Entity): void {
     if (e.age > 200) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
     const sp = Math.hypot(e.vx, e.vy, e.vz) || 1;
@@ -4945,7 +6017,7 @@ export class WorldSim {
     const ox = e.x, oy = e.y + e.h * 0.85, oz = e.z;
     const dx = t.x - ox, dz = t.z - oz, dy = t.y + 1.2 - oy;
     const dist = Math.hypot(dx, dz);
-    const speed = 22;
+    const speed = 32;
     const time = dist / speed;
     const inacc = { easy: 0.12, normal: 0.07, hard: 0.035, peaceful: 0 }[this.difficulty];
     const a: Entity = {
@@ -4963,19 +6035,24 @@ export class WorldSim {
   shootBow(p: SimPlayer, power: number, yaw: number, pitch: number): boolean {
     if (p.dead || !isFinite(power) || !isFinite(yaw) || !isFinite(pitch)) return false;
     const held = heldStack(p.inv);
+    if (held?.id === I.ENDER_PEARL) return this.throwPearl(p, yaw, pitch);
+    if (held?.id === I.EYE_OF_ENDER) return this.throwEye(p, yaw, pitch);
+    if (held?.id === I.FIREWORK_ROCKET) return this.useFirework(p, null);
     if (held?.id === I.CROSSBOW) return this.crossbow(p, held, power < 0, yaw, pitch);
+    if (p.inv.off?.[0]?.id === I.ENDER_PEARL && (!held || (held.id !== I.BOW && getItem(held.id)?.places === undefined && !getItem(held.id)?.food))) return this.withOff(p, () => this.throwPearl(p, yaw, pitch));
     if (!held || held.id !== I.BOW) return false;
     if (this.now - (p.lastShot ?? -1e9) < 250) return false;
     power = Math.max(0, Math.min(1, power));
     if (power < 0.1) return false;
     const creative = p.mode === 'creative';
     const infinity = lvl(held, 'infinity') > 0;
-    const ai = creative ? -1 : p.inv.slots.findIndex((s) => s?.id === I.ARROW);
-    if (!creative && ai < 0) return false;
+    const offA = !creative && p.inv.off?.[0]?.id === I.ARROW;
+    const ai = creative || offA ? -1 : p.inv.slots.findIndex((s) => s?.id === I.ARROW);
+    if (!creative && !offA && ai < 0) return false;
     p.lastShot = this.now;
     if (!creative) {
-      const st = p.inv.slots[ai]!;
-      if (!infinity && --st.count <= 0) p.inv.slots[ai] = null;
+      const st = offA ? p.inv.off[0]! : p.inv.slots[ai]!;
+      if (!infinity && --st.count <= 0) { if (offA) p.inv.off[0] = null; else p.inv.slots[ai] = null; }
       damageHeld(p.inv, 1);
       this.emit({ e: 'inv', p });
     }
@@ -5028,9 +6105,11 @@ export class WorldSim {
     if (load) {
       if (held.ld) return false;
       if (this.now - (p.lastShot ?? -1e9) < Math.max(200, 1000 - 250 * lvl(held, 'quick_charge'))) return false;
-      const ai = creative ? -1 : p.inv.slots.findIndex((s) => s?.id === I.ARROW);
-      if (!creative && ai < 0) return false;
-      if (!creative) { const st = p.inv.slots[ai]!; if (--st.count <= 0) p.inv.slots[ai] = null; }
+      const offA = !creative && p.inv.off?.[0]?.id === I.ARROW;
+      const ai = creative || offA ? -1 : p.inv.slots.findIndex((s) => s?.id === I.ARROW);
+      if (!creative && !offA && ai < 0) return false;
+      if (offA) { const st = p.inv.off[0]!; if (--st.count <= 0) p.inv.off[0] = null; }
+      else if (!creative) { const st = p.inv.slots[ai]!; if (--st.count <= 0) p.inv.slots[ai] = null; }
       held.ld = 1;
       p.lastShot = this.now;
       this.emit({ e: 'inv', p });
@@ -5156,9 +6235,9 @@ export class WorldSim {
         return 'Returned to your previous location.';
       }
       case 'help': {
-        const base = 'Teleports: /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Other: /coords, /clearsel, /help.';
+        const base = 'Teleports: /spawn, /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Other: /coords, /clearsel, /help.';
         if (!allowed) return base;
-        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /tp <x> <y> <z> [overworld|nether] (~ for relative), /spawn, /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>' : ''}.`;
+        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
       }
       case 'seed': if (this.serverMode && !p.op) return 'Only operators can see the seed on a server.'; return `Seed: ${this.seed}`;
       case 'gamerule': {
@@ -5284,11 +6363,9 @@ export class WorldSim {
         return `Teleported to ${+localX(p.x).toFixed(2)} ${+p.y.toFixed(2)} ${+p.z.toFixed(2)}${isNether(p.x) ? ' in the Nether' : ''}.`;
       }
       case 'spawn': {
-        if (!allowed) return need();
-        p.x = p.spawn.x; p.y = p.spawn.y; p.z = p.spawn.z; p.peakY = p.y;
-        this.makeSafe(p);
-        this.emit({ e: 'tp', p });
-        return 'Returned to spawn.';
+        if (p.dead) return 'You cannot do that while dead.';
+        this.teleportTo(p, this.spawn.x, this.spawn.y, this.spawn.z);
+        return 'Teleported to the world spawn.';
       }
       case 'setspawn': {
         if (!allowed) return need();
@@ -5298,7 +6375,7 @@ export class WorldSim {
       case 'summon': {
         if (!allowed) return need();
         const raw = (parts[1] ?? '').toLowerCase().replace(/^minecraft:/, '');
-        const ALIAS: Record<string, MobType> = { sheep: 'woolhorn', pig: 'mudsnout', chicken: 'fernhen', zombie: 'hollowed', skeleton: 'rattlebone', spider: 'duskweaver', zombified_piglin: 'cinderhusk', zombified_hogman: 'cinderhusk', ghast: 'wailer', magma_cube: 'emberslime', strider: 'lavastrider', blaze: 'flarewisp', wither_skeleton: 'witherbone', piglin: 'piglin', piglin_brute: 'piglin_brute', hoglin: 'hoglin' };
+        const ALIAS: Record<string, MobType> = { sheep: 'woolhorn', pig: 'mudsnout', chicken: 'fernhen', zombie: 'hollowed', skeleton: 'rattlebone', spider: 'duskweaver', zombified_piglin: 'cinderhusk', zombified_hogman: 'cinderhusk', ghast: 'wailer', magma_cube: 'emberslime', strider: 'lavastrider', blaze: 'flarewisp', wither_skeleton: 'witherbone', piglin: 'piglin', piglin_brute: 'piglin_brute', hoglin: 'hoglin', enderman: 'voidstalker' };
         const t = (ALIAS[raw] ?? raw) as MobType;
         if (!MOBS[t] || MOBS[t].npc) return `Unknown creature. Try: ${[...Object.keys(ALIAS), 'villager'].join(', ')}`;
         if (!this.authoritative) return '';

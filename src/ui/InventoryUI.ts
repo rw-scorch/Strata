@@ -36,7 +36,9 @@ const CTABS: { id: CTab; name: string; icon: number; top: boolean; col: number }
   { id: 'inventory', name: 'Survival Inventory', icon: B.CHEST, top: false, col: 6 },
 ];
 
-interface SlotEntry { el: HTMLElement; ref: SlotRef | null; get: () => ItemStack | null; ghost?: number; action?: (e: PointerEvent) => void; fixed?: boolean }
+function stackSig(st: ItemStack): string { return `${st.id}:${st.count}:${st.dmg ?? 0}:${st.en ? JSON.stringify(st.en) : ''}:${st.nm ?? ''}:${st.ld ?? ''}:${st.box ? st.box.length + '/' + st.box.reduce((n, x) => n + (x?.count ?? 0), 0) : ''}`; }
+
+interface SlotEntry { el: HTMLElement; ref: SlotRef | null; get: () => ItemStack | null; ghost?: number; action?: (e: PointerEvent) => void; fixed?: boolean; sig?: string }
 
 export class InventoryUI {
   private root: HTMLElement;
@@ -148,6 +150,7 @@ export class InventoryUI {
   private gridRefill: (() => void) | null = null;
   private thumb: HTMLElement | null = null;
   private painted = new Set<HTMLElement>();
+  private cursorSig = '';
 
   constructor(parent: HTMLElement, atlas: TextureAtlas) {
     this.atlas = atlas;
@@ -166,6 +169,16 @@ export class InventoryUI {
       }
     });
     this.root.addEventListener('pointerup', (e) => this.onPointerUp(e));
+    this.root.addEventListener('pointercancel', (e) => {
+      if (this.cscroll?.pid === e.pointerId) this.cscroll = null;
+      const d = this.drag;
+      if (!d || d.pid !== e.pointerId) return;
+      if (d.lp) clearTimeout(d.lp);
+      this.drag = null;
+      this.painted = new Set();
+      const from = this.findSlot(d.from);
+      if (d.active && from?.ref && this.session?.me.inv.cursor && !from.get()) this.op({ t: 'click', s: from.ref, b: 0 });
+    });
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
     this.root.addEventListener('wheel', (e) => {
       if (this.screen === 'creative' && this.tab !== 'inventory') { this.scrollCreative(this.creativeRow + Math.sign(e.deltaY)); e.preventDefault(); }
@@ -306,7 +319,6 @@ export class InventoryUI {
     e.stopPropagation();
     e.preventDefault();
     const touch = e.pointerType !== 'mouse';
-    if (touch) this.tipFor(s.get(), e.clientX, e.clientY - 40, 1400);
     if (s.action) {
       if (touch && this.screen === 'creative') { this.cscroll = { startY: e.clientY, startRow: this.creativeRow, moved: false, entry: s, pid: e.pointerId }; return; }
       s.action(e);
@@ -324,9 +336,10 @@ export class InventoryUI {
     d.lp = window.setTimeout(() => {
       if (this.drag !== d || d.active) return;
       d.long = true;
-      this.op(s.ref!.c === 'out' ? { t: 'quick', s: s.ref! } : { t: 'click', s: s.ref!, b: 1 });
+      this.tipFor(s.get(), e.clientX, e.clientY - 40, 1400);
+      if (!this.session?.me.inv.cursor) this.op(s.ref!.c === 'out' ? { t: 'quick', s: s.ref! } : { t: 'click', s: s.ref!, b: 1 });
       navigator.vibrate?.(15);
-    }, 430);
+    }, 550);
     this.drag = d;
   }
 
@@ -352,7 +365,7 @@ export class InventoryUI {
       if (s?.ref && !d.long && !this.session?.me.inv.cursor) this.op({ t: 'click', s: s.ref, b: 0 });
       this.painted = new Set();
     }
-    if (d.active && this.session?.me.inv.cursor && (e.pointerType !== 'mouse' || e.buttons & 2)) {
+    if (d.active && this.session?.me.inv.cursor && (e.pointerType !== 'mouse' ? d.long : e.buttons & 2)) {
       const t = this.findSlot(document.elementFromPoint(e.clientX, e.clientY));
       if (t?.ref && (t.ref.c === 'craft' || t.ref.c === 'inv' || t.ref.c === 'cont') && !this.painted.has(t.el)) {
         const cur = this.session.me.inv.cursor, here = t.get();
@@ -373,16 +386,20 @@ export class InventoryUI {
     if (d.active) {
       const paintedAny = this.painted.size > (touch ? 0 : 1);
       this.painted = new Set();
-      if (!paintedAny && target && target.el !== d.from && target.ref && this.session?.me.inv.cursor) this.op({ t: 'click', s: target.ref, b: 0 });
+      if (!paintedAny && target && target.el !== d.from && target.ref && !target.action && this.session?.me.inv.cursor) this.op({ t: 'click', s: target.ref, b: 0 });
+      else if (touch && !paintedAny && this.session?.me.inv.cursor) {
+        const from = this.findSlot(d.from);
+        if (from?.ref && from.ref.c !== 'out' && !from.get()) this.op({ t: 'click', s: from.ref, b: 0 });
+      }
       return;
     }
-    if (!touch || d.long) return;
+    if (!touch) return;
     const s = this.findSlot(d.from);
     if (!s?.ref) return;
+    if (d.long && !this.session?.me.inv.cursor) return;
+    if (d.long && s.ref.c === 'out') return;
     const now = performance.now();
-    const cur = this.session?.me.inv.cursor, here = s.get();
-    const one = !!cur && s.ref.c === 'craft' && (!here || here.id === cur.id);
-    this.op({ t: 'click', s: s.ref, b: one ? 1 : 0 });
+    this.op({ t: 'click', s: s.ref, b: 0 });
     if (this.lastTap.el === d.from && now - this.lastTap.t < 320) {
       this.op({ t: 'quick', s: s.ref });
       this.lastTap = { el: null, t: 0 };
@@ -392,20 +409,24 @@ export class InventoryUI {
   refresh(): void {
     if (!this.isOpen || !this.session) return;
     const isz = 16 * this.s;
+    const ghosting = !!this.ghost;
     for (const s of this.slotEls) {
       if (s.fixed) continue;
+      const st = s.get();
+      const sig = (st ? stackSig(st) : s.ghost !== undefined ? `g${s.ghost}` : '') + `@${isz}`;
+      if (!ghosting && sig === s.sig) continue;
+      s.sig = ghosting ? undefined : sig;
       clear(s.el);
       s.el.classList.remove('ghost-out');
-      const st = s.get();
       for (const n of slotContent(this.atlas, st, isz)) s.el.appendChild(n);
       if (!st && s.ghost !== undefined) s.el.appendChild(h('div', { class: 'ico ghost-ico', style: this.atlas.iconStyle(s.ghost, isz) }));
     }
     this.paintGhost(isz);
     const cur = this.session.me.inv.cursor;
-    clear(this.cursorEl);
     this.cursorEl.style.setProperty('--s', `${this.s}px`);
+    const csig = cur ? stackSig(cur) + `@${isz}` : '';
+    if (csig !== this.cursorSig) { this.cursorSig = csig; clear(this.cursorEl); if (cur) for (const n of slotContent(this.atlas, cur, isz)) this.cursorEl.appendChild(n); }
     if (cur) {
-      for (const n of slotContent(this.atlas, cur, isz)) this.cursorEl.appendChild(n);
       this.cursorEl.style.display = 'block';
       this.cursorEl.style.left = `${this.pointer.x}px`;
       this.cursorEl.style.top = `${this.pointer.y}px`;
@@ -447,6 +468,7 @@ export class InventoryUI {
   private render(): void {
     const sess = this.session!;
     this.slotEls = [];
+    this.cursorSig = '';
     this.litEl = this.burnEl = this.bookEl = this.thumb = null;
     this.enchEls = []; this.anvilInput = null; this.anvilCost = null; this.anvilErr = null;
     this.previewBox = null;

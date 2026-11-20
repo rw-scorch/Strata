@@ -8,7 +8,7 @@ import { audio } from '../audio/AudioEngine';
 import { B } from '../core/blocks';
 import { I, ITEM_LIST, getItem } from '../core/items';
 import type { ItemStack } from '../core/inventory';
-import { SHOP, ShopEntry, EcoView, money, fee, AhListing, BuyOrder, parseMoney, LISTING_HOURS } from '../core/economy';
+import { SHOP, ShopEntry, ShopCategory, cloneShop, SHOP_MAX_ITEMS, SHOP_MAX_CATS, EcoView, money, fee, AhListing, BuyOrder, parseMoney, LISTING_HOURS } from '../core/economy';
 
 type Act = (m: Record<string, unknown>) => void;
 
@@ -26,6 +26,8 @@ export class EconomyUI {
   isOpen = false;
   onClose: (() => void) | null = null;
   shopPrices: Record<string, number> = {};
+  catalog: ShopCategory[] = SHOP;
+  isAdmin = false;
   private view: EcoView | null = null;
   private atlas: TextureAtlas;
   private act: Act = () => undefined;
@@ -69,16 +71,18 @@ export class EconomyUI {
     if (!v) return;
     clear(this.root);
     tooltip().hide();
-    if (v.v === 'shop' && !v.cat) return this.grid('Shop', 3, this.shopHome(), []);
+    if (v.v === 'shop' && !v.cat) return this.grid('Shop', 3, this.shopHome(), this.isAdmin ? [{ slot: 26, icon: { id: B.ANVIL, count: 1 }, tip: [{ text: 'Edit shop', color: GOLD }, { text: 'Operators only', color: GRAY }], act: () => this.editShop() }] : []);
     if (v.v === 'shop') {
-      const cat = SHOP.find((c) => c.id === v.cat);
+      const cat = this.catalog.find((c) => c.id === v.cat);
       if (!cat) return this.grid('Shop', 3, this.shopHome(), []);
       const cells: Cell[] = cat.items.map((e) => ({
         icon: { id: e.id, count: e.count },
         tip: [{ text: `${getItem(e.id)?.name ?? e.key} x${e.count}`, color: WHITE }, { text: `Price: ${money(this.price(e))}`, color: GOLD }, { text: 'Click to choose an amount', color: GRAY }],
         act: () => this.quantity(e),
       }));
-      return this.grid(`Shop - ${cat.name}`, 6, cells, [{ slot: 49, icon: { id: I.ARROW, count: 1 }, tip: [{ text: 'Back', color: WHITE }], act: () => { this.view = { v: 'shop', cat: null }; this.render(); } }]);
+      const extra: (Cell & { slot: number })[] = [{ slot: 49, icon: { id: I.ARROW, count: 1 }, tip: [{ text: 'Back', color: WHITE }], act: () => { this.view = { v: 'shop', cat: null }; this.render(); } }];
+      if (this.isAdmin) extra.push({ slot: 53, icon: { id: B.ANVIL, count: 1 }, tip: [{ text: 'Edit shop', color: GOLD }, { text: 'Operators only', color: GRAY }], act: () => this.editShop() });
+      return this.grid(`Shop - ${cat.name}`, 6, cells, extra);
     }
     if (v.v === 'ah') return this.renderAh(v);
     if (v.v === 'orders') return this.renderOrders(v);
@@ -93,8 +97,8 @@ export class EconomyUI {
 
   private shopHome(): Cell[] {
     const cells: Cell[] = new Array(27).fill(null).map(() => ({ icon: null, tip: [] }));
-    const start = 13 - Math.floor(SHOP.length / 2);
-    SHOP.forEach((c, i) => {
+    const start = 13 - Math.floor(this.catalog.length / 2);
+    this.catalog.forEach((c, i) => {
       cells[start + i] = { icon: { id: c.icon, count: 1 }, tip: [{ text: c.name, color: AQUA }, { text: `${c.items.length} items`, color: GRAY }, { text: 'Click to browse', color: GREEN }], act: () => { this.view = { v: 'shop', cat: c.id }; this.render(); } };
     });
     return cells;
@@ -161,6 +165,71 @@ export class EconomyUI {
       { slot: 52, icon: { id: I.GOLD_INGOT, count: 1 }, tip: [{ text: 'Auction House', color: WHITE }], act: () => this.act({ a: 'ah', page: 0, tab: 'all' }) },
       { slot: 53, icon: { id: I.ARROW, count: 1 }, tip: [{ text: 'Next page', color: WHITE }], act: () => pg(Math.min(v.pages - 1, v.page + 1)), dim: v.page >= v.pages - 1 },
     ]);
+  }
+
+  private editShop(): void {
+    const cat = cloneShop(this.catalog);
+    const body = h('div', { class: 'stack eco-edit' });
+    let addCat = cat[0]?.id ?? '';
+    let sel = ITEM_LIST.find((i) => i.id === I.LAPIS) ?? ITEM_LIST[0];
+    const draw = () => {
+      clear(body);
+      for (const c of cat) {
+        const name = h('input', { class: 'input', value: c.name, maxlength: 24 }) as HTMLInputElement;
+        name.addEventListener('input', () => { c.name = name.value; });
+        const head = h('div', { class: 'row eco-edit-head' }, h('div', { class: 'slot mc static' }, ...slotContent(this.atlas, { id: c.icon, count: 1 }, 24)), name,
+          h('button', { class: 'btn small danger', onclick: () => { cat.splice(cat.indexOf(c), 1); if (addCat === c.id) addCat = cat[0]?.id ?? ''; draw(); } }, 'Remove category'));
+        const rows = c.items.map((e) => {
+          const count = h('input', { class: 'input eco-num', value: String(e.count), inputmode: 'numeric', maxlength: 2 }) as HTMLInputElement;
+          const price = h('input', { class: 'input eco-num', value: String(e.price), inputmode: 'decimal', maxlength: 12 }) as HTMLInputElement;
+          count.addEventListener('input', () => { e.count = Math.max(1, Math.min(64, Math.floor(Number(count.value)) || 1)); });
+          price.addEventListener('input', () => { e.price = parseMoney(price.value) ?? e.price; });
+          return h('div', { class: 'row eco-edit-row' }, h('div', { class: 'slot mc static' }, ...slotContent(this.atlas, { id: e.id, count: 1 }, 24)),
+            h('span', { class: 'grow' }, getItem(e.id)?.name ?? e.key), h('span', { class: 'small muted' }, 'x'), count, h('span', { class: 'small muted' }, '$'), price,
+            h('button', { class: 'btn small ghost', onclick: () => { c.items.splice(c.items.indexOf(e), 1); draw(); } }, 'Remove'));
+        });
+        body.append(h('div', { class: 'eco-edit-cat' }, head, ...rows));
+      }
+      const q = h('input', { class: 'input', placeholder: 'Search items to add', maxlength: 24 }) as HTMLInputElement;
+      const list = h('div', { class: 'eco-pick' });
+      const count = h('input', { class: 'input eco-num', value: '1', inputmode: 'numeric', maxlength: 2 }) as HTMLInputElement;
+      const price = h('input', { class: 'input eco-num', placeholder: 'Price', inputmode: 'decimal', maxlength: 12 }) as HTMLInputElement;
+      const pick = h('select', { class: 'input' }, ...cat.map((c) => h('option', { value: c.id, ...(c.id === addCat ? { selected: '' } : {}) }, c.name))) as HTMLSelectElement;
+      pick.addEventListener('change', () => { addCat = pick.value; });
+      const fill = () => {
+        clear(list);
+        const t = q.value.trim().toLowerCase();
+        for (const it of ITEM_LIST.filter((i) => !t || i.name.toLowerCase().includes(t)).slice(0, 40)) list.appendChild(h('button', { class: `slot mc static eco-pick-item${it.id === sel.id ? ' sel' : ''}`, title: it.name, onclick: () => { sel = it; fill(); } }, ...slotContent(this.atlas, { id: it.id, count: 1 }, 24)));
+      };
+      q.addEventListener('input', fill); fill();
+      const newCat = h('input', { class: 'input', placeholder: 'New category name', maxlength: 24 }) as HTMLInputElement;
+      body.append(
+        h('div', { class: 'eco-edit-cat' }, h('div', { class: 'small muted' }, 'Add an item'), q, list,
+          h('div', { class: 'row' }, pick, h('span', { class: 'small muted' }, 'x'), count, h('span', { class: 'small muted' }, '$'), price,
+            h('button', { class: 'btn small primary', onclick: () => {
+              const c = cat.find((x) => x.id === addCat), n = Math.floor(Number(count.value)), pr = parseMoney(price.value);
+              if (!c) { toast('Add a category first', 'error'); return; }
+              if (!(n >= 1 && n <= 64) || !pr) { toast('Enter a count from 1 to 64 and a price', 'error'); return; }
+              if (c.items.length >= SHOP_MAX_ITEMS) { toast('That category is full', 'error'); return; }
+              c.items.push({ key: sel.key, id: sel.id, count: n, price: pr });
+              draw();
+            } }, 'Add'))),
+        h('div', { class: 'row' }, newCat, h('button', { class: 'btn small', onclick: () => {
+          const nm = newCat.value.trim();
+          if (!nm) return;
+          if (cat.length >= SHOP_MAX_CATS) { toast('The shop can hold up to 9 categories', 'error'); return; }
+          const id = (nm.toLowerCase().replace(/[^a-z0-9_]/g, '') || 'cat') + cat.length;
+          cat.push({ id, name: nm, icon: sel.id, items: [] });
+          addCat = id; draw();
+        } }, 'Add category')),
+      );
+    };
+    draw();
+    modal('Edit shop', body, [
+      { label: 'Reset to default', kind: 'danger', onClick: () => { this.act({ a: 'shopSet', reset: true }); } },
+      { label: 'Cancel', kind: 'ghost' },
+      { label: 'Save', kind: 'primary', onClick: () => { this.act({ a: 'shopSet', cat: cat.map((c) => ({ ...c, icon: c.items[0]?.id ?? c.icon })) }); } },
+    ], { wide: true });
   }
 
   private confirm(text: string, ok: () => void): void {

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { MobType } from '../core/sim/mobs';
 
-export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | 'villager' | 'zombified_piglin' | 'ghast' | 'magmacube' | 'strider' | 'blaze' | 'wither_skeleton' | 'piglin' | 'piglin_brute' | 'hoglin' | `player${number}`;
+export type EntityTexKey = 'pig' | 'sheep' | 'sheep_wool' | 'chicken' | 'zombie' | 'skeleton' | 'spider' | 'spider_eyes' | 'villager' | 'zombified_piglin' | 'ghast' | 'magmacube' | 'strider' | 'blaze' | 'wither_skeleton' | 'piglin' | 'piglin_brute' | 'hoglin' | 'enderman' | 'enderman_eyes' | `player${number}`;
 export type Rig = 'humanoid' | 'quadruped' | 'chicken' | 'spider' | 'villager' | 'ghast' | 'magma' | 'strider' | 'blaze';
 type V3 = [number, number, number];
 
@@ -112,6 +112,18 @@ export const VANILLA: Partial<Record<MobType | 'player', VanillaSpec>> = {
       { n: 'left_leg', pivot: [1, 19, 1], cubes: [{ o: [-1, 0, -3], s: [3, 5, 3], uv: [26, 0] }] },
       { n: 'right_wing', pivot: [-4, 13, 0], cubes: [{ o: [0, 0, -3], s: [1, 4, 6], uv: [24, 13] }] },
       { n: 'left_wing', pivot: [4, 13, 0], cubes: [{ o: [-1, 0, -3], s: [1, 4, 6], uv: [24, 13] }] },
+    ],
+  },
+  voidstalker: {
+    key: 'voidstalker', main: 'enderman', overlay: 'enderman_eyes', texH: 32, height: 2.9, modelH: 46, rig: 'humanoid',
+    parts: [
+      { n: 'head', pivot: [0, -14, 0], cubes: [{ o: [-4, -8, -4], s: [8, 8, 8], uv: [0, 0] }, { o: [-4, -8, -4], s: [8, 8, 8], uv: [0, 0], inf: 0.02, layer: 'emissive' }] },
+      { n: 'jaw', pivot: [0, -14, 0], cubes: [{ o: [-4, -8, -4], s: [8, 8, 8], uv: [0, 16], inf: -0.5 }] },
+      { n: 'body', pivot: [0, -15, 0], cubes: [{ o: [-4, 0, -2], s: [8, 12, 4], uv: [32, 16] }] },
+      { n: 'right_arm', pivot: [-5, -13, 0], cubes: [{ o: [-1, -2, -1], s: [2, 30, 2], uv: [56, 0] }] },
+      { n: 'left_arm', pivot: [5, -13, 0], cubes: [{ o: [-1, -2, -1], s: [2, 30, 2], uv: [56, 0], mirror: true }] },
+      { n: 'right_leg', pivot: [-2, -6, 0], cubes: [{ o: [-1, 0, -1], s: [2, 30, 2], uv: [56, 0] }] },
+      { n: 'left_leg', pivot: [2, -6, 0], cubes: [{ o: [-1, 0, -1], s: [2, 30, 2], uv: [56, 0], mirror: true }] },
     ],
   },
   hollowed: { key: 'hollowed', main: 'zombie', texH: 64, height: 1.95, modelH: 32, rig: 'humanoid', parts: humanoid('zombie') },

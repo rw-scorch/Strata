@@ -536,8 +536,8 @@ export class Menus {
 
   private roomRow(r: RoomRecord, kind: 'recent' | 'hosted', refresh: () => void): HTMLElement {
     const sub = h('div', { class: 'sub' }, `${r.code} · ${fmtDate(r.at)}`);
-    void fetch(apiURL(`/api/rooms/${r.code}`)).then((x) => x.json()).then((info: RoomInfo) => {
-      sub.textContent = info.exists ? `${r.code} · ${info.players?.length ?? 0}/${info.maxPlayers} online · ${MODE_TITLES[info.mode ?? 'survival'].title}` : `${r.code} · no longer exists`;
+    void fetch(apiURL(`/api/rooms/${r.code}`)).then(async (x) => ({ ok: x.ok, info: await x.json() as RoomInfo })).then(({ ok, info }) => {
+      sub.textContent = ok && info.exists ? `${r.code} · ${info.players?.length ?? 0}/${info.maxPlayers} online · ${MODE_TITLES[info.mode ?? 'survival'].title}` : ok && info.exists === false ? `${r.code} · no longer exists` : `${r.code} · busy, status unavailable`;
     }).catch(() => { sub.textContent = `${r.code} · status unavailable`; });
     return h('div', { class: 'list-item' },
       h('div', { class: 'meta' }, h('div', { class: 'name' }, r.name, kind === 'hosted' ? h('span', { class: 'badge gold', style: 'margin-left:6px' }, 'Owner') : null), sub),
@@ -564,6 +564,12 @@ export class Menus {
     try {
       const res = await fetch(apiURL(`/api/rooms/${code}`));
       info = await res.json() as RoomInfo;
+      if (!res.ok || info.exists === undefined) {
+        clear(box);
+        box.append(h('div', { class: 'error-box' }, 'The world is busy right now. Trying again in a few seconds...'), h('button', { class: 'btn', onclick: () => void this.joinPreview(code) }, 'Retry now'));
+        setTimeout(() => { if (box.isConnected) void this.joinPreview(code); }, 4000);
+        return;
+      }
     } catch {
       clear(box);
       box.append(h('div', { class: 'error-box' }, 'Connection failed. Check your internet connection and try again.'), h('button', { class: 'btn', onclick: () => void this.joinPreview(code) }, 'Retry'));

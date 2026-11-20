@@ -42,8 +42,9 @@ export interface SessionEvents {
   pistonMove?(list: number[]): void;
   ride?(id: number): void;
   knock?(x: number, y: number, z: number, set?: boolean): void;
+  effect?(k: string, ticks: number): void;
   dark?(ticks: number): void;
-  travel?(phase: 'start' | 'end', nether: boolean): void;
+  travel?(phase: 'start' | 'end', nether: boolean, end?: boolean): void;
   equipment?(id: string, eq: number[]): void;
   enchantOffers?(o: { cost: number; clue: string | null; clueLvl: number }[]): void;
   boom?(x: number, y: number, z: number, r: number): void;
@@ -56,6 +57,7 @@ export interface SessionEvents {
   connection(state: 'connecting' | 'online' | 'reconnecting' | 'offline', detail?: string): void;
   chunkData(cx: number, cz: number, data: BlockArray | null): void;
   rules?(r: RuleSet): void;
+  countdown?(ms: number, label: string): void;
   rtc?(from: string, d: unknown): void;
   recipes?(d: DataRecipes[]): void;
 }
@@ -109,4 +111,8 @@ export interface GameSession {
   stats(): { rtt: number; inRate: number; outRate: number; state: string };
   setDataPacks?(d: DataRecipes[]): void;
   placeBlueprint?(bp: Blueprint, x: number, y: number, z: number): void;
+  sharedPositions?(): { id: string; name: string; x: number; y: number; z: number }[];
+  roster?(): { id: string; name: string }[];
+  shareState?(): { all: boolean; to: string[] };
+  setShare?(to: string[], all: boolean): void;
 }

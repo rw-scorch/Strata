@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { WorldUniforms } from './ChunkMaterial';
 import type { BlockReader } from '../core/physics';
-import { isSolid, BLOCKS, blockId, isBaseId, ID_LIMIT, CB, DRIP_DOWN } from '../core/blocks';
+import { isSolid, BLOCKS, blockId, isBaseId, ID_LIMIT, CB, DRIP_DOWN, B, isSoulSand } from '../core/blocks';
 
 const MAX = 1400;
 
@@ -213,6 +213,41 @@ export class Particles {
         life: 0, max: 0.5 + Math.random() * 0.7, tile, su: Math.floor(Math.random() * 3) * 0.25, sv: Math.floor(Math.random() * 3) * 0.25,
         size: 0.09 + Math.random() * 0.05, r: tint ? tint[0] : 1, g: tint ? tint[1] : 1, b: tint ? tint[2] : 1, grav: 18, bright,
       });
+    }
+  }
+
+  private cols: [number, number, number, number, number][] = [];
+  private colScan = 0;
+  private colEmit = 0;
+
+  bubbles(dt: number, cx: number, cy: number, cz: number, world: BlockReader): void {
+    if (this.level === 'off') return;
+    this.colScan -= dt;
+    if (this.colScan <= 0) {
+      this.colScan = 0.6;
+      this.cols.length = 0;
+      const bx = Math.floor(cx), by = Math.floor(cy), bz = Math.floor(cz);
+      for (let dz = -10; dz <= 10 && this.cols.length < 48; dz++) for (let dx = -10; dx <= 10 && this.cols.length < 48; dx++) {
+        for (let y = by - 14; y <= by + 4; y++) {
+          const bv = world.getBlock(bx + dx, y, bz + dz), id = blockId(bv);
+          if (!isSoulSand(bv) && id !== B.MAGMA_BLOCK) continue;
+          if (blockId(world.getBlock(bx + dx, y + 1, bz + dz)) !== B.WATER) continue;
+          let top = y + 1;
+          while (top < y + 48 && blockId(world.getBlock(bx + dx, top + 1, bz + dz)) === B.WATER) top++;
+          this.cols.push([bx + dx, y + 1, bz + dz, top + 1, id === B.MAGMA_BLOCK ? -1 : 1]);
+          break;
+        }
+      }
+    }
+    if (!this.cols.length) return;
+    this.colEmit += dt * this.cols.length * (this.level === 'low' ? 3 : 8);
+    while (this.colEmit >= 1) {
+      this.colEmit--;
+      const [x, y0, z, y1, dir] = this.cols[Math.floor(Math.random() * this.cols.length)];
+      const h = y1 - y0;
+      const sy = dir > 0 ? y0 + Math.random() * h * 0.5 : y0 + h * (0.5 + Math.random() * 0.5);
+      const vy = dir > 0 ? 2.5 + Math.random() : -1.2 - Math.random() * 0.6;
+      this.add({ x: x + 0.2 + Math.random() * 0.6, y: sy, z: z + 0.2 + Math.random() * 0.6, vx: 0, vy, vz: 0, life: 0, max: Math.min(2.5, Math.max(0.3, dir > 0 ? (y1 - sy) / vy : (sy - y0) / -vy)), tile: -1, su: 0, sv: 0, size: 0.05 + Math.random() * 0.04, r: 0.85, g: 0.95, b: 1, grav: 0, bright: 1.2, wander: 0.4 });
     }
   }
 

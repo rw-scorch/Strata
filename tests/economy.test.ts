@@ -10,7 +10,7 @@ describe('economy data', () => {
     expect(p.get(B.IRON_BLOCK)).toBe(Math.floor(25 * 9 * 0.9));
     expect(p.get(B.OAK_PLANKS)).toBe(1);
     expect(p.get(toolId(2, 0))! > 0).toBe(true);
-    expect(p.get(I.WATER_BUCKET)).toBe(0);
+    expect(p.get(I.WATER_BUCKET)).toBe(p.get(I.BUCKET)! + 1);
   });
   it('never lets you buy from the shop and sell back for profit', () => {
     const p = defaultSellPrices();

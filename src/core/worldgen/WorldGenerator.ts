@@ -9,7 +9,8 @@ import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/ar
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
 import { GEN_LEVEL, LANDFORM_LEVEL, RIVER_LEVEL, BIOME_LEVEL, BIOME2_LEVEL, CAVE_LEVEL } from './genLevel';
 import { NetherGen, type NetherBiome } from './nether';
-import { isNether } from '../dimension';
+import { isNether, isEnd, END_X } from '../dimension';
+import { EndGen } from './end';
 import { PortalPlan, PORTAL_GRID, planRuinedPortal, stampRuinedPortal } from './ruinedPortal';
 import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines, acacia, darkOak, cherry, mangrove, hugeMushroom, iceSpike } from './trees';
 import { StructurePlan, STRONGHOLD_REGION, TRIAL_REGION, planStronghold, planTrial, stampStructure } from './structures';
@@ -122,6 +123,8 @@ export class WorldGenerator {
   }
 
   private nether: NetherGen | null = null;
+  private endG: EndGen | null = null;
+  endGen(): EndGen { return (this.endG ??= new EndGen(this.seed)); }
   netherBiome(x: number, z: number): NetherBiome { return (this.nether ??= new NetherGen(this.seed)).biome(x, z); }
   private portalPlans = new Map<string, PortalPlan | null>();
 
@@ -508,8 +511,9 @@ export class WorldGenerator {
 
   generate(cx: number, cz: number, level = GEN_LEVEL, old: ArrayLike<number> | null = null): GeneratedChunk {
     if (this.arena) return { blocks: generateArenaChunk(this.arena, cx, cz), entities: [] };
-    if (this.studio && !isNether(cx * S)) return { blocks: studioChunk(cx, cz), entities: [] };
+    if (this.studio && !isNether(cx * S) && !isEnd(cx * S + S - 1)) return { blocks: studioChunk(cx, cz), entities: [] };
     if (isNether(cx * S)) return (this.nether ??= new NetherGen(this.seed)).generate(cx, cz, level);
+    if (isEnd(cx * S + S - 1)) return this.endGen().generate(cx, cz);
     this.lv = level;
     this.blend = old && Array.prototype.some.call(old, (v: number) => v) ? old : null;
     this.bcx = cx; this.bcz = cz;
@@ -577,7 +581,7 @@ export class WorldGenerator {
     this.placeOres(rng, blocks, colAt, cx, cz);
     this.placeFeatures(cx, cz, cols, set, get, entities);
     const structs = this.structuresNear(bx, bz, bx + S - 1, bz + S - 1);
-    for (const p of structs) stampStructure(p, this.oreSeed!, bx, bz, S, set, entities);
+    for (const p of structs) stampStructure(p, this.oreSeed!, bx, bz, S, set, entities, this.lv);
     for (const v of this.villagesNear(bx + 8, bz + 8, 12)) stampVillage(v, bx, bz, S, set, get, (x, z) => this.column(x, z), entities, this.lv);
     if (this.lv >= 5) for (const pp of this.portalsNear(bx, bz)) stampRuinedPortal(pp, bx, bz, S, set, get, entities);
     if (this.lv >= BIOME_LEVEL) this.placeBoulders(cx, cz, cols, set);
@@ -1243,6 +1247,7 @@ export class WorldGenerator {
 }
 
 export function biomeNameAt(gen: WorldGenerator, x: number, z: number, lv?: number): string {
+  if (isEnd(x)) return Math.hypot(x - END_X, z) < 1000 ? 'The End' : 'End Highlands';
   if (isNether(x)) return gen.netherBiome(Math.floor(x), Math.floor(z)).split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
   return gen.biomeAt(x, z, lv).name;
 }

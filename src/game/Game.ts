@@ -1,5 +1,5 @@
 import type { BlockArray } from '../core/chunk';
-import { isNether, localX } from '../core/dimension';
+import { isNether, isEnd, localX, dimOf } from '../core/dimension';
 import { NETHER_FOG } from '../core/worldgen/nether';
 import { GEN_LEVEL } from '../core/worldgen/genLevel';
 import { MOB_BY_CODE } from '../core/sim/mobs';
@@ -42,14 +42,14 @@ import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
-import { B, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix, bid, WIDE_BASE, ID_LIMIT, isReplaceable } from '../core/blocks';
+import { B, CB, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix, bid, WIDE_BASE, ID_LIMIT, isReplaceable } from '../core/blocks';
 import { heldStack, equipmentOf } from '../core/inventory';
 import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
 import { biomeNameAt, WorldGenerator } from '../core/worldgen/WorldGenerator';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
 import type { Weather } from '../core/sim/WorldSim';
-import { getItem, I } from '../core/items';
+import { getItem, I, maxDurability } from '../core/items';
 
 export interface AppHooks {
   exitToTitle(reason?: string): void;
@@ -112,15 +112,15 @@ export class Game {
   private loadSkip = false;
   private dim: { el: HTMLElement; phase: 'start' | 'end'; t0: number; tEnd: number; nether: boolean } | null = null;
 
-  private onTravel(phase: 'start' | 'end', nether: boolean): void {
+  private onTravel(phase: 'start' | 'end', nether: boolean, end = false): void {
     const now = performance.now();
     if (phase === 'start') {
       this.dim?.el.remove();
       const grid = document.createElement('canvas');
       grid.width = grid.height = 5 * 6;
       grid.className = 'load-grid';
-      const el = h('div', { class: `screen loading-screen mc-load dim-load${nether ? ' to-nether' : ''}` },
-        h('div', { class: 'load-title' }, nether ? 'Entering the Nether' : 'Returning to the Overworld'),
+      const el = h('div', { class: `screen loading-screen mc-load dim-load${nether ? ' to-nether' : end ? ' to-end' : ''}` },
+        h('div', { class: 'load-title' }, nether ? 'Entering the Nether' : end ? 'Entering the End' : 'Returning to the Overworld'),
         h('div', { class: 'load-step' }, 'Loading terrain...'), grid);
       this.screens.appendChild(el);
       this.dim = { el, phase, t0: now, tEnd: 0, nether };
@@ -362,7 +362,7 @@ export class Game {
       for (const v of this.renderer.entities.views.values()) {
         if (v.kind !== 'player' && v.kind !== 'mob') continue;
         if (v.kind === 'player' && (v.flags & (1 << 14) || v.flags & 8)) continue;
-        if (v.kind === 'mob' && v.dying > 0) continue;
+        if (v.kind === 'mob' && (v.dying > 0 || v.cage)) continue;
         if (Math.abs(v.x - px) > 2 || Math.abs(v.z - pz) > 2) continue;
         out.push({ x: v.x, y: v.y, z: v.z, hw: v.hw, h: v.h });
       }
@@ -465,10 +465,11 @@ export class Game {
     vitals: (v) => this.onVitals(v),
     inventory: () => this.onInventory(),
     container: (k, t, items, b, bm, c) => this.onContainer(k, t, items, b, bm, c),
-    screen: (t, x, y, z, title) => this.onScreen(t, title ?? (t === 'chest' ? ({ 202: 'Hopper', 203: 'Dropper', 204: 'Dispenser' } as Record<number, string>)[blockId(this.chunks.getBlock(x, y, z))] : undefined)),
+    screen: (t, x, y, z, title) => this.onScreen(t, title ?? (t === 'chest' ? ({ 202: 'Hopper', 203: 'Dropper', 204: 'Dispenser', [CB.SHULKER_BOX]: 'Shulker Box' } as Record<number, string>)[blockId(this.chunks.getBlock(x, y, z))] : undefined)),
     eco: (m) => this.onEco(m),
     game: (st) => { this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
     title: (t, s) => this.arena?.title(t, s),
+    countdown: (ms, l) => this.hud?.setCountdown(ms, l),
     trade: (info) => this.inv?.setTrade(info),
     mobName: (id, name) => this.renderer?.entities.setMobName(id, name),
     chestLid: (x, y, z, n) => { this.renderer?.chests.setOpen(x, y, z, n); audio.play(n > 0 ? 'chest.open' : 'chest.close', x + 0.5, y + 0.5, z + 0.5); },
@@ -486,7 +487,8 @@ export class Game {
     enchantOffers: (o) => { this.inv?.setOffers(o); },
     equipment: (id, eq) => { this.renderer?.entities.setEquipment(`p:${id}`, eq); },
     dark: (t) => { this.darkT = Math.max(this.darkT, t / 20); },
-    travel: (phase, nether) => this.onTravel(phase, nether),
+    travel: (phase, nether, end) => this.onTravel(phase, nether, end),
+    effect: (k, t) => { if (k === 'levitation') this.player.levitateT = t; },
     knock: (x, y, z, set) => { this.player.body.vx += x; this.player.body.vy = set ? y : Math.max(this.player.body.vy, y); this.player.body.vz += z; },
     boom: (x, y, z, r) => this.onBoom(x, y, z, r),
     player: (p) => this.onPlayer(p),
@@ -554,7 +556,10 @@ export class Game {
       pos: () => ({ x: this.player.x, y: this.player.y, z: this.player.z, yaw: this.player.yaw }),
       getBlock: (x, y, z) => this.chunks.getBlock(x, y, z),
       isLoaded: (x, z) => this.chunks.isLoaded(x, z),
-      players: () => [...this.renderer.entities.views.values()].filter((v) => v.kind === 'player' && v.id !== this.session.me.id).map((v) => ({ name: v.name ?? '', x: v.obj.position.x, z: v.obj.position.z })),
+      players: () => (this.session.sharedPositions?.() ?? []).filter((o) => dimOf(o.x) === dimOf(this.player.x)).map((o) => ({ name: o.name, x: o.x, z: o.z })),
+      roster: this.session.roster ? () => this.session.roster!() : undefined,
+      shareState: this.session.shareState ? () => this.session.shareState!() : undefined,
+      setShare: this.session.setShare ? (to, all) => this.session.setShare!(to, all) : undefined,
       camera: this.renderer.camera,
       sendChat: (t) => this.sendChat(t),
       toast: (t) => toast(t, 'info'),
@@ -890,6 +895,7 @@ export class Game {
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
       mischief: local || remote.me.op ? () => showMischief(() => (local ? [this.session.me.name] : [...remote.players.values()].map((q) => q.name)), this.session.me.name, (c) => this.session.chat(c), () => this.aimFar()) : undefined,
       blueprints: !this.session.info.arena ? () => this.openBlueprints() : undefined,
+      waypoints: this.minimap ? () => { this.closePause?.(); this.minimap?.openBig(); } : undefined,
       shaper: canShape ? () => showShaper((c) => this.session.chat(c), () => { const t = this.interaction.target; return t ? [t.x, t.y, t.z] : null; }, () => heldStack(this.session.me.inv)?.id ?? null) : undefined,
       difficulty: local ? { value: this.session.info.difficulty, set: (d) => (this.session as LocalSession).setDifficulty(d) } : undefined,
       quit: () => void this.quit(),
@@ -957,6 +963,7 @@ export class Game {
     if (id === I.BOW && this.interaction?.drawing > 0) { const d = this.interaction.drawing; id = d > 0.9 ? I.BOW_PULL2 : d > 0.45 ? I.BOW_PULL1 : I.BOW_PULL0; }
     if (force) this.renderer.setHeld(-99, this.session.me.appearance.skin);
     this.renderer.setHeld(id, this.session.me.appearance.skin);
+    this.renderer.setOffHeld(this.session.me.inv.off?.[0]?.id ?? null);
   }
 
   private breakParticles(x: number, y: number, z: number, v: number, many: boolean): void {
@@ -997,6 +1004,10 @@ export class Game {
       case 'shriek': p.puff(x, y, z, 0.2, 0.85, 0.85, 18, 1.1, -1.6, 0.08, 1.6); break;
       case 'splash': p.puff(x, y, z, 0.6, 0.75, 1, 10, 3, 9, 0.06, 0.6); break;
       case 'xp': p.puff(x, y, z, 0.7, 1, 0.3, 8, 2, -2, 0.07, 0.8); break;
+      case 'portal': p.puff(x, y, z, 0.75, 0.3, 0.95, 10, 1.4, -0.6, 0.07, 1.2); break;
+      case 'breath': p.puff(x, y, z, 0.85, 0.3, 0.75, 16, 1.6, -0.4, 0.14, 1.6); break;
+      case 'firework': { const c = [[1, 0.3, 0.3], [0.3, 0.8, 1], [1, 0.85, 0.3], [0.6, 1, 0.4]][Math.floor(Math.random() * 4)]; p.puff(x, y, z, c[0], c[1], c[2], 40, 9, 3, 0.09, 1.3); break; }
+      case 'dragon': p.puff(x, y, z, 0.95, 0.75, 1, 60, 6, -3, 0.18, 2.4); break;
     }
   }
 
@@ -1067,6 +1078,8 @@ export class Game {
     if (m.k === 'prices') {
       this.inv.sellPrices = new Map(Object.entries(m.sell).map(([k, v]) => [Number(k), Number(v)]));
       this.eco.shopPrices = m.shop;
+      if (m.cat) this.eco.catalog = m.cat;
+      this.eco.isAdmin = !!this.session.me.op;
       if (m.on !== undefined) this.ecoOn = m.on;
       return;
     }
@@ -1081,6 +1094,7 @@ export class Game {
       if (this.inv.isOpen) this.inv.close();
       this.desktop.unlock();
       this.setState('inventory');
+      this.eco.isAdmin = !!this.session.me.op;
       this.eco.show(m.view, this.session.me.id, (a) => {
         if (a.a === 'chat') { this.session.chat(String(a.text)); this.eco.close(); return; }
         (this.session as RemoteSession).ecoAction?.(a);
@@ -1280,7 +1294,9 @@ export class Game {
       if (!me.dead) s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, rf);
       s.tick(dt, performance.now());
     } else if (!frozen && !this.dim) {
+      const wasFlying = this.player.flying;
       this.player.update(dt, playing ? this.input : new InputState(), this.chunks, me.mode, me.dead);
+      if (this.player.flying && !wasFlying) { this.input.crouchLatch = this.input.crouch = false; this.mobile.refreshState(); }
       if (this.player.landed) audio.play('player.fall', this.player.x, this.player.y, this.player.z, 0.6);
       if (this.player.enteredWater) { audio.play('splash', this.player.x, this.player.y, this.player.z); this.onFx('splash', this.player.x, this.player.y + 0.5, this.player.z); }
       if (!this.player.frozen && !me.dead) {
@@ -1364,14 +1380,29 @@ export class Game {
     this.updateScreenFx(blockId(camBlock), now);
     const inLava = blockId(camBlock) === 13;
     this.renderer.entities.interpDelay = local ? 60 : 110;
+    this.renderer.updateCages(dt, this.player.x, this.player.y, this.player.z);
+    {
+      let dragon: { x: number; y: number; z: number; extra: number } | null = null;
+      const crystals: { x: number; y: number; z: number }[] = [];
+      for (const v of this.renderer.entities.views.values()) {
+        if (v.kind !== 'mob') continue;
+        if (v.type === 19 && Math.hypot(v.x - this.player.x, v.z - this.player.z) < 220) dragon = v;
+        else if (v.type === 20) crystals.push(v);
+      }
+      this.hud?.setBoss(dragon ? 'Ender Dragon' : null, dragon ? dragon.extra / 200 : 0);
+      const beams: [number, number, number, number, number, number][] = [];
+      if (dragon) { let best = null as { x: number; y: number; z: number } | null, bd = 32; for (const c of crystals) { const d = Math.hypot(c.x - dragon.x, c.y + 1.3 - dragon.y - 2, c.z - dragon.z); if (d < bd) { bd = d; best = c; } } if (best) beams.push([best.x, best.y + 1.3, best.z, dragon.x, dragon.y + 2.2, dragon.z]); }
+      this.renderer.setBeams(beams);
+    }
     this.renderer.entities.update(dt, performance.now());
     this.renderer.moving.update(performance.now(), (x, y, z) => this.chunks.getBlock(x, y, z));
     if (this.shake > 0) { this.shake = Math.max(0, this.shake - dt * 1.2); this.renderer.camera.position.x += (Math.random() - 0.5) * this.shake * 0.3; this.renderer.camera.position.y += (Math.random() - 0.5) * this.shake * 0.3; }
     this.renderer.chests.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(64, st.renderDistance * 16));
     this.renderer.particles.update(dt, this.chunks);
-    if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12, fx: isNether(this.player.x) ? null : this.renderer.atmo.fx, fxAmt: this.renderer.atmo.fxAmt, day: this.renderer.skyState.day, dust: [this.renderer.atmo.dustColor.r, this.renderer.atmo.dustColor.g, this.renderer.atmo.dustColor.b] }, this.chunks);
+    if (!loading) this.renderer.particles.bubbles(dt, this.player.x, this.player.eyeY, this.player.z, this.chunks);
+    if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12, fx: dimOf(this.player.x) !== 'overworld' ? null : this.renderer.atmo.fx, fxAmt: this.renderer.atmo.fxAmt, day: this.renderer.skyState.day, dust: [this.renderer.atmo.dustColor.r, this.renderer.atmo.dustColor.g, this.renderer.atmo.dustColor.b] }, this.chunks);
     const biomeAt = (x: number, z: number) => this.gen!.biomeAt(x, z, this.chunks.levelAt(x, z));
-    this.renderer.weather.intensity = isNether(this.player.x) ? 0 : this.rain;
+    this.renderer.weather.intensity = dimOf(this.player.x) !== 'overworld' ? 0 : this.rain;
     this.renderer.weather.splash = (x, y, z) => this.renderer.particles.puff(x, y, z, 0.6, 0.7, 0.9, 2, 1.2, 6, 0.04, 0.3);
     this.renderer.weather.update(dt, cam.position, (x, z) => this.chunks.topAt(x, z), (x, z) => {
       const b = biomeAt(x, z);
@@ -1384,7 +1415,7 @@ export class Game {
     audio.setUnderwater(underwater);
     const sheltered = this.chunks.topAt(Math.floor(this.player.x), Math.floor(this.player.z)) > this.player.eyeY + 1;
     const precip = biomeAt(Math.floor(this.player.x), Math.floor(this.player.z));
-    audio.setRain(precip.rain && !precip.cold && !isNether(this.player.x) ? this.rain * (sheltered ? 0.35 : 1) : 0, this.weather === 'thunder');
+    audio.setRain(precip.rain && !precip.cold && dimOf(this.player.x) === 'overworld' ? this.rain * (sheltered ? 0.35 : 1) : 0, this.weather === 'thunder');
     const underground = this.player.y < 50 && sheltered;
     audio.tickMusic(dt, this.renderer.skyState.night > 0.5, underground);
     if (underground) { this.caveT -= dt; if (this.caveT <= 0) { this.caveT = 25 + Math.random() * 60; audio.ambientCave(); } }
@@ -1392,10 +1423,11 @@ export class Game {
     this.caveFx += ((underground ? 1 : 0) - this.caveFx) * Math.min(1, dt * 0.8);
     const wetSky = precip.rain && !precip.cold && !sheltered && !underwater ? this.rain : 0;
     this.renderer.sky.aurora += ((precip.cold ? 1 : 0) - this.renderer.sky.aurora) * Math.min(1, dt * 0.3);
-    const nether = isNether(this.player.x);
+    const inEnd = isEnd(this.player.x);
+    const nether = isNether(this.player.x) || inEnd;
     if (!nether && this.gen && !loading) this.renderer.atmo.update({ dt, x: cam.position.x, y: cam.position.y, z: cam.position.z, time: this.time, rain: this.rain, pre: this.preStorm(), cave: this.caveFx, active: true, biome: (x, z) => biomeAt(x, z).id, top: (x, z) => this.chunks.topAt(x, z) }, this.renderer.skyState.night);
     if (nether && this.gen) {
-      if (performance.now() - this.nfAt > 250) { this.nfAt = performance.now(); this.nfTarget = NETHER_FOG[this.gen.netherBiome(Math.floor(this.player.x), Math.floor(this.player.z))]; }
+      if (performance.now() - this.nfAt > 250) { this.nfAt = performance.now(); this.nfTarget = inEnd ? [0.06, 0.045, 0.075] : NETHER_FOG[this.gen.netherBiome(Math.floor(this.player.x), Math.floor(this.player.z))]; }
       const k = Math.min(1, dt * 1.5);
       for (let i = 0; i < 3; i++) this.nfCol[i] += (this.nfTarget[i] - this.nfCol[i]) * k;
     }
@@ -1403,7 +1435,7 @@ export class Game {
     this.updateDim();
     this.updateBlueprint();
     if (this.darkT > 0) this.darkT = Math.max(0, this.darkT - dt);
-    const env: FrameEnv = { dark: this.darkT > 0 ? Math.min(1, this.darkT / 1.5) * (0.65 + 0.35 * Math.sin(performance.now() / 1000 * Math.PI * 2 / 3)) : 0, nether, netherFog: this.nfCol, time: this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
+    const env: FrameEnv = { dark: this.darkT > 0 ? Math.min(1, this.darkT / 1.5) * (0.65 + 0.35 * Math.sin(performance.now() / 1000 * Math.PI * 2 / 3)) : 0, nether, end: inEnd, netherFog: this.nfCol, time: inEnd ? 6000 : this.time, rain: nether ? 0 : this.rain, thunder: nether ? 0 : this.thunder, underwater, inLava, renderDistance: st.renderDistance, flash: this.flash, cave: this.caveFx, lensRain: wetSky };
     const dl = this.updateDynLights();
     const pl = Math.max(this.chunks.lightProbe(this.player.x, this.player.eyeY, this.player.z, this.renderer.skyState.day), dl);
     if (this.interaction.eating > 0) this.renderer.handEat = this.interaction.eating; else if (this.renderer.handEat > 0 && this.interaction.eating === 0) this.renderer.handEat = 0;
@@ -1413,8 +1445,12 @@ export class Game {
     this.updateLook(dt);
     this.chatUI.tick();
     if (!this.panoDone && this.state === 'playing' && performance.now() - this.loadStart > 20000) { this.panoDone = true; if (!localStorage.getItem('strata.panorama')) this.capturePanorama(); }
-    this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0;
+    if (this.player.inBubbles && Math.random() < dt * 4) audio.play('bubble.' + (this.player.inBubbles > 0 ? 'up' : 'down'));
+    this.player.usingItem = this.interaction.eating > 0 || this.interaction.drawing > 0 || this.interaction.blocking;
+    this.player.blocking = this.interaction.blocking;
+    this.renderer.blocking = this.interaction.blocking;
     this.player.depthStrider = this.session.me.inv.armor[3]?.en?.depth_strider ?? 0;
+    { const el = this.session.me.inv.armor[1]; this.player.elytra = !!el && el.id === I.ELYTRA && (el.dmg ?? 0) < maxDurability(I.ELYTRA) - 1; }
     { const held = heldStack(this.session.me.inv); this.hud.setAttackCharge(attackCharge(performance.now() - Math.max(this.interaction.lastSwing, this.interaction.strengthT), attackStats(held).speed)); }
     if (this.interaction.drawing > 0 || this.bowShown) { this.bowShown = this.interaction.drawing > 0; this.setHeld(); }
     if (!loading && this.minimap) { this.minimap.update(); this.renderer.beams.set(this.minimap.visibleWaypoints(), this.minimap.version * 2 + (this.minimap.hideAll ? 1 : 0) + (this.minimap.mapAllowed ? 0 : 7919)); }
@@ -1446,9 +1482,9 @@ export class Game {
     const lines = [
       `Strata  ${this.fpsVal} fps  scale ${this.renderer.effectiveScale.toFixed(2)}`,
       ...(this.session.sim.settings.allowCoords === false && !this.session.me.op ? [`Facing ${facing}`] : [
-        `${isNether(p.x) ? 'Nether ' : ''}XYZ ${localX(p.x).toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`,
+        `${isNether(p.x) ? 'Nether ' : isEnd(p.x) ? 'End ' : ''}XYZ ${localX(p.x).toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}`,
         `Chunk ${Math.floor(p.x / 16)}, ${Math.floor(p.z / 16)}  facing ${facing}`]),
-      `Biome ${(isNether(p.x) ? null : this.gen!.caveBiomeName(p.x, p.y, p.z, this.chunks.levelAt(p.x, p.z))) ?? biomeNameAt(this.gen!, p.x, p.z, this.chunks.levelAt(p.x, p.z))}`,
+      `Biome ${(dimOf(p.x) !== 'overworld' ? null : this.gen!.caveBiomeName(p.x, p.y, p.z, this.chunks.levelAt(p.x, p.z))) ?? biomeNameAt(this.gen!, p.x, p.z, this.chunks.levelAt(p.x, p.z))}`,
       `Chunks ${this.chunks.loadedCount} loaded, ${this.renderer.chunkCount} meshed, ${this.chunks.pendingJobs} jobs, mesh ${avgMesh} ms`,
       `Draw calls ${this.renderer.drawCalls}  triangles ${(this.renderer.triangles / 1000).toFixed(0)}k  sections ${this.renderer.visibleSections}${this.renderer.lod ? `  distant tiles ${this.renderer.lod.tileCount}` : ''}`,
       `Entities ${this.renderer.entities.views.size}  time ${t}  weather ${this.weather}`,

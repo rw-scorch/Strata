@@ -20,7 +20,7 @@ import { EntityRenderer, LightProbe } from './EntityRenderer';
 import { MovingBlocks } from './MovingBlocks';
 import { ChestRenderer } from './ChestRenderer';
 import type { TextureAtlas } from '../resources/TextureAtlas';
-import { getItem } from '../core/items';
+import { getItem, I } from '../core/items';
 import { firstPersonArmMatrix } from './VanillaModels';
 
 interface ChunkMeshes { cx: number; cz: number; meshes: THREE.Mesh[]; secs: (BlockArray | null)[]; vis: Uint16Array | null; mask: number; }
@@ -43,6 +43,7 @@ export interface FrameEnv {
   wind?: number;
   nether?: boolean;
   netherFog?: [number, number, number];
+  end?: boolean;
 }
 
 export class Renderer {
@@ -62,6 +63,9 @@ export class Renderer {
   atlas: TextureAtlas;
   private mats: { opaque: THREE.ShaderMaterial; cutout: THREE.ShaderMaterial; trans: THREE.ShaderMaterial };
   private chunks = new Map<string, ChunkMeshes>();
+  private cageLists = new Map<string, Int32Array>();
+  private cageOn = new Set<string>();
+  private cageT = 0;
   private byNum = new Map<number, ChunkMeshes>();
   private frustum = new THREE.Frustum();
   private projView = new THREE.Matrix4();
@@ -93,6 +97,11 @@ export class Renderer {
   private hand = new THREE.Group();
   private handItem: THREE.Object3D | null = null;
   private handItemId = -2;
+  private offHand = new THREE.Group();
+  private offItem: THREE.Object3D | null = null;
+  private offItemId = -1;
+  private mainId = -1;
+  blocking = false;
   private handSkin = 0;
   private armVanilla = false;
   private shadowRT: THREE.WebGLRenderTarget | null = null;
@@ -180,6 +189,7 @@ export class Renderer {
     this.weather.group.traverse((o) => o.layers.set(2));
     this.uniforms.uCloudMap.value = atlas.cloudTexture;
     this.handScene.add(this.hand);
+    this.handScene.add(this.offHand);
     this.handScene.add(new THREE.AmbientLight(0xffffff, 1));
     this.resize();
   }
@@ -375,6 +385,8 @@ export class Renderer {
     this.chunks.set(key, cm);
     this.byNum.set(cnum(cx, cz), cm);
     this.chests.setChunk(key, cx, cz, r.chests);
+    if (r.cages) { const a = new Int32Array(r.cages); for (let i = 0; i < a.length; i += 4) { a[i] += cx * 16; a[i + 2] += cz * 16; } this.cageLists.set(key, a); } else this.cageLists.delete(key);
+    this.cageT = 0;
     this.visDirty = true;
   }
 
@@ -508,6 +520,58 @@ export class Renderer {
   removeChunk(key: string): void {
     this.removeTerrain(key);
     this.chests.remove(key);
+    if (this.cageLists.delete(key)) this.cageT = 0;
+  }
+
+  private crystalBeams: THREE.Mesh[] = [];
+  private beamMat: THREE.MeshBasicMaterial | null = null;
+  setBeams(list: [number, number, number, number, number, number][]): void {
+    this.beamMat ??= new THREE.MeshBasicMaterial({ color: 0xf6c8f0, transparent: true, opacity: 0.75, depthWrite: false });
+    while (this.crystalBeams.length < list.length) { const m = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 1), this.beamMat); m.frustumCulled = false; this.scene.add(m); this.crystalBeams.push(m); }
+    for (let i = 0; i < this.crystalBeams.length; i++) {
+      const b = this.crystalBeams[i], l = list[i];
+      b.visible = !!l;
+      if (!l) continue;
+      const [ax, ay, az, bx, by, bz] = l;
+      b.position.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2);
+      b.scale.set(1, 1, Math.hypot(bx - ax, by - ay, bz - az));
+      b.lookAt(bx - this.origin.x, by, bz - this.origin.z);
+    }
+  }
+
+  private endSky: THREE.Mesh | null = null;
+  private endSkyUpdate(on: boolean): void {
+    if (!on) { if (this.endSky) this.endSky.visible = false; return; }
+    if (!this.endSky) {
+      const t = this.atlas.endSkyTexture;
+      if (t) t.repeat.set(6, 6);
+      const m = new THREE.MeshBasicMaterial({ map: t ?? null, color: 0x3a3440, side: THREE.BackSide, fog: false, depthWrite: false });
+      this.endSky = new THREE.Mesh(new THREE.BoxGeometry(700, 700, 700), m);
+      this.endSky.renderOrder = -10;
+      this.endSky.frustumCulled = false;
+      this.scene.add(this.endSky);
+    }
+    this.endSky.visible = true;
+    this.endSky.position.copy(this.camera.position);
+  }
+
+  updateCages(dt: number, px: number, py: number, pz: number): void {
+    this.cageT -= dt;
+    if (this.cageT > 0) return;
+    this.cageT = 0.5;
+    const want = new Map<string, number[]>();
+    for (const a of this.cageLists.values()) for (let i = 0; i < a.length; i += 4) {
+      if (Math.abs(a[i] + 0.5 - px) > 32 || Math.abs(a[i + 1] - py) > 24 || Math.abs(a[i + 2] + 0.5 - pz) > 32) continue;
+      want.set(`cage:${a[i]},${a[i + 1]},${a[i + 2]}:${a[i + 3]}`, [a[i], a[i + 1], a[i + 2], a[i + 3]]);
+    }
+    for (const id of this.cageOn) if (!want.has(id)) { this.entities.removeNow(id); this.cageOn.delete(id); }
+    for (const [id, [x, y, z, code]] of want) {
+      if (this.cageOn.has(id) && this.entities.views.has(id)) continue;
+      if (this.cageOn.size >= 24 && !this.cageOn.has(id)) break;
+      const v = this.entities.upsert(id, 'mob', code, x + 0.5, y, z + 0.5, 0, 0, 0, 0, performance.now());
+      v.cage = true;
+      this.cageOn.add(id);
+    }
   }
 
   clearChunks(): void { for (const k of [...this.chunks.keys()]) this.removeChunk(k); }
@@ -530,8 +594,27 @@ export class Renderer {
     } else this.crack.visible = false;
   }
 
+  setOffHeld(itemId: number | null): void {
+    const id = itemId ?? -1;
+    if (id === this.offItemId) return;
+    this.offItemId = id;
+    if (this.offItem) { this.offHand.remove(this.offItem); this.offItem.traverse((o) => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); }); this.offItem = null; }
+    if (id < 0) return;
+    const m = this.entities.itemModel(id);
+    const it = getItem(id);
+    const isBlock = it?.kind === 'block' && it.blockIcon;
+    m.obj.scale.setScalar(isBlock ? 0.4 : 0.62);
+    m.obj.position.set(isBlock ? -0.5 : -0.52, isBlock ? -0.42 : -0.38, isBlock ? -0.78 : -0.72);
+    m.obj.rotation.set(isBlock ? 0.1 : -0.2, isBlock ? -0.75 : 1.2, isBlock ? 0 : -0.35);
+    for (const mat of m.mats) { mat.uniforms.uFogFar = { value: 1e9 }; mat.uniforms.uFogNear = { value: 1e9 }; }
+    this.offItem = m.obj;
+    (this.offItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] }).mats = m.mats;
+    this.offHand.add(this.offItem);
+  }
+
   setHeld(itemId: number | null, skin: number): void {
     const id = itemId ?? -1;
+    this.mainId = id;
     if (id === this.handItemId && skin === this.handSkin) return;
     this.handItemId = id;
     this.handSkin = skin;
@@ -560,6 +643,12 @@ export class Renderer {
   }
 
   private updateHand(dt: number, light: number): void {
+    const bob = Math.sin(this.handBob) * 0.012, bobY = -Math.abs(Math.cos(this.handBob)) * 0.015;
+    const offBlock = this.blocking && this.offItemId === I.SHIELD && this.mainId !== I.SHIELD;
+    this.offHand.position.set(-bob + (offBlock ? 0.3 : 0), bobY + (offBlock ? 0.12 : 0), offBlock ? 0.1 : 0);
+    this.offHand.rotation.set(offBlock ? 0.15 : 0, offBlock ? -0.9 : 0, 0);
+    const om = (this.offItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] } | null)?.mats;
+    if (om) for (const m of om) m.uniforms.uLight.value = Math.max(0.12, light);
     const swing = this.handSwing;
     if (this.armVanilla && this.handItem) {
       const prog = swing > 0 ? 1 - swing : 0;
@@ -574,6 +663,7 @@ export class Renderer {
     const s = Math.sin(swing * Math.PI);
     this.hand.position.set(-s * 0.18 + Math.sin(this.handBob) * 0.012, -s * 0.12 - Math.abs(Math.cos(this.handBob)) * 0.015 + (this.handEat > 0 ? Math.sin(this.handEat * 30) * 0.03 - 0.06 : 0), -s * 0.05);
     this.hand.rotation.set(-s * 0.9, -s * 0.25, s * 0.15);
+    if (this.blocking && this.mainId === I.SHIELD) { this.hand.position.x -= 0.3; this.hand.position.y += 0.12; this.hand.position.z += 0.1; this.hand.rotation.y += 0.9; }
     if (this.handSwing > 0) this.handSwing = Math.max(0, this.handSwing - dt * 4.2);
     const mats = (this.handItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] } | null)?.mats;
     if (mats) for (const m of mats) m.uniforms.uLight.value = Math.max(0.12, light);
@@ -656,8 +746,9 @@ export class Renderer {
       u.uFogNear.value = fogFar - fogBand;
       u.uFogFar.value = fogFar;
     }
-    if (env.nether && !env.inLava) { const far = Math.min(fogFar, 112); const nf = env.netherFog ?? [0.2, 0.03, 0.03]; u.uFogColor.value.setRGB(nf[0], nf[1], nf[2]); u.uFogNear.value = far * 0.12; u.uFogFar.value = far; }
-    u.uAmbient.value = env.nether ? 0.34 : 0;
+    if (env.nether && !env.inLava) { const far = env.end ? fogFar : Math.min(fogFar, 112); const nf = env.netherFog ?? [0.2, 0.03, 0.03]; u.uFogColor.value.setRGB(nf[0], nf[1], nf[2]); u.uFogNear.value = far * (env.end ? 0.45 : 0.12); u.uFogFar.value = far; }
+    u.uAmbient.value = env.end ? 0.42 : env.nether ? 0.34 : 0;
+    this.endSkyUpdate(!!env.end && !env.underwater && !env.inLava);
     const atmoActive = !env.nether && !env.underwater && !env.inLava;
     this.atmo.apply(u, st, env.rain, atmoActive);
     u.uAtmoOn.value = this.post ? 0 : 1;

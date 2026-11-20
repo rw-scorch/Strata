@@ -1,4 +1,4 @@
-export const GEN_LEVEL = 13;
+export const GEN_LEVEL = 14;
 export const LANDFORM_LEVEL = 9;
 export const RIVER_LEVEL = 10;
 export const BIOME_LEVEL = 11;

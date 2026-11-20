@@ -175,6 +175,7 @@ export class DesktopControls {
       if (c === 'Escape') { this.hooks.onPause(); return; }
       if (['Space', 'ArrowUp', 'ArrowDown', 'Tab', 'F1', 'F5', 'Slash'].includes(c) || actionsFor(c).length) e.preventDefault();
     }
+    if (down && !e.repeat && getSettings().toggleCrouch && (bound(c, 'sneak') || (bindOf('sneak') === 'ShiftLeft' && c === 'ShiftRight'))) { this.input.crouchLatch = !this.input.crouchLatch; this.input.touchMode = false; }
     this.press(c, down, e.repeat, e.ctrlKey);
   }
 
@@ -215,7 +216,7 @@ export class DesktopControls {
     i.moveZ = (b('forward') || k.has('ArrowUp') ? 1 : 0) - (b('back') || k.has('ArrowDown') ? 1 : 0);
     i.moveX = (b('right') || k.has('ArrowRight') ? 1 : 0) - (b('left') || k.has('ArrowLeft') ? 1 : 0);
     i.jump = b('jump');
-    i.crouch = b('sneak') || (bindOf('sneak') === 'ShiftLeft' && k.has('ShiftRight'));
+    i.crouch = getSettings().toggleCrouch ? i.crouchLatch : b('sneak') || (bindOf('sneak') === 'ShiftLeft' && k.has('ShiftRight'));
     i.sprint = (b('sprint') || this.sprintLatch) && i.moveZ > 0;
     if (i.moveX || i.moveZ || i.jump) i.touchMode = false;
   }

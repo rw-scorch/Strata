@@ -2,7 +2,7 @@ import type { Blueprint } from '../core/blueprint';
 import { localSupporterColor } from '../storage/Settings';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../core/worldgen/genLevel';
 import { ruleSnapshot } from '../core/sim/WorldSim';
-import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity, entTypeCode } from '../core/sim/WorldSim';
+import { WorldSim, SimPlayer, SimEvent, newPlayer, BlockEntity, entTypeCode, freshEndState } from '../core/sim/WorldSim';
 import { Minigame, GameState } from '../core/labs/minigames/Minigame';
 import { WorldGenerator } from '../core/worldgen/WorldGenerator';
 import { MOBS, MobType } from '../core/sim/mobs';
@@ -56,6 +56,7 @@ export class LocalSession implements GameSession {
       this.sim.time = state.time;
       this.sim.weather = state.weather;
       this.sim.weatherTimer = state.weatherTimer;
+      if (state.end) this.sim.endState = { ...freshEndState(), ...state.end };
       for (const [k, be] of state.blockEntities) {
         this.sim.blockEntities.set(k, be);
         if (be.type === 'furnace') this.sim.activeFurnaces.add(k);
@@ -159,8 +160,9 @@ export class LocalSession implements GameSession {
       case 'ride': if (e.p === this.me) ev.ride?.(e.id); return;
       case 'work': if (e.p === this.me) { ev.container('work', 'chest', e.items.map((s) => s ? cloneStack(s) : null)); if (e.offers) ev.enchantOffers?.(e.offers); } return;
       case 'knock': if (e.p === this.me) ev.knock?.(e.x, e.y, e.z, !!e.set); return;
+      case 'effect': if (e.p === this.me) ev.effect?.(e.k, e.t); return;
       case 'dark': if (e.p === this.me) ev.dark?.(e.t); return;
-      case 'travel': if (e.p === this.me) ev.travel?.(e.phase, e.nether); return;
+      case 'travel': if (e.p === this.me) ev.travel?.(e.phase, e.nether, e.end); return;
       case 'boom': ev.boom?.(e.x, e.y, e.z, e.r); return;
       case 'weather': ev.weather(e.w, e.d); return;
       case 'time': ev.time(this.sim.time, this.sim.settings.dayCycle); return;
@@ -182,8 +184,13 @@ export class LocalSession implements GameSession {
       this.acc -= 0.05;
       this.sim.setNow(nowMs);
       if (this.pendingMobs.length && this.chunks.isLoaded(Math.floor(this.me.x), Math.floor(this.me.z))) {
-        for (const m of this.pendingMobs) if (this.chunks.isLoaded(Math.floor(m.x), Math.floor(m.z))) { const e = this.sim.spawnMob(m.type, m.x, m.y, m.z); e.health = m.health; }
-        this.pendingMobs = [];
+        this.pendingMobs = this.pendingMobs.filter((m) => {
+          if (!MOBS[m.type]) return false;
+          if (!this.chunks.isLoaded(Math.floor(m.x), Math.floor(m.z))) return m.type === 'shellward';
+          const e = this.sim.spawnMob(m.type, m.x, m.y, m.z); e.health = m.health;
+          if (m.type === 'shellward') { e.persistent = true; e.att = m.att; }
+          return false;
+        });
       }
       this.sim.tick();
       n++;
@@ -243,14 +250,14 @@ export class LocalSession implements GameSession {
     const chunks = this.chunks.collectDirtySaves();
     if (!this.meta.arena) await WorldStorage.saveChunks(this.meta.id, chunks);
     const mobs: WorldState['mobs'] = [];
-    for (const e of this.sim.entities.values()) if (e.kind === 'mob' && !MOBS[e.type as MobType].hostile) mobs.push({ type: e.type as MobType, x: e.x, y: e.y, z: e.z, health: e.health });
+    for (const e of this.sim.entities.values()) if (e.kind === 'mob' && ((!MOBS[e.type as MobType].hostile && e.type !== 'riftcore') || e.type === 'shellward')) mobs.push({ type: e.type as MobType, x: e.x, y: e.y, z: e.z, health: e.health, att: e.att });
     const now = Date.now();
     this.meta.playTime += now - this.playStart;
     this.playStart = now;
     this.meta.mode = this.me.mode;
     await WorldStorage.saveState(this.meta, {
       player: { x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, flying: this.flying, inv: p.inv, health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, homes: p.homes, back: p.back },
-      time: this.sim.time, weather: this.sim.weather, weatherTimer: this.sim.weatherTimer, spawn: this.sim.spawn,
+      time: this.sim.time, weather: this.sim.weather, weatherTimer: this.sim.weatherTimer, spawn: this.sim.spawn, end: this.sim.endState,
       blockEntities: [...this.sim.blockEntities.entries()], beChunks: [...this.beChunks], mobs,
       dayCycle: this.sim.settings.dayCycle, cheats: this.sim.settings.cheats,
       populated: [...this.sim.populated],

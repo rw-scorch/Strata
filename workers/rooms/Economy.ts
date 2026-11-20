@@ -1,9 +1,9 @@
 import type { WorldSim, SimPlayer } from '../../src/core/sim/WorldSim';
 import { ItemStack, giveItem, validStack, cloneStack } from '../../src/core/inventory';
-import { getItem, maxStack, ITEM_LIST } from '../../src/core/items';
+import { getItem, maxStack, ITEM_LIST, I } from '../../src/core/items';
 import {
-  defaultSellPrices, sellValue, SHOP, shopEntry, money, parseMoney, fee, MAX_LISTINGS, MAX_ORDERS, LISTING_HOURS, BOX_MAX, MAX_PRICE,
-  AhListing, BuyOrder, EcoView, EcoStats,
+  defaultSellPrices, sellValue, shopEntry, cloneShop, validShop, ShopCategory, money, parseMoney, fee, MAX_LISTINGS, MAX_ORDERS, LISTING_HOURS, BOX_MAX, MAX_PRICE,
+  AhListing, BuyOrder, EcoView, EcoStats, NEVER_STOCK,
 } from '../../src/core/economy';
 
 export interface EcoHooks {
@@ -20,6 +20,8 @@ const HOUR = 3600_000;
 export class Economy {
   private prices: Map<number, number>;
   private shopPrices = new Map<string, number>();
+  private catalog: ShopCategory[] = cloneShop();
+  private customShop = false;
 
   constructor(private sql: SqlStorage, private h: EcoHooks) {
     sql.exec(`CREATE TABLE IF NOT EXISTS eco_bal (id TEXT PRIMARY KEY, name TEXT, money INTEGER NOT NULL DEFAULT 0)`);
@@ -35,24 +37,44 @@ export class Economy {
         for (const [k, v] of Object.entries(o.shop ?? {})) if (shopEntry(k) && Number.isInteger(v) && v > 0) this.shopPrices.set(k, v);
       } catch { /* ignore corrupt overrides */ }
     }
+    const cs = sql.exec(`SELECT v FROM kv WHERE k = 'eco_shop'`).toArray()[0];
+    if (cs) { try { const c = validShop(JSON.parse(cs.v as string)); if (c) { this.catalog = c; this.customShop = true; } } catch { /* ignore corrupt shop */ } }
+    if (!this.customShop) for (const c of this.catalog) for (const i of c.items) { const v = this.shopPrices.get(i.key); if (v) i.price = v; }
   }
+
+  shopCatalog(): ShopCategory[] { return this.catalog; }
+
+  setShop(raw: unknown): string | null {
+    const c = raw === null ? cloneShop() : validShop(raw);
+    if (!c) return 'That shop layout is not valid.';
+    this.catalog = c;
+    this.customShop = raw !== null;
+    this.shopPrices.clear();
+    if (raw === null) this.sql.exec(`DELETE FROM kv WHERE k = 'eco_shop'`);
+    else this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('eco_shop', ?)`, JSON.stringify(c));
+    this.setPrices({});
+    return null;
+  }
+
+  private entry(key: string) { return shopEntry(key, this.catalog); }
 
   sellPrices(): Record<number, number> { return Object.fromEntries([...this.prices].filter(([, v]) => v > 0)); }
 
-  shopPrice(key: string): number { return this.shopPrices.get(key) ?? shopEntry(key)?.price ?? 0; }
+  shopPrice(key: string): number { return this.entry(key)?.price ?? 0; }
 
   priceTable(): { sell: Record<number, number>; shop: Record<string, number> } {
-    return { sell: Object.fromEntries(this.prices), shop: Object.fromEntries(SHOP.flatMap((c) => c.items.map((i) => [i.key, this.shopPrice(i.key)]))) };
+    return { sell: Object.fromEntries(this.prices), shop: Object.fromEntries(this.catalog.flatMap((c) => c.items.map((i) => [i.key, this.shopPrice(i.key)]))) };
   }
 
   setPrices(patch: { sell?: Record<string, number>; shop?: Record<string, number> }): void {
     const defaults = defaultSellPrices();
     for (const [k, v] of Object.entries(patch.sell ?? {})) { const id = Number(k), n = Math.floor(Number(v)); if (getItem(id) && Number.isFinite(n) && n >= 0 && n <= MAX_PRICE) this.prices.set(id, n); }
-    for (const [k, v] of Object.entries(patch.shop ?? {})) { const n = Math.floor(Number(v)); if (shopEntry(k) && Number.isFinite(n) && n > 0 && n <= MAX_PRICE) this.shopPrices.set(k, n); }
+    for (const [k, v] of Object.entries(patch.shop ?? {})) { const n = Math.floor(Number(v)); const en = this.entry(k); if (en && Number.isFinite(n) && n > 0 && n <= MAX_PRICE) { en.price = n; this.shopPrices.set(k, n); } }
+    if (this.customShop && patch.shop) this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('eco_shop', ?)`, JSON.stringify(this.catalog));
     const sell: Record<number, number> = {};
     for (const [id, v] of this.prices) if (defaults.get(id) !== v) sell[id] = v;
     this.sql.exec(`INSERT OR REPLACE INTO kv (k, v) VALUES ('eco_prices', ?)`, JSON.stringify({ sell, shop: Object.fromEntries(this.shopPrices) }));
-    const msg = { t: 'eco', k: 'prices', sell: this.sellPrices(), shop: this.priceTable().shop };
+    const msg = { t: 'eco', k: 'prices', sell: this.sellPrices(), shop: this.priceTable().shop, cat: this.catalog };
     for (const p of this.h.sim().players.values()) this.h.send(p.id, msg);
   }
 
@@ -79,7 +101,7 @@ export class Economy {
 
   joined(p: SimPlayer): void {
     this.sql.exec(`INSERT INTO eco_bal (id, name, money) VALUES (?, ?, 0) ON CONFLICT(id) DO UPDATE SET name = excluded.name`, p.id, p.name);
-    this.h.send(p.id, { t: 'eco', k: 'prices', sell: this.sellPrices(), shop: this.priceTable().shop, on: this.h.enabled() });
+    this.h.send(p.id, { t: 'eco', k: 'prices', sell: this.sellPrices(), shop: this.priceTable().shop, cat: this.catalog, on: this.h.enabled() });
     this.stats(p);
     const box = this.box(p.id);
     if (box.length) this.h.chat(p.id, `You have ${box.length} item stack${box.length === 1 ? '' : 's'} waiting. Type /ah collect.`, 'info');
@@ -205,14 +227,37 @@ export class Economy {
             this.setPrices({ sell: { [it.id]: n } });
             say(`${it.name} now sells for ${money(n)} each.`);
           } else {
-            if (!shopEntry(key) || !n) { say('Usage: /eco shopprice <shop key> <price>', 'error'); return true; }
+            if (!this.entry(key) || !n) { say('Usage: /eco shopprice <shop key> <price>', 'error'); return true; }
             this.setPrices({ shop: { [key]: n } });
             say(`Shop price for ${key} is now ${money(n)}.`);
           }
           return true;
         }
+        if (sub === 'shop') {
+          const act = (parts[2] ?? '').toLowerCase();
+          if (act === 'reset') { this.setShop(null); say('The shop is back to its default stock.'); return true; }
+          if (act === 'remove') {
+            const key = (parts[3] ?? '').toLowerCase();
+            const next = cloneShop(this.catalog).map((c) => ({ ...c, items: c.items.filter((i) => i.key !== key) }));
+            if (!this.entry(key)) { say('Usage: /eco shop remove <shop key>', 'error'); return true; }
+            const err = this.setShop(next); say(err ?? `Removed ${key} from the shop.`, err ? 'error' : 'info'); return true;
+          }
+          if (act === 'add') {
+            const cat = (parts[3] ?? '').toLowerCase(), it = ITEM_LIST.find((i) => i.key === (parts[4] ?? '').toLowerCase());
+            const count = Math.floor(Number(parts[5])), price = parts[6] ? parseMoney(parts[6]) : null;
+            const next = cloneShop(this.catalog);
+            let c = next.find((x) => x.id === cat || x.name.toLowerCase() === cat);
+            if (!it || !cat || !(count >= 1 && count <= 64) || !price) { say('Usage: /eco shop add <category> <item> <count 1-64> <price>', 'error'); return true; }
+            if (NEVER_STOCK.has(it.id)) { say(`${it.name} can't be stocked in the shop. ${it.id === I.ELYTRA ? 'Elytra only come from End ships.' : ''}`.trim(), 'error'); return true; }
+            if (!c) { c = { id: cat.replace(/[^a-z0-9_]/g, '').slice(0, 24) || 'misc', name: cat.slice(0, 24), icon: it.id, items: [] }; next.push(c); }
+            c.items.push({ key: it.key, id: it.id, count, price });
+            const err = this.setShop(next); say(err ?? `Added ${count} ${it.name} to ${c.name} for ${money(price)}.`, err ? 'error' : 'info'); return true;
+          }
+          say('Usage: /eco shop add <category> <item> <count> <price>, /eco shop remove <key>, /eco shop reset. Or edit it from the Shop screen.', 'error');
+          return true;
+        }
         if (sub === 'on' || sub === 'off') return false;
-        say('Usage: /eco give|take|set <player> <amount>, /eco price <item> <amount>, /eco shopprice <key> <amount>');
+        say('Usage: /eco give|take|set <player> <amount>, /eco price <item> <amount>, /eco shopprice <key> <amount>, /eco shop add|remove|reset');
         return true;
       }
     }
@@ -259,6 +304,12 @@ export class Economy {
     const id = Number(m.id);
     switch (a) {
       case 'buy': this.shopBuy(p, String(m.key ?? ''), Math.floor(Number(m.n) || 1)); return;
+      case 'shopSet': {
+        if (!p.op) { this.h.chat(p.id, 'Only operators can edit the shop.', 'error'); return; }
+        const err = this.setShop(m.reset ? null : m.cat);
+        this.h.chat(p.id, err ?? (m.reset ? 'The shop is back to its default stock.' : 'Shop saved.'), err ? 'error' : 'info');
+        return;
+      }
       case 'ah': this.showAh(p, Math.max(0, Math.floor(Number(m.page) || 0)), m.tab === 'mine' ? 'mine' : 'all', String(m.q ?? '').slice(0, 32)); return;
       case 'ahBuy': if (Number.isInteger(id)) this.ahBuy(p, id); return;
       case 'ahCancel': if (Number.isInteger(id)) this.ahCancel(p, id); return;
@@ -271,7 +322,7 @@ export class Economy {
   }
 
   private shopBuy(p: SimPlayer, key: string, times: number): void {
-    const e = shopEntry(key);
+    const e = this.entry(key);
     if (!e || times < 1 || times > 64) return;
     const cost = this.shopPrice(key) * times;
     if (!this.take(p, cost)) { this.h.chat(p.id, `You need ${money(cost)} but have ${money(this.balance(p.id))}.`, 'error'); return; }

@@ -12,6 +12,10 @@ import type { GameSession, SessionEvents, SessionInfo } from '../game/Session';
 import type { ChunkManager } from '../game/ChunkManager';
 import type { Identity } from '../storage/Settings';
 
+function retryDelay(n: number): number {
+  return n <= 1 ? 1500 + Math.random() * 3500 : Math.min(30000, 2000 * 2 ** (n - 1)) * (0.5 + Math.random());
+}
+
 const FATAL = new Set(['kicked', 'banned', 'auth', 'version', 'unavailable', 'full', 'duplicate']);
 const KIND = ['mob', 'item', 'arrow', 'tnt', 'cart', 'fireball'] as const;
 
@@ -46,6 +50,10 @@ export class RemoteSession implements GameSession {
   private moveState: number[] | null = null;
   private seq = 1;
   private expected = new Map<number, number>();
+  private lastSent = 0;
+  private lastSentAt = 0;
+  private staleView = false;
+  private contKey = '';
   private lastPing = 0;
   rtt = 0;
   private inCount = 0;
@@ -71,7 +79,7 @@ export class RemoteSession implements GameSession {
       this.welcomeWaiter = (w) => { try { sessionStorage.removeItem('strata.vreload'); } catch { /* ignore */ } resolve(w); };
       this.errorWaiter = reject;
       this.open();
-      setTimeout(() => { if (this.welcomeWaiter) { this.welcomeWaiter = null; this.errorWaiter = null; this.closed = true; this.ws?.close(); reject(new Error('Connection timed out. Check the room code and your network.')); } }, 15000);
+      setTimeout(() => { if (this.welcomeWaiter) { this.welcomeWaiter = null; this.errorWaiter = null; this.closed = true; this.ws?.close(); reject(new Error('Connection timed out. The world may be very busy, or check the room code and your network.')); } }, 50000);
     });
   }
 
@@ -111,6 +119,12 @@ export class RemoteSession implements GameSession {
           if (!sessionStorage.getItem('strata.vreload')) { sessionStorage.setItem('strata.vreload', '1'); void navigator.serviceWorker?.getRegistration().then((r) => r?.update()).finally(() => location.reload()); return; }
         } catch { /* storage blocked */ }
       }
+      if (this.welcomeWaiter && !FATAL.has(this.lastErrorCode) && this.attempts < 4) {
+        this.attempts++;
+        this.lastErrorCode = '';
+        setTimeout(() => { if (!this.closed) this.open(); }, retryDelay(this.attempts));
+        return;
+      }
       if (this.welcomeWaiter) { this.fail(new Error(this.lastError || `Connection failed (code ${e.code}).`)); return; }
       if (FATAL.has(this.lastErrorCode) || this.attempts >= 12) {
         this.state = 'offline';
@@ -120,7 +134,7 @@ export class RemoteSession implements GameSession {
       this.attempts++;
       this.state = 'reconnecting';
       this.ev?.connection('reconnecting', `Reconnecting (attempt ${this.attempts})...`);
-      setTimeout(() => { if (!this.closed) this.open(); }, Math.min(10000, 800 * 2 ** (this.attempts - 1)) * (0.75 + Math.random() * 0.5));
+      setTimeout(() => { if (!this.closed) this.open(); }, retryDelay(this.attempts));
     };
     ws.onerror = () => { /* close handler follows */ };
   }
@@ -164,6 +178,7 @@ export class RemoteSession implements GameSession {
     const y = w.you;
     Object.assign(this.me, { x: y.x, y: y.y, z: y.z, yaw: y.yaw, pitch: y.pitch, mode: y.mode, health: y.health, food: y.food, sat: y.sat, air: y.air, xp: y.xp, dead: y.dead, spawn: y.spawn, op: y.op, supporter: y.sup });
     this.me.inv = sanitizeInv(y.inv);
+    if (this.share.all || this.share.to.length) this.send({ t: 'share', to: this.share.to, all: this.share.all });
     this.sim.time = w.time;
     this.sim.settings.dayCycle = w.cycle;
     this.sim.weather = w.weather as Weather;
@@ -262,14 +277,19 @@ export class RemoteSession implements GameSession {
         Object.assign(this.me, { health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode });
         ev.vitals({ health: m.h, food: m.f, sat: m.s, air: m.a, xp: m.xp, dead: m.dead, mode: m.mode, fire: !!m.fire, absorb: m.ab ?? 0 });
         return;
-      case 'inv': Object.assign(this.me.inv, sanitizeInv(m.inv)); this.expected.clear(); ev.inventory(this.me.inv); return;
+      case 'inv':
+        if (m.q !== undefined && m.q < this.lastSent) { if (Date.now() - this.lastSentAt < 1500) { this.staleView = true; return; } this.lastSent = m.q; this.staleView = false; }
+        Object.assign(this.me.inv, sanitizeInv(m.inv)); this.expected.clear(); ev.inventory(this.me.inv); return;
       case 'ack': {
         const exp = this.expected.get(m.s);
         this.expected.delete(m.s);
-        if (exp !== undefined && exp !== m.h) this.send({ t: 'resync' });
+        if (exp !== undefined && exp !== m.h) { this.staleView = false; this.send({ t: 'resync' }); }
+        else if (m.s >= this.lastSent && this.staleView) { this.staleView = false; this.send({ t: 'resync' }); }
         return;
       }
       case 'cont': {
+        if (m.q !== undefined && m.q < this.lastSent && m.k === this.contKey) { if (Date.now() - this.lastSentAt < 1500) { this.staleView = true; return; } this.lastSent = m.q; }
+        this.contKey = m.k;
         const items = m.items.map((s) => (validStack(s) ? cloneStack(s) : null));
         if (m.k === 'work') { this.sim.setWork(this.me, items); ev.container('work', 'chest', items); return; }
         const be: BlockEntity = m.type === 'furnace' ? { type: 'furnace', items, burn: m.burn ?? 0, burnMax: m.burnMax ?? 0, cook: m.cook ?? 0, xp: 0 } : { type: 'chest', items };
@@ -297,8 +317,9 @@ export class RemoteSession implements GameSession {
       case 'pmove': ev.pistonMove?.(m.l); return;
       case 'ride': ev.ride?.(m.id); return;
       case 'knock': ev.knock?.(m.x, m.y, m.z, m.s === 1); return;
+      case 'eff': ev.effect?.(String(m.k), Math.max(0, Math.min(2400, Number(m.d) || 0))); return;
       case 'dark': ev.dark?.(m.d); return;
-      case 'trv': ev.travel?.(m.s === 1 ? 'end' : 'start', m.n === 1); return;
+      case 'trv': ev.travel?.(m.s === 1 ? 'end' : 'start', m.n === 1, m.n === 2); return;
       case 'eo': if (Array.isArray(m.o) && m.o.length === 3) ev.enchantOffers?.(m.o); return;
       case 'boom': ev.boom?.(m.x, m.y, m.z, m.r); return;
       case 'room':
@@ -321,6 +342,16 @@ export class RemoteSession implements GameSession {
       case 'mn': ev.mobName?.(String(m.id), m.n); return;
       case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses, seed: m.seed ?? 0 }); return;
       case 'pong': this.rtt = Date.now() - m.c; return;
+      case 'cd': ev.countdown?.(Number(m.ms) || 0, String(m.l ?? '').slice(0, 60)); return;
+      case 'reset': {
+        try { sessionStorage.setItem('strata.rejoin', this.code); } catch { /* storage blocked */ }
+        this.closed = true;
+        try { this.ws?.close(); } catch { /* ignore */ }
+        ev.connection('offline', String(m.msg ?? 'The world was refreshed.'));
+        setTimeout(() => location.reload(), 1500);
+        return;
+      }
+      case 'spos': this.shared = Array.isArray(m.l) ? m.l.filter((r) => Array.isArray(r) && r.length === 5).map(([id, name, x, y, z]) => ({ id: String(id), name: String(name), x: Number(x), y: Number(y), z: Number(z) })) : []; return;
     }
   }
 
@@ -338,7 +369,7 @@ export class RemoteSession implements GameSession {
       if (this.sim.settings.dayCycle) this.sim.time += dt * 20;
     }
     const now = Date.now();
-    if (this.moveState && now - this.lastMoveSent > 80) {
+    if (this.moveState && now - this.lastMoveSent > 100) {
       const key = this.moveState.map((n) => Math.round(n * 100)).join(',');
       if (key !== this.lastMoveKey || now - this.lastMoveSent > 1000) {
         this.send({ t: 'mv', p: this.moveState });
@@ -380,6 +411,13 @@ export class RemoteSession implements GameSession {
   useEntity(id: string): void { this.flushMove(); this.send({ t: 'ue', id: Number(id) }); }
   enchant(i: number): void { this.send({ t: 'ench', i }); }
   anvil(n: string | null): void { this.send({ t: 'anvil', n }); }
+  private shared: { id: string; name: string; x: number; y: number; z: number }[] = [];
+  private share = { all: false, to: [] as string[] };
+  sharedPositions(): { id: string; name: string; x: number; y: number; z: number }[] { return this.shared; }
+  roster(): { id: string; name: string }[] { return [...this.players.values()].filter((p) => p.id !== this.me.id).map((p) => ({ id: p.id, name: p.name })); }
+  shareState(): { all: boolean; to: string[] } { return { all: this.share.all, to: [...this.share.to] }; }
+  setShare(to: string[], all: boolean): void { this.share = { all, to: to.slice(0, 64) }; this.send({ t: 'share', to: this.share.to, all }); }
+
   placeBlueprint(bp: Blueprint, x: number, y: number, z: number): void {
     const enc = encodeBlueprint(bp);
     const n = Math.ceil(enc.length / BP_PART);
@@ -392,6 +430,8 @@ export class RemoteSession implements GameSession {
   attackPlayer(pid: string): void { this.flushMove(); this.send({ t: 'pvp', pid }); }
   invOp(op: InvOp): void {
     const s = this.seq++;
+    this.lastSent = s;
+    this.lastSentAt = Date.now();
     this.sim.invOp(this.me, op);
     this.expected.set(s, invHash(this.me.inv));
     this.send({ t: 'inv', op, s });

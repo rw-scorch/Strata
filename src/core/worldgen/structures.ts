@@ -1,4 +1,4 @@
-import { B, makeBlock, FACING_DIRS } from '../blocks';
+import { B, CB, FRAME_EYE, makeBlock, FACING_DIRS } from '../blocks';
 import { I, toolId, armorId } from '../items';
 import { Rng, hash2, mix32 } from '../rng';
 import type { ItemStack } from '../inventory';
@@ -269,7 +269,41 @@ function isDoor(p: Piece, x: number, y: number, z: number): boolean {
   return false;
 }
 
-export function stampStructure(plan: StructurePlan, secret: number, bx: number, bz: number, size: number, set: Setter, entities: GenBlockEntity[]): void {
+export const END_PORTAL_LEVEL = 14;
+
+function endPortalDecor(p: Piece, secret: number): { d: [number, number, number, number][]; ents: GenBlockEntity[] } {
+  const d: [number, number, number, number][] = [];
+  const ents: GenBlockEntity[] = [];
+  const r = new Rng(mix32(p.seed ^ secret ^ 0xe7d));
+  const b = p.box;
+  const cx = Math.floor((b.x0 + b.x1) / 2), cz = Math.floor((b.z0 + b.z1) / 2), fy = b.y0 + 1;
+  for (let x = b.x0 + 1; x < b.x1; x++) for (let z = b.z0 + 1; z < b.z1; z++) {
+    const plat = Math.abs(x - cx) <= 3 && z >= cz - 3 && z <= cz + 4;
+    if (plat) d.push([x, fy, z, B.STONE_BRICKS]);
+    else if (z < cz - 1) d.push([x, b.y0, z, B.LAVA]);
+  }
+  const face = (dx: number, dz: number) => FACING_DIRS.findIndex(([a, c]) => a === dx && c === dz);
+  for (let x = cx - 2; x <= cx + 2; x++) for (let z = cz - 1; z <= cz + 3; z++) {
+    const ex = Math.abs(x - cx) === 2, ez = z === cz - 1 || z === cz + 3;
+    if (ex && ez) { d.push([x, fy + 1, z, B.STONE_BRICKS]); continue; }
+    if (!ex && !ez) { d.push([x, fy, z, B.LAVA]); d.push([x, fy + 1, z, B.AIR]); continue; }
+    const f = z === cz - 1 ? face(0, 1) : z === cz + 3 ? face(0, -1) : x === cx - 2 ? face(1, 0) : face(-1, 0);
+    d.push([x, fy + 1, z, makeBlock(CB.END_PORTAL_FRAME, f | (r.chance(0.1) ? FRAME_EYE : 0))]);
+  }
+  d.push([cx, fy + 1, cz - 4, B.SPAWNER]);
+  ents.push({ x: cx, y: fy + 1, z: cz - 4, type: 'spawner', items: [], mob: 'hollowed' });
+  for (const [x, z] of [[b.x0 + 1, b.z1 - 1], [b.x1 - 1, b.z1 - 1]]) d.push([x, fy + 3, z, wallTorch(0, 1)]);
+  return { d, ents };
+}
+
+export function portalRoomCenter(plan: StructurePlan): { x: number; y: number; z: number } | null {
+  const p = plan.pieces.find((q) => q.kind === 'portal');
+  if (!p) return null;
+  const b = p.box;
+  return { x: Math.floor((b.x0 + b.x1) / 2), y: b.y0 + 2, z: Math.floor((b.z0 + b.z1) / 2) + 1 };
+}
+
+export function stampStructure(plan: StructurePlan, secret: number, bx: number, bz: number, size: number, set: Setter, entities: GenBlockEntity[], lv = 0): void {
   const cx1 = bx + size - 1, cz1 = bz + size - 1;
   for (const p of plan.pieces) {
     const b = p.box;
@@ -279,7 +313,9 @@ export function stampStructure(plan: StructurePlan, secret: number, bx: number, 
       set(x - bx, y, z - bz, edge && !isDoor(p, x, y, z) ? shellBlock(plan, p, x, y, z) : B.AIR);
     }
     decorate(plan, p, secret);
-    for (const [x, y, z, v] of p.decor!) if (x >= bx && x <= cx1 && z >= bz && z <= cz1) set(x - bx, y, z - bz, v);
-    for (const e of p.ents!) if (e.x >= bx && e.x <= cx1 && e.z >= bz && e.z <= cz1) entities.push({ ...e, x: e.x - bx, z: e.z - bz, items: e.items.map((s) => (s ? { ...s } : null)) });
+    let decor = p.decor!, pents = p.ents!;
+    if (p.kind === 'portal' && plan.type === 'stronghold' && lv >= END_PORTAL_LEVEL) { const e = endPortalDecor(p, secret); decor = e.d; pents = e.ents; }
+    for (const [x, y, z, v] of decor) if (x >= bx && x <= cx1 && z >= bz && z <= cz1) set(x - bx, y, z - bz, v);
+    for (const e of pents) if (e.x >= bx && e.x <= cx1 && e.z >= bz && e.z <= cz1) entities.push({ ...e, x: e.x - bx, z: e.z - bz, items: e.items.map((s) => (s ? { ...s } : null)) });
   }
 }

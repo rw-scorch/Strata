@@ -3,6 +3,7 @@ import { itemName } from '../core/items';
 import { countItem, type PlayerInv } from '../core/inventory';
 import { BP_SLOTS, BP_MAX, captureBlueprint, bpCosts, type Blueprint } from '../core/blueprint';
 import { loadBlueprints, saveBlueprint, deleteBlueprint } from '../storage/blueprints';
+import { gunzip, parseLitematic } from '../core/litematic';
 
 export interface BlueprintPanelOpts {
   studio: boolean;
@@ -49,13 +50,35 @@ export function showBlueprints(o: BlueprintPanelOpts): void {
         if (why) acts.append(h('span', { class: 'small muted' }, why));
       }
       if (o.studio) acts.append(h('button', { class: 'btn', onclick: () => save(slot, bp.name) }, 'Overwrite with selection'));
+      acts.append(h('button', { class: 'btn', onclick: () => importLite(slot) }, 'Replace from Litematica'));
       acts.append(h('button', { class: 'btn danger', onclick: async () => { await deleteBlueprint(slot); toast(`Slot ${slot + 1} cleared`); void render(); } }, 'Delete'));
       el.append(acts);
     } else {
       el.append(h('div', { class: 'small muted' }, 'Empty'));
       if (o.studio) el.append(h('button', { class: 'btn primary', onclick: () => save(slot, '') }, 'Save selection here'));
+      el.append(h('button', { class: 'btn', onclick: () => importLite(slot) }, 'Import Litematica file'));
     }
     return el;
+  };
+  const importLite = (slot: number) => {
+    const file = h('input', { type: 'file', accept: '.litematic,application/octet-stream', style: 'display:none' }) as HTMLInputElement;
+    document.body.appendChild(file);
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0];
+      file.remove();
+      if (!f) return;
+      if (f.size > 8_000_000) { toast('That file is too large.', 'error'); return; }
+      try {
+        const raw = await gunzip(new Uint8Array(await f.arrayBuffer()));
+        const r = parseLitematic(raw, f.name.replace(/\.litematic$/i, ''));
+        if (typeof r === 'string') { toast(r, 'error', 6000); return; }
+        await saveBlueprint(slot, r.bp);
+        const miss = r.unknown.length ? ` Not in Strata yet: ${r.unknown.join(', ')}.` : '';
+        toast(`Imported ${r.bp.name} (${r.bp.w} x ${r.bp.h} x ${r.bp.d}) into slot ${slot + 1}.${r.skipped ? ` Left out ${r.skipped} block${r.skipped === 1 ? '' : 's'}.` : ''}${miss}`, 'success', 8000);
+        void render();
+      } catch { toast('Could not read that file. It needs to be a .litematic schematic.', 'error', 6000); }
+    }, { once: true });
+    file.click();
   };
   const save = (slot: number, prev: string) => {
     const [a, b] = o.sel();
