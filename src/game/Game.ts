@@ -1,3 +1,4 @@
+import { Contrails, type Glider } from '../rendering/Contrails';
 import type { BlockArray } from '../core/chunk';
 import { isNether, isEnd, localX, dimOf } from '../core/dimension';
 import { NETHER_FOG, type NetherBiome } from '../core/worldgen/nether';
@@ -97,6 +98,7 @@ export class Game {
   private flash = 0;
   private vitals: Vitals = { health: 20, food: 20, sat: 5, air: 300, xp: 0, dead: false, mode: 'survival' };
   private hurtShake = 0;
+  private contrails: Contrails | null = null;
   private closePause: (() => void) | null = null;
   private closeDeath: (() => void) | null = null;
   private players = new Map<string, PublicPlayer>();
@@ -894,7 +896,7 @@ export class Game {
       economy: !local && this.room?.settings.economy !== false ? (cmd: string) => { this.resume(); this.session.chat(cmd); } : undefined,
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
-      admin: local || remote.me.op ? () => showSovereign((c) => this.session.chat(c), () => { const s = heldStack(this.session.me.inv); return s ? getItem(s.id)?.name ?? null : null; }, () => this.rulesState ?? {}) : undefined,
+      admin: local || remote.me.op ? () => showSovereign((c) => this.session.chat(c), () => { const s = heldStack(this.session.me.inv); return s ? { id: s.id, name: getItem(s.id)?.name ?? 'Item', en: s.en, dmg: s.dmg } : null; }, () => this.rulesState ?? {}) : undefined,
       mischief: local || remote.me.op ? () => showMischief(() => (local ? [this.session.me.name] : [...remote.players.values()].map((q) => q.name)), this.session.me.name, (c) => this.session.chat(c), () => this.aimFar()) : undefined,
       blueprints: !this.session.info.arena ? () => this.openBlueprints() : undefined,
       waypoints: this.minimap ? () => { this.closePause?.(); this.minimap?.openBig(); } : undefined,
@@ -948,6 +950,7 @@ export class Game {
     this.renderer?.clearChunks();
     this.renderer?.disposeLod();
     this.renderer?.entities.clear();
+    this.contrails?.dispose(); this.contrails = null;
     this.renderer?.gl.dispose();
     this.unsub?.();
     for (const d of this.disposers) d();
@@ -1344,7 +1347,7 @@ export class Game {
       this.hud.setInstrument(text);
     } else this.hud.setInstrument(null);
     this.input.endFrame();
-    this.chunks.update(this.player.x, this.player.z);
+    this.chunks.update(this.player.x, this.player.z, this.player.gliding ? this.player.body.vx : 0, this.player.gliding ? this.player.body.vz : 0);
     if (loading && this.updateLoading()) { /* now playing */ }
 
     const cam = this.renderer.camera;
@@ -1359,7 +1362,8 @@ export class Game {
     this.renderer.handBob = this.player.bobPhase;
     let shakeX = 0;
     if (this.hurtShake > 0) { this.hurtShake -= dt; shakeX = Math.sin(this.hurtShake * 60) * 0.02; }
-    cam.rotation.set(this.player.pitch, this.player.yaw, shakeX + bobX * 0.3);
+    this.player.rollStyle = (st.flightStyle ?? 'roll') === 'roll';
+    cam.rotation.set(this.player.pitch, this.player.yaw, shakeX + bobX * 0.3 - (this.renderer.thirdPerson ? 0 : this.player.roll));
     const eye = new THREE.Vector3(this.player.x, this.player.eyeY + bobY, this.player.z);
     if (this.renderer.thirdPerson) {
       const dir = new THREE.Vector3();
@@ -1408,6 +1412,12 @@ export class Game {
       this.renderer.setBeams(beams);
     }
     this.renderer.entities.update(dt, performance.now());
+    if (!this.contrails) this.contrails = new Contrails(this.renderer.scene);
+    {
+      const gl: Glider[] = this.renderer.entities.gliders();
+      if (this.player.gliding) gl.push({ id: '__me', x: this.player.x, y: this.player.y, z: this.player.z, roll: this.player.roll });
+      this.contrails.update(performance.now(), cam.position, gl, st.contrails ?? true);
+    }
     this.renderer.moving.update(performance.now(), (x, y, z) => this.chunks.getBlock(x, y, z));
     if (this.shake > 0) { this.shake = Math.max(0, this.shake - dt * 1.2); this.renderer.camera.position.x += (Math.random() - 0.5) * this.shake * 0.3; this.renderer.camera.position.y += (Math.random() - 0.5) * this.shake * 0.3; }
     this.renderer.chests.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(64, st.renderDistance * 16));

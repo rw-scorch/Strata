@@ -40,11 +40,11 @@ export function toast(text: string, kind: 'info' | 'error' | 'success' = 'info',
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, ms);
 }
 
-export function modal(title: string, body: Node | string, actions: { label: string; kind?: 'primary' | 'danger' | 'ghost'; onClick?: () => void | boolean | Promise<void | boolean> }[], opts: { wide?: boolean; onClose?: () => void } = {}): { close: () => void; el: HTMLElement } {
+export function modal(title: string, body: Node | string, actions: { label: string; kind?: 'primary' | 'danger' | 'ghost'; onClick?: () => void | boolean | Promise<void | boolean> }[], opts: { wide?: boolean; full?: boolean; onClose?: () => void } = {}): { close: () => void; el: HTMLElement } {
   const root = document.getElementById('modals')!;
   const backdrop = h('div', { class: 'modal-backdrop' });
   const close = () => { backdrop.remove(); opts.onClose?.(); };
-  const box = h('div', { class: `modal panel${opts.wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true' },
+  const box = h('div', { class: `modal panel${opts.full ? ' full' : opts.wide ? ' wide' : ''}`, role: 'dialog', 'aria-modal': 'true' },
     h('div', { class: 'modal-head' }, h('h2', {}, title), h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: close, html: '&times;' })),
     h('div', { class: 'modal-body' }, typeof body === 'string' ? h('p', {}, body) : body),
     actions.length ? h('div', { class: 'modal-actions' }, actions.map((a) => h('button', {

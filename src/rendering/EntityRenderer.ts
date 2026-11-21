@@ -1262,6 +1262,12 @@ export class EntityRenderer {
     l.rotation.set(xr * k, yr, zr); r.rotation.set(xr * k, -yr, -zr);
   }
 
+  gliders(): { id: string; x: number; y: number; z: number }[] {
+    const out: { id: string; x: number; y: number; z: number }[] = [];
+    for (const v of this.views.values()) if (v.kind === 'player' && (v.flags & 131072) && !v.dying) out.push({ id: v.id, x: v.x, y: v.y, z: v.z });
+    return out;
+  }
+
   pick(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, filter: (v: EntityView) => boolean): { view: EntityView; dist: number } | null {
     let best: { view: EntityView; dist: number } | null = null;
     for (const v of this.views.values()) {

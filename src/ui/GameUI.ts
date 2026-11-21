@@ -1,13 +1,16 @@
 import { findCoords } from './waypointData';
 import type { RuleSet } from '../core/sim/WorldSim';
-import { mcButton, mcCycle, menuScale } from './mc/Widgets';
+import { mcButton, mcCycle, menuScale, menuSpread } from './mc/Widgets';
 import { Minimap } from './Minimap';
 import { h, clear, toast, modal, toggle, segmented, copyText, confirmDialog, slider } from './dom';
 import type { ChatKind } from '../game/Session';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
 import { DIFFICULTIES, Difficulty, MAX_PLAYERS_LIMIT, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH } from '../core/constants';
 import { BLOCKS } from '../core/blocks';
-import { getItem } from '../core/items';
+import { getItem, I } from '../core/items';
+import { ENCHANTS, supports, compatible, enchantLabel } from '../core/enchants';
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
 import { PRANKS } from '../core/sim/mischief';
 
 export class ChatUI {
@@ -102,6 +105,7 @@ export class ChatUI {
     const full = from ? `<${from.name}> ${text}` : text;
     const el = h('div', { class: `line ${from ? 'msg' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, '<', from.sup ? h('span', { class: 'sup-badge', title: 'Supporter' }) : null, from.sup ? h('span', { style: `color:${from.sup}` }, from.name) : from.name, '>') : null, text,
       wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, found ? 'Save waypoint' : `Save ${wp.x} ${wp.y} ${wp.z}`) : null,
+      !from && /\/lootdrop tp/.test(text) ? h('button', { class: 'wp-save tpa-yes', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/lootdrop tp'); } }, 'Teleport') : null,
       !from && /Type \/tpaccept or \/tpdeny/.test(text) ? h('span', { class: 'tpa-btns' },
         h('button', { class: 'wp-save tpa-yes', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/tpaccept'); (e.target as HTMLElement).parentElement!.remove(); } }, 'Accept'),
         h('button', { class: 'wp-save tpa-no', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/tpdeny'); (e.target as HTMLElement).parentElement!.remove(); } }, 'Deny')) : null,
@@ -153,7 +157,7 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
   menuScale();
   const close = () => el.remove();
   const row = (...b: (HTMLElement | null)[]) => h('div', { class: 'mc-row2' }, ...b.filter(Boolean) as HTMLElement[]);
-  const el = h('div', { class: 'screen mc-pause', style: 'z-index:22' },
+  const el = h('div', { class: 'screen mc-pause', style: `z-index:22;--mw:${menuSpread(204)}` },
     h('div', { class: 'mct center', style: 'margin-bottom:calc(var(--ms) * 12)' }, 'Game Menu'),
     h('div', { class: 'mc-list-inner' },
       mcButton('Back to Game', () => { close(); a.resume(); }, 204),
@@ -338,11 +342,14 @@ export function showDeath(root: HTMLElement, msg: string, onRespawn: () => void,
   return () => el.remove();
 }
 
-export function showSovereign(run: (cmd: string) => void, held: () => string | null, rules: () => { tpDelay?: number; combatTime?: number }): void {
-  const heldLine = h('div', { class: 'small muted' });
-  const refresh = () => { const n = held(); heldLine.textContent = n ? `Holding: ${n}` : 'Holding nothing'; };
-  refresh();
-  const act = (label: string, cmd: string, kind = '') => h('button', { class: `btn small ${kind}`, onclick: () => { run(cmd); setTimeout(refresh, 300); } }, label);
+export interface SovereignHeld { id: number; name: string; en?: Record<string, number>; dmg?: number }
+
+export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number }): void {
+  const tabs = h('div', { class: 'tabs sov-tabs' });
+  const pane = h('div', { class: 'stack sov-pane' });
+  let tab = 'item';
+  const later = (f: () => void) => setTimeout(f, 250);
+  const act = (label: string, cmd: string, kind = '', after?: () => void) => h('button', { class: `btn ${kind}`, onclick: () => { run(cmd); if (after) later(after); } }, label);
   const pickRow = (title: string, rule: string, cur: number, opts: [number, string][]) => {
     const seg = h('div', { class: 'segmented' });
     let val = cur;
@@ -350,21 +357,63 @@ export function showSovereign(run: (cmd: string) => void, held: () => string | n
     draw();
     return h('div', { class: 'stack' }, h('div', { class: 'small' }, title), seg);
   };
-  const r = rules();
-  const body = h('div', { class: 'stack' },
-    h('div', { class: 'small muted' }, 'Admin tools for this world. Every button runs a command you can also type in chat.'),
-    h('div', { class: 'section-title' }, 'Held item'),
-    heldLine,
-    h('div', { class: 'row wrap' }, act('Max enchant', '/enchantmax', 'primary'), act('Repair', '/repair')),
-    h('div', { class: 'section-title' }, 'You'),
+  const itemTab = (): HTMLElement => {
+    const it = held();
+    const wrap = h('div', { class: 'stack' });
+    if (!it) { wrap.append(h('div', { class: 'small muted' }, 'Hold a tool, weapon or piece of armour in your hotbar, then come back here.')); return wrap; }
+    const en = it.en ?? {};
+    wrap.append(
+      h('div', { class: 'sov-held' }, h('b', {}, it.name), h('span', { class: 'small muted' }, Object.keys(en).length ? Object.entries(en).map(([k, l]) => enchantLabel(k, l)).join(', ') : 'No enchantments')),
+      h('div', { class: 'row wrap' }, act('Max enchant', '/enchantmax', 'primary', redraw), act('Remove all', '/unenchant all', '', redraw), act('Repair', '/repair', '', redraw)),
+      h('div', { class: 'section-title' }, 'Choose enchantments'),
+    );
+    const list = ENCHANTS.filter((e) => it.id === I.ENCHANTED_BOOK || it.id === I.BOOK || supports(e.key, it.id));
+    if (!list.length) { wrap.append(h('div', { class: 'small muted' }, 'Nothing can be enchanted onto this item.')); return wrap; }
+    const grid = h('div', { class: 'sov-ench' });
+    for (const e of list) {
+      const cur = en[e.key] ?? 0;
+      const clash = Object.keys(en).find((k) => k !== e.key && !compatible(k, e.key));
+      const lv = h('div', { class: 'segmented sov-lv' });
+      for (let l = 1; l <= e.max; l++) lv.appendChild(h('button', { class: l === cur ? 'on' : '', disabled: !!clash, onclick: () => { run(`/enchant ${e.key} ${l}`); later(redraw); } }, ROMAN[l] ?? String(l)));
+      if (cur) lv.appendChild(h('button', { class: 'sov-x', onclick: () => { run(`/unenchant ${e.key}`); later(redraw); } }, 'Remove'));
+      grid.append(h('div', { class: `sov-ench-row${cur ? ' on' : ''}${clash ? ' off' : ''}` },
+        h('div', { class: 'sov-ench-name' }, e.name, e.curse ? h('span', { class: 'small muted' }, ' (curse)') : null, clash ? h('div', { class: 'small muted' }, `Conflicts with ${ENCHANTS.find((x) => x.key === clash)?.name ?? clash}`) : null),
+        lv));
+    }
+    wrap.append(grid);
+    return wrap;
+  };
+  const kitTab = (): HTMLElement => h('div', { class: 'stack' },
+    h('div', { class: 'small muted' }, 'Each kit gives full armour (worn if the slot is empty), sword, pickaxe, axe, shovel, hoe, bow, crossbow, shield, mace and 64 arrows, all with the best enchantments at their top levels.'),
+    h('div', { class: 'sov-kits' },
+      h('button', { class: 'sov-kit diamond', onclick: () => run('/kit maxdiamond') }, h('b', {}, 'Maxed Diamond'), h('span', { class: 'small' }, 'Protection IV, Sharpness V, Efficiency V, Mending...')),
+      h('button', { class: 'sov-kit netherite', onclick: () => run('/kit maxnetherite') }, h('b', {}, 'Maxed Netherite'), h('span', { class: 'small' }, 'Toughness 3 and knockback resistance on every piece'))),
+  );
+  const eventTab = (): HTMLElement => h('div', { class: 'stack' },
+    h('div', { class: 'section-title' }, 'Lootdrop'),
+    h('div', { class: 'small muted' }, 'Builds a 7x7 treasure floor where you stand with chests of diamonds, netherite, golden apples, maxed gear and sometimes an Elytra. Every player gets a message with a Teleport button for 3 minutes (the teleport warm-up and combat timer still apply).'),
+    h('div', { class: 'row wrap' }, act('Spawn lootdrop here', '/lootdrop', 'primary')),
+  );
+  const youTab = (): HTMLElement => h('div', { class: 'stack' },
     h('div', { class: 'row wrap' }, act('Heal and feed', '/heal'), act('Survival', '/gamemode survival'), act('Creative', '/gamemode creative')),
     h('div', { class: 'section-title' }, 'World'),
-    h('div', { class: 'row wrap' }, act('Day', '/time set day'), act('Night', '/time set night'), act('Clear skies', '/weather clear'), act('Rain', '/weather rain')),
-    h('div', { class: 'section-title' }, 'Teleports and combat'),
-    pickRow('Teleport warm-up', 'teleportdelay', r.tpDelay ?? 3, [[0, 'Instant'], [3, '3s'], [5, '5s'], [10, '10s']]),
-    pickRow('Combat timer (blocks teleports, logging out kills)', 'combattimer', r.combatTime ?? 15, [[0, 'Off'], [10, '10s'], [15, '15s'], [30, '30s']]),
+    h('div', { class: 'row wrap' }, act('Day', '/time set day'), act('Night', '/time set night'), act('Clear skies', '/weather clear'), act('Rain', '/weather rain'), act('Thunder', '/weather thunder')),
   );
-  modal('Sovereign Console', body, [{ label: 'Close', kind: 'primary' }]);
+  const rulesTab = (): HTMLElement => {
+    const r = rules();
+    return h('div', { class: 'stack' },
+      pickRow('Teleport warm-up', 'teleportdelay', r.tpDelay ?? 3, [[0, 'Instant'], [3, '3s'], [5, '5s'], [10, '10s']]),
+      pickRow('Combat timer (blocks teleports, logging out kills)', 'combattimer', r.combatTime ?? 15, [[0, 'Off'], [10, '10s'], [15, '15s'], [30, '30s']]));
+  };
+  const TABS: [string, string, () => HTMLElement][] = [['item', 'Held Item', itemTab], ['kits', 'Kits', kitTab], ['events', 'Events', eventTab], ['you', 'You and World', youTab], ['rules', 'Rules', rulesTab]];
+  function redraw(): void {
+    clear(tabs);
+    for (const [k, l] of TABS) tabs.appendChild(h('button', { class: k === tab ? 'on' : '', onclick: () => { tab = k; redraw(); } }, l));
+    clear(pane);
+    pane.appendChild(TABS.find((t) => t[0] === tab)![2]());
+  }
+  redraw();
+  modal('Sovereign Console', h('div', { class: 'stack' }, tabs, pane), [{ label: 'Close', kind: 'primary' }], { full: true });
 }
 
 export function showMischief(names: () => string[], me: string, run: (cmd: string) => void, aim?: () => [number, number, number] | null): void {
@@ -396,5 +445,5 @@ export function showMischief(names: () => string[], me: string, run: (cmd: strin
     h('div', { class: 'section-title' }, 'Pranks'),
     grid,
   );
-  modal('Mischief Console', body, [{ label: 'Close', kind: 'primary' }]);
+  modal('Mischief Console', body, [{ label: 'Close', kind: 'primary' }], { full: true });
 }

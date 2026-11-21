@@ -1,3 +1,4 @@
+import { DRAGON_HEAD_PARTS, DRAGON_HEAD_UV, HEAD_TILE_KEYS, headBox, headLocalFace, headTileKey } from '../core/dragonHead';
 import * as THREE from 'three';
 import { CB, BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX, ID_LIMIT, isBaseId, CAVE_TEX, makeBlock, SPRITE_BLOCKS } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
@@ -122,6 +123,7 @@ export class TextureAtlas {
     };
 
     const chestTex = this.chestFaces();
+    for (const [k, c] of Object.entries(this.dragonHeadFaces() ?? {})) sources.set(k, { canvas: c, fromPack: true });
     for (const b of BLOCKS) {
       if (!b) continue;
       const fo = pack?.blockFaces.get(b.key) ?? {};
@@ -146,7 +148,7 @@ export class TextureAtlas {
     [0, 1, 1, 2].forEach((st, i) => { special[`wart${i}`] = get(`nether_wart_stage${st}`); });
     for (const c of ['carrots', 'potatoes', 'beetroots']) for (let i = 0; i < 4; i++) special[`${c}${i}`] = get(`${c}_stage${i}`);
     for (let i = 0; i < 10; i++) special[`destroy${i}`] = get(`destroy_stage_${i}`);
-    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top', 'cauldron_inner', 'chorus_flower_dead', 'end_portal_frame_eye', 'end_portal', 'campfire_log_lit', 'campfire_fire', 'soul_campfire_log_lit', 'soul_campfire_fire', 'respawn_anchor_side1', 'respawn_anchor_side2', 'respawn_anchor_side3', 'respawn_anchor_side4', 'respawn_anchor_top', 'item_frame', 'glow_item_frame']) special[k] = get(k);
+    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top', 'cauldron_inner', 'chorus_flower_dead', 'end_portal_frame_eye', 'end_portal', 'campfire_log_lit', 'campfire_fire', 'soul_campfire_log_lit', 'soul_campfire_fire', 'respawn_anchor_side1', 'respawn_anchor_side2', 'respawn_anchor_side3', 'respawn_anchor_side4', 'respawn_anchor_top', 'item_frame', 'glow_item_frame', ...HEAD_TILE_KEYS]) special[k] = get(k);
     for (const k of CAVE_TEX) special[k] = get(k);
     special.doorTop = get('oak_door_top');
     special.doorBottom = get('oak_door_bottom');
@@ -360,6 +362,33 @@ export class TextureAtlas {
     return `block/${alias[key] ?? key}`;
   }
 
+  private dragonHeadFaces(): Record<string, HTMLCanvasElement> | null {
+    const p = this.pack?.special.get('dragon_tex');
+    const src = p ? this.pack!.files.get(p) : undefined;
+    if (!src) return null;
+    const c = toCanvas(src);
+    const s = c.width / 256, out: Record<string, HTMLCanvasElement> = {};
+    const crop = (x: number, y: number, w: number, h: number) => {
+      const t = document.createElement('canvas');
+      t.width = t.height = 16 * Math.max(1, Math.round(s));
+      const g = t.getContext('2d')!;
+      g.imageSmoothingEnabled = false;
+      g.drawImage(c, x * s, y * s, w * s, h * s, 0, 0, t.width, t.height);
+      return t;
+    };
+    for (const [n, [u, v, w, h, d]] of Object.entries(DRAGON_HEAD_UV)) {
+      out[`dh_${n}_t`] = crop(u + d, v, w, d);
+      out[`dh_${n}_b`] = crop(u + d + w, v, w, d);
+      out[`dh_${n}_px`] = crop(u, v + d, d, h);
+      out[`dh_${n}_f`] = crop(u + d, v + d, w, h);
+      out[`dh_${n}_nx`] = crop(u + d + w, v + d, d, h);
+      out[`dh_${n}_k`] = crop(u + d + w + d, v + d, w, h);
+    }
+    out.dh_scale = crop(0, 6, 6, 4);
+    out.dh_nostril = crop(112, 4, 4, 2);
+    return out;
+  }
+
   private chestFaces(): Record<string, HTMLCanvasElement> | null {
     const p = this.pack?.special.get('chest');
     const src = p ? this.pack!.files.get(p) : undefined;
@@ -507,6 +536,14 @@ export class TextureAtlas {
       return [[1, 0, 0, 5, 4, 16], [11, 0, 0, 15, 4, 16], [0, 3, 1, 16, 7, 5], [0, 3, 11, 16, 7, 15]].map((b) => ({ b: px(b), top: lit, left: log, right: log }));
     }
     if (id === CB.RESPAWN_ANCHOR) return [{ b: [0, 0, 0, 1, 1, 1], top: t[o + 2], left: t[o], right: t[o] }];
+    if (id === CB.DRAGON_HEAD) {
+      const full = [0, 0, 1, 1], k = 0.68;
+      return DRAGON_HEAD_PARTS.map((pt) => {
+        const b = headBox(pt.b, 1);
+        const sc = (n: number, c: number) => (n - c) * k + 0.5 * 16;
+        return { b: px([sc(b[0], 8), b[1] * k, sc(b[2], 14.75), sc(b[3], 8), b[4] * k, sc(b[5], 14.75)]), top: sp[headTileKey(pt.n, 't')], left: sp[headTileKey(pt.n, headLocalFace(4, 1))], right: sp[headTileKey(pt.n, headLocalFace(0, 1))], ct: full, cs: full };
+      });
+    }
     if (id === CB.END_ROD) return [
       { b: px([6, 0, 6, 10, 1, 10]), top: t[o], left: t[o], right: t[o], ct: px([2, 2, 6, 6]), cs: px([2, 6, 6, 7]) },
       { b: px([7, 1, 7, 9, 16, 9]), top: t[o], left: t[o], right: t[o], ct: px([2, 0, 4, 2]), cs: px([0, 0, 2, 15]) },

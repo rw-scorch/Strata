@@ -43,7 +43,7 @@ export interface PackManifest {
 }
 
 
-export const IMPORTER_VERSION = 30;
+export const IMPORTER_VERSION = 31;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -439,6 +439,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     special.fire_0 = 'block/fire_0'; special.fire_1 = 'block/fire_1';
     if (z.has('assets/minecraft/textures/entity/end_portal/end_portal.png')) special['tex:end_portal'] = 'entity/end_portal/end_portal';
     if (z.has('assets/minecraft/textures/environment/end_sky.png')) special.end_sky = 'environment/end_sky';
+    if (z.has('assets/minecraft/textures/entity/enderdragon/dragon.png')) special.dragon_tex = 'entity/enderdragon/dragon';
     for (const g of GUI_SPRITES) if (z.has(`assets/minecraft/textures/gui/sprites/${g}.png`)) special[`gs:${g}`] = `gui/sprites/${g}`;
     for (const g of GUI_TEXTURES) if (z.has(`assets/minecraft/textures/gui/${g}.png`)) special[`gt:${g}`] = `gui/${g}`;
     if (z.has('assets/minecraft/textures/font/ascii.png')) {

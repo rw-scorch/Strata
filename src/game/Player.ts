@@ -49,6 +49,14 @@ export class LocalPlayer {
   soulSpeed = 0;
   gliding = false;
   rocketT = 0;
+  roll = 0;
+  rollStyle = true;
+  private rollV = 0;
+  private twirl = 0;
+  private tapDir = 0;
+  private tapAt = -99;
+  private strafeWas = 0;
+  private glideTicks = 0;
   private jumpWas = false;
   depthStrider = 0;
   flow: ((x: number, y: number, z: number) => [number, number] | null) | null = null;
@@ -66,8 +74,33 @@ export class LocalPlayer {
   }
 
   look(dx: number, dy: number): void {
+    if (this.gliding && this.roll) { const c = Math.cos(this.roll), s = Math.sin(this.roll); [dx, dy] = [dx * c - dy * s, dy * c + dx * s]; }
     this.yaw += dx;
     this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch + dy));
+  }
+
+  private flightControls(strafe: number): void {
+    const dir = strafe > 0.3 ? 1 : strafe < -0.3 ? -1 : 0;
+    if (dir && dir !== this.strafeWas) {
+      if (dir === this.tapDir && this.glideTicks - this.tapAt <= 6 && !this.twirl) this.twirl = dir * Math.PI * 2;
+      this.tapDir = dir; this.tapAt = this.glideTicks;
+    }
+    this.strafeWas = dir;
+    if (this.twirl) {
+      const step = Math.sign(this.twirl) * Math.min(Math.abs(this.twirl), (Math.PI * 2) / 12);
+      this.roll += step; this.twirl -= step;
+      if (Math.abs(this.twirl) < 1e-4) this.twirl = 0;
+    } else {
+      this.rollV = (this.rollV + strafe * 0.028) * 0.78;
+      this.roll += this.rollV;
+      if (!dir && Math.abs(this.roll) <= Math.PI / 2) this.roll *= 0.9;
+    }
+    this.roll = Math.atan2(Math.sin(this.roll), Math.cos(this.roll));
+    if (!this.twirl) {
+      const sp = Math.hypot(this.body.vx, this.body.vz);
+      this.yaw -= Math.sin(this.roll) * 0.05 * Math.min(1, sp / 0.6);
+      this.pitch = Math.max(-Math.PI / 2 + 0.01, this.pitch - (1 - Math.cos(this.roll)) * 0.004);
+    }
   }
 
   flags(): number {
@@ -178,18 +211,21 @@ export class LocalPlayer {
     if (this.levitateT > 0) this.levitateT--;
     if (this.gliding && (b.onGround || inFluid || !this.elytra || this.flying || this.levitateT > 0)) this.gliding = false;
     else if (!this.gliding && jumpEdge && this.elytra && !b.onGround && !inFluid && !this.flying && !m.ladder && this.levitateT <= 0) this.gliding = true;
-    if (!this.gliding) this.rocketT = 0;
+    if (!this.gliding) { this.rocketT = 0; this.glideTicks = 0; this.twirl = 0; this.rollV = 0; this.roll *= 0.7; if (Math.abs(this.roll) < 0.002) this.roll = 0; }
     if (this.gliding) {
-      const cp = Math.cos(this.pitch);
-      const lx = -sin * cp, ly = Math.sin(this.pitch), lz = -cos * cp;
+      this.glideTicks++;
+      if (this.rollStyle) this.flightControls(strafe);
+      else { this.roll *= 0.8; this.twirl = 0; }
+      const ys = Math.sin(this.yaw), yc = Math.cos(this.yaw), cp = Math.cos(this.pitch);
+      const lx = -ys * cp, ly = Math.sin(this.pitch), lz = -yc * cp;
       const jp = -this.pitch;
+      if (this.rocketT > 0) { this.rocketT--; b.vx += lx * 0.1 + (lx * 1.5 - b.vx) * 0.5; b.vy += ly * 0.1 + (ly * 1.5 - b.vy) * 0.5; b.vz += lz * 0.1 + (lz * 1.5 - b.vz) * 0.5; }
       const hLook = Math.hypot(lx, lz), hVel = Math.hypot(b.vx, b.vz);
       const c2 = Math.cos(jp) ** 2;
       b.vy += GRAVITY * (-1 + c2 * 0.75);
       if (b.vy < 0 && hLook > 0) { const d = b.vy * -0.1 * c2; b.vx += (lx * d) / hLook; b.vy += d; b.vz += (lz * d) / hLook; }
       if (jp < 0 && hLook > 0) { const d = hVel * -Math.sin(jp) * 0.04; b.vx -= (lx * d) / hLook; b.vy += d * 3.2; b.vz -= (lz * d) / hLook; }
       if (hLook > 0) { b.vx += ((lx / hLook) * hVel - b.vx) * 0.1; b.vz += ((lz / hLook) * hVel - b.vz) * 0.1; }
-      if (this.rocketT > 0) { this.rocketT--; b.vx += lx * 0.1 + (lx * 1.5 - b.vx) * 0.5; b.vy += ly * 0.1 + (ly * 1.5 - b.vy) * 0.5; b.vz += lz * 0.1 + (lz * 1.5 - b.vz) * 0.5; }
       b.vx *= 0.99; b.vy *= 0.98; b.vz *= 0.99;
       this.move(world, b.vx, b.vy, b.vz);
       if (b.hitH || b.onGround) this.gliding = b.onGround ? false : this.gliding;
@@ -209,7 +245,9 @@ export class LocalPlayer {
 
     const vyBefore = b.vy;
     const wasGround = b.onGround;
-    if (this.flying) {
+    if (this.gliding) {
+      if (b.onGround) this.gliding = false;
+    } else if (this.flying) {
       moveRelative(this.sprinting ? 0.1 : 0.05);
       this.move(world, b.vx, b.vy, b.vz);
       b.vx *= 0.91; b.vz *= 0.91; b.vy *= 0.6;

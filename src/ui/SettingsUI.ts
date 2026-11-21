@@ -147,6 +147,8 @@ export function showSettings(parent: HTMLElement, ctx: SettingsContext, onClose:
           mcRow(mcSlider('Sensitivity', 0.2, 3, 0.05, s.sensitivity, (v) => pct(v / 2), (v) => set({ sensitivity: v })),
             mcToggle('Invert Mouse', s.invertY, (v) => set({ invertY: v }))),
           mcRow(mcCycle('Crouch', [['hold', 'Hold'], ['toggle', 'Toggle']], s.toggleCrouch ? 'toggle' : 'hold', (v) => set({ toggleCrouch: v === 'toggle' }), { tip: 'Keyboard crouch. Toggle: tap the crouch key once to crouch and again to stand. The touch Crouch button always toggles.' })),
+          mcRow(mcCycle('Elytra Flight', [['roll', 'Barrel Roll'], ['classic', 'Classic']], s.flightStyle ?? 'roll', (v) => set({ flightStyle: v }), { tip: 'Barrel Roll: left and right roll the camera and bank into turns, double-tap left or right for a full roll. Classic: vanilla controls. The flight physics are the same either way.' }),
+            mcToggle('Elytra Contrails', s.contrails ?? true, (v) => set({ contrails: v }), 'Ribbons stream from the wingtips of anyone flying fast with an Elytra.')),
           mcHeading('Key Binds'),
           mcText('Tap a binding, then press the new key or mouse button. Escape cancels.', { small: true, center: true }),
           ...BIND_GROUPS.flatMap(([group, list]) => [

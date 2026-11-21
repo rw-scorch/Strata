@@ -837,9 +837,19 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   T.cobbled_deepslate = () => cobble('cdslate', hex(0x505056), hex(0x2c2c30));
 }
 
+function dragonScale(key: string): Px {
+  const p = speckle(noise(key, hex(0x1e1b24), 0.12), key, [hex(0x2e2a38), hex(0x0e0c12), hex(0x3a3446)], 34, 2);
+  for (let y = 0; y < 16; y += 4) for (let x = (y >> 2) & 1 ? 2 : 0; x < 16; x += 4) p.set(x, y, hex(0x0a090c));
+  if (key === 'dh_head_f') for (const ex of [2, 11]) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 3; dx++) p.set(ex + dx, 5 + dy, dx === 1 && dy === 0 ? hex(0xd8c8f0) : hex(0x8a6ac0));
+  if (key === 'dh_nostril' || key === 'dh_lip_f') for (const ex of [3, 11]) p.set(ex, 2, hex(0x050406));
+  if (key === 'dh_jaw_t' || key === 'dh_lip_b') for (let x = 1; x < 15; x += 2) p.set(x, 15, hex(0xd8d0c0));
+  return p;
+}
+
 export function defaultBlockTexture(key: string): Px {
   const f = TEX[key];
   if (f) return f();
+  if (key.startsWith('dh_')) return dragonScale(key);
   const p = new Px().fill([255, 0, 255, 255]);
   for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (((x >> 3) + (y >> 3)) & 1) p.set(x, y, [0, 0, 0, 255]);
   return p;

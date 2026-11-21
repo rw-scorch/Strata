@@ -254,10 +254,13 @@ export class ChunkManager implements WorldStore {
     }
   }
 
-  update(px: number, pz: number): void {
+  update(px: number, pz: number, vx = 0, vz = 0): void {
     this.centerX = px; this.centerZ = pz;
     const pcx = Math.floor(px / CHUNK_SIZE), pcz = Math.floor(pz / CHUNK_SIZE);
     const rd = this.renderDistance;
+    const sp = Math.hypot(vx, vz), reach = sp > 0.4 ? Math.min(rd * 0.6, (sp * 40) / CHUNK_SIZE) : 0;
+    const lx = reach ? (vx / sp) * reach : 0, lz = reach ? (vz / sp) * reach : 0;
+    const lead = (dx: number, dz: number, r: number) => (reach ? Math.hypot(dx - lx, dz - lz) : r);
     const load = rd + 1;
     const wantRemote: number[][] = [];
     for (let r = 0; r <= load; r++) {
@@ -272,7 +275,7 @@ export class ChunkManager implements WorldStore {
           remoteData: null, pending: [], meshQueued: false, meshing: false, dirty: false, urgent: false, lazyAt: 0, saveDirty: false, meshed: false, fresh: true,
         };
         this.chunks.set(key, c);
-        if (this.remote) { wantRemote.push([cx, cz]); this.requestGen(c, r); }
+        if (this.remote) { wantRemote.push([cx, cz]); this.requestGen(c, lead(dx, dz, r)); }
         else {
           const stored = this.hooks.loadStored(cx, cz);
           if (stored) {
@@ -281,9 +284,9 @@ export class ChunkManager implements WorldStore {
             stored.then((d) => {
               if (this.chunks.get(key) !== c || c.data) return;
               if (d) { c.gen = d; c.fresh = false; this.tryFinalize(c); }
-              else { c.fresh = true; this.requestGen(c, r); }
-            }).catch(() => { c.fresh = true; this.requestGen(c, r); });
-          } else this.requestGen(c, r);
+              else { c.fresh = true; this.requestGen(c, lead(dx, dz, r)); }
+            }).catch(() => { c.fresh = true; this.requestGen(c, lead(dx, dz, r)); });
+          } else this.requestGen(c, lead(dx, dz, r));
         }
       }
     }
@@ -308,6 +311,7 @@ export class ChunkManager implements WorldStore {
       stuck.sort((a, b) => a[0] - b[0]);
       for (const [, c] of stuck.slice(0, 16)) { c.reqAt = tnow; wantRemote.push([c.cx, c.cz]); }
     }
+    if (reach && wantRemote.length > 1) wantRemote.sort((a, b) => Math.hypot(a[0] - pcx - lx, a[1] - pcz - lz) - Math.hypot(b[0] - pcx - lx, b[1] - pcz - lz));
     if (wantRemote.length && this.hooks.requestRemote) for (const [cx, cz] of wantRemote) this.hooks.requestRemote(cx, cz);
     const unload = rd + 2.5;
     for (const c of [...this.chunks.values()]) {

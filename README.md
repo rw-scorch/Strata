@@ -99,6 +99,8 @@ If you use Workers Builds, do not also add the GitHub Actions deploy secrets bel
 
 Custom domain: add one under the Worker's **Settings → Domains & Routes**. Invitation links use whatever origin players open the game from, so nothing needs to change in code.
 
+Banner ads (optional): build with `VITE_ADSENSE_CLIENT=ca-pub-XXXXXXXXXXXXXXXX VITE_ADSENSE_SLOT=1234567890 npm run build` to show one banner on the title screen. The build also writes `ads.txt` for that publisher. Without both values no ad code is loaded. AdSense needs an approved account and site, and a consent banner for visitors in the EEA, UK and Switzerland.
+
 Split hosting (optional): to host the static site elsewhere and point it at a separate Worker, build with `VITE_SERVER_URL=https://your-worker.example.workers.dev npm run build`.
 
 ### Why no D1 or R2?
@@ -334,6 +336,17 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - Arrows: textured from the pack's arrow entity texture with the Java cross-plane model, tilt along their flight path, slow sharply in water, catch fire in lava or fire, light TNT when burning, press wooden buttons, fall when the block holding them breaks, and stay stuck for a minute.
   - Inventory: no tooltip on every tap, long press (550 ms) shows the tooltip and only splits a stack when the cursor is empty, releasing a long press with a held stack places all of it, and the hotbar only redraws slots that changed.
   - Everyone can use /spawn and /sethome. Operators can run `/countdown <time> [label]` (shown to all players at the top of the screen, `/countdown cancel` to stop). The owner can run `/resetworld <time> confirm` or use World settings > Refresh world: when the timer ends the map gets a new seed and every build, chest, home, bed and spawn point is wiped, while money, inventories, XP and the shop are kept. Players are sent back into the new world automatically.
+- **v43 Skyward Regalia (flight, admin tools, dragon heads):**
+  - Elytra flight now matches the Java equations exactly. A bug ran the normal air step (extra drag and gravity) on top of every glide tick, which made flying slow and heavy. Firework boosts now apply before the glide step, as the rocket entity does in Java. Tests check flight tick by tick against an independent version of the Java maths.
+  - Barrel Roll flight controls (Options > Controls > Elytra Flight). While gliding, left and right roll the camera and bank you into a turn, the wings level out when you let go, and a double tap does a full barrel roll. Mouse and touch look follow the rolled view. The physics are unchanged; Classic keeps vanilla controls.
+  - Elytra Contrails: white ribbons stream from the wingtips of anyone flying fast, fade over about 2.5 seconds and are drawn for other players too. They can be turned off in Options > Controls.
+  - Faster flight loading: while gliding, chunks ahead of you in the direction of travel load first.
+  - These three are original takes on the ideas of the Do a Barrel Roll, Elytra Contrails and Elytra Optimizations mods. No mod code is used.
+  - Dragon heads are now drawn with the Java dragon-head model (head, snout, jaw, horns and nostrils, at three-quarter scale) and face the player who places them. With a Minecraft pack they use the real dragon texture.
+  - Sovereign Console now opens almost full screen with tabs. Held Item: Max enchant, Remove all, Repair, and an enchantment picker with every level, which greys out conflicting enchantments. Kits: Maxed Diamond and Maxed Netherite (full armour, tools, weapons, shield, mace and arrows, all max enchanted). Events: Lootdrop. You and World. Rules.
+  - Lootdrops: an admin builds a 7x7 treasure floor with eight loot chests where they stand. Every player is told where it is and gets a Teleport button in chat, plus `/lootdrop tp` for 3 minutes. The warm-up and combat timer still apply. New commands: `/kit maxdiamond`, `/kit maxnetherite`, `/lootdrop`, `/unenchant [enchantment|all]`.
+  - Menus and dialogs use more of the screen: menu scaling goes up in half steps, buttons stretch across wide screens, inventories scale in half steps, and dialogs are larger.
+  - Optional banner ads on the title screen. Nothing loads unless the site is built with an AdSense publisher ID and slot; see Banner ads below.
 - **v42 Ironclad Ledger (combat, frames and carts):**
   - Combat now follows the Java numbers. Netherite tools are in the weapon table: sword 8, axe 10, pickaxe 6, shovel 6.5. Before, they hit like a bare hand.
   - Armour uses the Java formula with toughness: diamond adds 2 per piece and netherite adds 3. Each netherite piece also gives 10% knockback resistance. Breach lowers armour effectiveness by 15% per level.
@@ -670,6 +683,7 @@ What has been run:
 - `scripts/v16-smoke.mjs <server>`: places a lever, Emberdust and a lamp through the server and checks the lamp turns on and off.
 - `scripts/v18-smoke.mjs <server>`: checks piston animation data, slab placement and stacking, a powered Thunder Keg becoming a lit entity and exploding, and that player updates carry health.
 - `scripts/v23-smoke.mjs <server>`: builds an obsidian frame, lights it with Flint and Steel, travels to the Nether region and back to the same portal.
+- `scripts/v43-smoke.mjs <server>`: checks the teleport warm-up, `/enchantmax`, `/kit maxnetherite` and a lootdrop seen by a second player.
 - `scripts/v42-smoke.mjs <server>`: checks old clients are refused, the teleport warm-up, `/enchantmax` and the new items.
 - `scripts/v41-smoke.mjs <server>`: checks old clients are refused, Nether travel at generation level 15, chunk streaming and the new items.
 - `scripts/v40-smoke.mjs <server>`: checks old clients are refused, `/tp ... end` and back, End chunks streaming, and that the dragon and crystals appear.

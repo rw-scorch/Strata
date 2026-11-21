@@ -29,8 +29,19 @@ function serviceWorker(): Plugin {
   };
 }
 
+function adsTxt(): Plugin {
+  return {
+    name: 'strata-ads-txt',
+    apply: 'build',
+    closeBundle() {
+      const client = (process.env.VITE_ADSENSE_CLIENT ?? '').trim();
+      if (/^ca-pub-\d{10,20}$/.test(client)) writeFileSync(join('dist', 'ads.txt'), `google.com, ${client.replace(/^ca-/, '')}, DIRECT, f08c47fec0942fa0\n`);
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [serviceWorker()],
+  plugins: [adsTxt(), serviceWorker()],
   worker: { format: 'es' },
   build: { target: 'es2022', sourcemap: false, chunkSizeWarningLimit: 1200, assetsInlineLimit: 0 },
   server: {

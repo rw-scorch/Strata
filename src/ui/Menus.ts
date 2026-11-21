@@ -1,3 +1,4 @@
+import { adBanner } from './Ads';
 import { ARENA_KINDS, ARENA_INFO, ArenaKind } from '../core/labs/minigames/arena';
 import { h, clear, toast, modal, confirmDialog, promptDialog, toggle, segmented, slider, select, copyText, fmtDate, fmtTime, download } from './dom';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
@@ -11,7 +12,7 @@ import type { RoomInfo, RoomMeta } from '../core/protocol';
 import { ResourcePackManager } from '../resources/ResourcePackManager';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { Panorama } from './mc/Panorama';
-import { mcButton, menuScale } from './mc/Widgets';
+import { mcButton, menuScale, menuSpread } from './mc/Widgets';
 import { drawLogo } from './mc/Logo';
 import { SHOP } from '../core/economy';
 import { ITEM_LIST, getItem } from '../core/items';
@@ -83,7 +84,7 @@ export class Menus {
     void ResourcePackManager.list().then((packs) => {
       if (!packs.length) packBtn.appendChild(mcButton('Use Your Minecraft Textures', () => this.app.openPacks(true), 200, { tip: 'Import your own Minecraft resource pack. It stays on this device.' }));
     }).catch(() => { /* storage unavailable */ });
-    const el = h('div', { class: 'screen title-screen mc-title' }, bg,
+    const el = h('div', { class: 'screen title-screen mc-title', style: `--mw:${menuSpread(250)}` }, bg,
       logo,
       h('div', { class: 'mc-title-buttons' },
         mcButton('Singleplayer', () => this.worlds(), 200),
@@ -91,6 +92,7 @@ export class Menus {
         getSettings().labs ? mcButton('Arena Games (Labs)', () => this.createWorld(false, 'spires'), 200) : packBtn,
         h('div', { class: 'mc-title-row last' }, profileBtn, mcButton('Options...', () => this.app.openSettings(), 98), mcButton(this.app.canInstall() ? 'Install App' : 'Resource Packs...', () => (this.app.canInstall() ? this.app.install() : this.app.openPacks()), 98), creditsBtn),
       ),
+      adBanner('title'),
       h('div', { class: 'mc-title-foot' },
         h('span', { class: 'mct' }, `Strata ${GAME_VERSION}${acct ? `  (${acct.name})` : ''}`),
         h('span', { class: 'mct' }, 'Fan-made. Not affiliated with Mojang or Microsoft.')),

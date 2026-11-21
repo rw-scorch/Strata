@@ -1931,8 +1931,8 @@ export class WorldSim {
       const dtMs = Math.max(50, this.now - p.lastMove);
       const dist = Math.hypot(x - p.x, z - p.z);
       const glide = !!(flags & MF.GLIDE) && this.wearsElytra(p);
-      const maxH = (glide ? 80 : p.mode === 'creative' && flags & MF.FLY ? 32 : 13) * (dtMs / 1000) + 1.5;
-      const maxUp = (glide ? 40 : p.mode === 'creative' ? 32 : 14) * (dtMs / 1000) + 1.6;
+      const maxH = (glide ? 100 : p.mode === 'creative' && flags & MF.FLY ? 32 : 13) * (dtMs / 1000) + 1.5;
+      const maxUp = (glide ? 60 : p.mode === 'creative' ? 32 : 14) * (dtMs / 1000) + 1.6;
       if (dist > maxH || y - p.y > maxUp || y < -64 || y > WORLD_HEIGHT + 64) {
         this.emit({ e: 'tp', p });
         return false;
@@ -3084,6 +3084,7 @@ export class WorldSim {
     }
     if (bid === CB.POINTED_DRIPSTONE) meta = (ny === -1 ? DRIP_DOWN : ny === 1 ? 0 : isSolid(this.get(tx, ty + 1, tz)) && !isSolid(this.get(tx, ty - 1, tz)) ? DRIP_DOWN : 0) | 1;
     if (bid === CB.BIG_DRIPLEAF) meta = (look + 2) & 3;
+    if (bid === CB.DRAGON_HEAD) { const [dx, dz] = FACING_DIRS[(look + 2) & 3]; meta = dx > 0 ? 0 : dz > 0 ? 1 : dx < 0 ? 2 : 3; }
     if (isLantern(bid)) {
       const hang = ny === -1 ? isSolid(this.get(tx, ty + 1, tz)) : !isSolid(this.get(tx, ty - 1, tz)) && isSolid(this.get(tx, ty + 1, tz));
       if (!hang && !isSolid(this.get(tx, ty - 1, tz))) return fail();
@@ -6696,6 +6697,82 @@ export class WorldSim {
   }
 
   private tpaReq = new Map<string, { from: string; here: boolean; until: number }>();
+  lootdrop: { x: number; y: number; z: number; until: number; by: string } | null = null;
+
+  giveKit(p: SimPlayer, tier: 'diamond' | 'netherite'): number {
+    const m = tier === 'netherite' ? 5 : 4, am = tier === 'netherite' ? 4 : 3;
+    let n = 0;
+    for (let s = 0; s < 4; s++) {
+      const st: ItemStack = { id: armorId(am, s), count: 1 };
+      this.maxEnchant(st);
+      if (!p.inv.armor[s]) p.inv.armor[s] = st; else this.giveOrDrop(p, st);
+      n++;
+    }
+    for (const t of [3, 0, 1, 2, 4]) { const st: ItemStack = { id: toolId(m, t), count: 1 }; this.maxEnchant(st); this.giveOrDrop(p, st); n++; }
+    for (const id of [I.BOW, I.CROSSBOW, I.SHIELD, I.MACE]) { const st: ItemStack = { id, count: 1 }; this.maxEnchant(st); this.giveOrDrop(p, st); n++; }
+    this.giveOrDrop(p, { id: I.ARROW, count: 64 });
+    this.emit({ e: 'inv', p });
+    return n;
+  }
+
+  private giveOrDrop(p: SimPlayer, st: ItemStack): void {
+    const left = giveItem(p.inv, st);
+    if (left > 0) this.spawnItem(p.x, p.y + 1, p.z, { ...st, count: left }, 0, 2, 0, 20);
+  }
+
+  private lootdropLoot(): (ItemStack | null)[] {
+    const r = this.rng, items: (ItemStack | null)[] = new Array(27).fill(null);
+    const gear = (): ItemStack => {
+      const st: ItemStack = r.int(2) ? { id: armorId(4, r.int(4)), count: 1 } : { id: toolId(5, [0, 1, 3][r.int(3)]), count: 1 };
+      this.maxEnchant(st);
+      return st;
+    };
+    const pool: (() => ItemStack)[] = [
+      () => ({ id: B.AETHERITE_BLOCK, count: 8 + r.int(25) }),
+      () => ({ id: I.CINDERITE_INGOT, count: 2 + r.int(7) }),
+      () => ({ id: I.AETHERITE, count: 16 + r.int(49) }),
+      () => ({ id: B.EMERALD_BLOCK, count: 8 + r.int(25) }),
+      () => ({ id: I.GOLDEN_APPLE, count: 8 + r.int(25) }),
+      () => ({ id: I.EXPERIENCE_BOTTLE, count: 32 + r.int(33) }),
+      () => ({ id: I.ENDER_PEARL, count: 8 + r.int(9) }),
+      () => ({ id: I.FIREWORK_ROCKET, count: 32 + r.int(33), fl: 3 }),
+      () => ({ id: I.GOLDEN_CARROT, count: 32 + r.int(33) }),
+      gear, gear,
+    ];
+    const k = 6 + r.int(5);
+    for (let i = 0; i < k; i++) items[r.int(27)] = pool[r.int(pool.length)]();
+    if (r.int(4) === 0) items[r.int(27)] = { id: I.ELYTRA, count: 1, en: { unbreaking: 3, mending: 1 } };
+    return items;
+  }
+
+  spawnLootdrop(p: SimPlayer): string {
+    if (!this.authoritative) return '';
+    const cx = Math.floor(p.x), cz = Math.floor(p.z), fy = Math.floor(p.y) - 1;
+    if (fy < 1 || fy > 250 || !isSolid(this.get(cx, fy, cz))) return 'Stand on solid ground to drop loot.';
+    const deco = [B.AETHERITE_BLOCK, B.EMERALD_BLOCK, B.GOLD_BLOCK, X(XV.CINDERITE_BLOCK), B.AETHERITE_BLOCK];
+    const r = this.rng;
+    let chests = 0;
+    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+      const x = cx + dx, z = cz + dz;
+      if (blockId(this.get(x, fy, z)) === B.BEDROCK) continue;
+      this.setBlock(x, fy, z, deco[r.int(deco.length)]);
+      if (dx === 0 && dz === 0) continue;
+      if (this.get(x, fy + 1, z) !== 0) continue;
+      const edge = Math.max(Math.abs(dx), Math.abs(dz));
+      if (edge === 2 && (dx + dz) % 2 === 0) {
+        this.setBlock(x, fy + 1, z, B.CHEST);
+        this.addGeneratedChest(x, fy + 1, z, this.lootdropLoot());
+        chests++;
+      } else if (edge === 3 && r.int(5) === 0) this.setBlock(x, fy + 1, z, deco[r.int(deco.length)]);
+    }
+    this.lootdrop = { x: cx + 0.5, y: fy + 1, z: cz + 0.5, until: this.tickCount + 20 * 180, by: p.name };
+    const where = `${Math.round(localX(cx))} ${fy + 1} ${cz}${isNether(cx) ? ' in the Nether' : ''}`;
+    this.emit({ e: 'msg', text: `[Lootdrop] ${p.name} dropped ${chests} chests of loot at ${where}! Type /lootdrop tp to teleport there (3 minutes left).`, kind: 'info' });
+    this.emit({ e: 'title', text: 'LOOTDROP', sub: `${p.name} dropped loot - open chat and tap Teleport`, to: undefined });
+    this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
+    return `Lootdrop placed with ${chests} chests.`;
+  }
+
 
   private findPlayer(name: string | undefined): SimPlayer | null {
     if (!name) return null;
@@ -6835,7 +6912,7 @@ export class WorldSim {
       case 'help': {
         const base = 'Teleports: /spawn, /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Teleports take a short warm-up and are blocked in combat. Other: /coords, /clearsel, /help.';
         if (!allowed) return base;
-        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /enchantmax, /repair, /heal, /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
+        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /unenchant [enchantment|all], /enchantmax, /kit maxdiamond|maxnetherite, /lootdrop, /repair, /heal, /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
       }
       case 'seed': if (this.serverMode && !p.op) return 'Only operators can see the seed on a server.'; return `Seed: ${this.seed}`;
       case 'gamerule': {
@@ -6920,6 +6997,35 @@ export class WorldSim {
         held.en = { ...(held.en ?? {}), [key]: level };
         this.emit({ e: 'inv', p });
         return `Applied ${enchantLabel(key, level)}.`;
+      }
+      case 'unenchant': {
+        if (!allowed) return need();
+        const held = heldStack(p.inv);
+        if (!held?.en) return 'That item has no enchantments.';
+        const key = (parts[1] ?? 'all').replace(/^minecraft:/, '').toLowerCase();
+        if (key === 'all') delete held.en;
+        else { if (!(key in held.en)) return 'That enchantment is not on the item.'; delete held.en[key]; if (!Object.keys(held.en).length) delete held.en; }
+        this.emit({ e: 'inv', p });
+        return key === 'all' ? 'Removed every enchantment.' : `Removed ${ENCH.get(key)?.name ?? key}.`;
+      }
+      case 'kit': {
+        if (!allowed) return need();
+        const t = (parts[1] ?? '').toLowerCase();
+        const tier = t === 'maxnetherite' || t === 'netherite' ? 'netherite' : t === 'maxdiamond' || t === 'diamond' ? 'diamond' : null;
+        if (!tier) return 'Usage: /kit maxdiamond or /kit maxnetherite';
+        const n = this.giveKit(p, tier);
+        this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
+        return `Gave a maxed-out ${tier === 'netherite' ? 'Netherite' : 'Diamond'} kit (${n} pieces).`;
+      }
+      case 'lootdrop': {
+        if ((parts[1] ?? '').toLowerCase() === 'tp') {
+          const d = this.lootdrop;
+          if (!d || d.until < this.tickCount) return 'There is no lootdrop right now.';
+          return this.warpPlayer(p, d.x + 4, d.y, d.z, true, `Teleported to ${d.by}'s lootdrop.`).msg;
+        }
+        if (!allowed) return need();
+        if (p.dead) return 'You cannot do that while dead.';
+        return this.spawnLootdrop(p);
       }
       case 'enchantmax': case 'maxenchant': {
         if (!allowed) return need();

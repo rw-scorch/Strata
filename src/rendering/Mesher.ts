@@ -1,3 +1,4 @@
+import { DRAGON_HEAD_PARTS, headBox, headLocalFace, headTileKey } from '../core/dragonHead';
 import type { BlockArray } from '../core/chunk';
 import { WORLD_HEIGHT } from '../core/constants';
 import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING } from '../core/blocks';
@@ -521,7 +522,7 @@ function quadRaw(bd: Builder, pts: number[][], uvs: number[][], tile: number, sk
   }
 }
 
-function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tileFor: (d: number) => number, sk: number, bl: number, r: number, g: number, b: number, skip?: (d: number) => boolean, uvOverride?: (d: number) => number[][] | null, flags = 0): void {
+function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tileFor: (d: number) => number, sk: number, bl: number, r: number, g: number, b: number, skip?: (d: number) => boolean, uvOverride?: (d: number) => number[][] | null, flags = 0, stretch = false): void {
   const faces: number[][][] = [
     [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
     [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
@@ -534,7 +535,11 @@ function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y
     if (skip?.(d)) continue;
     const pts = faces[d];
     const [uAx, uS, vAx, vS] = UVMAP[d];
-    const uvs = uvOverride?.(d) ?? pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
+    let uvs = uvOverride?.(d) ?? pts.map((p) => [p[uAx] * uS, p[vAx] * vS]);
+    if (stretch) {
+      const u0 = Math.min(...uvs.map((t) => t[0])), u1 = Math.max(...uvs.map((t) => t[0])), v0 = Math.min(...uvs.map((t) => t[1])), v1 = Math.max(...uvs.map((t) => t[1]));
+      uvs = uvs.map((t) => [(t[0] - u0) / (u1 - u0 || 1), (t[1] - v0) / (v1 - v0 || 1)]);
+    }
     quadRaw(bd, pts, uvs, tileFor(d), sk, bl, SHADE[d], r, g, b, flags, false);
   }
 }
@@ -836,6 +841,14 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
           const ft = (soul ? sp.soul_campfire_fire : sp.campfire_fire) ?? log, a = 0.15, b2 = 0.85, uvf = [[0, 1], [1, 1], [1, 0], [0, 0]];
           quadRaw(builders[1], [[x + a, y, z + a], [x + b2, y, z + b2], [x + b2, y + 1, z + b2], [x + a, y + 1, z + a]], uvf, ft, sk, 255, 255, 255, 255, 255, F_EMIT, true);
           quadRaw(builders[1], [[x + a, y, z + b2], [x + b2, y, z + a], [x + b2, y + 1, z + a], [x + a, y + 1, z + b2]], uvf, ft, sk, 255, 255, 255, 255, 255, F_EMIT, true);
+        }
+        return;
+      }
+      if (id === CB.DRAGON_HEAD) {
+        const f = meta & 3, q = 1 / 16, fb = tl[id * FS];
+        for (const pt of DRAGON_HEAD_PARTS) {
+          const b = headBox(pt.b, f);
+          boxFaces(builders[0], x + b[0] * q, y + b[1] * q, z + b[2] * q, x + b[3] * q, y + b[4] * q, z + b[5] * q, (d) => sp[headTileKey(pt.n, headLocalFace(d, f))] ?? fb, sk, bl, 255, 255, 255, undefined, undefined, 0, true);
         }
         return;
       }

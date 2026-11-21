@@ -19,12 +19,18 @@ export function applyMcTheme(atlas: TextureAtlas): void {
   menuScale();
 }
 
+export function menuSpread(units: number): string {
+  const s = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ms')) || menuScale();
+  return String(Math.max(1, Math.min(1.7, (window.innerWidth * 0.72) / (s * units))));
+}
+
 export function menuScale(): number {
-  const auto = Math.max(1, Math.min(Math.floor(window.innerWidth / 320), Math.floor(window.innerHeight / 240)));
-  let s = Math.min(4, auto);
+  const fit = Math.min((window.innerWidth - 24) / 320, (window.innerHeight - 16) / 236);
+  let s = Math.max(1, Math.min(6, Math.floor(fit * 2) / 2));
   if (isTouchDevice()) s = Math.max(2, s);
-  while (s > 1 && 310 * s + 20 > window.innerWidth) s--;
+  while (s > 1 && 310 * s + 20 > window.innerWidth) s -= 0.5;
   document.documentElement.style.setProperty('--ms', `${s}px`);
+  document.documentElement.style.setProperty('--mw', String(Math.max(1, Math.min(1.75, (window.innerWidth * 0.86) / (s * 316)))));
   return s;
 }
 
@@ -53,7 +59,7 @@ function wrap(t: string): { text: string; color: string }[] {
 }
 
 export function mcButton(text: string | Node, onClick: () => void, w = 150, opts: { tip?: string; disabled?: boolean; cls?: string } = {}): HTMLButtonElement {
-  const b = h('button', { class: `mcb${opts.cls ? ' ' + opts.cls : ''}`, style: `width:calc(var(--ms) * ${w})`, disabled: !!opts.disabled, type: 'button' }, text) as HTMLButtonElement;
+  const b = h('button', { class: `mcb${opts.cls ? ' ' + opts.cls : ''}`, style: opts.cls === 'square' ? `width:calc(var(--ms) * ${w})` : `width:calc(var(--ms) * ${w} * var(--mw, 1))`, disabled: !!opts.disabled, type: 'button' }, text) as HTMLButtonElement;
   b.addEventListener('click', () => { audio.play('ui.click'); onClick(); });
   withTip(b, opts.tip);
   return b;
@@ -61,7 +67,7 @@ export function mcButton(text: string | Node, onClick: () => void, w = 150, opts
 
 export function mcCycle<T extends string | number | boolean>(label: string, options: [T, string][], value: T, onChange: (v: T) => void, opts: { tip?: string; w?: number } = {}): HTMLButtonElement {
   let i = Math.max(0, options.findIndex(([v]) => v === value));
-  const b = h('button', { class: 'mcb', type: 'button', style: `width:calc(var(--ms) * ${opts.w ?? 150})` }) as HTMLButtonElement;
+  const b = h('button', { class: 'mcb', type: 'button', style: `width:calc(var(--ms) * ${opts.w ?? 150} * var(--mw, 1))` }) as HTMLButtonElement;
   const draw = () => { b.textContent = `${label}: ${options[i][1]}`; };
   draw();
   const step = (d: number) => { i = (i + d + options.length) % options.length; draw(); audio.play('ui.click'); onChange(options[i][0]); };
@@ -80,7 +86,7 @@ export function mcSlider(label: string, min: number, max: number, step: number, 
   let v = value;
   const text = h('span', { class: 'mcs-text' });
   const handle = h('div', { class: 'mcs-handle' });
-  const el = h('div', { class: 'mcs', style: `width:calc(var(--ms) * ${w})`, tabindex: '0', role: 'slider' }, handle, text);
+  const el = h('div', { class: 'mcs', style: `width:calc(var(--ms) * ${w} * var(--mw, 1))`, tabindex: '0', role: 'slider' }, handle, text);
   const draw = () => {
     text.textContent = `${label}: ${fmt(v)}`;
     const t = (v - min) / (max - min || 1);
@@ -115,7 +121,7 @@ export function mcSlider(label: string, min: number, max: number, step: number, 
 }
 
 export function mcInput(value: string, placeholder: string, onInput: (v: string) => void, w = 200, max = 64): HTMLInputElement {
-  const i = h('input', { class: 'mctf', value, placeholder, maxlength: max, spellcheck: 'false', style: `width:calc(var(--ms) * ${w})` }) as HTMLInputElement;
+  const i = h('input', { class: 'mctf', value, placeholder, maxlength: max, spellcheck: 'false', style: `width:calc(var(--ms) * ${w} * var(--mw, 1))` }) as HTMLInputElement;
   i.addEventListener('input', () => onInput(i.value));
   i.addEventListener('keydown', (e) => e.stopPropagation());
   return i;

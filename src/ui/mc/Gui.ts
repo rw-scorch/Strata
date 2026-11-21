@@ -28,8 +28,9 @@ export function hasPackGui(atlas: TextureAtlas): boolean { return !!atlas.guiCan
 export function guiScale(w: number, h: number): number {
   const pref = getSettings().guiScale ?? 0;
   const vw = window.innerWidth - 12, vh = window.innerHeight - 12;
-  const fit = Math.max(1, Math.min(Math.floor(vw / w), Math.floor(vh / h)));
-  const s = pref > 0 ? Math.min(pref, fit) : Math.min(fit, 6);
+  const raw = Math.min(vw / w, vh / h);
+  const fit = Math.max(1, Math.floor(raw));
+  const s = pref > 0 ? Math.min(pref, fit) : Math.min(Math.max(1, Math.floor(raw * 2) / 2), 7);
   return Math.max(1, s);
 }
 

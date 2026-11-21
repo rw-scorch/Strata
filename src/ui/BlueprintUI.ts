@@ -96,6 +96,6 @@ export function showBlueprints(o: BlueprintPanelOpts): void {
     ]);
     setTimeout(() => input.select(), 50);
   };
-  close = modal('Blueprints', body, [{ label: 'Close', kind: 'primary' }], { wide: true }).close;
+  close = modal('Blueprints', body, [{ label: 'Close', kind: 'primary' }], { full: true }).close;
   void render();
 }
