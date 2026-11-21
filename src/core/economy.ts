@@ -106,7 +106,7 @@ export const SHOP: ShopCategory[] = [
   ] },
   { id: 'rare', name: 'Rare', icon: I.AETHERITE, items: [
     e('obsidian', B.OBSIDIAN, 8, 1600), e('bookshelf', B.BOOKSHELF, 4, 1400), e('emerald', I.EMERALD, 1, 900), e('aetherite', I.AETHERITE, 1, 1500),
-    e('lapis_lazuli', I.LAPIS, 16, 400), e('ender_pearl', I.ENDER_PEARL, 4, 600), e('experience_bottle', I.EXPERIENCE_BOTTLE, 8, 1600), e('glow_ink_sac', I.GLOW_INK_SAC, 4, 500),
+    e('lapis_lazuli', I.LAPIS, 16, 400), e('ender_pearl', I.ENDER_PEARL, 4, 600), e('experience_bottle', I.EXPERIENCE_BOTTLE, 8, 1600), e('glow_ink_sac', I.GLOW_INK_SAC, 4, 500), e('prismarine_shard', I.PRISMARINE_SHARD, 16, 320), e('prismarine_crystals', I.PRISMARINE_CRYSTALS, 8, 360),
     e('lily_pad', B.LILY_PAD, 8, 300), e('golden_apple_8', I.GOLDEN_APPLE, 8, 19000), e('lava_bucket', I.LAVA_BUCKET, 1, 1200),
   ] },
 ];

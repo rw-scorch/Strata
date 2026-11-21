@@ -1,5 +1,6 @@
 import { DRAGON_HEAD_PARTS, DRAGON_HEAD_UV, HEAD_TILE_KEYS, headBox, headLocalFace, headTileKey } from '../core/dragonHead';
 import * as THREE from 'three';
+import { isSlabId, isStairsId, SLAB2, STAIRS2, gateVisual } from '../core/blocks';
 import { CB, BLOCKS, BlockDef, B, SHAPE_MATS, customBoxes, CUSTOM_BOX, ID_LIMIT, isBaseId, CAVE_TEX, makeBlock, SPRITE_BLOCKS } from '../core/blocks';
 import { ITEMS, ItemDef } from '../core/items';
 import { BIOMES } from '../core/worldgen/biomes';
@@ -521,11 +522,17 @@ export class TextureAtlas {
     const t = this.data.blockTiles, o = id * FACE_SLOTS, sp = this.data.special;
     const px = (a: number[]) => a.map((n) => n / 16);
     const it = ITEMS[id];
-    if (it?.places === B.SLAB || it?.places === B.STAIRS) {
-      const m = SHAPE_MATS[it.placeMeta ?? 0], mo = m.id * FACE_SLOTS;
+    if (it?.places !== undefined && (isSlabId(it.places) || isStairsId(it.places))) {
+      const m = SHAPE_MATS[(it.placeMeta ?? 0) + (it.places === SLAB2 || it.places === STAIRS2 ? 32 : 0)], mo = m.id * FACE_SLOTS;
       const tl = { top: t[mo + 2], left: t[mo + 4], right: t[mo] };
-      if (it.places === B.SLAB) return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }];
+      if (isSlabId(it.places)) return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }];
       return [{ b: [0, 0, 0, 1, 0.5, 1], ...tl }, { b: [0, 0.5, 0, 1, 1, 0.5], ...tl }];
+    }
+    {
+      const r = BLOCKS[id]?.render, tl = { top: t[o + 2], left: t[o + 4], right: t[o] };
+      if (r === 'fence' && id !== B.NETHER_BRICK_FENCE) return [[2, 0, 6, 6, 16, 10], [10, 0, 6, 14, 16, 10], [0, 6, 7, 16, 9, 9], [0, 12, 7, 16, 15, 9]].map((b) => ({ b: px(b), ...tl }));
+      if (r === 'wall') return [{ b: px([4, 0, 4, 12, 16, 12]), ...tl }, { b: px([0, 0, 5, 16, 13, 11]), ...tl }];
+      if (r === 'gate') return gateVisual(0).map((b) => ({ b: [...b], ...tl }));
     }
     if (BLOCKS[id]?.render === 'trapdoor') return [{ b: [0, 0, 0, 1, 3 / 16, 1], top: t[o + 2], left: t[o + 4], right: t[o] }];
     if (id === CB.POINTED_DRIPSTONE) return null;

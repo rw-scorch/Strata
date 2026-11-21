@@ -43,7 +43,7 @@ export interface PackManifest {
 }
 
 
-export const IMPORTER_VERSION = 31;
+export const IMPORTER_VERSION = 32;
 
 export const CATALOG = (() => {
   let h = 2166136261;
@@ -81,6 +81,7 @@ export interface ImportedPack { manifest: PackManifest; files: PackFiles; icon: 
 export { JAVA_BLOCK_NAMES } from './javaNames';
 import { JAVA_BLOCK_NAMES } from './javaNames';
 
+const skipModel = (b: { key: string; id: number }) => SKIP_MODEL.has(b.key) || (b.id >= 1024 && /(_fence|_fence_gate|_wall|_pane|^slab2|^stairs2)$/.test(b.key));
 const SKIP_MODEL = new Set(['moss_carpet', 'azalea', 'flowering_azalea', 'hanging_roots', 'cave_vines', 'cave_vines_lit', 'spore_blossom', 'big_dripleaf', 'big_dripleaf_stem', 'small_dripleaf', 'glow_lichen', 'pointed_dripstone', 'sculk_vein', 'sculk_sensor', 'sculk_shrieker', 'chest', 'oak_door', 'torch', 'ladder', 'water', 'lava', 'air', 'wheat', 'nether_wart', 'nether_brick_fence', 'carrots', 'potatoes', 'beetroots', 'lectern', 'brewing_stand', 'cauldron', 'grindstone', 'stonecutter', 'bell', 'lantern', 'cake', 'composter', 'lily_pad', 'redstone_wire', 'redstone_torch', 'unlit_redstone_torch', 'lever', 'stone_button', 'oak_button', 'stone_pressure_plate', 'oak_pressure_plate', 'repeater', 'comparator', 'redstone_lamp_lit', 'observer', 'piston', 'sticky_piston', 'piston_head', 'moving_piston', 'hopper', 'dropper', 'dispenser', 'end_rod', 'chorus_plant', 'chorus_flower', 'end_portal_frame', 'end_portal', 'end_gateway', 'dragon_egg', 'dragon_head', 'soul_torch', 'soul_lantern', 'campfire', 'soul_campfire', 'respawn_anchor']);
 
 const all6 = (t: string) => ({ px: t, nx: t, py: t, ny: t, pz: t, nz: t });
@@ -342,7 +343,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     const r = new JavaResolver(z);
     const blockNames = new Map<number, { name: string; state?: string }>();
     for (const b of BLOCKS) {
-      if (!b || b.id === 0 || SKIP_MODEL.has(b.key)) continue;
+      if (!b || b.id === 0 || skipModel(b)) continue;
       blockNames.set(b.id, JAVA_BLOCK_NAMES[b.key] ?? { name: b.key });
     }
     r.load([...new Set([...blockNames.values()].map((n) => `assets/minecraft/blockstates/${n.name}.json`))]);
@@ -399,7 +400,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       blockFaces[k] = { ...fo } as FaceOverride;
       for (const t of Object.values(fo)) needTex.add(t);
     }
-    for (const b of BLOCKS) if (b && b.id && SKIP_MODEL.has(b.key)) {
+    for (const b of BLOCKS) if (b && b.id && skipModel(b)) {
       const extra: Record<string, string[]> = {
         chest: [], oak_door: ['block/oak_door_top', 'block/oak_door_bottom'], torch: ['block/torch'], ladder: ['block/ladder'],
         water: ['block/water_still', 'block/water_flow'], lava: ['block/lava_still', 'block/lava_flow'], wheat: Array.from({ length: 8 }, (_, i) => `block/wheat_stage${i}`), nether_wart: [0, 1, 2].map((i) => `block/nether_wart_stage${i}`), carrots: [0, 1, 2, 3].map((i) => `block/carrots_stage${i}`), potatoes: [0, 1, 2, 3].map((i) => `block/potatoes_stage${i}`), beetroots: [0, 1, 2, 3].map((i) => `block/beetroots_stage${i}`), lily_pad: ['block/lily_pad'], air: [],

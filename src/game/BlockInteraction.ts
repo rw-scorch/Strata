@@ -1,6 +1,6 @@
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import * as THREE from 'three';
-import { raycast, RayHit } from '../core/physics';
+import { raycast, RayHit, selectionAt } from '../core/physics';
 import { getBlock, selectionBox, blockId, B, CB, tix } from '../core/blocks';
 import { getItem, I, spearIndex } from '../core/items';
 import { attackStats, attackRange, attackCharge, SPEAR_MIN } from '../core/sim/combat';
@@ -196,7 +196,7 @@ export class BlockInteraction {
 
     if (t) {
       const v = world.getBlock(t.x, t.y, t.z);
-      const box = selectionBox(v) ?? [0, 0, 0, 1, 1, 1];
+      const box = selectionAt(world, v, t.x, t.y, t.z) ?? [0, 0, 0, 1, 1, 1];
       const stage = this.digPos && !creative ? Math.floor(this.progress * 10) : -1;
       renderer.setSelection(box, t.x, t.y, t.z, stage);
     } else renderer.setSelection(null);

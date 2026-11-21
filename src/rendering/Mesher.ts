@@ -1,7 +1,7 @@
 import { DRAGON_HEAD_PARTS, headBox, headLocalFace, headTileKey } from '../core/dragonHead';
 import type { BlockArray } from '../core/chunk';
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, shapeMatIndex, connMask, connVisual, wallPost, gateVisual, isWall, isStainedPane, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -21,7 +21,7 @@ export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_G
 export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; cages?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20, cave: 21 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20, cave: 21, wall: 22, gate: 23 };
 const CULLSELF = new Uint8Array(ID_LIMIT);
 for (const b of BLOCKS) if (b && isBaseId(b.id)) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(ID_LIMIT);
@@ -770,20 +770,38 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       q([[x + 1 - t, y, z], [x + 1 - t, y, z + 1], [x + t, y + H, z + 1], [x + t, y + H, z]]);
       return;
     }
-    case 20: {
-      const link = (dx: number, dz: number) => { const n = bid(region[ridx(rx + dx, y, rz + dz)]); return n === id || n === B.IRON_BARS || OPAQUE[n] === 1; };
+    case 20: case 22: {
+      const at = (yy: number) => (dx: number, dz: number) => (yy >= H ? 0 : region[ridx(rx + dx, yy, rz + dz)]);
+      const mask = connMask(id, at(y));
+      const post = code === 22 ? wallPost(mask, at(y + 1)(0, 0), () => connMask(bid(at(y + 1)(0, 0)), at(y + 1))) : true;
       const tl = ctx.atlas.blockTiles;
-      for (const bx of fenceBoxes([link(1, 0), link(0, 1), link(-1, 0), link(0, -1)])) boxFaces(builders[0], x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5], (d) => tl[id * FS + d], sk, bl, 255, 255, 255);
+      for (const bx of connVisual(id, mask, post)) boxFaces(builders[0], x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5], (d) => tl[id * FS + d], sk, bl, 255, 255, 255);
+      return;
+    }
+    case 23: {
+      const m = (v >>> 8) & 0xff, [fx] = FACING_DIRS[m & 3];
+      const nb = (dx: number, dz: number) => isWall(bid(region[ridx(rx + dx, y, rz + dz)]));
+      const low = fx === 0 ? nb(1, 0) || nb(-1, 0) : nb(0, 1) || nb(0, -1);
+      const tl = ctx.atlas.blockTiles;
+      for (const bx of gateVisual(m, low)) boxFaces(builders[0], x + bx[0], y + bx[1], z + bx[2], x + bx[3], y + bx[4], z + bx[5], (d) => tl[id * FS + d], sk, bl, 255, 255, 255);
       return;
     }
     case 19: {
       const tile = tiles[id * FS + 4];
-      const uvq = [[0, 1], [1, 1], [1, 0], [0, 0]];
-      const link = (dx: number, dz: number) => { const n = bid(region[ridx(rx + dx, y, rz + dz)]); return n === id || OPAQUE[n] === 1; };
-      let ax = link(1, 0) || link(-1, 0), az = link(0, 1) || link(0, -1);
-      if (!ax && !az) ax = az = true;
-      if (ax) quadRaw(cut, [[x, y, z + 0.5], [x + 1, y, z + 0.5], [x + 1, y + 1, z + 0.5], [x, y + 1, z + 0.5]], uvq, tile, sk, bl, 230, 255, 255, 255, 0, true);
-      if (az) quadRaw(cut, [[x + 0.5, y, z], [x + 0.5, y, z + 1], [x + 0.5, y + 1, z + 1], [x + 0.5, y + 1, z]], uvq, tile, sk, bl, 230, 255, 255, 255, 0, true);
+      const bd = isStainedPane(id) ? builders[2] : cut;
+      const mask = connMask(id, (dx, dz) => region[ridx(rx + dx, y, rz + dz)]);
+      const c = 0.5;
+      const plane = (x0: number, z0: number, x1: number, z1: number) => {
+        const along = x0 !== x1;
+        const u0 = along ? x0 : z0, u1 = along ? x1 : z1;
+        quadRaw(bd, [[x + x0, y, z + z0], [x + x1, y, z + z1], [x + x1, y + 1, z + z1], [x + x0, y + 1, z + z0]], [[u0, 1], [u1, 1], [u1, 0], [u0, 0]], tile, sk, bl, 230, 255, 255, 255, 0, true);
+      };
+      if (!mask) { plane(0, c, 1, c); plane(c, 0, c, 1); return; }
+      if (mask & 1) plane(c, c, 1, c);
+      if (mask & 4) plane(0, c, c, c);
+      if (mask & 2) plane(c, c, c, 1);
+      if (mask & 8) plane(c, 0, c, c);
+      if (mask === 1 || mask === 4) plane(mask === 1 ? 0.5 - 1 / 16 : 0.5, c, mask === 1 ? 0.5 : 0.5 + 1 / 16, c);
       return;
     }
     case 15: {
@@ -888,7 +906,7 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
       return;
     }
     case 14: {
-      const mat = SHAPE_MATS[(v >>> 8) & 31] ?? SHAPE_MATS[0];
+      const mat = SHAPE_MATS[shapeMatIndex(v)] ?? SHAPE_MATS[0];
       const tiles = ctx.atlas.blockTiles;
       for (const b of shapeBoxes(v)) boxFaces(builders[0], x + b[0], y + b[1], z + b[2], x + b[3], y + b[4], z + b[5], (d) => tiles[mat.id * FS + d], sk, bl, 255, 255, 255);
       return;

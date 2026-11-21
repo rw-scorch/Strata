@@ -1,3 +1,4 @@
+import { isSlabId, isStairsId, shapeMatIndex } from './blocks';
 import { B, BLOCKS, bid, tix, isFluid, isDoorBlock, DOOR_UPPER, slabItem, stairsItem, isBaseId } from './blocks';
 import { getItem } from './items';
 import { encodeRLE, decodeRLE, u16ToBase64, base64ToU16 } from './chunk';
@@ -21,8 +22,8 @@ export function bpItem(v: number): number | null {
   if (BANNED.has(id) || isFluid(v)) return null;
   const meta = (v >>> 8) & 0xff;
   if (isDoorBlock(v) && (meta & DOOR_UPPER)) return 0;
-  if (id === B.SLAB) return slabItem(meta & 31);
-  if (id === B.STAIRS) return stairsItem(meta & 31);
+  if (isSlabId(id)) return slabItem(shapeMatIndex(v));
+  if (isStairsId(id)) return stairsItem(shapeMatIndex(v));
   if (id === B.FURNACE_LIT) return B.FURNACE;
   const t = tix(v);
   const it = getItem(t);

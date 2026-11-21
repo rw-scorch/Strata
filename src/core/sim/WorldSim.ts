@@ -2,6 +2,7 @@ import type { BlockArray } from '../chunk';
 import { fortressAt, fortressesNear, bastionsNear } from '../worldgen/fortress';
 import { PORTAL_GRID } from '../worldgen/ruinedPortal';
 import { smithResult } from '../smithing';
+import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN } from '../blocks';
 import { FRAME_EYE, CHORUS_DEAD, isFluid, CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON, isLantern, isCampfire, isSoulLight, LANTERN_HANGING, CAMPFIRE_LIT, ANCHOR_LIGHT, isSoulSand } from '../blocks';
 import { isRail, railShape, railPowered, railHeight, railLine, RAIL_EXITS, shapeFor, reshapeNeighbor, neighborRails } from '../rails';
 import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
@@ -519,7 +520,7 @@ export class WorldSim {
     this.fireQueue.set(posKey(x, y, z), this.tickCount + delay);
   }
 
-  private flam(v: number): [number, number] { return FLAM[tix(v)] ?? (blockId(v) === B.SLAB || blockId(v) === B.STAIRS ? (WOOD_MAT[(blockMeta(v) & 31)] ? [5, 20] : [0, 0]) : [0, 0]); }
+  private flam(v: number): [number, number] { return FLAM[tix(v)] ?? (isSlabId(blockId(v)) || isStairsId(blockId(v)) ? (WOOD_MAT[shapeMatIndex(v)] ? [5, 20] : [0, 0]) : isWoodFence(blockId(v)) || isGate(blockId(v)) ? (blockId(v) % 10 >= 8 ? [0, 0] : [5, 20]) : [0, 0]); }
 
   private fireCanLive(x: number, y: number, z: number): boolean {
     if (isSolid(this.get(x, y - 1, z))) return true;
@@ -1252,8 +1253,8 @@ export class WorldSim {
   blockDrops(v: number, stack: ItemStack | null, natural: boolean): ItemStack[] {
     const d = getBlock(v);
     const id = d.id;
-    if (id === B.SLAB) return [{ id: slabItem(blockMeta(v) & 31), count: 1 }];
-    if (id === B.STAIRS) return [{ id: stairsItem(blockMeta(v) & 31), count: 1 }];
+    if (isSlabId(id)) return [{ id: slabItem(shapeMatIndex(v)), count: 1 }];
+    if (isStairsId(id)) return [{ id: stairsItem(shapeMatIndex(v)), count: 1 }];
     if (!natural && stack?.id === I.SHEARS && (d.render === 'leaves' || id === B.VINE || id === B.SEAGRASS || id === B.TALL_GRASS || id === B.FERN || id === B.DEAD_BUSH)) return [{ id, count: 1 }];
     const silk = !natural && lvl(stack, 'silk_touch') > 0;
     if (silk && canHarvest(v, stack) && d.category !== 'hidden' && d.render !== 'crop' && d.render !== 'door' && !d.fluid && getItem(id)) return [{ id, count: 1 }];
@@ -2766,6 +2767,14 @@ export class WorldSim {
     }
     if (d.interactive && !(crouch && stack) && !(forcePlace && stack && getItem(stack.id)?.places !== undefined)) {
       if (id === B.LEVER || isButton(id) || isDiode(id)) { if (!this.canBuild(p)) return false; return this.authoritative ? this.rs.use(x, y, z, v) : true; }
+      if (isGate(id)) {
+        if (!this.canBuild(p)) return false;
+        let m = blockMeta(v);
+        if (!(m & GATE_OPEN)) { const lk = facingFromYaw(p.yaw); if (lk === ((m & 3) ^ 2)) m = (m & ~3) | lk; }
+        this.setBlock(x, y, z, makeBlock(id, m ^ GATE_OPEN), p.id);
+        this.emit({ e: 'sound', s: m & GATE_OPEN ? 'gate.close' : 'gate.open', x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
+        return true;
+      }
       if (isTrapdoor(v)) {
         if (!this.canBuild(p)) return false;
         const m = blockMeta(v);
@@ -3026,18 +3035,19 @@ export class WorldSim {
     if (!this.inReach(p, tx, ty, tz)) return fail();
     let target = this.get(tx, ty, tz);
     let combine = -1;
-    if (bid === B.SLAB) {
-      const mat = item.placeMeta ?? 0;
-      const same = (v: number) => blockId(v) === B.SLAB && (blockMeta(v) & 31) === mat;
-      if (same(clicked) && ((ny === 1 && !(blockMeta(clicked) & SLAB_TOP)) || (ny === -1 && blockMeta(clicked) & SLAB_TOP))) { tx = x; ty = y; tz = z; target = clicked; combine = SHAPE_MATS[mat].id; }
-      else if (same(target)) combine = SHAPE_MATS[mat].id;
+    if (isSlabId(bid)) {
+      const mat = item.placeMeta ?? 0, full = SHAPE_MATS[mat + (bid === SLAB2 ? 32 : 0)].id;
+      const same = (v: number) => blockId(v) === bid && (blockMeta(v) & 31) === mat;
+      if (same(clicked) && ((ny === 1 && !(blockMeta(clicked) & SLAB_TOP)) || (ny === -1 && blockMeta(clicked) & SLAB_TOP))) { tx = x; ty = y; tz = z; target = clicked; combine = full; }
+      else if (same(target)) combine = full;
     }
     if (!isReplaceable(target) && combine < 0) return fail();
     let meta = 0;
     const look = facingFromYaw(p.yaw);
     if (bid === B.EXT) meta = item.placeMeta ?? 0;
-    if (bid === B.SLAB) meta = (item.placeMeta ?? 0) | (ny === -1 || (ny === 0 && hy > 0.5) ? SLAB_TOP : 0);
-    if (bid === B.STAIRS) meta = (item.placeMeta ?? 0) | (look << 5) | (ny === -1 || (ny === 0 && hy > 0.5) ? STAIRS_UP : 0);
+    if (isSlabId(bid)) meta = (item.placeMeta ?? 0) | (ny === -1 || (ny === 0 && hy > 0.5) ? SLAB_TOP : 0);
+    if (isStairsId(bid)) meta = (item.placeMeta ?? 0) | (look << 5) | (ny === -1 || (ny === 0 && hy > 0.5) ? STAIRS_UP : 0);
+    if (isGate(bid)) meta = look;
     const def = BLOCKS[bid];
     if (bid === B.LILY_PAD) {
       if (blockId(clicked) !== B.WATER) return fail();
@@ -3093,7 +3103,7 @@ export class WorldSim {
     if (isCampfire(bid)) meta = (look & 3) | (blockId(this.get(tx, ty, tz)) === B.WATER ? 0 : CAMPFIRE_LIT);
     if (bid === CB.SMALL_DRIPLEAF && !isReplaceable(this.get(tx, ty + 1, tz))) return fail();
     if (def.render === 'leaves') meta = 1;
-    if (item.placeMeta && bid !== B.EXT && bid !== B.SLAB && bid !== B.STAIRS) meta = (meta & 15) | item.placeMeta;
+    if (item.placeMeta && bid !== B.EXT && !isSlabId(bid) && !isStairsId(bid)) meta = (meta & 15) | item.placeMeta;
     const td = bid === B.OAK_DOOR && (item.placeMeta ?? 0) >= TD_SPECIES_MIN << 4;
     if (td) {
       const hinge = ny === 0 ? FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz) : look;
@@ -4350,7 +4360,7 @@ export class WorldSim {
 
   private resAt(v: number): number {
     const id = blockId(v);
-    if (id === B.SLAB || id === B.STAIRS) return BLAST_RES[SHAPE_MATS[(v >>> 8) & 31]?.id ?? 1];
+    if (isSlabId(id) || isStairsId(id)) return BLAST_RES[SHAPE_MATS[shapeMatIndex(v)]?.id ?? 1];
     return BLAST_RES[id];
   }
 

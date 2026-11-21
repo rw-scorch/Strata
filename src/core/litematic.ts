@@ -1,3 +1,4 @@
+import { isSlabId, isStairsId, isGate, SLAB2, GATE_OPEN } from './blocks';
 import { B, BLOCKS, makeBlock, SHAPE_MATS, SLAB_TOP, STAIRS_UP, doorMeta, trapdoorMeta, TD_SPECIES_MIN, CB } from './blocks';
 import { getItem, ITEMS } from './items';
 import { BP_MAX, Blueprint, bpItem } from './blueprint';
@@ -98,8 +99,9 @@ export function blockFromState(name: string, props: Record<string, string>): num
   const pm = it?.placeMeta ?? 0;
   const f = FACE[props.facing ?? ''] ?? 0;
   const def = BLOCKS[blockId];
-  if (blockId === B.SLAB) return props.type === 'double' ? makeBlock(SHAPE_MATS[pm & 31]?.id ?? B.OAK_PLANKS) : makeBlock(B.SLAB, pm | (props.type === 'top' ? SLAB_TOP : 0));
-  if (blockId === B.STAIRS) return makeBlock(B.STAIRS, pm | (f << 5) | (props.half === 'top' ? STAIRS_UP : 0));
+  if (isSlabId(blockId)) return props.type === 'double' ? makeBlock(SHAPE_MATS[(pm & 31) + (blockId === SLAB2 ? 32 : 0)]?.id ?? B.OAK_PLANKS) : makeBlock(blockId, pm | (props.type === 'top' ? SLAB_TOP : 0));
+  if (isStairsId(blockId)) return makeBlock(blockId, pm | (f << 5) | (props.half === 'top' ? STAIRS_UP : 0));
+  if (isGate(blockId)) return makeBlock(blockId, f | (props.open === 'true' ? GATE_OPEN : 0));
   if (blockId === B.OAK_DOOR) {
     if (pm >= TD_SPECIES_MIN << 4) return makeBlock(B.OAK_DOOR, trapdoorMeta(pm >> 4, f, props.half === 'top', props.open === 'true'));
     return makeBlock(B.OAK_DOOR, doorMeta(f, props.half === 'upper', props.open === 'true'));

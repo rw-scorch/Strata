@@ -1,4 +1,4 @@
-import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB } from './blocks';
+import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB, NB, WOODS, WALL_MATS, FENCE_BASE, GATE_BASE, WALL_BASE, GLASS_PANE, STAINED_PANE_BASE } from './blocks';
 import { I, toolId, armorId, dyeId, SPEAR_MATS, getItem } from './items';
 import type { ItemStack } from './inventory';
 
@@ -112,6 +112,34 @@ SHAPE_MATS.forEach((m, i) => {
   shaped(`${m.key}_slab`, 'building', slabItem(i), 6, ['XXX'], { X: m.id });
   shaped(`${m.key}_stairs`, 'building', stairsItem(i), 4, ['X  ', 'XX ', 'XXX'], { X: m.id });
 });
+WOODS.forEach(([k, , plank], i) => {
+  shaped(`${k}_fence`, 'decor', FENCE_BASE + i, 3, ['PSP', 'PSP'], { P: plank, S: I.STICK });
+  shaped(`${k}_fence_gate`, 'decor', GATE_BASE + i, 1, ['SPS', 'SPS'], { P: plank, S: I.STICK });
+});
+WALL_MATS.forEach(([k, , src], i) => shaped(`${k}_wall`, 'building', WALL_BASE + i, 6, ['XXX', 'XXX'], { X: src }));
+shaped('glass_pane', 'decor', GLASS_PANE, 16, ['GGG', 'GGG'], { G: B.GLASS });
+COLORS.forEach((c, i) => {
+  shaped(`${c}_stained_glass_pane`, 'decor', STAINED_PANE_BASE + i, 16, ['GGG', 'GGG'], { G: stainedGlassId(c) });
+  shaped(`${c}_stained_glass_pane_dye`, 'decor', STAINED_PANE_BASE + i, 8, ['PPP', 'PDP', 'PPP'], { P: GLASS_PANE, D: dyeId(c) });
+});
+const slabOf = (id: number) => slabItem(SHAPE_MATS.findIndex((m) => m.id === id));
+shaped('polished_deepslate', 'building', NB.POLISHED_DEEPSLATE, 4, ['XX', 'XX'], { X: CB.COBBLED_DEEPSLATE });
+shaped('deepslate_bricks', 'building', NB.DEEPSLATE_BRICKS, 4, ['XX', 'XX'], { X: NB.POLISHED_DEEPSLATE });
+shaped('deepslate_tiles', 'building', NB.DEEPSLATE_TILES, 4, ['XX', 'XX'], { X: NB.DEEPSLATE_BRICKS });
+shaped('chiseled_deepslate', 'building', NB.CHISELED_DEEPSLATE, 1, ['X', 'X'], { X: slabOf(CB.COBBLED_DEEPSLATE) });
+shapeless('packed_mud', 'building', NB.PACKED_MUD, 1, [B.MUD, I.WHEAT]);
+shaped('mud_bricks', 'building', NB.MUD_BRICKS, 4, ['XX', 'XX'], { X: NB.PACKED_MUD });
+shaped('prismarine', 'building', NB.PRISMARINE, 1, ['XX', 'XX'], { X: I.PRISMARINE_SHARD });
+shaped('prismarine_bricks', 'building', NB.PRISMARINE_BRICKS, 1, ['XXX', 'XXX', 'XXX'], { X: I.PRISMARINE_SHARD });
+shaped('dark_prismarine', 'building', NB.DARK_PRISMARINE, 1, ['XXX', 'XDX', 'XXX'], { X: I.PRISMARINE_SHARD, D: dyeId('black') });
+shaped('sea_lantern', 'decor', NB.SEA_LANTERN, 1, ['SCS', 'CCC', 'SCS'], { S: I.PRISMARINE_SHARD, C: I.PRISMARINE_CRYSTALS });
+shaped('red_nether_bricks', 'building', NB.RED_NETHER_BRICKS, 2, ['NW', 'WN'], { N: XB + XV.NETHER_BRICKS, W: I.NETHER_WART });
+shaped('chiseled_nether_bricks', 'building', NB.CHISELED_NETHER_BRICKS, 1, ['X', 'X'], { X: slabOf(XB + XV.NETHER_BRICKS) });
+shaped('quartz_bricks', 'building', NB.QUARTZ_BRICKS, 4, ['XX', 'XX'], { X: XB + XV.QUARTZ_BLOCK });
+shaped('chiseled_quartz_block', 'building', NB.CHISELED_QUARTZ, 1, ['X', 'X'], { X: slabOf(XB + XV.QUARTZ_BLOCK) });
+shaped('cut_red_sandstone', 'building', NB.CUT_RED_SANDSTONE, 4, ['XX', 'XX'], { X: SB.RED_SANDSTONE });
+shaped('chiseled_red_sandstone', 'building', NB.CHISELED_RED_SANDSTONE, 1, ['X', 'X'], { X: slabOf(SB.RED_SANDSTONE) });
+shaped('polished_basalt', 'building', NB.POLISHED_BASALT, 4, ['XX', 'XX'], { X: XB + XV.BASALT });
 shaped('rail', 'decor', B.RAIL, 16, ['I I', 'ISI', 'I I'], { I: I.IRON_INGOT, S: I.STICK });
 shaped('powered_rail', 'decor', B.POWERED_RAIL, 6, ['G G', 'GSG', 'GRG'], { G: I.GOLD_INGOT, S: I.STICK, R: I.REDSTONE });
 shaped('detector_rail', 'decor', B.DETECTOR_RAIL, 6, ['I I', 'IPI', 'IRI'], { I: I.IRON_INGOT, P: B.STONE_PRESSURE_PLATE, R: I.REDSTONE });
@@ -384,6 +412,11 @@ export const SMELTING: SmeltRecipe[] = [
   { input: B.CACTUS, result: dyeId('green'), xp: 1 },
   { input: B.KELP, result: I.DRIED_KELP, xp: 0.1 },
   { input: B.REDSTONE_ORE, result: I.REDSTONE, xp: 0.7 },
+  { input: NB.DEEPSLATE_BRICKS, result: NB.CRACKED_DEEPSLATE_BRICKS, xp: 0.1 },
+  { input: NB.DEEPSLATE_TILES, result: NB.CRACKED_DEEPSLATE_TILES, xp: 0.1 },
+  { input: XB + XV.NETHER_BRICKS, result: NB.CRACKED_NETHER_BRICKS, xp: 0.1 },
+  { input: XB + XV.QUARTZ_BLOCK, result: NB.SMOOTH_QUARTZ, xp: 0.1 },
+  { input: SB.RED_SANDSTONE, result: NB.SMOOTH_RED_SANDSTONE, xp: 0.1 },
 ];
 
 export function findSmelt(id: number, book: RecipeBook = BASE_BOOK): SmeltRecipe | null {

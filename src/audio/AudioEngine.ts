@@ -275,7 +275,7 @@ export class AudioEngine {
         else { this.noiseHit(dest, t, 2600, 8, 'bandpass', { a: 0.002, d: 0.05, v: 0.35 }); this.noiseHit(dest, t + 0.07, 2200, 8, 'bandpass', { a: 0.002, d: 0.05, v: 0.25 }); }
         break;
       case 'dripleaf': this.noiseHit(dest, t, 380, 3, 'lowpass', { a: 0.01, d: 0.25, v: 0.35 }); break;
-      case 'door': this.noiseHit(dest, t, sub === 'open' ? 500 : 350, 4, 'bandpass', { a: 0.01, d: 0.22, v: 0.4 }); this.tone(dest, t, sub === 'open' ? 260 : 200, 'sawtooth', { a: 0.01, d: 0.18, v: 0.06 }, sub === 'open' ? 320 : 150); break;
+      case 'door': case 'gate': this.noiseHit(dest, t, sub === 'open' ? 500 : 350, 4, 'bandpass', { a: 0.01, d: 0.22, v: 0.4 }); this.tone(dest, t, sub === 'open' ? 260 : 200, 'sawtooth', { a: 0.01, d: 0.18, v: 0.06 }, sub === 'open' ? 320 : 150); break;
       case 'lever': case 'button': case 'plate': case 'click': {
         const on = sub === 'on' || cat === 'click';
         const f = cat === 'plate' ? 700 : cat === 'lever' ? 1500 : 1900;

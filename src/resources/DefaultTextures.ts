@@ -837,6 +837,34 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   T.cobbled_deepslate = () => cobble('cdslate', hex(0x505056), hex(0x2c2c30));
 }
 
+{
+  const T = TEX;
+  const crackOver = (p: Px, key: string, c: RGBA) => { const r = rngFor(key); for (let n = 0; n < 2; n++) { let x = 2 + r.int(12), y = 0; while (y < 16) { p.set(x, y, c); y++; x = Math.max(0, Math.min(15, x + r.int(3) - 1)); } } return p; };
+  const tiles = (key: string, base: RGBA, line: RGBA, hi: RGBA, n = 8) => { const p = noise(key, base, 0.06); for (let i = 0; i < 16; i++) for (let k = 0; k < 16; k += n) { p.set(i, k, line); p.set(k, i, line); if (k + 1 < 16) { p.set(i, k + 1, hi); p.set(k + 1, i, hi); } } return p; };
+  T.polished_deepslate = () => rim(speckle(noise('pdsl', hex(0x4a4a4f), 0.05), 'pdsl', [hex(0x3c3c41)], 18), hex(0x2f2f33));
+  T.deepslate_bricks = () => bricks('dsb', hex(0x515156), hex(0x2c2c30), 4, 8);
+  T.cracked_deepslate_bricks = () => crackOver(bricks('cdsb', hex(0x515156), hex(0x2c2c30), 4, 8), 'cdsbk', hex(0x232326));
+  T.deepslate_tiles = () => tiles('dst', hex(0x3e3e43), hex(0x232326), hex(0x55555a), 4);
+  T.cracked_deepslate_tiles = () => crackOver(tiles('cdst', hex(0x3e3e43), hex(0x232326), hex(0x55555a), 4), 'cdstk', hex(0x1a1a1d));
+  T.chiseled_deepslate = () => { const p = rim(noise('chds', hex(0x46464b), 0.05), hex(0x2a2a2e)); for (let i = 3; i < 13; i++) { p.set(i, 3, hex(0x2c2c30)); p.set(i, 12, hex(0x5a5a60)); p.set(3, i, hex(0x2c2c30)); p.set(12, i, hex(0x5a5a60)); } for (let i = 6; i < 10; i++) for (let k = 6; k < 10; k++) p.set(i, k, hex((i + k) % 2 ? 0x2e2e33 : 0x56565c)); return p; };
+  T.packed_mud = () => speckle(noise('pmud', hex(0x8e6b50), 0.07), 'pmud', [hex(0x7a5a42), hex(0xa07c5e), hex(0xc8a26a)], 28);
+  T.mud_bricks = () => bricks('mudb', hex(0x8c6a52), hex(0x6a4e3c), 4, 8);
+  T.prismarine = () => speckle(noise('prs', hex(0x63a497), 0.12), 'prs', [hex(0x4c8e86), hex(0x7db8a5), hex(0x5a9a92)], 50, 2);
+  T.prismarine_bricks = () => bricks('prb', hex(0x6bb3a3), hex(0x4f8f84), 8, 8);
+  T.dark_prismarine = () => { const p = speckle(noise('dprs', hex(0x335b4b), 0.08), 'dprs', [hex(0x284a3c), hex(0x3f6e5c)], 30); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0x1f3a30)); p.set(0, i, hex(0x1f3a30)); p.set(i, 8, hex(0x1f3a30)); p.set(8, i, hex(0x1f3a30)); } return p; };
+  T.sea_lantern = () => { const p = noise('slt', hex(0xd6e6dc), 0.06); const r = rngFor('slt2'); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0x8fb3a6)); p.set(i, 15, hex(0x8fb3a6)); p.set(0, i, hex(0x8fb3a6)); p.set(15, i, hex(0x8fb3a6)); } for (let n = 0; n < 6; n++) { const x = 3 + r.int(10), y = 3 + r.int(10); p.set(x, y, hex(0xffffff)); p.set(x + 1, y, hex(0xeefcf4)); } for (const [x, y] of [[4, 4], [11, 4], [4, 11], [11, 11]]) { p.set(x, y, hex(0xa8ccc0)); p.set(x + 1, y + 1, hex(0xa8ccc0)); } return p; };
+  T.red_nether_bricks = () => bricks('rnb', hex(0x4a0a0b), hex(0x2a0405));
+  T.cracked_nether_bricks = () => crackOver(bricks('cnb', hex(0x2d171b), hex(0x1a0c0f)), 'cnbk', hex(0x0e0607));
+  T.chiseled_nether_bricks = () => { const p = bricks('chnb', hex(0x2d171b), hex(0x1a0c0f), 8, 16); for (let y = 4; y < 12; y++) for (let x = 5; x < 11; x++) p.set(x, y, hex(0x3a1e22)); for (const [x, y] of [[6, 6], [9, 6], [7, 9], [8, 9], [6, 10], [9, 10]]) p.set(x, y, hex(0x140708)); return p; };
+  T.quartz_bricks = () => bricks('qzbr', hex(0xece6df), hex(0xc8bfb4), 4, 8);
+  T.chiseled_quartz_block = () => { const p = noise('cqz', hex(0xe8e2da), 0.03); for (let y = 0; y < 16; y++) { p.set(2, y, hex(0xc8bfb4)); p.set(13, y, hex(0xc8bfb4)); p.set(3, y, hex(0xf8f4ee)); p.set(12, y, hex(0xf8f4ee)); } for (let x = 0; x < 16; x++) { p.set(x, 0, hex(0xd4ccc2)); p.set(x, 15, hex(0xd4ccc2)); } return p; };
+  T.chiseled_quartz_block_top = () => framed(rim(noise('cqzt', hex(0xece6df), 0.03), hex(0xc8bfb4)), hex(0xf8f4ee), hex(0xcfc6bc));
+  T.cut_red_sandstone = () => { const p = noise('crs', hex(0xb5621f), 0.04); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0x9c521a)); p.set(i, 15, hex(0x9c521a)); p.set(i, 7, hex(0x9c521a)); p.set(i, 8, hex(0xc97a35)); } return p; };
+  T.chiseled_red_sandstone = () => { const p = noise('chrs', hex(0xb5621f), 0.04); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0x9c521a)); p.set(i, 15, hex(0x9c521a)); p.set(i, 3, hex(0x9c521a)); p.set(i, 12, hex(0x9c521a)); } for (const [x, y] of [[7, 5], [8, 5], [6, 6], [9, 6], [6, 7], [9, 7], [7, 8], [8, 8], [7, 9], [8, 9], [7, 10], [8, 10]]) p.set(x, y, hex(0x7e4214)); return p; };
+  T.polished_basalt_side = () => { const p = noise('pbas', hex(0x58585e), 0.05); for (let y = 0; y < 16; y++) { p.set(0, y, hex(0x3c3c41)); p.set(15, y, hex(0x3c3c41)); p.set(5, y, hex(0x47474c)); p.set(10, y, hex(0x47474c)); } return p; };
+  T.polished_basalt_top = () => { const p = rim(noise('pbat', hex(0x5c5c62), 0.05), hex(0x3c3c41)); for (let i = 4; i < 12; i++) { p.set(i, 4, hex(0x47474c)); p.set(i, 11, hex(0x47474c)); p.set(4, i, hex(0x47474c)); p.set(11, i, hex(0x47474c)); } return p; };
+}
+
 function dragonScale(key: string): Px {
   const p = speckle(noise(key, hex(0x1e1b24), 0.12), key, [hex(0x2e2a38), hex(0x0e0c12), hex(0x3a3446)], 34, 2);
   for (let y = 0; y < 16; y += 4) for (let x = (y >> 2) & 1 ? 2 : 0; x < 16; x += 4) p.set(x, y, hex(0x0a090c));
@@ -1052,6 +1080,8 @@ const ITEM_MAP: Record<string, () => Px> = {
   ITEM_MAP.firestriker = () => drawSprite(['................', '................', '..aaaa..........', '.abbbba.........', '.ab..ba.........', '.ab..ba.........', '.abbbba...cc....', '..aaaa...cddc...', '........cdddc...', '.......cdddc....', '......cdddc.....', '.....cdddc......', '......ccc.......', '................', '................', '................'], { a: 0x3a3a3a, b: 0xb8b8b8, c: 0x1a1a20, d: 0x4a4a58 });
   ITEM_MAP.copper_ingot = () => drawSprite(SPRITES.ingot.rows, { a: 0x6a3018, b: 0xc06a48, c: 0xf0b090 });
   ITEM_MAP.trial_key = () => drawSprite(['................', '................', '..aaa...........', '.abbba..........', '.ab.ba..........', '.abbbaaaaaaaaa..', '..aaabbbbbbbbba.', '.....aaaaaba.ba.', '..........a..a..', '................', '................', '................', '................', '................', '................', '................'], { a: 0x4a3010, b: 0xe8b040 });
+  ITEM_MAP.prismarine_shard = () => drawSprite(['................', '..........aa....', '.........abba...', '........abcba...', '.......abccba...', '......abccba....', '.....abccba.....', '....abccba......', '...abccba.......', '...abcba........', '..abba..........', '..aa............', '................', '................', '................', '................'], { a: 0x2d5f55, b: 0x5aa898, c: 0x9ad8c8 });
+  ITEM_MAP.prismarine_crystals = () => drawSprite(['................', '.....a....a.....', '....aba..aba....', '...abcba.abca...', '....aba..aba....', '.....a..a.a.....', '.......aba......', '..a...abcba..a..', '.aba...aba..aba.', 'abcba...a..abcba', '.aba........aba.', '..a....a.....a..', '......aba.......', '.....abcba......', '......aba.......', '.......a........'], { a: 0x6a9a90, b: 0xc8eee0, c: 0xffffff });
   ITEM_MAP.glow_ink_sac = () => drawSprite(['................', '................', '......aaaa......', '.....abbbba.....', '....abbcbbba....', '....abbbbbba....', '....abcbbbba....', '.....abbbba.....', '......abba......', '.....a.aa.a.....', '....a..aa..a....', '.......aa.......', '................', '................', '................', '................'], { a: 0x0a4a50, b: 0x2ab8b0, c: 0xb0fff0 });
   const frameSprite = (b: number, c: number) => () => drawSprite(['................', '.aaaaaaaaaaaaaa.', '.abbbbbbbbbbbba.', '.abccccccccccba.', '.abcddddddddcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcdeeeeeedcba.', '.abcddddddddcba.', '.abccccccccccba.', '.abbbbbbbbbbbba.', '.aaaaaaaaaaaaaa.', '................'], { a: 0x5a4020, b: 0xc8a868, c: 0x9a7a44, d: b, e: c });
   ITEM_MAP.item_frame = frameSprite(0x6a3a1a, 0x8a5428);

@@ -1,4 +1,17 @@
-import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand } from './blocks';
+import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand, isConnecting, isWall, connMask, connCollision, connVisual, connBounds, wallPost } from './blocks';
+
+function connShape(world: BlockReader, v: number, x: number, y: number, z: number, collide: boolean): number[][] {
+  const id = bid(v);
+  const nb = (yy: number) => (dx: number, dz: number) => world.getBlock(x + dx, yy, z + dz);
+  const mask = connMask(id, nb(y));
+  const post = isWall(id) ? wallPost(mask, world.getBlock(x, y + 1, z), () => connMask(bid(world.getBlock(x, y + 1, z)), nb(y + 1))) : true;
+  return collide ? connCollision(id, mask, post) : connVisual(id, mask, post);
+}
+
+export function selectionAt(world: BlockReader, v: number, x: number, y: number, z: number): [number, number, number, number, number, number] | null {
+  if (isConnecting(bid(v))) return connBounds(connShape(world, v, x, y, z, false) as [number, number, number, number, number, number][]);
+  return selectionBox(v);
+}
 
 export interface BlockReader {
   getBlock(x: number, y: number, z: number): number;
@@ -22,7 +35,7 @@ function collectBoxes(world: BlockReader, x0: number, y0: number, z0: number, x1
   for (let y = iy0; y <= iy1; y++) for (let z = iz0; z <= iz1; z++) for (let x = ix0; x <= ix1; x++) {
     const v = world.getBlock(x, y, z);
     if (v === 0) continue;
-    const list = blockBoxes(v);
+    const list = isConnecting(bid(v)) ? connShape(world, v, x, y, z, true) : blockBoxes(v);
     if (!list) continue;
     for (const bb of list) out.push(x + bb[0], y + bb[1], z + bb[2], x + bb[3], y + bb[4], z + bb[5]);
   }
@@ -177,7 +190,7 @@ export function raycast(world: BlockReader, ox: number, oy: number, oz: number, 
   for (let i = 0; i < 256; i++) {
     const v = world.getBlock(x, y, z);
     if (v !== 0) {
-      let sb = selectionBox(v);
+      let sb = selectionAt(world, v, x, y, z);
       if (!sb && hitFluids && isFluid(v) && (v >>> 8) === 0) sb = [0, 0, 0, 1, 0.875, 1];
       if (sb) {
         tmp[0] = x + sb[0]; tmp[1] = y + sb[1]; tmp[2] = z + sb[2]; tmp[3] = x + sb[3]; tmp[4] = y + sb[4]; tmp[5] = z + sb[5];

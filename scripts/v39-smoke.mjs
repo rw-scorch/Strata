@@ -14,7 +14,7 @@ const join = (id, secret, name) => new Promise((res) => {
   const ws = new WebSocket(`${wsBase}/ws/${room.code}`);
   const c = { ws, msgs: [], send: (m) => ws.send(JSON.stringify(m)) };
   ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome') { c.you = m.you; res(c); } };
-  ws.onopen = () => c.send({ t: 'hello', v: 36, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
+  ws.onopen = () => c.send({ t: 'hello', v: 37, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
 });
 const a = await join(`own-v39-${tag}`, 'owner-secret-v39-0000', 'Alpha');
 const b = await join(`guest-v39-${tag}`, `guest-secret-v39-${tag}`, 'Bravo');

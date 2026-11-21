@@ -1,5 +1,6 @@
 import type { BlockArray } from '../chunk';
 import { RAIL_EXITS, RAIL_POWERED, isAscending } from '../rails';
+import { isGate, GATE_OPEN, GATE_POWERED } from '../blocks';
 import { B, BLOCKS, FACING_DIRS, blockId, blockMeta, makeBlock, DOOR_UPPER, DOOR_OPEN, isTrapdoor, isDoorBlock, TD_OPEN, bid, ID_LIMIT, isBaseId, CB, SENSOR_ACTIVE, SENSOR_COOL } from '../blocks';
 import { getItem } from '../items';
 import type { ItemStack } from '../inventory';
@@ -262,6 +263,7 @@ export class Redstone {
       return;
     }
     if (id === B.OAK_DOOR) { if (isTrapdoor(v)) this.trapdoorCheck(x, y, z, v); else this.doorCheck(x, y, z, v); return; }
+    if (isGate(id)) { this.gateCheck(x, y, z, v); return; }
     if (id === B.TNT) { if (this.hasNeighborSignal(x, y, z)) this.h.primeTnt(x, y, z, 80); return; }
     if (id === B.POWERED_RAIL || id === B.ACTIVATOR_RAIL) { this.railPower(x, y, z, v); return; }
     if (isPiston(id)) { this.pistonCheck(x, y, z, v); return; }
@@ -308,6 +310,7 @@ export class Redstone {
     if (isLamp(nid)) this.neighborChanged(x, y, z);
     if (oid === B.OAK_DOOR && isTrapdoor(old) && !isTrapdoor(v)) this.tdPow.delete(key(x, y, z));
     if (nid === B.OAK_DOOR) { if (isTrapdoor(v)) this.trapdoorCheck(x, y, z, v); else this.doorCheck(x, y, z, v); }
+    if (isGate(nid) && !isGate(oid)) this.gateCheck(x, y, z, v);
     if (nid === B.TNT && oid !== B.TNT) this.neighborChanged(x, y, z);
     if ((nid === B.POWERED_RAIL || nid === B.ACTIVATOR_RAIL) && oid !== nid) this.railPower(x, y, z, v);
     if (isPiston(nid) || nid === B.HOPPER || nid === B.DROPPER || nid === B.DISPENSER) this.neighborChanged(x, y, z);
@@ -868,6 +871,15 @@ export class Redstone {
     if (open === powered) return;
     this.h.setState(x, y, z, makeBlock(B.OAK_DOOR, powered ? m | TD_OPEN : m & ~TD_OPEN));
     this.h.sound(powered ? 'door.open' : 'door.close', x, y, z);
+  }
+
+  private gateCheck(x: number, y: number, z: number, v: number): void {
+    const m = blockMeta(v), powered = this.hasNeighborSignal(x, y, z);
+    if (powered === !!(m & GATE_POWERED)) return;
+    const open = !!(m & GATE_OPEN);
+    const nm = powered ? m | GATE_POWERED | GATE_OPEN : m & ~(GATE_POWERED | GATE_OPEN);
+    this.h.setState(x, y, z, makeBlock(blockId(v), nm));
+    if (open !== powered) this.h.sound(powered ? 'gate.open' : 'gate.close', x, y, z);
   }
 
   private doorCheck(x: number, y: number, z: number, v: number): void {

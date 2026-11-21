@@ -1,4 +1,4 @@
-import { BLOCKS, B, CB, ToolType, COLORS, COLOR_NAMES, DyeColor, SHAPE_MATS, slabItem, stairsItem } from './blocks';
+import { BLOCKS, B, CB, ToolType, COLORS, COLOR_NAMES, DyeColor, SHAPE_MATS, slabItem, stairsItem, SLAB2, STAIRS2 } from './blocks';
 
 export type ItemKind = 'block' | 'tool' | 'food' | 'armor' | 'material' | 'bucket' | 'placer';
 export type CreativeTab = 'building' | 'nature' | 'functional' | 'tools' | 'combat' | 'food' | 'materials';
@@ -30,7 +30,7 @@ export interface ItemDef {
 export const I = {
   GLOW_BERRIES: 4096,
   SHIELD: 490, ENDER_PEARL: 491,
-  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505,
+  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505, PRISMARINE_SHARD: 506, PRISMARINE_CRYSTALS: 507,
   STICK: 256, APPLE: 258, COAL: 260, CHARCOAL: 261, IRON_INGOT: 262, FLINT: 263, AETHERITE: 264,
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
@@ -65,7 +65,8 @@ const TAB_FOR_CATEGORY: Record<string, CreativeTab> = {
 for (const b of BLOCKS) {
   if (!b || b.id === 0) continue;
   const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door' || b.render === 'redstone' || b.render === 'rail' || b.render === 'fire' || b.render === 'portal' || b.render === 'bars' || b.render === 'cave';
-  if (b.render === 'fence') { add({ id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.id, texture: 'nether_brick_fence_item', blockIcon: false, tab: 'building' }); continue; }
+  if (b.key === 'slab2' || b.key === 'stairs2') continue;
+  if (b.render === 'fence' && b.id === B.NETHER_BRICK_FENCE) { add({ id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.id, texture: 'nether_brick_fence_item', blockIcon: false, tab: 'building' }); continue; }
   add({
     id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.ext !== undefined ? 218 : b.species ? b.species.base : b.id, placeMeta: b.ext ?? (b.species ? b.species.s << 4 : undefined),
     texture: b.render === 'door' ? 'oak_door_item' : b.render === 'redstone' || b.render === 'rail' ? b.faces.py : b.faces.pz, blockIcon: !flat, tab: TAB_FOR_CATEGORY[b.category] ?? 'building',
@@ -82,8 +83,8 @@ export const SPEAR_MATS = [
 export function spearIndex(id: number): number { return id >= I.SPEAR && id < I.SPEAR + SPEAR_MATS.length ? id - I.SPEAR : -1; }
 
 SHAPE_MATS.forEach((m, i) => {
-  add({ id: slabItem(i), key: `${m.key}_slab`, name: `${m.name} Slab`, desc: 'Half a block. Place two of the same together for a full block.', kind: 'block', places: B.SLAB, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
-  add({ id: stairsItem(i), key: `${m.key}_stairs`, name: `${m.name} Stairs`, desc: 'Climb without jumping. Place on the underside of a block to turn them upside down.', kind: 'block', places: B.STAIRS, placeMeta: i, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
+  add({ id: slabItem(i), key: `${m.key}_slab`, name: `${m.name} Slab`, desc: 'Half a block. Place two of the same together for a full block.', kind: 'block', places: i < 32 ? B.SLAB : SLAB2, placeMeta: i & 31, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
+  add({ id: stairsItem(i), key: `${m.key}_stairs`, name: `${m.name} Stairs`, desc: 'Climb without jumping. Place on the underside of a block to turn them upside down.', kind: 'block', places: i < 32 ? B.STAIRS : STAIRS2, placeMeta: i & 31, texture: BLOCKS[m.id]?.faces.py ?? 'stone', tab: 'building' });
 });
 
 const mat = (id: number, key: string, name: string, desc: string, extra: Partial<ItemDef> = {}) =>
@@ -120,6 +121,8 @@ add({ id: I.GLOW_ITEM_FRAME, key: 'glow_item_frame', name: 'Glow Item Frame', de
 add({ id: I.HOPPER_MINECART, key: 'hopper_minecart', name: 'Minecart with Hopper', desc: 'Rolls along rails, drawing items from containers above and gathering items it passes. Hoppers below can empty it. Powered Activator Rails switch it off.', kind: 'material', texture: 'hopper_minecart', maxStack: 1, tab: 'tools' });
 add({ id: I.CHEST_MINECART, key: 'chest_minecart', name: 'Minecart with Chest', desc: 'A rolling chest. Open it to load cargo; hoppers can fill and empty it.', kind: 'material', texture: 'chest_minecart', maxStack: 1, tab: 'tools' });
 add({ id: I.GLOW_INK_SAC, key: 'glow_ink_sac', name: 'Glow Ink Sac', desc: 'Faintly luminous ink. Combine with an Item Frame to make it glow.', kind: 'material', texture: 'glow_ink_sac', tab: 'materials' });
+add({ id: I.PRISMARINE_SHARD, key: 'prismarine_shard', name: 'Prismarine Shard', desc: 'A sharp sea-green shard. Builds prismarine blocks.', kind: 'material', texture: 'prismarine_shard', tab: 'materials' });
+add({ id: I.PRISMARINE_CRYSTALS, key: 'prismarine_crystals', name: 'Prismarine Crystals', desc: 'Glowing crystals. Four shards and five crystals make a Sea Lantern.', kind: 'material', texture: 'prismarine_crystals', tab: 'materials' });
 add({ id: I.DRAGON_BREATH, key: 'dragon_breath', name: "Dragon's Breath", desc: 'Bottled from the purple cloud the Ender Dragon breathes.', kind: 'material', texture: 'dragon_breath', tab: 'materials' });
 add({ id: I.FLINT_AND_STEEL, key: 'firestriker', name: 'Flint and Steel', desc: 'Strike it on TNT to light the fuse.', kind: 'material', texture: 'firestriker', maxStack: 1, durability: 64, tab: 'tools' });
 mat(I.FEATHER, 'feather', 'Feather', 'Plucked from a Chicken. Fletches arrows.');

@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars' | 'fence' | 'trapdoor' | 'cave';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars' | 'fence' | 'trapdoor' | 'cave' | 'wall' | 'gate';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -512,6 +512,183 @@ def(CB.SOUL_CAMPFIRE, 'soul_campfire', 'Soul Campfire', 'A campfire of blue soul
 def(CB.RESPAWN_ANCHOR, 'respawn_anchor', 'Respawn Anchor', 'Charge it with Glowshard and use it in the Nether to respawn there. Anywhere else it explodes.', { faces: HALF_SIDES('respawn_anchor_side0', 'respawn_anchor_top_off', 'respawn_anchor_bottom'), render: 'boxes', opaque: false, lightFilter: 15, lightEmit: 15, hardness: 50, tool: 'pickaxe', tier: 4, interactive: true, category: 'functional' });
 def(CB.LODESTONE, 'lodestone', 'Lodestone', 'Use a Compass on it and the compass will point here instead of spawn, even in the Nether.', { faces: COL('lodestone_side', 'lodestone_top'), hardness: 3.5, tool: 'pickaxe', tier: 1, sound: 'metal', interactive: true, category: 'functional' });
 def(CB.DRAGON_HEAD, 'dragon_head', 'Dragon Head', 'A trophy from the bow of an End ship.', { faces: ALL('dragon_head'), render: 'boxes', opaque: false, lightFilter: 0, hardness: 1, category: 'functional' });
+export const NB = {
+  POLISHED_DEEPSLATE: 1132, DEEPSLATE_BRICKS: 1133, CRACKED_DEEPSLATE_BRICKS: 1134, DEEPSLATE_TILES: 1135, CRACKED_DEEPSLATE_TILES: 1136, CHISELED_DEEPSLATE: 1137,
+  PACKED_MUD: 1138, MUD_BRICKS: 1139, PRISMARINE: 1140, PRISMARINE_BRICKS: 1141, DARK_PRISMARINE: 1142, SEA_LANTERN: 1143,
+  RED_NETHER_BRICKS: 1144, CRACKED_NETHER_BRICKS: 1145, CHISELED_NETHER_BRICKS: 1146, SMOOTH_QUARTZ: 1147, QUARTZ_BRICKS: 1148, CHISELED_QUARTZ: 1149,
+  SMOOTH_RED_SANDSTONE: 1150, CUT_RED_SANDSTONE: 1151, CHISELED_RED_SANDSTONE: 1152, POLISHED_BASALT: 1153,
+} as const;
+export const FENCE_BASE = 1070, GATE_BASE = 1080, WALL_BASE = 1090, GLASS_PANE = 1115, STAINED_PANE_BASE = 1116, SLAB2 = 1160, STAIRS2 = 1161;
+export const GATE_OPEN = 4, GATE_POWERED = 8;
+const STONE_P = { hardness: 1.5, tool: 'pickaxe' as ToolType, tier: 1 };
+const DS_P = { hardness: 3.5, tool: 'pickaxe' as ToolType, tier: 1, sound: 'stone' as SoundGroup };
+def(NB.POLISHED_DEEPSLATE, 'polished_deepslate', 'Polished Deepslate', 'Deepslate ground smooth and dark.', { faces: ALL('polished_deepslate'), ...DS_P });
+def(NB.DEEPSLATE_BRICKS, 'deepslate_bricks', 'Deepslate Bricks', 'Small, heavy bricks cut from the deep dark.', { faces: ALL('deepslate_bricks'), ...DS_P });
+def(NB.CRACKED_DEEPSLATE_BRICKS, 'cracked_deepslate_bricks', 'Cracked Deepslate Bricks', 'Deepslate bricks split by heat.', { faces: ALL('cracked_deepslate_bricks'), ...DS_P });
+def(NB.DEEPSLATE_TILES, 'deepslate_tiles', 'Deepslate Tiles', 'Square deepslate tiles in a tight grid.', { faces: ALL('deepslate_tiles'), ...DS_P });
+def(NB.CRACKED_DEEPSLATE_TILES, 'cracked_deepslate_tiles', 'Cracked Deepslate Tiles', 'Deepslate tiles split by heat.', { faces: ALL('cracked_deepslate_tiles'), ...DS_P });
+def(NB.CHISELED_DEEPSLATE, 'chiseled_deepslate', 'Chiseled Deepslate', 'Deepslate carved with an ancient pattern.', { faces: ALL('chiseled_deepslate'), ...DS_P });
+def(NB.PACKED_MUD, 'packed_mud', 'Packed Mud', 'Mud and wheat pressed firm.', { faces: ALL('packed_mud'), hardness: 1, sound: 'dirt' });
+def(NB.MUD_BRICKS, 'mud_bricks', 'Mud Bricks', 'Sun-baked bricks with a warm, earthy colour.', { faces: ALL('mud_bricks'), ...STONE_P });
+def(NB.PRISMARINE, 'prismarine', 'Prismarine', 'Sea-green stone that shifts colour as you watch.', { faces: ALL('prismarine'), ...STONE_P });
+def(NB.PRISMARINE_BRICKS, 'prismarine_bricks', 'Prismarine Bricks', 'Neat blocks of pale sea stone.', { faces: ALL('prismarine_bricks'), ...STONE_P });
+def(NB.DARK_PRISMARINE, 'dark_prismarine', 'Dark Prismarine', 'Deep teal sea stone set with dark seams.', { faces: ALL('dark_prismarine'), ...STONE_P });
+def(NB.SEA_LANTERN, 'sea_lantern', 'Sea Lantern', 'A glowing block of shards and crystals. Shines underwater.', { faces: ALL('sea_lantern'), hardness: 0.3, lightEmit: 15, sound: 'glass', drops: [{ item: 507, min: 2, max: 3 }] });
+def(NB.RED_NETHER_BRICKS, 'red_nether_bricks', 'Red Nether Bricks', 'Nether bricks mortared with wart.', { faces: ALL('red_nether_bricks'), hardness: 2, tool: 'pickaxe', tier: 1 });
+def(NB.CRACKED_NETHER_BRICKS, 'cracked_nether_bricks', 'Cracked Nether Bricks', 'Nether bricks split by heat.', { faces: ALL('cracked_nether_bricks'), hardness: 2, tool: 'pickaxe', tier: 1 });
+def(NB.CHISELED_NETHER_BRICKS, 'chiseled_nether_bricks', 'Chiseled Nether Bricks', 'Nether brick carved with a skull.', { faces: ALL('chiseled_nether_bricks'), hardness: 2, tool: 'pickaxe', tier: 1 });
+def(NB.SMOOTH_QUARTZ, 'smooth_quartz', 'Smooth Quartz Block', 'Flawless polished quartz.', { faces: ALL('quartz_block_bottom'), hardness: 2, tool: 'pickaxe', tier: 1 });
+def(NB.QUARTZ_BRICKS, 'quartz_bricks', 'Quartz Bricks', 'Small clean bricks of quartz.', { faces: ALL('quartz_bricks'), hardness: 0.8, tool: 'pickaxe', tier: 1 });
+def(NB.CHISELED_QUARTZ, 'chiseled_quartz_block', 'Chiseled Quartz Block', 'Quartz carved with deep grooves.', { faces: COL('chiseled_quartz_block', 'chiseled_quartz_block_top'), hardness: 0.8, tool: 'pickaxe', tier: 1 });
+def(NB.SMOOTH_RED_SANDSTONE, 'smooth_red_sandstone', 'Smooth Red Sandstone', 'Red sandstone sanded flat.', { faces: ALL('red_sandstone_top'), hardness: 2, tool: 'pickaxe', tier: 1 });
+def(NB.CUT_RED_SANDSTONE, 'cut_red_sandstone', 'Cut Red Sandstone', 'Red sandstone cut into clean blocks.', { faces: COL('cut_red_sandstone', 'red_sandstone_top'), hardness: 0.8, tool: 'pickaxe', tier: 1 });
+def(NB.CHISELED_RED_SANDSTONE, 'chiseled_red_sandstone', 'Chiseled Red Sandstone', 'Red sandstone carved with a desert glyph.', { faces: COL('chiseled_red_sandstone', 'red_sandstone_top'), hardness: 0.8, tool: 'pickaxe', tier: 1 });
+def(NB.POLISHED_BASALT, 'polished_basalt', 'Polished Basalt', 'Basalt columns ground smooth.', { faces: COL('polished_basalt_side', 'polished_basalt_top'), hardness: 1.25, tool: 'pickaxe', tier: 1 });
+
+export const WOODS: [string, string, number][] = [
+  ['oak', 'Oak', B.OAK_PLANKS], ['spruce', 'Spruce', B.SPRUCE_PLANKS], ['birch', 'Birch', B.BIRCH_PLANKS], ['jungle', 'Jungle', B.JUNGLE_PLANKS],
+  ['acacia', 'Acacia', SB.ACACIA_PLANKS], ['dark_oak', 'Dark Oak', SB.DARK_OAK_PLANKS], ['cherry', 'Cherry', SB.CHERRY_PLANKS], ['mangrove', 'Mangrove', SB.MANGROVE_PLANKS],
+  ['crimson', 'Crimson', XB + XV.CRIMSON_PLANKS], ['warped', 'Warped', XB + XV.WARPED_PLANKS],
+];
+const CONN: Partial<BlockDef> = { opaque: false, lightFilter: 0, cullSelf: false, category: 'building' };
+WOODS.forEach(([k, n, plank], i) => {
+  const nether = k === 'crimson' || k === 'warped';
+  def(FENCE_BASE + i, `${k}_fence`, `${n} Fence`, 'Links to fences, gates and solid blocks. Too tall to jump.', { faces: ALL(`${k}_planks`), render: 'fence', hardness: 2, tool: 'axe', sound: 'wood', ...CONN });
+  def(GATE_BASE + i, `${k}_fence_gate`, `${n} Fence Gate`, 'A gate for fences and walls. Use it to swing it open; redstone works too.', { faces: ALL(`${k}_planks`), render: 'gate', hardness: 2, tool: 'axe', sound: 'wood', interactive: true, ...CONN });
+  if (nether) { defs[FENCE_BASE + i].sound = 'wood'; }
+  void plank;
+});
+
+export const WALL_MATS: [string, string, number][] = [
+  ['cobblestone', 'Cobblestone', B.COBBLESTONE], ['mossy_cobblestone', 'Mossy Cobblestone', B.MOSSY_COBBLESTONE], ['stone_brick', 'Stone Brick', B.STONE_BRICKS],
+  ['mossy_stone_brick', 'Mossy Stone Brick', B.MOSSY_STONE_BRICKS], ['brick', 'Brick', B.BRICKS], ['sandstone', 'Sandstone', B.SANDSTONE], ['red_sandstone', 'Red Sandstone', SB.RED_SANDSTONE],
+  ['nether_brick', 'Nether Brick', XB + XV.NETHER_BRICKS], ['red_nether_brick', 'Red Nether Brick', NB.RED_NETHER_BRICKS], ['granite', 'Granite', XB + XV.GRANITE],
+  ['diorite', 'Diorite', XB + XV.DIORITE], ['andesite', 'Andesite', XB + XV.ANDESITE], ['blackstone', 'Blackstone', XB + XV.BLACKSTONE],
+  ['polished_blackstone', 'Polished Blackstone', XB + XV.POLISHED_BLACKSTONE], ['polished_blackstone_brick', 'Polished Blackstone Brick', XB + XV.POLISHED_BLACKSTONE_BRICKS],
+  ['cobbled_deepslate', 'Cobbled Deepslate', CB.COBBLED_DEEPSLATE], ['polished_deepslate', 'Polished Deepslate', NB.POLISHED_DEEPSLATE], ['deepslate_brick', 'Deepslate Brick', NB.DEEPSLATE_BRICKS],
+  ['deepslate_tile', 'Deepslate Tile', NB.DEEPSLATE_TILES], ['end_stone_brick', 'End Stone Brick', CB.END_STONE_BRICKS], ['prismarine', 'Prismarine', NB.PRISMARINE],
+  ['mud_brick', 'Mud Brick', NB.MUD_BRICKS], ['tuff', 'Tuff', B.TUFF], ['polished_tuff', 'Polished Tuff', B.POLISHED_TUFF], ['tuff_brick', 'Tuff Brick', B.TUFF_BRICKS],
+];
+WALL_MATS.forEach(([k, n, src], i) => {
+  const d = defs[src];
+  def(WALL_BASE + i, `${k}_wall`, `${n} Wall`, 'Links to walls, panes, gates and solid blocks. Too tall to jump.', { faces: { ...d.faces }, render: 'wall', hardness: d.hardness, tool: d.tool ?? 'pickaxe', tier: d.tier || 1, sound: d.sound, ...CONN });
+});
+
+def(GLASS_PANE, 'glass_pane', 'Glass Pane', 'A thin sheet of glass that links to panes, bars, walls and solid blocks.', { faces: ALL('glass'), render: 'bars', hardness: 0.3, drops: null, sound: 'glass', ...CONN });
+COLORS.forEach((c, i) => {
+  const n = COLOR_NAMES[c];
+  def(STAINED_PANE_BASE + i, `${c}_stained_glass_pane`, `${n} Stained Glass Pane`, 'A thin sheet of coloured glass.', { faces: ALL(`${c}_stained_glass`), render: 'bars', hardness: 0.3, drops: null, sound: 'glass', ...CONN });
+});
+{
+  const { id: _a, key: _b, name: _c, desc: _d, ...slab } = defs[B.SLAB];
+  const { id: _e, key: _f, name: _g, desc: _h, ...stairs } = defs[B.STAIRS];
+  def(SLAB2, 'slab2', 'Slab', 'Half a block.', { ...slab, category: 'hidden' });
+  def(STAIRS2, 'stairs2', 'Stairs', 'Climb without jumping.', { ...stairs, category: 'hidden' });
+}
+
+export function isWoodFence(id: number): boolean { return id >= FENCE_BASE && id < FENCE_BASE + 10; }
+export function isGate(id: number): boolean { return id >= GATE_BASE && id < GATE_BASE + 10; }
+export function isWall(id: number): boolean { return id >= WALL_BASE && id < WALL_BASE + 25; }
+export function isPane(id: number): boolean { return id === B.IRON_BARS || id === GLASS_PANE || (id >= STAINED_PANE_BASE && id < STAINED_PANE_BASE + 16); }
+export function isStainedPane(id: number): boolean { return id >= STAINED_PANE_BASE && id < STAINED_PANE_BASE + 16; }
+export function isConnecting(id: number): boolean { return isWoodFence(id) || id === B.NETHER_BRICK_FENCE || isWall(id) || isPane(id); }
+export function isSlabId(id: number): boolean { return id === B.SLAB || id === SLAB2; }
+export function isStairsId(id: number): boolean { return id === B.STAIRS || id === STAIRS2; }
+export function shapeMatIndex(v: number): number { const id = bid(v); return ((v >>> 8) & 31) + (id === SLAB2 || id === STAIRS2 ? 32 : 0); }
+
+let faceTable: Uint8Array | null = null;
+function solidFace(id: number): boolean {
+  if (!faceTable) {
+    faceTable = new Uint8Array(ID_LIMIT);
+    for (const d of defs) {
+      if (!d || !isBaseId(d.id) || !d.solid) continue;
+      if ((d.render === 'cube' || d.render === 'glass' || d.render === 'translucent') && !/pumpkin|melon|shulker|leaves/.test(d.key)) faceTable[d.id] = 1;
+    }
+  }
+  return faceTable[id] === 1;
+}
+
+const DIR4: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+export function connMask(id: number, nb: (dx: number, dz: number) => number): number {
+  let m = 0;
+  for (let i = 0; i < 4; i++) {
+    const [dx, dz] = DIR4[i];
+    const nv = nb(dx, dz), n = bid(nv);
+    if (!n) continue;
+    let ok = false;
+    if (isGate(n)) { const [fx] = FACING_DIRS[(nv >>> 8) & 3]; ok = !isPane(id) && (fx === 0 ? dx !== 0 : dz !== 0); }
+    else if (isPane(id)) ok = isPane(n) || isWall(n) || solidFace(n);
+    else if (isWall(id)) ok = isWall(n) || isPane(n) || solidFace(n);
+    else if (isWoodFence(id)) ok = isWoodFence(n) || solidFace(n);
+    else if (id === B.NETHER_BRICK_FENCE) ok = n === id || solidFace(n);
+    if (ok) m |= 1 << i;
+  }
+  return m;
+}
+
+export function wallPost(mask: number, above: number, aboveMask: () => number): boolean {
+  if (mask !== 5 && mask !== 10) return true;
+  const a = bid(above);
+  if (!a) return false;
+  if (isWall(a)) { const am = aboveMask(); return am !== 5 && am !== 10; }
+  const d = defs[a];
+  return !!d && (d.solid || d.render === 'torch' || isLantern(a));
+}
+
+type CBox = [number, number, number, number, number, number];
+const q16 = (b: number[]): CBox => b.map((n) => n / 16) as CBox;
+export function connVisual(id: number, mask: number, post = true): CBox[] {
+  if (isWall(id)) {
+    const out: CBox[] = post ? [q16([4, 0, 4, 12, 16, 12])] : [];
+    if (mask & 1) out.push(q16([8, 0, 5, 16, 14, 11]));
+    if (mask & 2) out.push(q16([5, 0, 8, 11, 14, 16]));
+    if (mask & 4) out.push(q16([0, 0, 5, 8, 14, 11]));
+    if (mask & 8) out.push(q16([5, 0, 0, 11, 14, 8]));
+    return out;
+  }
+  if (isPane(id)) {
+    const out: CBox[] = [q16([7, 0, 7, 9, 16, 9])];
+    if (mask & 1) out.push(q16([9, 0, 7, 16, 16, 9]));
+    if (mask & 2) out.push(q16([7, 0, 9, 9, 16, 16]));
+    if (mask & 4) out.push(q16([0, 0, 7, 7, 16, 9]));
+    if (mask & 8) out.push(q16([7, 0, 0, 9, 16, 7]));
+    return out;
+  }
+  return fenceBoxes([!!(mask & 1), !!(mask & 2), !!(mask & 4), !!(mask & 8)]);
+}
+
+export function connCollision(id: number, mask: number, post = true): CBox[] {
+  const [a, b, h] = isWall(id) ? [5, 11, 24] : isPane(id) ? [7, 9, 16] : [6, 10, 24];
+  const out: CBox[] = [];
+  if (isWall(id) && post) out.push(q16([4, 0, 4, 12, 24, 12]));
+  else out.push(q16([a, 0, a, b, h, b]));
+  if (mask & 1) out.push(q16([b, 0, a, 16, h, b]));
+  if (mask & 2) out.push(q16([a, 0, b, b, h, 16]));
+  if (mask & 4) out.push(q16([0, 0, a, a, h, b]));
+  if (mask & 8) out.push(q16([a, 0, 0, b, h, a]));
+  return out;
+}
+
+export function connBounds(boxes: CBox[]): CBox {
+  return [Math.min(...boxes.map((b) => b[0])), 0, Math.min(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3])), Math.min(1, Math.max(...boxes.map((b) => b[4]))), Math.max(...boxes.map((b) => b[5]))];
+}
+
+export function gateRot(b: number[], f: number): CBox {
+  const pt = (x: number, z: number): [number, number] => f === 2 ? [x, z] : f === 0 ? [16 - x, 16 - z] : f === 1 ? [z, 16 - x] : [16 - z, x];
+  const [x0, z0] = pt(b[0], b[2]), [x1, z1] = pt(b[3], b[5]);
+  return q16([Math.min(x0, x1), b[1], Math.min(z0, z1), Math.max(x0, x1), b[4], Math.max(z0, z1)]);
+}
+
+const GATE_CLOSED = [[0, 5, 7, 2, 16, 9], [14, 5, 7, 16, 16, 9], [6, 6, 7, 8, 15, 9], [8, 6, 7, 10, 15, 9], [2, 6, 7, 6, 9, 9], [2, 12, 7, 6, 15, 9], [10, 6, 7, 14, 9, 9], [10, 12, 7, 14, 15, 9]];
+const GATE_OPENED = [[0, 5, 7, 2, 16, 9], [14, 5, 7, 16, 16, 9], [0, 6, 13, 2, 15, 15], [14, 6, 13, 16, 15, 15], [0, 6, 9, 2, 9, 13], [0, 12, 9, 2, 15, 13], [14, 6, 9, 16, 9, 13], [14, 12, 9, 16, 15, 13]];
+export function gateVisual(meta: number, lowered = false): CBox[] {
+  const f = meta & 3, dy = lowered ? 3 : 0;
+  return (meta & GATE_OPEN ? GATE_OPENED : GATE_CLOSED).map((b) => gateRot([b[0], b[1] - dy, b[2], b[3], b[4] - dy, b[5]], f));
+}
+export function gateCollision(meta: number): CBox[] {
+  return meta & GATE_OPEN ? [] : [gateRot([0, 0, 6, 16, 24, 10], meta & 3)];
+}
+
 export const CAVE_TEX = [
   ...['up', 'down'].flatMap((d) => DRIP_THICK.map((t) => `pointed_dripstone_${d}_${t}`)),
   'cave_vines', 'cave_vines_lit', 'cave_vines_plant', 'cave_vines_plant_lit', 'spore_blossom', 'spore_blossom_base',
@@ -651,14 +828,27 @@ export const SHAPE_MATS: { id: number; key: string; name: string }[] = [
   { id: 600 + 9, key: 'polished_blackstone_brick', name: 'Polished Blackstone Brick' }, { id: 600 + 3, key: 'blackstone', name: 'Blackstone' },
   { id: SPB, key: 'acacia', name: 'Acacia' }, { id: SPB + 4, key: 'dark_oak', name: 'Dark Oak' }, { id: SPB + 12, key: 'cherry', name: 'Cherry' }, { id: SPB + 16, key: 'mangrove', name: 'Mangrove' },
   { id: CB.PURPUR_BLOCK, key: 'purpur', name: 'Purpur' }, { id: CB.END_STONE_BRICKS, key: 'end_stone_brick', name: 'End Stone Brick' },
+  { id: XB + XV.GRANITE, key: 'granite', name: 'Granite' }, { id: XB + XV.POLISHED_GRANITE, key: 'polished_granite', name: 'Polished Granite' },
+  { id: XB + XV.DIORITE, key: 'diorite', name: 'Diorite' }, { id: XB + XV.POLISHED_DIORITE, key: 'polished_diorite', name: 'Polished Diorite' },
+  { id: XB + XV.ANDESITE, key: 'andesite', name: 'Andesite' }, { id: XB + XV.POLISHED_ANDESITE, key: 'polished_andesite', name: 'Polished Andesite' },
+  { id: CB.COBBLED_DEEPSLATE, key: 'cobbled_deepslate', name: 'Cobbled Deepslate' }, { id: NB.POLISHED_DEEPSLATE, key: 'polished_deepslate', name: 'Polished Deepslate' },
+  { id: NB.DEEPSLATE_BRICKS, key: 'deepslate_brick', name: 'Deepslate Brick' }, { id: NB.DEEPSLATE_TILES, key: 'deepslate_tile', name: 'Deepslate Tile' },
+  { id: SB.RED_SANDSTONE, key: 'red_sandstone', name: 'Red Sandstone' }, { id: NB.SMOOTH_RED_SANDSTONE, key: 'smooth_red_sandstone', name: 'Smooth Red Sandstone' },
+  { id: NB.CUT_RED_SANDSTONE, key: 'cut_red_sandstone', name: 'Cut Red Sandstone' }, { id: XB + XV.QUARTZ_BLOCK, key: 'quartz', name: 'Quartz' },
+  { id: NB.SMOOTH_QUARTZ, key: 'smooth_quartz', name: 'Smooth Quartz' }, { id: NB.PRISMARINE, key: 'prismarine', name: 'Prismarine' },
+  { id: NB.PRISMARINE_BRICKS, key: 'prismarine_brick', name: 'Prismarine Brick' }, { id: NB.DARK_PRISMARINE, key: 'dark_prismarine', name: 'Dark Prismarine' },
+  { id: NB.MUD_BRICKS, key: 'mud_brick', name: 'Mud Brick' }, { id: NB.RED_NETHER_BRICKS, key: 'red_nether_brick', name: 'Red Nether Brick' },
+  { id: XB + XV.CRIMSON_PLANKS, key: 'crimson', name: 'Crimson' }, { id: XB + XV.WARPED_PLANKS, key: 'warped', name: 'Warped' },
+  { id: XB + XV.POLISHED_BLACKSTONE, key: 'polished_blackstone', name: 'Polished Blackstone' },
 ];
 export const SLAB_ITEM = 400, STAIRS_ITEM = 440, SLAB_TOP = 32, STAIRS_UP = 128;
-export function slabItem(i: number): number { return i < 21 ? SLAB_ITEM + i : 470 + (i - 21); }
-export function stairsItem(i: number): number { return i < 21 ? STAIRS_ITEM + i : 480 + (i - 21); }
+export function slabItem(i: number): number { return i < 21 ? SLAB_ITEM + i : i < 27 ? 470 + (i - 21) : 520 + (i - 27); }
+export function stairsItem(i: number): number { return i < 21 ? STAIRS_ITEM + i : i < 27 ? 480 + (i - 21) : 700 + (i - 27); }
+export function shapeBlock(i: number, stairs: boolean, meta = 0): number { return makeBlock(i < 32 ? (stairs ? B.STAIRS : B.SLAB) : (stairs ? STAIRS2 : SLAB2), (i & 31) | meta); }
 
 export function shapeBoxes(v: number): [number, number, number, number, number, number][] {
-  const id = bid(v), m = v >>> 8;
-  if (id === B.SLAB) return [m & SLAB_TOP ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1]];
+  const id = bid(v), m = (v >>> 8) & 0xff;
+  if (id === B.SLAB || id === SLAB2) return [m & SLAB_TOP ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1]];
   const up = !!(m & STAIRS_UP), [dx, dz] = FACING_DIRS[(m >> 5) & 3];
   const base: [number, number, number, number, number, number] = up ? [0, 0.5, 0, 1, 1, 1] : [0, 0, 0, 1, 0.5, 1];
   const y0 = up ? 0 : 0.5, y1 = up ? 0.5 : 1;
@@ -725,8 +915,10 @@ export function isFullCube(v: number): boolean {
 
 export function blockBoxes(v: number): [number, number, number, number, number, number][] | null {
   const id = bid(v);
-  if (id === B.SLAB || id === B.STAIRS) return shapeBoxes(v);
+  if (id === B.SLAB || id === B.STAIRS || id === SLAB2 || id === STAIRS2) return shapeBoxes(v);
   if (CUSTOM_BOX[id]) return customBoxes(v);
+  if (isGate(id)) return gateCollision((v >>> 8) & 0xff);
+  if (isConnecting(id)) return connCollision(id, 0);
   const b = blockBox(v);
   return b ? [b] : null;
 }
@@ -744,7 +936,8 @@ export function blockBox(v: number): [number, number, number, number, number, nu
   }
   if (id === B.CACTUS) return [1 / 16, 0, 1 / 16, 15 / 16, 1, 15 / 16];
   if (id === B.CHEST) return [1 / 16, 0, 1 / 16, 15 / 16, 14 / 16, 15 / 16];
-  if (id === B.SLAB) return shapeBoxes(v)[0];
+  if (id === B.SLAB || id === SLAB2) return shapeBoxes(v)[0];
+  if (isGate(id)) return (v >>> 8) & GATE_OPEN ? null : gateRot([0, 0, 6, 16, 16, 10], (v >>> 8) & 3);
   if (id === B.ENCHANTING_TABLE) return [0, 0, 0, 1, 0.75, 1];
   if (id === B.MUD || isSoulSand(v)) return [0, 0, 0, 1, 14 / 16, 1];
   if (!d.solid) return null;
@@ -782,6 +975,7 @@ export function selectionBox(v: number): [number, number, number, number, number
   }
   if (id === CB.SCULK_VEIN) return [0, 0, 0, 1, 1 / 16, 1];
   if (id === B.MUD || isSoulSand(v)) return [0, 0, 0, 1, 1, 1];
+  if (isGate(id)) return gateRot([0, 0, 6, 16, 16, 10], (v >>> 8) & 3);
   const solid = blockBox(v);
   if (solid) return solid;
   switch (d.render) {

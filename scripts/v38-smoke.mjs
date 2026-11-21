@@ -8,7 +8,7 @@ const r = await (await fetch(base + '/api/rooms', { method: 'POST', body: JSON.s
 const ws = new WebSocket(`${wsBase}/ws/${r.code}`);
 const a = { msgs: [], welcome: null };
 ws.onmessage = (e) => { const m = JSON.parse(e.data); a.msgs.push(m); if (m.t === 'welcome') a.welcome = m; };
-ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 36, id: `owner-v38-${tag}`, secret: 'owner-secret-v38-0000', name: 'Alpha', appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
+ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', v: 37, id: `owner-v38-${tag}`, secret: 'owner-secret-v38-0000', name: 'Alpha', appearance: { skin: 1, hair: 2, shirt: 3, pants: 4 } }));
 a.send = (m) => ws.send(JSON.stringify(m));
 await sleep(1500);
 ok('joined', !!a.welcome);
