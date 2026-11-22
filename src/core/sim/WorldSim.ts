@@ -3,6 +3,7 @@ import { fortressAt, fortressesNear, bastionsNear } from '../worldgen/fortress';
 import { PORTAL_GRID } from '../worldgen/ruinedPortal';
 import { smithResult } from '../smithing';
 import { LandmarkKind, LANDMARK_KINDS, LANDMARK_NAMES } from '../worldgen/landmarks';
+import { WardCfg, WardState, WardFlag, Check, CHECK_NAMES, LEVEL, newWardState, sanitizeWard, totalVl, decay as wardDecay, windowSpeed, speedBudget, aimAngle, clickRate, placeRate } from './anticheat';
 import { LootCfg, LOOT_DEFAULTS, parseLootArgs, lootArgs, sanitizeLootCfg, palette as lootPalette, pick as lootPick, chestLoot as lootChest, frameLoot as lootFrame } from './lootdrop';
 import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN, NB } from '../blocks';
 import { FRAME_EYE, CHORUS_DEAD, isFluid, CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON, isLantern, isCampfire, isSoulLight, LANTERN_HANGING, CAMPFIRE_LIT, ANCHOR_LIGHT, isSoulSand } from '../blocks';
@@ -139,6 +140,7 @@ export interface SimPlayer {
   inCombat?: boolean;
   bpAt?: number;
   vanished?: boolean;
+  ward?: WardState;
   skin?: { png: string; slim: boolean } | null;
   kills?: number; deaths?: number; playtime?: number;
   screenTitle?: string;
@@ -294,6 +296,7 @@ export type SimEvent =
   | { e: 'death'; p: SimPlayer; msg: string }
   | { e: 'respawn'; p: SimPlayer }
   | { e: 'tp'; p: SimPlayer }
+  | { e: 'kick'; p: SimPlayer; reason: string; banMs: number }
   | { e: 'msg'; text: string; kind: 'system' | 'death' | 'info' | 'error'; to?: string }
   | { e: 'lightning'; x: number; y: number; z: number }
   | { e: 'pmove'; l: number[] }
@@ -332,12 +335,12 @@ export interface SimSettings {
   pvp: boolean; cheats: boolean; guestsBuild: boolean; dayCycle: boolean; weatherCycle: boolean;
   dayLength?: number; nightLength?: number;
   simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number;
-  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean; lootdrop?: LootCfg;
+  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean; lootdrop?: LootCfg; anticheat?: WardCfg;
   tpDelay?: number; combatTime?: number;
 }
 
 const DT = 1 / 20;
-export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop'] as const;
+export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop', 'anticheat'] as const;
 export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
 export function ruleSnapshot(s: SimSettings): RuleSet {
   const out: Record<string, unknown> = {};
@@ -613,6 +616,8 @@ export class WorldSim {
     this.authoritative = o.authoritative;
     this.emit = (ev) => {
       if (ev.e === 'container' && this.authoritative) { const [x, y, z] = parsePosKey(ev.key); this.rs.containerChanged(x, y, z); }
+      if (ev.e === 'tp') this.wardReset(ev.p, this.wardQuiet ? 0 : 1500);
+      if (ev.e === 'knock') this.wardKnock(ev.p, 1500 + Math.hypot(ev.x, ev.y, ev.z) * 800);
       o.emit(ev);
     };
     this.rs = new Redstone({
@@ -1920,6 +1925,143 @@ export class WorldSim {
     return dx * dx + dy * dy + dz * dz <= (this.reach(p) + extra) ** 2;
   }
 
+  wardLog: WardFlag[] = [];
+
+  get wardCfg(): WardCfg { return sanitizeWard(this.settings.anticheat); }
+
+  wardOn(p: SimPlayer): boolean {
+    const c = this.wardCfg;
+    return this.validateMoves && c.on && !(c.exemptOps && p.op) && p.mode !== 'creative' && !p.vanished && !p.dead;
+  }
+
+  wardReset(p: SimPlayer, graceMs: number): void {
+    const s = (p.ward ??= newWardState(this.now));
+    s.grace = Math.max(s.grace, this.now + graceMs);
+    s.win.length = 0; s.yHist.length = 0; s.phase = 0;
+    s.airAt = this.now; s.airY = p.y; s.airMaxY = p.y;
+    s.safe = { x: p.x, y: p.y, z: p.z };
+  }
+
+  wardKnock(p: SimPlayer, ms = 1500): void { if (p.ward) p.ward.knock = Math.max(p.ward.knock, this.now + ms); }
+
+  wardFlag(p: SimPlayer, check: Check, amount: number, info: string): void {
+    if (!this.wardOn(p)) return;
+    const s = (p.ward ??= newWardState(this.now));
+    wardDecay(s, this.now);
+    s.vl[check] = (s.vl[check] ?? 0) + amount;
+    const vl = totalVl(s);
+    this.wardLog.push({ t: Date.now(), id: p.id, name: p.name, check, vl: Math.round(vl), info });
+    if (this.wardLog.length > 400) this.wardLog.splice(0, this.wardLog.length - 400);
+    const cfg = this.wardCfg;
+    if (cfg.alerts && vl >= 8 && this.now - s.alertAt > 10000) {
+      s.alertAt = this.now;
+      for (const o of this.players.values()) if (o.op && o !== p) this.emit({ e: 'msg', text: `[Warden] ${p.name} failed ${CHECK_NAMES[check]} (VL ${Math.round(vl)}): ${info}`, kind: 'error', to: o.id });
+    }
+    if (cfg.kick > 0 && vl >= cfg.kick) {
+      const repeat = this.wardKicks.get(p.id) ?? 0;
+      this.wardKicks.set(p.id, repeat + 1);
+      s.vl = {};
+      const ban = repeat >= 1 ? Math.min(60, 5 * 2 ** (repeat - 1)) * 60000 : 0;
+      this.wardLog.push({ t: Date.now(), id: p.id, name: p.name, check, vl: Math.round(vl), info: ban ? `kicked and barred for ${ban / 60000} minutes` : 'kicked' });
+      for (const o of this.players.values()) if (o !== p) this.emit({ e: 'msg', text: `[Warden] ${p.name} was removed for ${CHECK_NAMES[check]}.`, kind: 'info', to: o.id });
+      this.emit({ e: 'kick', p, reason: `Removed by the Warden anticheat for ${CHECK_NAMES[check]}.${ban ? ` You can rejoin in ${ban / 60000} minutes.` : ''}`, banMs: ban });
+    }
+  }
+
+  private wardKicks = new Map<string, number>();
+
+  private wardQuiet = false;
+
+  private wardSetback(p: SimPlayer): void {
+    const s = p.ward;
+    if (s?.safe) { p.x = s.safe.x; p.y = s.safe.y; p.z = s.safe.z; p.vref = undefined; p.peakY = p.y; }
+    if (s) s.pin = { x: p.x, y: p.y, z: p.z, until: this.now + 1200 };
+    this.wardQuiet = true;
+    try { this.emit({ e: 'tp', p }); } finally { this.wardQuiet = false; }
+  }
+
+  private wardSupport(x: number, y: number, z: number, flags: number, ox = x, oz = z): 'ground' | 'fluid' | 'climb' | null {
+    if (flags & (MF.WATER | MF.LAVA)) return 'fluid';
+    const r = { getBlock: (bx: number, by: number, bz: number) => this.get(bx, by, bz) };
+    const hw = 0.3;
+    for (let bx = Math.floor(x - hw - 0.05); bx <= Math.floor(x + hw + 0.05); bx++) for (let bz = Math.floor(z - hw - 0.05); bz <= Math.floor(z + hw + 0.05); bz++) for (let by = Math.floor(y - 0.6); by <= Math.floor(y + 1.8); by++) {
+      const v = this.get(bx, by, bz), id = blockId(v);
+      if (id === B.WATER || id === B.LAVA || isWaterPlant(id)) return 'fluid';
+      if (getBlock(v).climbable || id === B.LADDER || id === B.VINE || id === NB.COBWEB || id === B.HONEY_BLOCK || id === B.WEEPING_VINES || id === B.TWISTING_VINES) return 'climb';
+    }
+    if (boxCollides(r, Math.min(x, ox) - hw - 0.04, y - 0.35, Math.min(z, oz) - hw - 0.04, Math.max(x, ox) + hw + 0.04, y + 0.02, Math.max(z, oz) + hw + 0.04)) return 'ground';
+    return null;
+  }
+
+  private wardMove(p: SimPlayer, x: number, y: number, z: number, flags: number): { ok: boolean; flags: number } {
+    if (!this.wardOn(p)) { if (p.ward) this.wardReset(p, 0); return { ok: true, flags }; }
+    const s = (p.ward ??= newWardState(this.now));
+    const now = this.now, L = LEVEL[this.wardCfg.level];
+    wardDecay(s, now);
+    if (s.pin) {
+      if (now < s.pin.until && Math.hypot(x - s.pin.x, y - s.pin.y, z - s.pin.z) > 1.5) return { ok: false, flags };
+      s.pin = undefined;
+    }
+    if (!this.store.isLoaded(Math.floor(x), Math.floor(z)) || !this.store.isLoaded(Math.floor(p.x), Math.floor(p.z))) { this.wardReset(p, 500); return { ok: true, flags }; }
+    const free = (flags & (MF.GLIDE | MF.FLY | MF.RIDE | MF.LEVITATE)) !== 0 || p.riding !== undefined || (p.levT ?? 0) >= this.tickCount;
+    if (free || p.flags & MF.GLIDE) s.knock = Math.max(s.knock, now + 2500);
+    const grace = now < s.grace;
+    const support = this.wardSupport(x, y, z, flags, p.x, p.z);
+    const under = this.get(Math.floor(x), Math.floor(y - 0.6), Math.floor(z)), uid = blockId(under), ukey = getBlock(under).key;
+    if (uid === B.ICE || /ice/.test(ukey)) s.ice = now + 2500;
+    if (uid === B.SLIME_BLOCK || /_bed$/.test(ukey) || uid === B.HONEY_BLOCK) s.slime = now + 3000;
+    const h = flags & MF.PRONE ? 0.6 : flags & MF.CROUCH ? 1.5 : 1.8;
+    const r = { getBlock: (bx: number, by: number, bz: number) => this.get(bx, by, bz) };
+    if (!grace && !free) {
+      const len = Math.hypot(x - p.x, y - p.y, z - p.z), n = Math.min(40, Math.ceil(len / 0.25));
+      for (let k = 1; k < n; k++) {
+        const f = k / n, sx = p.x + (x - p.x) * f, sy = p.y + (y - p.y) * f, sz = p.z + (z - p.z) * f;
+        if (boxCollides(r, sx - 0.1, sy + 0.3, sz - 0.1, sx + 0.1, sy + Math.min(h, 1.5) - 0.3, sz + 0.1)) { this.wardFlag(p, 'phase', 2, 'passed through solid blocks'); this.wardSetback(p); return { ok: false, flags }; }
+      }
+    }
+    if (!grace && !free && boxCollides(r, x - 0.2, y + 0.2, z - 0.2, x + 0.2, y + h - 0.25, z + 0.2) && Math.hypot(x - p.x, z - p.z) + Math.abs(y - p.y) > 0.05) {
+      if (++s.phase >= 3) { s.phase = 0; this.wardFlag(p, 'phase', 3, 'moved inside solid blocks'); this.wardSetback(p); return { ok: false, flags }; }
+    } else s.phase = 0;
+    const ws = windowSpeed(s, now, x, z);
+    if (ws.rate > 16 && s.win.length > 12) this.wardFlag(p, 'speed', 1, `sent ${Math.round(ws.rate)} moves per second (the game sends at most 10)`);
+    if (!grace && !free && now > s.knock && ws.span >= 0.5) {
+      const soul = isSoulSand(under) || under === X(XV.SOUL_SOIL);
+      const budget = speedBudget({ water: support === 'fluid', ice: now < s.ice, soul, crouch: (flags & MF.CROUCH) !== 0 }) * L.speed;
+      if (ws.speed > budget) {
+        this.wardFlag(p, 'speed', Math.min(8, 1 + Math.round((ws.speed / budget - 1) * 10)), `${ws.speed.toFixed(1)} m/s (limit ${budget.toFixed(1)})`);
+        if (ws.speed > budget * 1.2) { this.wardSetback(p); this.wardReset(p, 300); return { ok: false, flags }; }
+      }
+    }
+    if (support || free || grace) {
+      s.airAt = now; s.airY = y; s.airMaxY = y; s.yHist.length = 0;
+      if (support === 'ground' && !free && !grace && !(flags & MF.PRONE) && s.phase === 0) s.safe = { x, y, z };
+    } else {
+      s.airMaxY = Math.max(s.airMaxY, y);
+      s.yHist.push({ t: now, y });
+      while (s.yHist.length > 2 && now - s.yHist[0].t > 1200) s.yHist.shift();
+      const air = (now - s.airAt) / 1000, rise = s.airMaxY - s.airY;
+      const maxRise = now < s.slime ? 14 : L.air + 0.1;
+      if (now > s.knock && rise > maxRise) { this.wardFlag(p, 'fly', 4, `rose ${rise.toFixed(1)} blocks without support`); this.wardSetback(p); this.wardReset(p, 300); return { ok: false, flags }; }
+      const span = s.yHist.length > 1 ? (s.yHist[s.yHist.length - 1].t - s.yHist[0].t) / 1000 : 0;
+      if (now > s.knock && now > s.slime && air > 2 && span >= 0.9 && s.yHist[0].y - y < 0.5) { this.wardFlag(p, 'fly', 4, `hovered for ${air.toFixed(1)}s`); this.wardSetback(p); this.wardReset(p, 300); return { ok: false, flags }; }
+    }
+    if (flags & MF.GROUND && !support && !free && !grace) { flags &= ~MF.GROUND; this.wardFlag(p, 'nofall', 1, 'claimed to be on the ground in mid-air'); }
+    return { ok: true, flags };
+  }
+
+  private wardHit(p: SimPlayer, target: string, dx: number, dy: number, dz: number, range: number, th: number): boolean {
+    if (!this.wardOn(p)) return true;
+    const s = (p.ward ??= newWardState(this.now)), L = LEVEL[this.wardCfg.level];
+    const dist = Math.hypot(dx, dy, dz);
+    const ang = Math.min(aimAngle(p.yaw, p.pitch, dx, dy, dz), aimAngle(p.yaw, p.pitch, dx, dy + th * 0.45, dz), aimAngle(p.yaw, p.pitch, dx, dy - th * 0.45, dz));
+    if (dist > 1.2 && ang > L.aim) { this.wardFlag(p, 'aim', 2, `hit a target ${Math.round(ang)} degrees off their view`); return false; }
+    if (dist > range + L.reach) this.wardFlag(p, 'reach', 2, `hit from ${dist.toFixed(2)} blocks (limit ${range.toFixed(1)})`);
+    const c = clickRate(s, this.now, target);
+    if (c.cps > L.cps) { this.wardFlag(p, 'clicks', 1, `${c.cps} hits per second`); return false; }
+    if (c.distinct >= 3) { this.wardFlag(p, 'multiaura', 3, `hit ${c.distinct} targets within 150 ms`); return false; }
+    return true;
+  }
+
   canBuild(p: SimPlayer): boolean {
     return !p.dead && (p.op || this.settings.guestsBuild);
   }
@@ -1947,6 +2089,11 @@ export class WorldSim {
         this.emit({ e: 'tp', p });
         return false;
       }
+    }
+    if (this.validateMoves) {
+      const w = this.wardMove(p, x, y, z, flags);
+      if (!w.ok) return false;
+      flags = w.flags;
     }
     const horiz = Math.hypot(x - p.x, z - p.z);
     const oy = p.y, mdt = Math.max(50, this.now - p.lastMove), mdx = x - p.x, mdz = z - p.z;
@@ -2206,6 +2353,7 @@ export class WorldSim {
   }
 
   damage(p: SimPlayer, amount: number, cause: string, fx: number, fz: number, knock = true, bypassArmor = false, killer?: string, kb = 0.4): void {
+    if (knock) this.wardKnock(p, 1500 + kb * 2000);
     if (p.dead || p.mode === 'creative' || amount <= 0 || p.travel) return;
     if (this.game) { if (this.game.protectedPlayer(p)) return; amount *= this.game.damageScale(p); }
     const exempt = cause === 'void' || cause === 'drown' || cause === 'starve';
@@ -2296,6 +2444,7 @@ export class WorldSim {
     if (!p.dead) return;
     if (this.game && !this.game.allowRespawn(p)) return;
     p.dead = false;
+    this.wardReset(p, 3000);
     p.health = 20; p.food = 20; p.sat = 5; p.exh = 0; p.air = 300; p.fireT = 0; p.witherT = 0;
     const at = this.authoritative && !this.game ? this.anchorSpot(p) : null;
     const to = at ?? p.spawn;
@@ -2613,7 +2762,7 @@ export class WorldSim {
   digFinish(p: SimPlayer, x: number, y: number, z: number): boolean {
     const fail = () => { this.emit({ e: 'reject', p, x, y, z }); return false; };
     if (p.dead || !this.canBuild(p)) return fail();
-    if (!this.inReach(p, x, y, z)) return fail();
+    if (!this.inReach(p, x, y, z)) { this.wardFlag(p, 'reach', 1, `broke a block ${Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y - 1.62, z + 0.5 - p.z).toFixed(1)} blocks away`); return fail(); }
     const v = this.get(x, y, z);
     const d = getBlock(v);
     if (blockId(v) === 0 || d.fluid) return fail();
@@ -2623,8 +2772,8 @@ export class WorldSim {
       const need = breakTime(v, stack, !!(p.flags & MF.EYE_WATER), lvl(p.inv.armor[0], 'aqua_affinity') > 0);
       const started = p.dig && p.dig.x === x && p.dig.y === y && p.dig.z === z ? p.dig.t : -1;
       if (need > 0.06) {
-        if (started < 0) return fail();
-        if ((this.now - started) / 1000 < need * 0.7 - 0.15) return fail();
+        if (started < 0) { this.wardFlag(p, 'fastbreak', 1, `broke ${d.key} without digging`); return fail(); }
+        if ((this.now - started) / 1000 < need * 0.7 - 0.15) { this.wardFlag(p, 'fastbreak', 2, `broke ${d.key} in ${((this.now - started) / 1000).toFixed(2)}s, needs ${need.toFixed(2)}s`); return fail(); }
       }
     } else if (blockId(v) === B.BEDROCK && !p.op) return fail();
     if (this.game && !this.game.canBreak(p, x, y, z, v)) return fail();
@@ -3048,6 +3197,7 @@ export class WorldSim {
     const clickedReplaceable = isReplaceable(clicked) && blockId(clicked) !== bid && blockId(clicked) !== 0 && !getBlock(clicked).fluid;
     if (!clickedReplaceable) { tx += nx; ty += ny; tz += nz; }
     const fail = () => { this.emit({ e: 'reject', p, x: tx, y: ty, z: tz }); return false; };
+    if (this.wardOn(p) && placeRate((p.ward ??= newWardState(this.now)), this.now) > LEVEL[this.wardCfg.level].place) { this.wardFlag(p, 'fastplace', 1, `${p.ward.places.length} blocks in one second`); return fail(); }
     if (this.game && !this.game.canPlace(p, tx, ty, tz)) return fail();
     if (ty < 1 || ty >= WORLD_HEIGHT - 1) return fail();
     if (!this.store.isLoaded(tx, tz)) return fail();
@@ -3376,6 +3526,7 @@ export class WorldSim {
     if (this.game?.onAttackMob(p, e)) return true;
     const dx = e.x - p.x, dy = e.y + e.h / 2 - (p.y + 1.62), dz = e.z - p.z;
     const ws = attackStats(heldStack(p.inv));
+    if (e.type !== 'voidwyrm' && !this.wardHit(p, `m${e.id}`, dx, dy, dz, attackRange(ws, p.mode === 'creative') + e.hw, e.h)) return false;
     this.dragonPart = null;
     if (e.type === 'voidwyrm') {
       const range = attackRange(ws, p.mode === 'creative') + 1;
@@ -3627,6 +3778,7 @@ export class WorldSim {
     if (this.game && !this.game.canHurtPlayer(p, t)) return false;
     const dx = t.x - p.x, dy = t.y + 0.9 - (p.y + 1.62), dz = t.z - p.z;
     const ws = attackStats(heldStack(p.inv));
+    if (!this.wardHit(p, `p${t.id}`, dx, dy, dz, attackRange(ws, p.mode === 'creative') + 0.3, 1.8)) return false;
     if (Math.hypot(dx, dy, dz) > attackRange(ws, p.mode === 'creative') + 0.3 + 1.5) return false;
     if (this.now - p.lastAttack < 45) return false;
     if (ws.spear) return this.jab(p, { pl: t });
@@ -6999,7 +7151,7 @@ export class WorldSim {
       case 'help': {
         const base = 'Teleports: /spawn, /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Teleports take a short warm-up and are blocked in combat. Other: /coords, /clearsel, /help.';
         if (!allowed) return base;
-        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /unenchant [enchantment|all], /enchantmax, /kit maxdiamond|maxnetherite, /lootdrop, /repair, /heal, /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
+        return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /unenchant [enchantment|all], /enchantmax, /kit maxdiamond|maxnetherite, /lootdrop, /repair, /heal, /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>, /anticheat status|on|off|level|kick|log' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
       }
       case 'seed': if (this.serverMode && !p.op) return 'Only operators can see the seed on a server.'; return `Seed: ${this.seed}`;
       case 'gamerule': {
@@ -7111,6 +7263,28 @@ export class WorldSim {
         const n = this.giveKit(p, tier);
         this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
         return `Gave a maxed-out ${tier === 'netherite' ? 'Netherite' : 'Diamond'} kit (${n} pieces).`;
+      }
+      case 'anticheat': case 'ac': case 'warden': {
+        if (!p.op) return 'Only operators can manage the Warden anticheat.';
+        const sub = (parts[1] ?? 'status').toLowerCase(), arg = (parts[2] ?? '').toLowerCase();
+        const c = this.wardCfg;
+        const save = (patch: Partial<WardCfg>, msg: string) => { this.settings.anticheat = sanitizeWard({ ...c, ...patch }); this.emit({ e: 'rules' }); return msg; };
+        if (sub === 'on' || sub === 'off') return save({ on: sub === 'on' }, `Warden anticheat ${sub === 'on' ? 'enabled' : 'disabled'}.`);
+        if (sub === 'level') { if (arg !== 'low' && arg !== 'normal' && arg !== 'high') return 'Usage: /anticheat level low|normal|high'; return save({ level: arg }, `Warden sensitivity set to ${arg}.`); }
+        if (sub === 'kick') { const n = arg === 'off' ? 0 : Number(arg); if (!Number.isFinite(n) || n < 0) return 'Usage: /anticheat kick <violation points>|off'; return save({ kick: Math.round(n) }, n ? `Players are removed at ${Math.round(n)} violation points.` : 'The Warden will flag but never remove players.'); }
+        if (sub === 'ops') return save({ exemptOps: arg !== 'off' }, arg === 'off' ? 'Operators are now checked too.' : 'Operators are exempt from checks.');
+        if (sub === 'alerts') return save({ alerts: arg !== 'off' }, `Operator alerts ${arg === 'off' ? 'off' : 'on'}.`);
+        if (sub === 'log') {
+          const who = arg ? this.findPlayer(arg) : null;
+          const rows = this.wardLog.filter((f) => !arg || f.name.toLowerCase() === arg || f.id === who?.id).slice(-8).reverse();
+          return rows.length ? rows.map((f) => `${new Date(f.t).toISOString().slice(11, 19)} ${f.name} ${CHECK_NAMES[f.check]} VL${f.vl}: ${f.info}`).join(' | ') : 'No flags recorded.';
+        }
+        if (sub === 'reset') { const t = this.findPlayer(arg); if (!t) return 'Usage: /anticheat reset <player>'; if (t.ward) t.ward.vl = {}; this.wardKicks.delete(t.id); return `Cleared ${t.name}'s violations.`; }
+        if (sub === 'status') {
+          const top = [...this.players.values()].map((o) => [o, o.ward ? totalVl(o.ward) : 0] as const).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([o, v]) => `${o.name} ${Math.round(v)}`);
+          return `Warden ${c.on ? 'on' : 'off'}${this.validateMoves ? '' : ' (only checks on servers)'}, sensitivity ${c.level}, ${c.kick ? `removes at ${c.kick} points` : 'never removes'}, operators ${c.exemptOps ? 'exempt' : 'checked'}. ${top.length ? `Highest: ${top.join(', ')}.` : 'Nobody flagged right now.'} Commands: on|off, level low|normal|high, kick <n>|off, ops on|off, alerts on|off, log [player], reset <player>.`;
+        }
+        return 'Usage: /anticheat status|on|off|level|kick|ops|alerts|log|reset';
       }
       case 'lootdrop': {
         const sub = (parts[1] ?? '').toLowerCase();

@@ -497,6 +497,35 @@ export class Menus {
         } },
       ], { wide: true });
     };
+    const warden = async (code: string, name: string) => {
+      type WardRes = { cfg: { on: boolean; level: 'low' | 'normal' | 'high'; kick: number; exemptOps: boolean; alerts: boolean }; log: { t: number; name: string; check: string; vl: number; info: string }[] };
+      let data: WardRes;
+      try { data = (await api(`/api/admin/rooms/${code}`, { action: 'anticheat' })) as WardRes; } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); return; }
+      const cfg = { ...data.cfg };
+      const list = h('div', { class: 'stack', style: 'max-height:320px;overflow:auto' });
+      const drawLog = (log: WardRes['log']) => {
+        clear(list);
+        if (!log.length) { list.appendChild(h('div', { class: 'small muted' }, 'No flags recorded since the world last started.')); return; }
+        for (const f of log) list.appendChild(h('div', { class: 'list-item' }, h('div', { class: 'meta' }, h('div', { class: 'name' }, f.name, h('span', { class: `badge ${f.vl >= 20 ? 'danger' : f.vl >= 8 ? 'gold' : ''}`, style: 'margin-left:6px' }, `${f.check} · VL ${f.vl}`)), h('div', { class: 'sub' }, `${fmtTime(f.t)} · ${f.info}`))));
+      };
+      drawLog(data.log);
+      const send = async (extra: Record<string, unknown> = {}) => { try { const d = (await api(`/api/admin/rooms/${code}`, { action: 'anticheat', cfg, ...extra })) as WardRes; drawLog(d.log); toast('Anticheat updated.', 'success'); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); } };
+      const kickIn = h('input', { class: 'input eco-num', value: String(cfg.kick), inputmode: 'numeric', maxlength: 3 }) as HTMLInputElement;
+      kickIn.addEventListener('input', () => { cfg.kick = Math.max(0, Math.min(500, Math.floor(Number(kickIn.value)) || 0)); });
+      modal(`Warden anticheat - ${name}`, h('div', { class: 'stack' },
+        h('p', { class: 'small muted' }, 'The Warden checks movement (speed, fly, no-fall, walking through blocks), combat (reach, aiming away, auto-clicking, hitting many targets at once) and building (fast break, fast place) on the server. Moves that break the rules are pulled back; points fade over time; reaching the limit removes the player, with longer bars for repeat offenders. Creative players and spectators are never checked.'),
+        toggle('Enabled', cfg.on, (v) => { cfg.on = v; }),
+        h('div', { class: 'small' }, 'Sensitivity'), segmented([['low', 'Low'], ['normal', 'Normal'], ['high', 'High']], cfg.level, (v) => { cfg.level = v; }),
+        h('div', { class: 'row' }, h('span', { class: 'small' }, 'Remove players at'), kickIn, h('span', { class: 'small muted' }, 'points (0 = never)')),
+        toggle('Operators are exempt', cfg.exemptOps, (v) => { cfg.exemptOps = v; }),
+        toggle('Alert operators in chat', cfg.alerts, (v) => { cfg.alerts = v; }),
+        h('div', { class: 'section-title' }, 'Recent flags'), list,
+      ), [
+        { label: 'Clear log', kind: 'ghost', onClick: () => { void send({ clear: true }); return false; } },
+        { label: 'Refresh', kind: 'ghost', onClick: () => { void send(); return false; } },
+        { label: 'Save', kind: 'primary', onClick: () => { void send(); } },
+      ], { wide: true });
+    };
     const row = (r: Rep): HTMLElement => {
       const players = h('div', { class: 'stack', style: 'margin-top:6px' });
       for (const p of r.players) {
@@ -516,6 +545,7 @@ export class Menus {
           h('div', { class: 'actions' },
             h('button', { class: 'btn small teal', onclick: () => spectate(r.code) }, 'Spectate'),
             h('button', { class: 'btn small', onclick: () => void prices(r.code, r.name) }, 'Prices'),
+            h('button', { class: 'btn small', onclick: () => void warden(r.code, r.name) }, 'Anticheat'),
             h('button', { class: 'btn small', onclick: async () => { const n = await promptDialog('Rename world', 'New name', r.name, 32); if (n && n.trim()) void act(r.code, { action: 'rename', name: n.trim() }, 'World renamed.'); } }, 'Rename'),
             h('button', { class: 'btn small', onclick: async () => { const c = await promptDialog('Change join code', `New code (${ROOM_CODE_LENGTH} characters). The old code stops working.`, r.code, ROOM_CODE_LENGTH); if (c && c.trim()) void act(r.code, { action: 'recode', to: c.trim().toUpperCase() }, `Code changed to ${c.trim().toUpperCase()}.`); } }, 'Change code'),
             h('button', { class: `btn small ${r.featured ? 'gold' : ''}`, onclick: async () => {

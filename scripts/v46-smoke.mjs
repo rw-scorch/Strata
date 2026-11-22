@@ -1,0 +1,41 @@
+const base = process.argv[2] ?? 'http://127.0.0.1:8787';
+const wsBase = base.replace(/^http/, 'ws');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let fails = 0;
+const ok = (name, cond, extra = '') => { console.log(`${cond ? 'PASS' : 'FAIL'} ${name}${extra ? ' ' + extra : ''}`); if (!cond) fails++; };
+const tag = Date.now().toString(36);
+const room = await (await fetch(base + '/api/rooms', { method: 'POST', body: JSON.stringify({ name: 'V46', seed: 46, mode: 'survival', difficulty: 'peaceful', ownerId: `own-v46-${tag}`, ownerSecret: 'owner-secret-v46-0000', ownerName: 'Alpha' }) })).json();
+const join = (id, secret, name) => new Promise((res) => {
+  const ws = new WebSocket(`${wsBase}/ws/${room.code}`);
+  const c = { ws, msgs: [], closed: null, send: (m) => ws.send(JSON.stringify(m)) };
+  ws.onmessage = (e) => { const m = JSON.parse(e.data); c.msgs.push(m); if (m.t === 'welcome' || m.t === 'err') { c.you = m.you; c.welcome = m; res(c); } };
+  ws.onclose = (e) => { c.closed = e.code; res(c); };
+  ws.onopen = () => c.send({ t: 'hello', v: 38, id, secret, name, appearance: { skin: 1, hair: 1, shirt: 1, pants: 1 } });
+});
+const chats = (c) => c.msgs.filter((m) => m.t === 'chat').map((m) => m.text);
+const a = await join(`own-v46-${tag}`, 'owner-secret-v46-0000', 'Alpha');
+ok('owner joins on protocol 38', a.welcome?.t === 'welcome');
+const g = await join(`guest-v46-${tag}`, `guest-secret-v46-${tag}`, 'Guest');
+ok('guest joins', g.welcome?.t === 'welcome');
+await sleep(4500);
+const y = g.you.y, x0 = g.you.x, z0 = g.you.z;
+for (let k = 0; k < 12; k++) { g.send({ t: 'mv', p: [x0, y, z0, 0, 0, 1] }); await sleep(100); }
+const before = g.msgs.filter((m) => m.t === 'tp').length;
+for (let k = 1; k <= 30; k++) { g.send({ t: 'mv', p: [x0 + k * 2.2, y, z0, 0, 0, 1] }); await sleep(100); }
+await sleep(600);
+ok('a speed hack is pulled back', g.msgs.filter((m) => m.t === 'tp').length > before);
+a.send({ t: 'chat', text: '/anticheat log' });
+await sleep(900);
+ok('the owner can read the Warden log', chats(a).some((t) => /Guest .* VL\d/.test(t)), chats(a).slice(-1).join(''));
+a.send({ t: 'chat', text: '/anticheat status' });
+await sleep(900);
+ok('status reports the Warden', chats(a).some((t) => /^Warden on/.test(t)));
+a.send({ t: 'chat', text: '/locate desert_pyramid' });
+await sleep(900);
+ok('new structures can be located', chats(a).some((t) => /desert pyramid/.test(t)), chats(a).slice(-1).join(''));
+a.send({ t: 'chat', text: '/give @s ender_chest 1' });
+await sleep(900);
+ok('ender chests exist', JSON.stringify(a.msgs.filter((m) => m.t === 'inv').at(-1) ?? {}).includes('"id":1155'));
+a.ws.close(); g.ws.close();
+console.log(fails ? `${fails} FAILED` : 'ALL PASSED');
+process.exit(fails ? 1 : 0);

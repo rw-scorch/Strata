@@ -10,6 +10,7 @@ import { DIFFICULTIES, Difficulty, MAX_PLAYERS_LIMIT, DEFAULT_DAY_LENGTH, DEFAUL
 import { BLOCKS } from '../core/blocks';
 import { getItem, I, ITEM_LIST } from '../core/items';
 import { sanitizeLootCfg, LootEntry } from '../core/sim/lootdrop';
+import { sanitizeWard } from '../core/sim/anticheat';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { slotContent } from './HUD';
 import { ENCHANTS, supports, compatible, enchantLabel } from '../core/enchants';
@@ -349,7 +350,7 @@ export function showDeath(root: HTMLElement, msg: string, onRespawn: () => void,
 
 export interface SovereignHeld { id: number; name: string; en?: Record<string, number>; dmg?: number }
 
-export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number; lootdrop?: unknown }, atlas?: TextureAtlas): void {
+export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number; lootdrop?: unknown; anticheat?: unknown }, atlas?: TextureAtlas): void {
   const tabs = h('div', { class: 'tabs sov-tabs' });
   const pane = h('div', { class: 'stack sov-pane' });
   let tab = 'item';
@@ -465,7 +466,21 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
     const r = rules();
     return h('div', { class: 'stack' },
       pickRow('Teleport warm-up', 'teleportdelay', r.tpDelay ?? 3, [[0, 'Instant'], [3, '3s'], [5, '5s'], [10, '10s']]),
-      pickRow('Combat timer (blocks teleports, logging out kills)', 'combattimer', r.combatTime ?? 15, [[0, 'Off'], [10, '10s'], [15, '15s'], [30, '30s']]));
+      pickRow('Combat timer (blocks teleports, logging out kills)', 'combattimer', r.combatTime ?? 15, [[0, 'Off'], [10, '10s'], [15, '15s'], [30, '30s']]),
+      wardBox());
+  };
+  const wardBox = (): HTMLElement => {
+    const w = sanitizeWard(rules().anticheat);
+    const kick = h('input', { class: 'input eco-num', value: String(w.kick), inputmode: 'numeric', maxlength: 3 }) as HTMLInputElement;
+    return h('div', { class: 'stack' },
+      h('div', { class: 'section-title' }, 'Warden anticheat'),
+      h('div', { class: 'small muted' }, 'Runs on online servers. Checks speed, flying, no-fall, walking through blocks, reach, aiming away, auto-clicking, multi-target hits, fast breaking and fast placing. Cheating moves are pulled back, points fade over time, and reaching the limit removes the player (repeat offenders are barred for longer). Creative players are never checked.'),
+      toggle('Enabled', w.on, (v) => run(`/anticheat ${v ? 'on' : 'off'}`)),
+      h('div', { class: 'small' }, 'Sensitivity'), segmented([['low', 'Low'], ['normal', 'Normal'], ['high', 'High']], w.level, (v) => run(`/anticheat level ${v}`)),
+      h('div', { class: 'row' }, h('span', { class: 'small' }, 'Remove at'), kick, h('span', { class: 'small muted' }, 'points (0 = never)'), h('button', { class: 'btn small', onclick: () => run(`/anticheat kick ${Math.max(0, Math.floor(Number(kick.value)) || 0) || 'off'}`) }, 'Set')),
+      toggle('Operators are exempt', w.exemptOps, (v) => run(`/anticheat ops ${v ? 'on' : 'off'}`)),
+      toggle('Alert operators in chat', w.alerts, (v) => run(`/anticheat alerts ${v ? 'on' : 'off'}`)),
+      h('div', { class: 'row wrap' }, act('Show status', '/anticheat status'), act('Recent flags', '/anticheat log')));
   };
   const TABS: [string, string, () => HTMLElement][] = [['item', 'Held Item', itemTab], ['kits', 'Kits', kitTab], ['events', 'Events', eventTab], ['you', 'You and World', youTab], ['rules', 'Rules', rulesTab]];
   function redraw(): void {

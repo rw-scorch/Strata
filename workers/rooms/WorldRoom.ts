@@ -6,6 +6,7 @@ import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator, type GeneratedChunk } from '../../src/core/worldgen/WorldGenerator';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
+import { sanitizeWard } from '../../src/core/sim/anticheat';
 import { WorldSim, SimPlayer, SimEvent, WorldStore, newPlayer, posKey, Entity, BlockEntity, RuleSet, ruleSnapshot, entTypeCode, entExtra, EndState, freshEndState } from '../../src/core/sim/WorldSim';
 import { MOBS, MobType } from '../../src/core/sim/mobs';
 import { Minigame } from '../../src/core/labs/minigames/Minigame';
@@ -698,6 +699,12 @@ export class WorldRoom extends DurableObject<Env> {
       this.handleLeave(t);
       this.report(true);
       return Response.json({ ok: true });
+    }
+    if (act === 'anticheat') {
+      const sim = this.ensureSim();
+      if (b.cfg && typeof b.cfg === 'object') { sim.settings.anticheat = sanitizeWard({ ...sim.wardCfg, ...(b.cfg as object) }); this.saveMeta(); }
+      if (b.clear) sim.wardLog.length = 0;
+      return Response.json({ ok: true, cfg: sim.wardCfg, log: sim.wardLog.slice(-200).reverse() });
     }
     if (act === 'rename' || act === 'recode') {
       if (act === 'rename') { const nm = cleanText(b.name, 32); if (!nm) return Response.json({ error: 'Enter a name.' }, { status: 400 }); m.name = nm; }
@@ -1472,6 +1479,17 @@ export class WorldRoom extends DurableObject<Env> {
       case 'death': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'death', msg: ev.msg }); return; }
       case 'respawn': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'respawn', x: ev.p.x, y: ev.p.y, z: ev.p.z }); return; }
       case 'tp': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'tp', x: ev.p.x, y: ev.p.y, z: ev.p.z }); return; }
+      case 'kick': {
+        const pid = ev.p.id, reason = ev.reason, banMs = ev.banMs;
+        setTimeout(() => {
+          const t = this.sessionFor(pid);
+          if (banMs > 0 && this.meta) { this.meta.bans[pid] = Date.now() + banMs; this.saveMeta(); }
+          if (!t) return;
+          this.sendErr(t, 'kicked', reason);
+          this.handleLeave(t);
+        }, 0);
+        return;
+      }
       case 'mode': {
         const s = this.sessionFor(ev.p.id);
         if (s) this.send(s, { t: 'mode', mode: ev.p.mode });
