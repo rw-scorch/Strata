@@ -516,7 +516,7 @@ export const NB = {
   POLISHED_DEEPSLATE: 1132, DEEPSLATE_BRICKS: 1133, CRACKED_DEEPSLATE_BRICKS: 1134, DEEPSLATE_TILES: 1135, CRACKED_DEEPSLATE_TILES: 1136, CHISELED_DEEPSLATE: 1137,
   PACKED_MUD: 1138, MUD_BRICKS: 1139, PRISMARINE: 1140, PRISMARINE_BRICKS: 1141, DARK_PRISMARINE: 1142, SEA_LANTERN: 1143,
   RED_NETHER_BRICKS: 1144, CRACKED_NETHER_BRICKS: 1145, CHISELED_NETHER_BRICKS: 1146, SMOOTH_QUARTZ: 1147, QUARTZ_BRICKS: 1148, CHISELED_QUARTZ: 1149,
-  SMOOTH_RED_SANDSTONE: 1150, CUT_RED_SANDSTONE: 1151, CHISELED_RED_SANDSTONE: 1152, POLISHED_BASALT: 1153,
+  SMOOTH_RED_SANDSTONE: 1150, CUT_RED_SANDSTONE: 1151, CHISELED_RED_SANDSTONE: 1152, POLISHED_BASALT: 1153, COBWEB: 1154, ENDER_CHEST: 1155,
 } as const;
 export const FENCE_BASE = 1070, GATE_BASE = 1080, WALL_BASE = 1090, GLASS_PANE = 1115, STAINED_PANE_BASE = 1116, SLAB2 = 1160, STAIRS2 = 1161;
 export const GATE_OPEN = 4, GATE_POWERED = 8;
@@ -543,6 +543,8 @@ def(NB.CHISELED_QUARTZ, 'chiseled_quartz_block', 'Chiseled Quartz Block', 'Quart
 def(NB.SMOOTH_RED_SANDSTONE, 'smooth_red_sandstone', 'Smooth Red Sandstone', 'Red sandstone sanded flat.', { faces: ALL('red_sandstone_top'), hardness: 2, tool: 'pickaxe', tier: 1 });
 def(NB.CUT_RED_SANDSTONE, 'cut_red_sandstone', 'Cut Red Sandstone', 'Red sandstone cut into clean blocks.', { faces: COL('cut_red_sandstone', 'red_sandstone_top'), hardness: 0.8, tool: 'pickaxe', tier: 1 });
 def(NB.CHISELED_RED_SANDSTONE, 'chiseled_red_sandstone', 'Chiseled Red Sandstone', 'Red sandstone carved with a desert glyph.', { faces: COL('chiseled_red_sandstone', 'red_sandstone_top'), hardness: 0.8, tool: 'pickaxe', tier: 1 });
+def(NB.COBWEB, 'cobweb', 'Cobweb', 'Sticky silk strung across old tunnels. Anything caught in it crawls. Cut it with a sword or shears.', { faces: ALL('cobweb'), render: 'cross', solid: false, opaque: false, lightFilter: 1, hardness: 4, tool: 'sword', sound: 'cloth', drops: [{ item: 267 }], category: 'nature' });
+def(NB.ENDER_CHEST, 'ender_chest', 'Ender Chest', 'Opens onto your own private pocket of the void. Every Ender Chest in the world shares the same 27 slots, but only for you.', { faces: { ...ALL('ender_chest_side'), py: 'ender_chest_top', ny: 'ender_chest_top' }, render: 'boxes', opaque: false, lightFilter: 0, lightEmit: 7, hardness: 22.5, tool: 'pickaxe', tier: 1, interactive: true, drops: [{ item: 49, min: 8, max: 8 }], category: 'functional' });
 def(NB.POLISHED_BASALT, 'polished_basalt', 'Polished Basalt', 'Basalt columns ground smooth.', { faces: COL('polished_basalt_side', 'polished_basalt_top'), hardness: 1.25, tool: 'pickaxe', tier: 1 });
 
 export const WOODS: [string, string, number][] = [
@@ -647,6 +649,7 @@ export function connVisual(id: number, mask: number, post = true): CBox[] {
     return out;
   }
   if (isPane(id)) {
+    if (!mask) mask = 15;
     const out: CBox[] = [q16([7, 0, 7, 9, 16, 9])];
     if (mask & 1) out.push(q16([9, 0, 7, 16, 16, 9]));
     if (mask & 2) out.push(q16([7, 0, 9, 9, 16, 16]));
@@ -659,6 +662,7 @@ export function connVisual(id: number, mask: number, post = true): CBox[] {
 
 export function connCollision(id: number, mask: number, post = true): CBox[] {
   const [a, b, h] = isWall(id) ? [5, 11, 24] : isPane(id) ? [7, 9, 16] : [6, 10, 24];
+  if (isPane(id) && !mask) mask = 15;
   const out: CBox[] = [];
   if (isWall(id) && post) out.push(q16([4, 0, 4, 12, 24, 12]));
   else out.push(q16([a, 0, a, b, h, b]));
@@ -896,6 +900,7 @@ export function customBoxes(v: number): Box[] {
     case CB.END_PORTAL: return [p(0, 0, 0, 16, 12, 16)];
     case CB.DRAGON_EGG: return [p(6, 15, 6, 10, 16, 10), p(5, 14, 5, 11, 15, 11), p(4, 13, 4, 12, 14, 12), p(3, 11, 3, 13, 13, 13), p(2, 8, 2, 14, 11, 14), p(1, 3, 1, 15, 8, 15), p(2, 1, 2, 14, 3, 14), p(3, 0, 3, 13, 1, 13)];
     case CB.DRAGON_HEAD: return [p(4, 0, 4, 12, 8, 12)];
+    case NB.ENDER_CHEST: return [p(1, 0, 1, 15, 14, 15)];
     case CB.POINTED_DRIPSTONE: { const t = (v >>> 8) & 7, dn = ((v >>> 8) & DRIP_DOWN) !== 0, r = t <= 1 ? 3 : t === 2 ? 4 : t === 3 ? 5 : 6; return [p(8 - r, t === 1 && dn ? 5 : 0, 8 - r, 8 + r, t === 1 && !dn ? 11 : 16, 8 + r)]; }
   }
   if (id === B.ANVIL) {
@@ -991,7 +996,7 @@ export function selectionBox(v: number): [number, number, number, number, number
   }
 }
 
-for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE, CB.END_ROD, CB.CHORUS_PLANT, CB.CHORUS_FLOWER, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.DRAGON_EGG, CB.DRAGON_HEAD, CB.SOUL_LANTERN, CB.CAMPFIRE, CB.SOUL_CAMPFIRE, CB.RESPAWN_ANCHOR]) CUSTOM_BOX[id] = 1;
+for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE, CB.END_ROD, CB.CHORUS_PLANT, CB.CHORUS_FLOWER, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.DRAGON_EGG, CB.DRAGON_HEAD, CB.SOUL_LANTERN, CB.CAMPFIRE, CB.SOUL_CAMPFIRE, CB.RESPAWN_ANCHOR, NB.ENDER_CHEST]) CUSTOM_BOX[id] = 1;
 export const CROPS: Record<number, { max: number; tex: string; stages: number[] }> = {
   [B.WHEAT]: { max: 7, tex: 'wheat', stages: [0, 1, 2, 3, 4, 5, 6, 7] },
   [B.CARROTS]: { max: 7, tex: 'carrots', stages: [0, 0, 1, 1, 2, 2, 2, 3] },

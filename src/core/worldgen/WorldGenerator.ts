@@ -7,13 +7,14 @@ import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
-import { GEN_LEVEL, LANDFORM_LEVEL, RIVER_LEVEL, BIOME_LEVEL, BIOME2_LEVEL, CAVE_LEVEL } from './genLevel';
+import { GEN_LEVEL, LANDFORM_LEVEL, RIVER_LEVEL, BIOME_LEVEL, BIOME2_LEVEL, CAVE_LEVEL, STRUCT_LEVEL } from './genLevel';
 import { NetherGen, type NetherBiome } from './nether';
 import { isNether, isEnd, END_X } from '../dimension';
 import { EndGen } from './end';
 import { PortalPlan, PORTAL_GRID, planRuinedPortal, stampRuinedPortal } from './ruinedPortal';
 import { TreeSet, megaJungle, megaSpruce, jungleVines, hangingVines, acacia, darkOak, cherry, mangrove, hugeMushroom, iceSpike } from './trees';
 import { StructurePlan, STRONGHOLD_REGION, TRIAL_REGION, planStronghold, planTrial, stampStructure } from './structures';
+import { LandmarkKind, LandmarkPlan, LANDMARKS, LANDMARK_KINDS, SURFACE_LANDMARKS, planLandmark, stampLandmark, landmarkTouches } from './landmarks';
 
 export interface Column {
   height: number;
@@ -79,11 +80,12 @@ export class WorldGenerator {
 
   private structure(type: 'stronghold' | 'trial', rx: number, rz: number): StructurePlan | null {
     if (this.arena || this.studio || this.oreSeed === null) return null;
-    const k = `${type[0]}${rx},${rz}`;
+    const v2 = this.lv >= STRUCT_LEVEL;
+    const k = `${type[0]}${v2 ? 2 : 1}${rx},${rz}`;
     if (!this.structCache.has(k)) {
       if (this.structCache.size > 96) this.structCache.clear();
       const sec = this.oreSeed;
-      this.structCache.set(k, type === 'stronghold' ? planStronghold(sec, rx, rz, (x, z) => this.column(x, z).height) : planTrial(sec, rx, rz));
+      this.structCache.set(k, type === 'stronghold' ? planStronghold(sec, rx, rz, (x, z) => this.column(x, z).height, v2) : planTrial(sec, rx, rz, v2));
     }
     return this.structCache.get(k)!;
   }
@@ -104,7 +106,8 @@ export class WorldGenerator {
   }
 
   hasStructure(cx: number, cz: number): boolean {
-    return this.structuresNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1).length > 0;
+    if (this.structuresNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1).length > 0) return true;
+    return this.oreSeed !== null && this.landmarksNear(cx * S, cz * S, cx * S + S - 1, cz * S + S - 1, ['dungeon', 'mineshaft']).some((p) => landmarkTouches(p, cx, cz));
   }
 
   locate(type: 'stronghold' | 'trial', x: number, z: number): StructurePlan | null {
@@ -115,6 +118,58 @@ export class WorldGenerator {
     for (let ring = 0; ring <= 4 && !best; ring++) for (let rz = crz - ring; rz <= crz + ring; rz++) for (let rx = crx - ring; rx <= crx + ring; rx++) {
       if (Math.max(Math.abs(rx - crx), Math.abs(rz - crz)) !== ring) continue;
       const p = this.structure(type, rx, rz);
+      if (!p) continue;
+      const d = Math.hypot(p.x - x, p.z - z);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  private landmarkCache = new Map<string, LandmarkPlan | null>();
+  private reserved: { x0: number; z0: number; x1: number; z1: number }[] | null = null;
+
+  private probe(x: number, z: number): Column {
+    const lv = this.lv, bl = this.blend, st = this.sites;
+    this.lv = GEN_LEVEL; this.blend = null; this.sites = null;
+    try { return this.column(x, z); } finally { this.lv = lv; this.blend = bl; this.sites = st; }
+  }
+
+  landmark(kind: LandmarkKind, rx: number, rz: number): LandmarkPlan | null {
+    const hidden = kind === 'dungeon' || kind === 'mineshaft';
+    if (this.arena || this.studio || (hidden && this.oreSeed === null)) return null;
+    const secret = hidden ? this.oreSeed! : mix32(this.seed ^ 0x1a2d3c4b);
+    const k = `${kind}${rx},${rz}`;
+    if (!this.landmarkCache.has(k)) {
+      if (this.landmarkCache.size > 512) this.landmarkCache.clear();
+      const blocked = (x: number, z: number, r: number) => this.villagesNear(x, z, r).length > 0;
+      this.landmarkCache.set(k, planLandmark(kind, secret, rx, rz, (x, z) => this.probe(x, z), blocked));
+    }
+    return this.landmarkCache.get(k)!;
+  }
+
+  landmarksNear(x0: number, z0: number, x1: number, z1: number, kinds: readonly LandmarkKind[] = LANDMARK_KINDS): LandmarkPlan[] {
+    const out: LandmarkPlan[] = [];
+    if (this.arena || this.studio) return out;
+    for (const kind of kinds) {
+      const { grid: R, ext } = LANDMARKS[kind];
+      for (let rz = Math.floor((z0 - ext) / R); rz <= Math.floor((z1 + ext) / R); rz++) for (let rx = Math.floor((x0 - ext) / R); rx <= Math.floor((x1 + ext) / R); rx++) {
+        const p = this.landmark(kind, rx, rz);
+        if (!p) continue;
+        const b = p.bounds;
+        if (b.x1 < x0 || b.x0 > x1 || b.z1 < z0 || b.z0 > z1) continue;
+        out.push(p);
+      }
+    }
+    return out;
+  }
+
+  locateLandmark(kind: LandmarkKind, x: number, z: number, rings = 6): LandmarkPlan | null {
+    const R = LANDMARKS[kind].grid;
+    const crx = Math.floor(x / R), crz = Math.floor(z / R);
+    let best: LandmarkPlan | null = null, bd = Infinity;
+    for (let ring = 0; ring <= rings && !best; ring++) for (let rz = crz - ring; rz <= crz + ring; rz++) for (let rx = crx - ring; rx <= crx + ring; rx++) {
+      if (Math.max(Math.abs(rx - crx), Math.abs(rz - crz)) !== ring) continue;
+      const p = this.landmark(kind, rx, rz);
       if (!p) continue;
       const d = Math.hypot(p.x - x, p.z - z);
       if (d < bd) { bd = d; best = p; }
@@ -450,7 +505,13 @@ export class WorldGenerator {
   private refineBiome2(id: BiomeId, x: number, z: number, temp: number, height: number): BiomeId {
     switch (id) {
       case 'ocean': return temp > 0.42 ? 'warm_ocean' : id;
-      case 'island': return this.nVariety.fbm2(x / (260 * this.ck) - 300, z / (260 * this.ck) + 170, 2) > 0.18 ? 'mushroom_fields' : id;
+      case 'island': {
+        if (this.lv < STRUCT_LEVEL) return this.nVariety.fbm2(x / (260 * this.ck) - 300, z / (260 * this.ck) + 170, 2) > 0.18 ? 'mushroom_fields' : id;
+        if (this.raw.land > 0.22) return id;
+        const rx = Math.floor(x / 1536), rz = Math.floor(z / 1536);
+        if ((hash2(rx, rz, this.seed ^ 0x5b0c4a) & 255) >= 56) return id;
+        return this.nVariety.fbm2(x / (220 * this.ck) - 300, z / (220 * this.ck) + 170, 2) > 0.3 ? 'mushroom_fields' : id;
+      }
       case 'snowy_tundra': return this.nVariety.fbm2(x / (300 * this.ck) + 400, z / (300 * this.ck), 2) > 0.22 ? 'ice_spikes' : id;
       case 'swamp': return temp > 0.25 ? 'mangrove_swamp' : id;
       case 'forest': case 'meadow': case 'plains': case 'birch_forest':
@@ -579,12 +640,15 @@ export class WorldGenerator {
     this.carveCaves(cx, cz, blocks, colAt);
     if (this.lv >= CAVE_LEVEL) this.decorateCaves(cx, cz, blocks, colAt);
     this.placeOres(rng, blocks, colAt, cx, cz);
+    this.reserved = this.lv >= STRUCT_LEVEL ? this.landmarksNear(bx - 8, bz - 8, bx + S + 7, bz + S + 7, SURFACE_LANDMARKS).map((p) => ({ x0: p.bounds.x0 - 4, z0: p.bounds.z0 - 4, x1: p.bounds.x1 + 4, z1: p.bounds.z1 + 4 })) : null;
     this.placeFeatures(cx, cz, cols, set, get, entities);
+    this.reserved = null;
     const structs = this.structuresNear(bx, bz, bx + S - 1, bz + S - 1);
     for (const p of structs) stampStructure(p, this.oreSeed!, bx, bz, S, set, entities, this.lv);
     for (const v of this.villagesNear(bx + 8, bz + 8, 12)) stampVillage(v, bx, bz, S, set, get, (x, z) => this.column(x, z), entities, this.lv);
     if (this.lv >= 5) for (const pp of this.portalsNear(bx, bz)) stampRuinedPortal(pp, bx, bz, S, set, get, entities);
     if (this.lv >= BIOME_LEVEL) this.placeBoulders(cx, cz, cols, set);
+    if (this.lv >= STRUCT_LEVEL) for (const lm of this.landmarksNear(bx, bz, bx + S - 1, bz + S - 1)) stampLandmark(lm, bx, bz, set, get, entities);
     this.placeVegetation(cx, cz, rng, set, get, colAt);
     this.placeWaterfalls(rng, set, get, colAt);
     return structs.length ? { blocks, entities, special: true } : { blocks, entities };
@@ -864,7 +928,7 @@ export class WorldGenerator {
       for (let lx = -M; lx < S + M; lx++) {
         const col = cols[(lz + M) * W + (lx + M)];
         const wx = bx + lx, wz = bz + lz;
-        const t = this.treeAt(wx, wz, col);
+        const t = this.reserved && this.reserved.some((r) => wx >= r.x0 && wx <= r.x1 && wz >= r.z0 && wz <= r.z1) ? null : this.treeAt(wx, wz, col);
         if (t) {
           const y0 = col.height + 1;
           const LOGS = [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, B.JUNGLE_LOG, B.OAK_LOG];

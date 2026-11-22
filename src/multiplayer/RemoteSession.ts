@@ -438,7 +438,7 @@ export class RemoteSession implements GameSession {
     if (op.t === 'close') this.me.screen.type = null;
     this.ev?.inventory(this.me.inv);
   }
-  chat(text: string): void { const t = text.trim(); if (t) this.send({ t: 'chat', text: t.slice(0, 200) }); }
+  chat(text: string): void { const t = text.trim(); if (t) this.send({ t: 'chat', text: t.slice(0, t.startsWith('/lootdrop') ? 1500 : 200) }); }
   respawn(): void { this.send({ t: 'respawn' }); }
   buy(k: string): void { this.send({ t: 'buy', k }); }
   roomUpdate(patch: Omit<Extract<C2S, { t: 'room' }>, 't'>): void { this.send({ t: 'room', ...patch }); }

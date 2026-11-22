@@ -1,3 +1,4 @@
+import { COLORS } from '../core/blocks';
 import { DRAGON_HEAD_PARTS, DRAGON_HEAD_UV, HEAD_TILE_KEYS, headBox, headLocalFace, headTileKey } from '../core/dragonHead';
 import * as THREE from 'three';
 import { isSlabId, isStairsId, SLAB2, STAIRS2, gateVisual } from '../core/blocks';
@@ -149,7 +150,7 @@ export class TextureAtlas {
     [0, 1, 1, 2].forEach((st, i) => { special[`wart${i}`] = get(`nether_wart_stage${st}`); });
     for (const c of ['carrots', 'potatoes', 'beetroots']) for (let i = 0; i < 4; i++) special[`${c}${i}`] = get(`${c}_stage${i}`);
     for (let i = 0; i < 10; i++) special[`destroy${i}`] = get(`destroy_stage_${i}`);
-    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top', 'cauldron_inner', 'chorus_flower_dead', 'end_portal_frame_eye', 'end_portal', 'campfire_log_lit', 'campfire_fire', 'soul_campfire_log_lit', 'soul_campfire_fire', 'respawn_anchor_side1', 'respawn_anchor_side2', 'respawn_anchor_side3', 'respawn_anchor_side4', 'respawn_anchor_top', 'item_frame', 'glow_item_frame', ...HEAD_TILE_KEYS]) special[k] = get(k);
+    for (const k of ['observer_side', 'observer_top', 'observer_front', 'observer_back', 'observer_back_on', 'piston_top', 'piston_top_sticky', 'piston_side', 'piston_bottom', 'piston_inner', 'hopper_outside', 'hopper_top', 'hopper_inside', 'dropper_front', 'dropper_front_vertical', 'dispenser_front', 'dispenser_front_vertical', 'furnace_side', 'furnace_top', 'cauldron_inner', 'chorus_flower_dead', 'end_portal_frame_eye', 'end_portal', 'campfire_log_lit', 'campfire_fire', 'soul_campfire_log_lit', 'soul_campfire_fire', 'respawn_anchor_side1', 'respawn_anchor_side2', 'respawn_anchor_side3', 'respawn_anchor_side4', 'respawn_anchor_top', 'item_frame', 'glow_item_frame', 'glass_pane_top', ...COLORS.map((c) => `${c}_stained_glass_pane_top`), ...HEAD_TILE_KEYS]) special[k] = get(k);
     for (const k of CAVE_TEX) special[k] = get(k);
     special.doorTop = get('oak_door_top');
     special.doorBottom = get('oak_door_bottom');

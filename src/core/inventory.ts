@@ -17,6 +17,7 @@ export interface PlayerInv {
   cursor: ItemStack | null;
   selected: number;
   off: (ItemStack | null)[];
+  ender?: (ItemStack | null)[];
 }
 
 export type ContainerKind = 'chest' | 'furnace' | 'enchant' | 'anvil' | 'smith';
@@ -134,6 +135,7 @@ export function sanitizeInv(raw: unknown): PlayerInv {
   fill(inv.armor, r.armor);
   fill(inv.craft, r.craft);
   fill(inv.off, r.off);
+  if (Array.isArray(r.ender)) { inv.ender = new Array(27).fill(null); fill(inv.ender, r.ender); }
   inv.cursor = validStack(r.cursor) ? cloneStack(r.cursor) : null;
   inv.selected = Number.isInteger(r.selected) && r.selected! >= 0 && r.selected! < 9 ? r.selected! : 0;
   inv.craftSize = r.craftSize === 3 ? 3 : 2;

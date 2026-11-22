@@ -17,6 +17,21 @@ function makeCode(): string {
   return s;
 }
 
+const resolveCache = new Map<string, { at: number; target: string | null }>();
+
+async function resolveCode(env: Env, code: string): Promise<string | null> {
+  if (!env.REGISTRY) return code;
+  const hit = resolveCache.get(code);
+  if (hit && Date.now() - hit.at < 30000) return hit.target;
+  try {
+    const r = await env.REGISTRY.get(env.REGISTRY.idFromName('global')).fetch(`https://registry/resolve?code=${encodeURIComponent(code)}`);
+    const j = (await r.json()) as { target: string | null };
+    if (resolveCache.size > 2000) resolveCache.clear();
+    resolveCache.set(code, { at: Date.now(), target: j.target });
+    return j.target;
+  } catch { return code; }
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -80,12 +95,39 @@ async function admin(req: Request, env: Env, path: string): Promise<Response> {
     const stub = env.REGISTRY.get(env.REGISTRY.idFromName('global'));
     return json(await (await stub.fetch('https://registry/list')).json());
   }
+  if (path === '/api/admin/featured' && req.method === 'POST') {
+    if (!env.REGISTRY) return json({ error: 'No registry' }, 503);
+    const b = (await req.json().catch(() => ({}))) as { code?: string; on?: boolean; blurb?: string };
+    const code = String(b.code ?? '').toUpperCase();
+    if (!isValidRoomCode(code)) return json({ error: 'Invalid room code' }, 400);
+    await env.REGISTRY.get(env.REGISTRY.idFromName('global')).fetch('https://registry/feature', { method: 'POST', body: JSON.stringify({ code, on: b.on !== false, blurb: String(b.blurb ?? '').slice(0, 140) }) });
+    return json({ ok: true });
+  }
   const m = path.match(/^\/api\/admin\/rooms\/([A-Za-z0-9]+)$/);
   if (m && req.method === 'POST') {
     const code = m[1].toUpperCase();
     if (!isValidRoomCode(code)) return json({ error: 'Invalid room code' }, 400);
-    const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(code));
-    const res = await stub.fetch('https://room/admin', { method: 'POST', body: (await req.text()).slice(0, 4096) });
+    const target = await resolveCode(env, code);
+    if (!target) return json({ error: 'That code is no longer in use.' }, 404);
+    const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(target));
+    const text = (await req.text()).slice(0, 4096);
+    let body: Record<string, unknown> = {};
+    try { body = JSON.parse(text); } catch { /* handled by room */ }
+    if (body.action === 'recode') {
+      const to = String(body.to ?? '').toUpperCase().trim();
+      if (!isValidRoomCode(to)) return json({ error: `Codes are ${ROOM_CODE_LENGTH} characters from ${ROOM_CODE_ALPHABET}.` }, 400);
+      if (to === code) return json({ ok: true, code });
+      if (!env.REGISTRY) return json({ error: 'No registry' }, 503);
+      const clash = (await (await env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(to)).fetch('https://room/info')).json()) as { exists?: boolean };
+      if (clash.exists && to !== target) return json({ error: 'Another world already uses that code.' }, 409);
+      const reg = env.REGISTRY.get(env.REGISTRY.idFromName('global'));
+      const rr = await reg.fetch('https://registry/recode', { method: 'POST', body: JSON.stringify({ from: code, to, target }) });
+      if (!rr.ok) return json(await rr.json(), rr.status);
+      resolveCache.delete(code); resolveCache.delete(to);
+      const res = await stub.fetch('https://room/admin', { method: 'POST', body: JSON.stringify({ action: 'recode', code: to }) });
+      return json({ ...(await res.json() as object), code: to }, res.status);
+    }
+    const res = await stub.fetch('https://room/admin', { method: 'POST', body: text });
     return json(await res.json(), res.status);
   }
   if (path === '/api/admin/check') return json({ ok: true });
@@ -104,6 +146,7 @@ async function createRoom(req: Request, env: Env): Promise<Response> {
   const region = typeof body.region === 'string' && REGIONS.has(body.region) ? body.region : undefined;
   for (let attempt = 0; attempt < 6; attempt++) {
     const code = makeCode();
+    if ((await resolveCode(env, code)) !== code) continue;
     const id = env.WORLD_ROOMS.idFromName(code);
     const stub = region ? env.WORLD_ROOMS.get(id, { locationHint: region as DurableObjectLocationHint }) : env.WORLD_ROOMS.get(id);
     const res = await stub.fetch('https://room/init', { method: 'POST', body: JSON.stringify({ ...body, code }) });
@@ -144,6 +187,12 @@ async function route(req: Request, env: Env): Promise<Response> {
 
     if (path === '/api/rooms' && req.method === 'POST') return createRoom(req, env);
 
+    if (path === '/api/featured') {
+      if (!env.REGISTRY) return json({ worlds: [] });
+      const r = await env.REGISTRY.get(env.REGISTRY.idFromName('global')).fetch('https://registry/featured');
+      return new Response(r.body, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=20' } });
+    }
+
     if (path.startsWith('/api/supporter/') || path === '/api/stripe/webhook') return supporterRoute(req, env, path);
 
     const auth = path.match(/^\/api\/auth\/(register|login|password)$/);
@@ -159,7 +208,9 @@ async function route(req: Request, env: Env): Promise<Response> {
     if (roomMatch) {
       const code = roomMatch[1].toUpperCase();
       if (!isValidRoomCode(code)) return json({ exists: false, code, error: 'Invalid room code' }, 400);
-      const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(code));
+      const target = await resolveCode(env, code);
+      if (!target) return json({ exists: false, code });
+      const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(target));
       if (roomMatch[2] && req.method === 'POST') {
         const res = await stub.fetch('https://room/delete', { method: 'POST', body: await req.text() });
         return json(await res.json(), res.status);
@@ -174,7 +225,9 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('Expected WebSocket upgrade', { status: 426 });
       const code = wsMatch[1].toUpperCase();
       if (!isValidRoomCode(code)) return new Response('Invalid room code', { status: 400 });
-      const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(code));
+      const target = await resolveCode(env, code);
+      if (!target) return new Response('Unknown room', { status: 404 });
+      const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(target));
       return stub.fetch(new Request('https://room/ws', req));
     }
 

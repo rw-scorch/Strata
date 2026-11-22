@@ -1,4 +1,4 @@
-import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand, isConnecting, isWall, connMask, connCollision, connVisual, connBounds, wallPost } from './blocks';
+import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand, isConnecting, isWall, connMask, connCollision, connVisual, connBounds, wallPost, NB } from './blocks';
 
 function connShape(world: BlockReader, v: number, x: number, y: number, z: number, collide: boolean): number[][] {
   const id = bid(v);
@@ -123,10 +123,10 @@ function liquidTop(v: number, above: number, id: number): number {
 }
 
 
-export interface Medium { water: boolean; lava: boolean; ladder: boolean; eyeWater: boolean; cactus: boolean; }
+export interface Medium { water: boolean; lava: boolean; ladder: boolean; eyeWater: boolean; cactus: boolean; web?: boolean; }
 
 export function sampleMedium(world: BlockReader, x: number, y: number, z: number, hw: number, h: number, eye: number): Medium {
-  const m: Medium = { water: false, lava: false, ladder: false, eyeWater: false, cactus: false };
+  const m: Medium = { water: false, lava: false, ladder: false, eyeWater: false, cactus: false, web: false };
   const e = 0.001;
   const x0 = Math.floor(x - hw + e), x1 = Math.floor(x + hw - e), z0 = Math.floor(z - hw + e), z1 = Math.floor(z + hw - e);
   const y0 = Math.floor(y + 0.1), y1 = Math.floor(y + h - 0.1);
@@ -138,6 +138,7 @@ export function sampleMedium(world: BlockReader, x: number, y: number, z: number
       if (y + e >= top) continue;
       if (id === B.LAVA) m.lava = true; else m.water = true;
     } else if (by >= y0 && id === B.LADDER) m.ladder = true;
+    else if (id === NB.COBWEB) m.web = true;
     else if (id === B.CAULDRON && ((v >>> 8) & 4) && y + e < by + 15 / 16 && y + e >= by + 3 / 16 && x > bx + 0.1 && x < bx + 0.9 && z > bz + 0.1 && z < bz + 0.9) m.lava = true;
   }
   for (let bz = Math.floor(z - hw - 0.05); bz <= Math.floor(z + hw + 0.05); bz++) for (let bx = Math.floor(x - hw - 0.05); bx <= Math.floor(x + hw + 0.05); bx++) {

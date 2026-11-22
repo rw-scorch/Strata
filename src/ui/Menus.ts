@@ -3,7 +3,7 @@ import { ARENA_KINDS, ARENA_INFO, ArenaKind } from '../core/labs/minigames/arena
 import { h, clear, toast, modal, confirmDialog, promptDialog, toggle, segmented, slider, select, copyText, fmtDate, fmtTime, download } from './dom';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord, getAccount, setAccount, accountRequest, markLoginSeen, supporterRequest } from '../storage/Settings';
-import { GAME_VERSION, MODE_TITLES, GameMode, Difficulty, DIFFICULTIES, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, isValidRoomCode, normalizeRoomCode, PROTOCOL_VERSION } from '../core/constants';
+import { GAME_VERSION, MODE_TITLES, GameMode, Difficulty, DIFFICULTIES, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, isValidRoomCode, normalizeRoomCode, PROTOCOL_VERSION, ROOM_CODE_LENGTH } from '../core/constants';
 import { seedFromInput } from '../core/rng';
 import { drawAvatar } from './avatar';
 import { apiURL } from '../multiplayer/RemoteSession';
@@ -81,6 +81,8 @@ export class Menus {
     const profileBtn = mcButton(head, () => (acct ? this.profile() : this.login()), 20, { cls: 'square', tip: acct ? `Signed in as ${acct.name}` : 'Profile and sign in' });
     const creditsBtn = mcButton('i', () => this.credits(), 20, { cls: 'square', tip: 'Credits and attribution' });
     const packBtn = h('div', { class: 'mc-title-row' });
+    const featBtn = h('div', { class: 'mc-title-row' });
+    void fetchFeatured().then((ws) => { const w = ws[0]; if (w && featBtn.isConnected) featBtn.appendChild(mcButton(`Featured: ${w.name}${w.online ? ` (${w.online} online)` : ''}`, () => void this.joinPreview(w.code), 200, { tip: w.blurb || 'A world picked by the server admins' })); });
     void ResourcePackManager.list().then((packs) => {
       if (!packs.length) packBtn.appendChild(mcButton('Use Your Minecraft Textures', () => this.app.openPacks(true), 200, { tip: 'Import your own Minecraft resource pack. It stays on this device.' }));
     }).catch(() => { /* storage unavailable */ });
@@ -89,6 +91,7 @@ export class Menus {
       h('div', { class: 'mc-title-buttons' },
         mcButton('Singleplayer', () => this.worlds(), 200),
         mcButton('Multiplayer', () => this.multiplayer(), 200),
+        featBtn,
         getSettings().labs ? mcButton('Arena Games (Labs)', () => this.createWorld(false, 'spires'), 200) : packBtn,
         h('div', { class: 'mc-title-row last' }, profileBtn, mcButton('Options...', () => this.app.openSettings(), 98), mcButton(this.app.canInstall() ? 'Install App' : 'Resource Packs...', () => (this.app.canInstall() ? this.app.install() : this.app.openPacks()), 98), creditsBtn),
       ),
@@ -409,8 +412,18 @@ export class Menus {
     };
     renderRooms(recent, 'recent');
     renderRooms(hosted, 'hosted');
+    const featured = h('div', { class: 'list' });
+    const featTitle = h('div', { class: 'section-title', style: 'display:none' }, 'Featured worlds');
+    void fetchFeatured().then((ws) => {
+      if (!ws.length) return;
+      featTitle.style.display = '';
+      for (const w of ws) featured.appendChild(h('div', { class: 'list-item' },
+        h('div', { class: 'meta' }, h('div', { class: 'name' }, w.name, h('span', { class: `badge ${w.online ? 'teal' : ''}`, style: 'margin-left:6px' }, `${w.online} online`)), h('div', { class: 'sub' }, w.blurb || `${w.mode} · ${w.code}`)),
+        h('div', { class: 'actions' }, h('button', { class: 'btn small teal', onclick: () => void this.joinPreview(w.code) }, 'Join'))));
+    });
     if (!navigator.onLine) err.appendChild(h('div', { class: 'error-box' }, 'You appear to be offline. Multiplayer needs an internet connection; single-player still works.'));
     this.show(card('Multiplayer', () => this.title(),
+      featTitle, featured,
       h('button', { class: 'btn primary block', onclick: () => this.createWorld(true) }, 'Create online world'),
       h('div', { class: 'section-title' }, 'Join with a code'),
       h('div', { class: 'row' }, h('div', { class: 'grow' }, codeInput), h('button', { class: 'btn teal', onclick: go }, 'Join')),
@@ -433,7 +446,7 @@ export class Menus {
       if (!res.ok) throw new Error(String(j.error ?? res.status));
       return j;
     };
-    type Rep = { code: string; name: string; owner: string; mode: string; difficulty: string; maxPlayers: number; live: boolean; updated: number; voice: boolean; arena: string | null; players: { id: string; name: string; x: number; y: number; z: number; op: boolean; mode: string; health: number; dead: boolean; vanished?: boolean }[] };
+    type Rep = { code: string; name: string; owner: string; mode: string; difficulty: string; maxPlayers: number; live: boolean; updated: number; voice: boolean; arena: string | null; featured?: boolean; players: { id: string; name: string; x: number; y: number; z: number; op: boolean; mode: string; health: number; dead: boolean; vanished?: boolean }[] };
     const spectate = (code: string, at?: string) => {
       sessionStorage.setItem('strata.spectate', JSON.stringify({ code, key: keyIn.value.trim(), at: at ?? '' }));
       this.app.playRemote(code);
@@ -503,6 +516,14 @@ export class Menus {
           h('div', { class: 'actions' },
             h('button', { class: 'btn small teal', onclick: () => spectate(r.code) }, 'Spectate'),
             h('button', { class: 'btn small', onclick: () => void prices(r.code, r.name) }, 'Prices'),
+            h('button', { class: 'btn small', onclick: async () => { const n = await promptDialog('Rename world', 'New name', r.name, 32); if (n && n.trim()) void act(r.code, { action: 'rename', name: n.trim() }, 'World renamed.'); } }, 'Rename'),
+            h('button', { class: 'btn small', onclick: async () => { const c = await promptDialog('Change join code', `New code (${ROOM_CODE_LENGTH} characters). The old code stops working.`, r.code, ROOM_CODE_LENGTH); if (c && c.trim()) void act(r.code, { action: 'recode', to: c.trim().toUpperCase() }, `Code changed to ${c.trim().toUpperCase()}.`); } }, 'Change code'),
+            h('button', { class: `btn small ${r.featured ? 'gold' : ''}`, onclick: async () => {
+              if (r.featured) { try { await api('/api/admin/featured', { code: r.code, on: false }); toast('Removed from the front page.', 'success'); void load(); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); } return; }
+              const blurb = await promptDialog('Feature on the front page', 'Short description shown to players (optional)', '', 140);
+              if (blurb === null) return;
+              try { await api('/api/admin/featured', { code: r.code, on: true, blurb }); toast('Featured on the front page.', 'success'); void load(); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); }
+            } }, r.featured ? 'Featured' : 'Feature'),
             h('button', { class: 'btn small danger', onclick: async () => { if (await confirmDialog('Delete world', `Permanently delete "${r.name}" (${r.code})? This cannot be undone.`, 'Delete', true)) void act(r.code, { action: 'delete' }, 'World deleted.'); } }, 'Delete'),
           )),
         players,
@@ -623,4 +644,13 @@ export class Menus {
       h('p', { class: 'small muted', style: 'margin:0' }, 'Strata is not an official Minecraft product and is not approved by or associated with Mojang or Microsoft. Minecraft is a trademark of Mojang Synergies AB.'),
     ));
   }
+}
+
+type FeaturedWorld = { code: string; name: string; blurb: string; mode: string; online: number; maxPlayers: number };
+let featCache: { at: number; p: Promise<FeaturedWorld[]> } | null = null;
+function fetchFeatured(): Promise<FeaturedWorld[]> {
+  if (featCache && Date.now() - featCache.at < 30000) return featCache.p;
+  const p = fetch(apiURL('/api/featured')).then((r) => (r.ok ? r.json() : { worlds: [] })).then((j: { worlds?: FeaturedWorld[] }) => (Array.isArray(j.worlds) ? j.worlds : [])).catch(() => [] as FeaturedWorld[]);
+  featCache = { at: Date.now(), p };
+  return p;
 }

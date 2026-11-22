@@ -1,7 +1,7 @@
 import { DRAGON_HEAD_PARTS, headBox, headLocalFace, headTileKey } from '../core/dragonHead';
 import type { BlockArray } from '../core/chunk';
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, shapeMatIndex, connMask, connVisual, wallPost, gateVisual, isWall, isStainedPane, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, shapeMatIndex, connMask, connVisual, wallPost, gateVisual, isWall, isStainedPane, STAINED_PANE_BASE, COLORS, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -522,6 +522,17 @@ function quadRaw(bd: Builder, pts: number[][], uvs: number[][], tile: number, sk
   }
 }
 
+function paneFacePts(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): number[][][] {
+  return [
+    [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
+    [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
+    [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]],
+    [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+    [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+    [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]],
+  ];
+}
+
 function boxFaces(bd: Builder, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, tileFor: (d: number) => number, sk: number, bl: number, r: number, g: number, b: number, skip?: (d: number) => boolean, uvOverride?: (d: number) => number[][] | null, flags = 0, stretch = false): void {
   const faces: number[][][] = [
     [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]],
@@ -788,20 +799,29 @@ function special(ctx: MesherContext, code: number, id: number, v: number, x: num
     }
     case 19: {
       const tile = tiles[id * FS + 4];
-      const bd = isStainedPane(id) ? builders[2] : cut;
-      const mask = connMask(id, (dx, dz) => region[ridx(rx + dx, y, rz + dz)]);
-      const c = 0.5;
-      const plane = (x0: number, z0: number, x1: number, z1: number) => {
-        const along = x0 !== x1;
-        const u0 = along ? x0 : z0, u1 = along ? x1 : z1;
-        quadRaw(bd, [[x + x0, y, z + z0], [x + x1, y, z + z1], [x + x1, y + 1, z + z1], [x + x0, y + 1, z + z0]], [[u0, 1], [u1, 1], [u1, 0], [u0, 0]], tile, sk, bl, 230, 255, 255, 255, 0, true);
-      };
-      if (!mask) { plane(0, c, 1, c); plane(c, 0, c, 1); return; }
-      if (mask & 1) plane(c, c, 1, c);
-      if (mask & 4) plane(0, c, c, c);
-      if (mask & 2) plane(c, c, c, 1);
-      if (mask & 8) plane(c, 0, c, c);
-      if (mask === 1 || mask === 4) plane(mask === 1 ? 0.5 - 1 / 16 : 0.5, c, mask === 1 ? 0.5 : 0.5 + 1 / 16, c);
+      const stained = isStainedPane(id);
+      const bd = stained ? builders[2] : cut;
+      const edge = id === B.IRON_BARS ? tile : (stained ? sp[`${COLORS[id - STAINED_PANE_BASE]}_stained_glass_pane_top`] : sp.glass_pane_top) ?? tile;
+      let mask = connMask(id, (dx, dz) => region[ridx(rx + dx, y, rz + dz)]);
+      if (!mask) mask = 15;
+      for (const bx of connVisual(id, mask)) {
+        const X0 = x + bx[0], Y0 = y + bx[1], Z0 = z + bx[2], X1 = x + bx[3], Y1 = y + bx[4], Z1 = z + bx[5];
+        const longX = bx[3] - bx[0] > bx[5] - bx[2] + 1e-6, longZ = bx[5] - bx[2] > bx[3] - bx[0] + 1e-6;
+        const pts = paneFacePts(X0, Y0, Z0, X1, Y1, Z1);
+        for (let d = 0; d < 6; d++) {
+          const broad = longX ? d === 4 || d === 5 : longZ ? d === 0 || d === 1 : d !== 2 && d !== 3;
+          const fp = pts[d];
+          if (broad) {
+            const [uAx, uS, vAx, vS] = UVMAP[d];
+            quadRaw(bd, fp, fp.map((q) => [q[uAx] * uS, q[vAx] * vS]), tile, sk, bl, SHADE[d], 255, 255, 255, 0, false);
+            continue;
+          }
+          const ta = longZ ? 0 : 2, t0 = longZ ? X0 : Z0, t1 = longZ ? X1 : Z1;
+          const la = d === 2 || d === 3 ? (longZ ? 2 : 0) : 1;
+          const uv = fp.map((q) => [(7 + 2 * ((q[ta] - t0) / (t1 - t0 || 1))) / 16, la === 1 ? 1 - (q[1] - y) : q[la] - (la === 0 ? x : z)]);
+          quadRaw(bd, fp, uv, edge, sk, bl, SHADE[d], 255, 255, 255, 0, false);
+        }
+      }
       return;
     }
     case 15: {

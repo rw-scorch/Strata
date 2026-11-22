@@ -699,6 +699,15 @@ export class WorldRoom extends DurableObject<Env> {
       this.report(true);
       return Response.json({ ok: true });
     }
+    if (act === 'rename' || act === 'recode') {
+      if (act === 'rename') { const nm = cleanText(b.name, 32); if (!nm) return Response.json({ error: 'Enter a name.' }, { status: 400 }); m.name = nm; }
+      else m.code = String(b.code ?? m.code).toUpperCase().slice(0, 12);
+      this.saveMeta();
+      this.broadcast({ t: 'room', room: this.publicMeta(), players: this.sim ? [...this.sim.players.values()].filter((p) => !p.vanished).map((p) => this.publicPlayer(p)) : [] });
+      this.systemChat(act === 'rename' ? `This world is now called "${m.name}".` : `This world's join code is now ${m.code}. The old code no longer works.`, 'info');
+      this.report(true);
+      return Response.json({ ok: true, name: m.name, code: m.code });
+    }
     if (act === 'settings') {
       if (isInt(b.maxPlayers, 1, MAX_PLAYERS_LIMIT)) m.maxPlayers = b.maxPlayers;
       if (typeof b.voice === 'boolean') m.settings.voice = b.voice;
@@ -1160,7 +1169,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private handleChat(s: Session, p: SimPlayer, raw: unknown, sim: WorldSim): void {
-    const text = cleanText(raw, 200);
+    const text = cleanText(raw, p.op && typeof raw === 'string' && raw.startsWith('/lootdrop') ? 1500 : 200);
     if (!text) return;
     const now = Date.now();
     s.chatBurst = Math.min(4, s.chatBurst + (now - s.chatT) / 900);

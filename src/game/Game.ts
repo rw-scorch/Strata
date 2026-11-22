@@ -59,7 +59,7 @@ export interface AppHooks {
   currentAtlas(): TextureAtlas;
   rebuildAtlas(packIds?: string[]): Promise<TextureAtlas>;
   activePackRef(): { name: string; hash: string } | null;
-  packIdForHash(hash: string): Promise<string | null>;
+  packIdForHash(hash: string, name?: string): Promise<string | null>;
 }
 
 type State = 'loading' | 'playing' | 'paused' | 'inventory' | 'chat' | 'dead' | 'menu';
@@ -535,9 +535,9 @@ export class Game {
     let packIds = s.activePacks;
     let packNote = '';
     if (room.pack) {
-      const id = await this.app.packIdForHash(room.pack.hash);
+      const id = await this.app.packIdForHash(room.pack.hash, room.pack.name);
       if (id) { packIds = [id]; packNote = `This world shares the resource pack "${room.pack.name}". It is installed, so you will see it.`; }
-      else { packIds = room.settings.personalPacks ? s.activePacks : []; packNote = `This world suggests the resource pack "${room.pack.name}". You do not have it installed, so ${room.settings.personalPacks ? 'your own packs' : 'default textures'} are used. Gameplay is unaffected.`; }
+      else { packIds = room.settings.personalPacks ? s.activePacks : []; packNote = `This world suggests the resource pack "${room.pack.name}". You do not have it installed, so ${room.settings.personalPacks ? 'your own packs' : 'default textures'} are used. To see it, open Resource Packs from the pause menu and import your own copy of "${room.pack.name}". Gameplay is unaffected.`; }
     } else if (!room.settings.personalPacks) { packIds = []; if (s.activePacks.length) packNote = 'This world uses default textures for everyone.'; }
     this.atlas = await this.app.rebuildAtlas(packIds);
     this.setupCommon(room.seed, true, room.arena ?? null, room.climate, false);
@@ -896,7 +896,7 @@ export class Game {
       economy: !local && this.room?.settings.economy !== false ? (cmd: string) => { this.resume(); this.session.chat(cmd); } : undefined,
       invite: local ? undefined : () => showInvite(this.session.info.roomCode!, this.session.info.name),
       room: !local && remote.me.op ? () => showRoomSettings(remote.room, (patch) => remote.roomUpdate(patch), this.app.activePackRef(), this.rulesState, (cmds) => { cmds.forEach((c, i) => setTimeout(() => remote.chat(c), i * 400)); }) : undefined,
-      admin: local || remote.me.op ? () => showSovereign((c) => this.session.chat(c), () => { const s = heldStack(this.session.me.inv); return s ? { id: s.id, name: getItem(s.id)?.name ?? 'Item', en: s.en, dmg: s.dmg } : null; }, () => this.rulesState ?? {}) : undefined,
+      admin: local || remote.me.op ? () => showSovereign((c) => this.session.chat(c), () => { const s = heldStack(this.session.me.inv); return s ? { id: s.id, name: getItem(s.id)?.name ?? 'Item', en: s.en, dmg: s.dmg } : null; }, () => this.rulesState ?? {}, this.atlas) : undefined,
       mischief: local || remote.me.op ? () => showMischief(() => (local ? [this.session.me.name] : [...remote.players.values()].map((q) => q.name)), this.session.me.name, (c) => this.session.chat(c), () => this.aimFar()) : undefined,
       blueprints: !this.session.info.arena ? () => this.openBlueprints() : undefined,
       waypoints: this.minimap ? () => { this.closePause?.(); this.minimap?.openBig(); } : undefined,
@@ -1384,7 +1384,7 @@ export class Game {
     } else cam.position.copy(eye);
     const draw = Math.min(1, this.interaction.drawing);
     const zoom = this.zoomHeld && this.state === 'playing' ? this.zoomLevel : 1;
-    const fovTarget = ((st.fov + this.player.fovBoost * 9 * (this.player.flying ? 1.4 : 1)) * (1 - 0.15 * draw * draw)) / zoom;
+    const fovTarget = ((st.fov + this.player.fovBoost * 9 * (this.player.flying ? 1.4 : 1) + this.player.speedFov * 26 * (st.speedFov ?? 0.6)) * (1 - 0.15 * draw * draw)) / zoom;
     if (Math.abs(cam.fov - fovTarget) > 0.05) this.renderer.setFov(cam.fov + (fovTarget - cam.fov) * Math.min(1, dt * (zoom > 1 || cam.fov < st.fov * 0.8 ? 14 : 10)));
     this.input.lookScale = zoom > 1 ? 1 / Math.sqrt(zoom) : 1;
 

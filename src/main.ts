@@ -144,7 +144,7 @@ class App {
       currentAtlas: () => this.atlas!,
       rebuildAtlas: (ids?: string[]) => this.rebuildAtlas(ids ?? getSettings().activePacks),
       activePackRef: () => this.activePackRef(),
-      packIdForHash: async (hash: string) => (await ResourcePackManager.findByHash(hash))?.id ?? null,
+      packIdForHash: async (hash: string, name?: string) => (await ResourcePackManager.findByHash(hash, name))?.id ?? null,
     };
   }
 

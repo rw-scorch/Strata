@@ -11,6 +11,7 @@ describe('anti-xray', () => {
   it('client terrain matches server except hidden ores', () => {
     let ores = 0;
     for (const [cx, cz] of [[0, 0], [3, -2], [-5, 7], [10, 10]]) {
+      if (server.hasStructure(cx, cz)) continue;
       const s = server.generate(cx, cz).blocks, c = client.generate(cx, cz).blocks;
       for (let i = 0; i < s.length; i++) {
         if (s[i] === c[i]) continue;

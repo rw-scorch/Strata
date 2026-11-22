@@ -108,9 +108,10 @@ class Manager {
     this.changed();
   }
 
-  async findByHash(hash: string): Promise<PackManifest | null> {
+  async findByHash(hash: string, name?: string): Promise<PackManifest | null> {
     const all = await dbAll<PackManifest>('packs');
-    return all.find((m) => m.hash === hash) ?? null;
+    const norm = (s: string) => s.toLowerCase().replace(/\.(zip|jar|mcpack)$/, '').replace(/[^a-z0-9]+/g, '');
+    return all.find((m) => m.hash === hash) ?? (name ? all.find((m) => norm(m.name) === norm(name)) ?? null : null);
   }
 
   setActive(ids: string[]): void {

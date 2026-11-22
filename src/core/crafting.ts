@@ -205,6 +205,7 @@ shaped('compass', 'tools', I.COMPASS, 1, [' I ', 'IRI', ' I '], { I: I.IRON_INGO
 shaped('clock', 'tools', I.CLOCK, 1, [' G ', 'GRG', ' G '], { G: I.GOLD_INGOT, R: I.REDSTONE });
 shaped('glass_bottle', 'basics', I.GLASS_BOTTLE, 3, ['G G', ' G '], { G: B.GLASS });
 shapeless('ender_eye', 'basics', I.EYE_OF_ENDER, 1, [I.ENDER_PEARL, I.BLAZE_POWDER]);
+shaped('ender_chest', 'decor', NB.ENDER_CHEST, 1, ['OOO', 'OEO', 'OOO'], { O: B.OBSIDIAN, E: I.EYE_OF_ENDER });
 shaped('end_crystal', 'decor', I.END_CRYSTAL, 1, ['GGG', 'GEG', 'GTG'], { G: B.GLASS, E: I.EYE_OF_ENDER, T: I.GHAST_TEAR });
 shaped('end_stone_bricks', 'building', CB.END_STONE_BRICKS, 4, ['EE', 'EE'], { E: CB.END_STONE });
 shaped('purpur_block', 'building', CB.PURPUR_BLOCK, 4, ['PP', 'PP'], { P: I.POPPED_CHORUS_FRUIT });

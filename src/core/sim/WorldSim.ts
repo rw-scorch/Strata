@@ -2,7 +2,9 @@ import type { BlockArray } from '../chunk';
 import { fortressAt, fortressesNear, bastionsNear } from '../worldgen/fortress';
 import { PORTAL_GRID } from '../worldgen/ruinedPortal';
 import { smithResult } from '../smithing';
-import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN } from '../blocks';
+import { LandmarkKind, LANDMARK_KINDS, LANDMARK_NAMES } from '../worldgen/landmarks';
+import { LootCfg, LOOT_DEFAULTS, parseLootArgs, lootArgs, sanitizeLootCfg, palette as lootPalette, pick as lootPick, chestLoot as lootChest, frameLoot as lootFrame } from './lootdrop';
+import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN, NB } from '../blocks';
 import { FRAME_EYE, CHORUS_DEAD, isFluid, CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON, isLantern, isCampfire, isSoulLight, LANTERN_HANGING, CAMPFIRE_LIT, ANCHOR_LIGHT, isSoulSand } from '../blocks';
 import { isRail, railShape, railPowered, railHeight, railLine, RAIL_EXITS, shapeFor, reshapeNeighbor, neighborRails } from '../rails';
 import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
@@ -330,12 +332,12 @@ export interface SimSettings {
   pvp: boolean; cheats: boolean; guestsBuild: boolean; dayCycle: boolean; weatherCycle: boolean;
   dayLength?: number; nightLength?: number;
   simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number;
-  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean;
+  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean; lootdrop?: LootCfg;
   tpDelay?: number; combatTime?: number;
 }
 
 const DT = 1 / 20;
-export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime'] as const;
+export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop'] as const;
 export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
 export function ruleSnapshot(s: SimSettings): RuleSet {
   const out: Record<string, unknown> = {};
@@ -377,6 +379,12 @@ const GHAST_SPACING = 40;
 type BpJobT = { bp: Blueprint; x0: number; y0: number; z0: number };
 export type LocateKind = 'village' | 'stronghold' | 'trial_chamber' | 'ruined_portal' | 'fortress' | 'bastion_remnant';
 const LOCATE_NAMES: Record<LocateKind, string> = { village: 'village', stronghold: 'stronghold', trial_chamber: 'trial chamber', ruined_portal: 'ruined portal', fortress: 'Nether fortress', bastion_remnant: 'bastion remnant' };
+const LANDMARK_ALIASES: Record<string, LandmarkKind> = {
+  desert_pyramid: 'desert_pyramid', pyramid: 'desert_pyramid', desert_temple: 'desert_pyramid', jungle_temple: 'jungle_temple', jungle_pyramid: 'jungle_temple', temple: 'jungle_temple',
+  swamp_hut: 'swamp_hut', witch_hut: 'swamp_hut', hut: 'swamp_hut', igloo: 'igloo', desert_well: 'desert_well', well: 'desert_well',
+  pillager_outpost: 'pillager_outpost', outpost: 'pillager_outpost', shipwreck: 'shipwreck', ship: 'shipwreck', ocean_ruin: 'ocean_ruin', ocean_ruins: 'ocean_ruin', ruins: 'ocean_ruin',
+  ocean_monument: 'ocean_monument', monument: 'ocean_monument', dungeon: 'dungeon', monster_room: 'dungeon', mineshaft: 'mineshaft', mineshafts: 'mineshaft',
+};
 const LOCATE_ALIASES: Record<string, LocateKind> = {
   village: 'village', villages: 'village', village_plains: 'village', village_desert: 'village', village_savanna: 'village', village_snowy: 'village', village_taiga: 'village',
   stronghold: 'stronghold', trial: 'trial_chamber', trial_chamber: 'trial_chamber', trial_chambers: 'trial_chamber',
@@ -450,7 +458,8 @@ export function breakTime(blockV: number, stack: ItemStack | null, underwater: b
   if (stack?.id === I.SHEARS && (d.render === 'leaves' || d.id === B.VINE || d.sound === 'cloth')) return d.render === 'leaves' ? 0.05 : Math.max(0.05, d.hardness * 0.3);
   const t = toolFor(stack);
   let speed = 1;
-  if (t && (t.type === d.tool || (t.type === 'sword' && (d.render === 'leaves' || d.id === B.CACTUS)))) speed = t.type === 'sword' ? 1.5 : t.speed;
+  if (t && (t.type === d.tool || (t.type === 'sword' && (d.render === 'leaves' || d.id === B.CACTUS)))) speed = t.type === 'sword' ? (d.id === NB.COBWEB ? 15 : 1.5) : t.speed;
+  if (d.id === NB.COBWEB && stack?.id === I.SHEARS) speed = 15;
   const ef = lvl(stack, 'efficiency');
   if (ef > 0 && speed > 1) speed += ef * ef + 1;
   let time = d.hardness * (canHarvest(blockV, stack) ? 1.5 : 5) / speed;
@@ -1255,7 +1264,7 @@ export class WorldSim {
     const id = d.id;
     if (isSlabId(id)) return [{ id: slabItem(shapeMatIndex(v)), count: 1 }];
     if (isStairsId(id)) return [{ id: stairsItem(shapeMatIndex(v)), count: 1 }];
-    if (!natural && stack?.id === I.SHEARS && (d.render === 'leaves' || id === B.VINE || id === B.SEAGRASS || id === B.TALL_GRASS || id === B.FERN || id === B.DEAD_BUSH)) return [{ id, count: 1 }];
+    if (!natural && stack?.id === I.SHEARS && (d.render === 'leaves' || id === B.VINE || id === B.SEAGRASS || id === B.TALL_GRASS || id === B.FERN || id === B.DEAD_BUSH || id === NB.COBWEB)) return [{ id, count: 1 }];
     const silk = !natural && lvl(stack, 'silk_touch') > 0;
     if (silk && canHarvest(v, stack) && d.category !== 'hidden' && d.render !== 'crop' && d.render !== 'door' && !d.fluid && getItem(id)) return [{ id, count: 1 }];
     if (!d.drops) return [];
@@ -2422,6 +2431,14 @@ export class WorldSim {
     this.emit({ e: 'inv', p });
   }
 
+  openEnder(p: SimPlayer, x: number, y: number, z: number): void {
+    this.openVirtual(p, 'ender', 27, 'Ender Chest');
+    const be = this.blockEntities.get(posKey(p.screen.x, -64, 0));
+    if (be) be.items = (p.inv.ender ??= new Array(27).fill(null));
+    this.emit({ e: 'sound', s: 'chest.open', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+    this.emit({ e: 'inv', p });
+  }
+
   private finishVirtual(p: SimPlayer, x: number, y: number, z: number): void {
     if (y !== -64) return;
     const k = posKey(x, y, z);
@@ -2432,6 +2449,7 @@ export class WorldSim {
     this.virtualKinds.delete(k);
     p.screenTitle = undefined;
     if (!be || be.type !== 'chest') return;
+    if (kind === 'ender') { p.inv.ender = be.items; this.emit({ e: 'inv', p }); return; }
     if (this.onVirtualClose) this.onVirtualClose(p, kind, be.items);
     else for (const st of be.items) if (st) { const left = giveItem(p.inv, st); if (left > 0) this.spawnItem(p.x, p.y + 1, p.z, { ...st, count: left }, 0, 2, 0, 20); }
     this.emit({ e: 'inv', p });
@@ -2728,6 +2746,7 @@ export class WorldSim {
       if (id === B.COMPOSTER) return this.useComposter(p, x, y, z, v);
       if (JOB_SITES[id] !== undefined) return false;
       if (id === B.CHEST) { this.openScreen(p, 'chest', x, y, z); return true; }
+      if (id === NB.ENDER_CHEST) { if (isFullCube(this.get(x, y + 1, z))) return true; this.openEnder(p, x, y, z); return true; }
       if (id === B.VAULT) return this.openVault(p, x, y, z);
       if (id === B.FURNACE || id === B.FURNACE_LIT) { this.openScreen(p, 'furnace', x, y, z); return true; }
       if (id === B.HOPPER || id === B.DROPPER || id === B.DISPENSER) { this.openScreen(p, 'chest', x, y, z); return true; }
@@ -6730,57 +6749,115 @@ export class WorldSim {
     if (left > 0) this.spawnItem(p.x, p.y + 1, p.z, { ...st, count: left }, 0, 2, 0, 20);
   }
 
-  private lootdropLoot(): (ItemStack | null)[] {
-    const r = this.rng, items: (ItemStack | null)[] = new Array(27).fill(null);
-    const gear = (): ItemStack => {
-      const st: ItemStack = r.int(2) ? { id: armorId(4, r.int(4)), count: 1 } : { id: toolId(5, [0, 1, 3][r.int(3)]), count: 1 };
-      this.maxEnchant(st);
-      return st;
-    };
-    const pool: (() => ItemStack)[] = [
-      () => ({ id: B.AETHERITE_BLOCK, count: 8 + r.int(25) }),
-      () => ({ id: I.CINDERITE_INGOT, count: 2 + r.int(7) }),
-      () => ({ id: I.AETHERITE, count: 16 + r.int(49) }),
-      () => ({ id: B.EMERALD_BLOCK, count: 8 + r.int(25) }),
-      () => ({ id: I.GOLDEN_APPLE, count: 8 + r.int(25) }),
-      () => ({ id: I.EXPERIENCE_BOTTLE, count: 32 + r.int(33) }),
-      () => ({ id: I.ENDER_PEARL, count: 8 + r.int(9) }),
-      () => ({ id: I.FIREWORK_ROCKET, count: 32 + r.int(33), fl: 3 }),
-      () => ({ id: I.GOLDEN_CARROT, count: 32 + r.int(33) }),
-      gear, gear,
-    ];
-    const k = 6 + r.int(5);
-    for (let i = 0; i < k; i++) items[r.int(27)] = pool[r.int(pool.length)]();
-    if (r.int(4) === 0) items[r.int(27)] = { id: I.ELYTRA, count: 1, en: { unbreaking: 3, mending: 1 } };
-    return items;
+  private enchantSome(st: ItemStack): void {
+    const r = this.rng;
+    const book = st.id === I.ENCHANTED_BOOK;
+    const opts = ENCHANTS.filter((e) => !e.curse && (book || supports(e.key, st.id)));
+    if (!opts.length) return;
+    const en: Record<string, number> = { ...(st.en ?? {}) };
+    for (let k = 0, n = book ? 1 : 1 + r.int(3); k < n; k++) {
+      const e = opts[r.int(opts.length)];
+      if (Object.keys(en).some((o) => o !== e.key && !compatible(o, e.key))) continue;
+      en[e.key] = 1 + r.int(e.max);
+    }
+    if (Object.keys(en).length) st.en = en;
   }
 
-  spawnLootdrop(p: SimPlayer): string {
+  get lootCfg(): LootCfg { return sanitizeLootCfg(this.settings.lootdrop); }
+
+  spawnLootdrop(p: SimPlayer, cfg: LootCfg = this.lootCfg): string {
     if (!this.authoritative) return '';
     const cx = Math.floor(p.x), cz = Math.floor(p.z), fy = Math.floor(p.y) - 1;
-    if (fy < 1 || fy > 250 || !isSolid(this.get(cx, fy, cz))) return 'Stand on solid ground to drop loot.';
-    const deco = [B.AETHERITE_BLOCK, B.EMERALD_BLOCK, B.GOLD_BLOCK, X(XV.CINDERITE_BLOCK), B.AETHERITE_BLOCK];
-    const r = this.rng;
-    let chests = 0;
-    for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+    if (fy < 1 || fy > WORLD_HEIGHT - 20 || !isSolid(this.get(cx, fy, cz))) return 'Stand on solid ground to drop loot.';
+    const r = this.rng, R = cfg.radius;
+    const pal = lootPalette(cfg, getItemByName);
+    const deco = () => lootPick(r, pal);
+    const byName = getItemByName;
+    const soft = (v: number) => { const id = blockId(v); if (!id) return true; const d = getBlock(v); return !d.solid || d.replaceable || d.render === 'leaves' || d.render === 'cross' || isWaterLike(v); };
+    const tree = (v: number) => { const d = getBlock(v); return d.render === 'leaves' || /_log$|_stem$|mushroom_block/.test(d.key); };
+    const phase = r.next() * Math.PI * 2, wob = 1 + r.int(3);
+    const tops = new Map<number, number>();
+    const key = (dx: number, dz: number) => (dx + 64) * 128 + (dz + 64);
+    for (let dx = -R - 1; dx <= R + 1; dx++) for (let dz = -R - 1; dz <= R + 1; dz++) {
       const x = cx + dx, z = cz + dz;
-      if (blockId(this.get(x, fy, z)) === B.BEDROCK) continue;
-      this.setBlock(x, fy, z, deco[r.int(deco.length)]);
-      if (dx === 0 && dz === 0) continue;
-      if (this.get(x, fy + 1, z) !== 0) continue;
-      const edge = Math.max(Math.abs(dx), Math.abs(dz));
-      if (edge === 2 && (dx + dz) % 2 === 0) {
-        this.setBlock(x, fy + 1, z, B.CHEST);
-        this.addGeneratedChest(x, fy + 1, z, this.lootdropLoot());
-        chests++;
-      } else if (edge === 3 && r.int(5) === 0) this.setBlock(x, fy + 1, z, deco[r.int(deco.length)]);
+      if (!this.store.isLoaded(x, z)) continue;
+      const ang = Math.atan2(dz, dx), d = Math.hypot(dx, dz);
+      const edge = cfg.morph ? R * (0.86 + 0.14 * Math.sin(ang * wob + phase) + (r.next() - 0.5) * 0.12) : R + 0.5;
+      if (d > edge) continue;
+      let top = -1;
+      for (let y = Math.min(WORLD_HEIGHT - 2, fy + 14); y >= Math.max(1, fy - 14); y--) {
+        const v = this.get(x, y, z);
+        if (soft(v) || (cfg.clear && tree(v))) continue;
+        top = y; break;
+      }
+      if (top < 0) continue;
+      if (cfg.clear) for (let y = top + 1; y <= Math.min(WORLD_HEIGHT - 2, top + 24); y++) { const v = this.get(x, y, z); if (blockId(v) && (soft(v) || tree(v)) && !isWaterLike(v)) this.setBlock(x, y, z, 0); }
+      const t = 1 - d / Math.max(1, edge);
+      const bump = cfg.shape === 'flat' ? fy - top : Math.round(Math.pow(Math.max(0, t), 1.4) * Math.max(1, R * 0.35)) * (cfg.shape === 'crater' ? -1 : 1);
+      let nt = top;
+      if (cfg.shape === 'flat') nt = fy;
+      else nt = top + bump;
+      if (nt > top) for (let y = top + 1; y <= nt; y++) this.setBlock(x, y, z, deco());
+      else if (nt < top) for (let y = top; y > nt; y--) if (blockId(this.get(x, y, z)) !== B.BEDROCK) this.setBlock(x, y, z, 0);
+      const rim = cfg.morph && d > edge - 1.6;
+      for (let k = 0; k < cfg.layers; k++) {
+        const y = nt - k;
+        if (y < 1 || blockId(this.get(x, y, z)) === B.BEDROCK) break;
+        if (rim && r.chance(0.45 + k * 0.15)) continue;
+        this.setBlock(x, y, z, deco());
+      }
+      tops.set(key(dx, dz), nt);
     }
-    this.lootdrop = { x: cx + 0.5, y: fy + 1, z: cz + 0.5, until: this.tickCount + 20 * 180, by: p.name };
-    const where = `${Math.round(localX(cx))} ${fy + 1} ${cz}${isNether(cx) ? ' in the Nether' : ''}`;
-    this.emit({ e: 'msg', text: `[Lootdrop] ${p.name} dropped ${chests} chests of loot at ${where}! Type /lootdrop tp to teleport there (3 minutes left).`, kind: 'info' });
-    this.emit({ e: 'title', text: 'LOOTDROP', sub: `${p.name} dropped loot - open chat and tap Teleport`, to: undefined });
+    const spots: [number, number, number][] = [];
+    const place = (n: number, ring: number, jitter: number) => {
+      const out: [number, number, number][] = [];
+      for (let i = 0; i < n; i++) {
+        for (let tries = 0; tries < 60; tries++) {
+          const a = tries < 12 ? (i / Math.max(1, n)) * Math.PI * 2 + phase + (r.next() - 0.5) * jitter : r.next() * Math.PI * 2;
+          const rr = Math.max(1, Math.round(tries < 12 ? R * ring + (r.next() - 0.5) * 2 : 1 + r.next() * (R - 1)));
+          const dx = Math.round(Math.cos(a) * rr), dz = Math.round(Math.sin(a) * rr);
+          const top = tops.get(key(dx, dz));
+          if (top === undefined || spots.some(([sx, , sz]) => sx === dx && sz === dz) || out.some(([sx, , sz]) => Math.abs(sx - dx) <= 1 && Math.abs(sz - dz) <= 1)) continue;
+          if (this.get(cx + dx, top + 1, cz + dz) !== 0) continue;
+          out.push([dx, top, dz]); spots.push([dx, top, dz]); break;
+        }
+      }
+      return out;
+    };
+    let chests = 0;
+    for (const [dx, top, dz] of place(cfg.chests, 0.5, 0.6)) {
+      const x = cx + dx, z = cz + dz, f = Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 3 : 1) : (dz > 0 ? 0 : 2);
+      this.setBlock(x, top + 1, z, makeBlock(B.CHEST, f));
+      this.addGeneratedChest(x, top + 1, z, lootChest(r, cfg, byName, (st) => this.maxEnchant(st), (st) => this.enchantSome(st)));
+      chests++;
+    }
+    let frames = 0;
+    for (const [dx, top, dz] of place(cfg.frames, 0.82, 0.8)) {
+      const x = cx + dx, z = cz + dz;
+      const h = cfg.pillars ? 2 : 0;
+      for (let y = top + 1; y <= top + h; y++) this.setBlock(x, y, z, deco());
+      const sy = top + h;
+      const fx = Math.abs(dx) >= Math.abs(dz) ? -Math.sign(dx) : 0, fz = fx ? 0 : -Math.sign(dz) || 1;
+      const f = SIX.findIndex(([a, b2, c]) => a === fx && b2 === 0 && c === fz);
+      if (f < 0 || !isSolid(this.get(x, sy, z)) || this.get(x + fx, sy, z + fz) !== 0) continue;
+      this.spawnFrame(x, sy, z, f, true, lootFrame(r, cfg, byName, (st) => this.maxEnchant(st), (st) => this.enchantSome(st)));
+      frames++;
+    }
+    const top0 = tops.get(key(0, 0)) ?? fy;
+    let ely = false;
+    if (cfg.elytra > 0 && r.chance(cfg.elytra) && chests) {
+      for (const [dx, top, dz] of spots) { const be = this.getBlockEntity(cx + dx, top + 1, cz + dz); if (!be || be.type !== 'chest') continue; const i = be.items.findIndex((s) => !s); if (i >= 0) { be.items[i] = { id: I.ELYTRA, count: 1, en: { unbreaking: 3 } }; ely = true; } break; }
+    }
+    const stand = top0 + 1;
+    this.lootdrop = { x: cx + 0.5, y: stand, z: cz + 0.5, until: this.tickCount + 20 * cfg.tp, by: p.name };
+    if (p.y < stand) this.teleportTo(p, cx + 0.5, stand, cz + 0.5, false);
+    const where = `${Math.round(localX(cx))} ${stand} ${cz}${isNether(cx) ? ' in the Nether' : ''}`;
+    const mins = cfg.tp >= 60 ? `${Math.round(cfg.tp / 60)} minute${Math.round(cfg.tp / 60) === 1 ? '' : 's'}` : `${cfg.tp} seconds`;
+    const what = [`${chests} chest${chests === 1 ? '' : 's'}`, frames ? `${frames} framed prize${frames === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+    this.emit({ e: 'msg', text: cfg.tp > 0 ? `[Lootdrop] ${p.name} dropped ${what} at ${where}! Type /lootdrop tp to teleport there (${mins} left).` : `[Lootdrop] ${p.name} dropped ${what} at ${where}!`, kind: 'info' });
+    this.emit({ e: 'title', text: 'LOOTDROP', sub: cfg.tp > 0 ? `${p.name} dropped loot - open chat and tap Teleport` : `${p.name} dropped loot at ${where}`, to: undefined });
     this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
-    return `Lootdrop placed with ${chests} chests.`;
+    return `Lootdrop placed: radius ${R}, ${cfg.layers} layer${cfg.layers === 1 ? '' : 's'}, ${what}${ely ? ', plus an Elytra' : ''}.`;
   }
 
 
@@ -6956,8 +7033,16 @@ export class WorldSim {
       case 'locate': {
         if (!allowed) return need();
         const raw = (parts[1] === 'structure' ? parts[2] : parts[1]) ?? '';
-        const kind = LOCATE_ALIASES[raw.toLowerCase().replace(/^minecraft:/, '').replace(/^#/, '')];
-        if (!kind) return `Usage: /locate <${Object.keys(LOCATE_NAMES).join('|')}>`;
+        const lkey = raw.toLowerCase().replace(/^minecraft:/, '').replace(/^#/, '');
+        const lm = LANDMARK_ALIASES[lkey];
+        if (lm && this.gen && 'locateLandmark' in this.gen) {
+          if (isNether(p.x)) return `The ${LANDMARK_NAMES[lm]} is an Overworld structure.`;
+          const q = (this.gen as WorldGenerator).locateLandmark(lm, p.x, p.z, lm === 'ocean_monument' ? 10 : 8);
+          if (!q) return `No ${LANDMARK_NAMES[lm]} found nearby.`;
+          return `Nearest ${LANDMARK_NAMES[lm]} is at ${Math.floor(localX(q.x))} ${q.y} ${Math.floor(q.z)} (${Math.round(Math.hypot(q.x - p.x, q.z - p.z))} blocks away).`;
+        }
+        const kind = LOCATE_ALIASES[lkey];
+        if (!kind) return `Usage: /locate <${[...Object.keys(LOCATE_NAMES), ...LANDMARK_KINDS].join('|')}>`;
         const r = this.locateStructure(kind, p.x, p.z);
         if (!r) return `No ${LOCATE_NAMES[kind]} found nearby.`;
         const here = isNether(p.x) === r.nether;
@@ -7028,14 +7113,24 @@ export class WorldSim {
         return `Gave a maxed-out ${tier === 'netherite' ? 'Netherite' : 'Diamond'} kit (${n} pieces).`;
       }
       case 'lootdrop': {
-        if ((parts[1] ?? '').toLowerCase() === 'tp') {
+        const sub = (parts[1] ?? '').toLowerCase();
+        if (sub === 'tp') {
           const d = this.lootdrop;
           if (!d || d.until < this.tickCount) return 'There is no lootdrop right now.';
-          return this.warpPlayer(p, d.x + 4, d.y, d.z, true, `Teleported to ${d.by}'s lootdrop.`).msg;
+          return this.warpPlayer(p, d.x, d.y, d.z, true, `Teleported to ${d.by}'s lootdrop.`).msg;
         }
         if (!allowed) return need();
+        if (sub === 'show' || sub === 'config') return `Lootdrop settings: ${lootArgs(this.lootCfg)}`;
+        if (sub === 'reset') { this.settings.lootdrop = { ...LOOT_DEFAULTS }; this.emit({ e: 'rules' }); return 'Lootdrop settings reset to the defaults.'; }
+        if (sub === 'help') return 'Usage: /lootdrop [set] [r=2-24] [l=layers 1-8] [c=chests] [f=frames] [shape=mound|flat|crater] [tier=light|normal|rich] [rare=0-1] [elytra=0-1] [tp=seconds] [morph=on|off] [pillars=on|off] [clear=on|off] [b=block:weight,...] [i=item:min-max:chance,...] [fi=item:1:weight,...]. Add + after an item name for max enchants. /lootdrop show, /lootdrop reset, /lootdrop tp.';
+        const save = sub === 'set' || sub === 'save';
+        const args = parts.slice(save ? 2 : 1).filter(Boolean);
+        const { cfg, err } = parseLootArgs(this.lootCfg, args);
+        if (err) return `${err}. Try /lootdrop help.`;
+        if (args.length) { this.settings.lootdrop = cfg; this.emit({ e: 'rules' }); }
+        if (save) return `Lootdrop settings saved: ${lootArgs(cfg)}`;
         if (p.dead) return 'You cannot do that while dead.';
-        return this.spawnLootdrop(p);
+        return this.spawnLootdrop(p, cfg);
       }
       case 'enchantmax': case 'maxenchant': {
         if (!allowed) return need();

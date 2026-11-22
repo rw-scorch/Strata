@@ -606,6 +606,10 @@ body:not(.touch-active) .hud-mc .hud-btn { display: none; }
 .eco-qty-ico .ico { position: absolute; left: 4px; top: 4px; width: 32px; height: 32px; }
 .eco-qty-ico .cnt { position: absolute; right: 1px; bottom: 0; }
 .eco-pick-item .ico { position: absolute; left: 4px; top: 4px; }
+.eco-pick .slot.mc, .eco-edit .slot.mc { position: relative; --s: 1.5px; width: 32px; height: 32px; flex: none; display: inline-block; vertical-align: middle; }
+.eco-pick .slot.mc .ico, .eco-edit .slot.mc .ico { left: 4px; top: 4px; width: 24px; height: 24px; }
+.eco-pick .slot.mc.eco-pick-item { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 4px; cursor: pointer; }
+.eco-pick .slot.mc.eco-pick-item.sel { border-color: #ffaa00; background: rgba(255, 170, 0, 0.18); }
 .eco-gold { color: #ffaa00; }
 .eco-qty-btns { flex-wrap: wrap; }
 .eco-pick { display: flex; flex-wrap: wrap; gap: 4px; max-height: 160px; overflow: auto; }

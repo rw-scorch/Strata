@@ -85,8 +85,9 @@ describe('v43 barrel roll controls', () => {
     tap(); tap();
     const seen: number[] = [];
     for (let t = 0; t < 14; t++) { p.update(0.05, i, sky, 'survival', false); seen.push(p.roll); }
-    expect(Math.min(...seen)).toBeLessThan(-2.5);
-    expect(Math.max(...seen)).toBeGreaterThan(1);
+    expect(Math.min(...seen)).toBeLessThan(-5.5);
+    for (let k = 1; k < seen.length; k++) { const d = seen[k] - seen[k - 1]; expect(Math.abs(Math.atan2(Math.sin(d), Math.cos(d)))).toBeLessThan(1.2); }
+    expect(Math.abs(Math.sin(seen[seen.length - 1]))).toBeLessThan(0.3);
   });
 
   it('classic style leaves the roll at zero', () => {
@@ -130,14 +131,14 @@ describe('v43 Sovereign tools', () => {
     const msgs: string[] = [];
     w.sim.on?.((e: { e: string; text?: string; to?: string }) => { if (e.e === 'msg' && !e.to) msgs.push(e.text!); });
     w.p.x = 0.5; w.p.y = 10; w.p.z = -11.5;
-    expect(w.sim.command(w.p, '/lootdrop')).toMatch(/Lootdrop placed with 8 chests/);
+    expect(w.sim.command(w.p, '/lootdrop c=8')).toMatch(/Lootdrop placed.*8 chests/);
     let chests = 0;
-    for (let x = -3; x <= 3; x++) for (let z = -15; z <= -8; z++) if (w.store.getBlock(x, 10, z) === B.CHEST) chests++;
+    for (let x = -8; x <= 8; x++) for (let z = -20; z <= -3; z++) for (let y = 8; y < 20; y++) if ((w.store.getBlock(x, y, z) & 0xff) === B.CHEST) chests++;
     expect(chests).toBe(8);
     expect(w.sim.lootdrop).toBeTruthy();
     w.p.op = false; w.p.x = 40; w.p.z = 40;
     expect(w.sim.command(w.p, '/lootdrop tp')).toMatch(/lootdrop/);
-    expect(Math.hypot(w.p.x - 4.5, w.p.z + 11.5)).toBeLessThan(1.5);
+    expect(Math.hypot(w.p.x - 0.5, w.p.z + 11.5)).toBeLessThan(1.5);
     expect(w.sim.command(w.p, '/lootdrop')).toMatch(/permission/);
   });
 });

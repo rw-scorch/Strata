@@ -1,4 +1,5 @@
 import { findCoords } from './waypointData';
+import { getSettings, updateSettings } from '../storage/Settings';
 import type { RuleSet } from '../core/sim/WorldSim';
 import { mcButton, mcCycle, menuScale, menuSpread } from './mc/Widgets';
 import { Minimap } from './Minimap';
@@ -7,7 +8,10 @@ import type { ChatKind } from '../game/Session';
 import type { RoomMeta, PublicPlayer } from '../core/protocol';
 import { DIFFICULTIES, Difficulty, MAX_PLAYERS_LIMIT, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH } from '../core/constants';
 import { BLOCKS } from '../core/blocks';
-import { getItem, I } from '../core/items';
+import { getItem, I, ITEM_LIST } from '../core/items';
+import { sanitizeLootCfg, LootEntry } from '../core/sim/lootdrop';
+import type { TextureAtlas } from '../resources/TextureAtlas';
+import { slotContent } from './HUD';
 import { ENCHANTS, supports, compatible, enchantLabel } from '../core/enchants';
 
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V'];
@@ -166,6 +170,7 @@ export function showPause(root: HTMLElement, a: PauseActions): () => void {
       row(a.blueprints ? mcButton('Blueprints', () => a.blueprints!(), a.waypoints ? 98 : 204) : null, a.waypoints ? mcButton('Waypoints', () => a.waypoints!(), a.blueprints ? 98 : 204) : null),
       row(a.admin ? mcButton('Sovereign Console', () => a.admin!(), a.mischief ? 98 : 204) : null, a.mischief ? mcButton('Mischief Console', () => a.mischief!(), a.admin ? 98 : 204) : null),
       a.difficulty ? mcCycle('Difficulty', DIFFICULTIES.map((d) => [d, d[0].toUpperCase() + d.slice(1)] as [Difficulty, string]), a.difficulty.value, (d) => a.difficulty!.set(d), { w: 204 }) : null,
+      row(mcCycle('Minimap', [[true, 'ON'], [false, 'OFF']], getSettings().showMinimap, (v) => updateSettings({ showMinimap: v }), { w: 98 }), mcCycle('Coords', [[true, 'ON'], [false, 'OFF']], getSettings().showCoords, (v) => updateSettings({ showCoords: v }), { w: 98 })),
       row(mcButton('Options...', () => a.settings(), 98), mcButton('Resource Packs...', () => a.packs(), 98)),
       a.datapacks ? mcButton('Data Packs...', () => a.datapacks!(), 204) : null,
       a.economy ? row(mcButton('Shop', () => a.economy!('/shop'), 98), mcButton('Sell', () => a.economy!('/sell'), 98)) : null,
@@ -344,7 +349,7 @@ export function showDeath(root: HTMLElement, msg: string, onRespawn: () => void,
 
 export interface SovereignHeld { id: number; name: string; en?: Record<string, number>; dmg?: number }
 
-export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number }): void {
+export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number; lootdrop?: unknown }, atlas?: TextureAtlas): void {
   const tabs = h('div', { class: 'tabs sov-tabs' });
   const pane = h('div', { class: 'stack sov-pane' });
   let tab = 'item';
@@ -389,11 +394,68 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
       h('button', { class: 'sov-kit diamond', onclick: () => run('/kit maxdiamond') }, h('b', {}, 'Maxed Diamond'), h('span', { class: 'small' }, 'Protection IV, Sharpness V, Efficiency V, Mending...')),
       h('button', { class: 'sov-kit netherite', onclick: () => run('/kit maxnetherite') }, h('b', {}, 'Maxed Netherite'), h('span', { class: 'small' }, 'Toughness 3 and knockback resistance on every piece'))),
   );
-  const eventTab = (): HTMLElement => h('div', { class: 'stack' },
-    h('div', { class: 'section-title' }, 'Lootdrop'),
-    h('div', { class: 'small muted' }, 'Builds a 7x7 treasure floor where you stand with chests of diamonds, netherite, golden apples, maxed gear and sometimes an Elytra. Every player gets a message with a Teleport button for 3 minutes (the teleport warm-up and combat timer still apply).'),
-    h('div', { class: 'row wrap' }, act('Spawn lootdrop here', '/lootdrop', 'primary')),
-  );
+  const eventTab = (): HTMLElement => {
+    const c = sanitizeLootCfg(rules().lootdrop);
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    const field = (label: string, v: string, ph: string, set: (t: string) => void) => {
+      const i = h('input', { class: 'input', value: v, placeholder: ph, spellcheck: 'false', autocapitalize: 'off' }) as HTMLInputElement;
+      i.addEventListener('input', () => set(i.value.trim()));
+      return { el: h('label', { class: 'field' }, h('span', {}, label), i), i };
+    };
+    const ent = (e: LootEntry[]) => e.map((x) => `${x.key}${x.maxed ? '+' : ''}:${x.min === x.max ? x.min : `${x.min}-${x.max}`}:${+x.chance.toFixed(3)}`).join(',');
+    let blocksT = c.blocks.map(([k, w]) => `${k}:${w}`).join(','), itemsT = ent(c.items), framesT = ent(c.frameItems);
+    const fb = field('Blocks (name:weight, blank = default palette)', blocksT, 'gold_block:5,emerald_block:3,diamond_block:0.2', (t) => { blocksT = t; });
+    const fiItems = field('Chest items (name:min-max:chance, + = max enchants, blank = tier table)', itemsT, 'diamond:2-6:0.5,golden_apple:1-3:0.8,diamond_sword+:1:0.2', (t) => { itemsT = t; });
+    const fiFrames = field('Item frame prizes (name:1:weight, blank = default prizes)', framesT, 'diamond_sword+:1:1,totem:1:0.3', (t) => { framesT = t; });
+    let target: 'items' | 'frames' | 'blocks' = 'items';
+    const add = (key: string) => {
+      const f = target === 'items' ? fiItems : target === 'frames' ? fiFrames : fb;
+      const piece = target === 'blocks' ? `${key}:5` : target === 'frames' ? `${key}:1:1` : `${key}:1-4:0.5`;
+      f.i.value = f.i.value.trim() ? `${f.i.value.trim()},${piece}` : piece;
+      f.i.dispatchEvent(new Event('input'));
+    };
+    const q = h('input', { class: 'input', placeholder: 'Search an item or block to add', maxlength: 24 }) as HTMLInputElement;
+    const list = h('div', { class: 'eco-pick' });
+    const fill = () => {
+      clear(list);
+      const t = q.value.trim().toLowerCase();
+      if (!t) return;
+      for (const it of ITEM_LIST.filter((x) => x.name.toLowerCase().includes(t) || x.key.includes(t)).filter((x) => target !== 'blocks' || x.kind === 'block').slice(0, 36)) {
+        const b2 = h('button', { class: 'slot mc static eco-pick-item', title: `${it.name} (${it.key})`, onclick: () => add(it.key) }, ...(atlas ? slotContent(atlas, { id: it.id, count: 1 }, 24) : [h('span', { class: 'small' }, it.name.slice(0, 3))]));
+        list.appendChild(b2);
+      }
+    };
+    q.addEventListener('input', fill);
+    const args = () => {
+      const parts = [`r=${c.radius}`, `l=${c.layers}`, `c=${c.chests}`, `f=${c.frames}`, `shape=${c.shape}`, `tier=${c.tier}`, `rare=${+c.rare.toFixed(3)}`, `elytra=${+c.elytra.toFixed(3)}`, `tp=${c.tp}`, `morph=${c.morph ? 'on' : 'off'}`, `pillars=${c.pillars ? 'on' : 'off'}`, `clear=${c.clear ? 'on' : 'off'}`];
+      parts.push(`b=${blocksT.replace(/\s+/g, '') || 'default'}`, `i=${itemsT.replace(/\s+/g, '') || 'default'}`, `fi=${framesT.replace(/\s+/g, '') || 'default'}`);
+      return parts.join(' ');
+    };
+    return h('div', { class: 'stack' },
+      h('div', { class: 'section-title' }, 'Lootdrop'),
+      h('div', { class: 'small muted' }, 'Reshapes the ground where you stand into a treasure mound, with chests, glowing item frames and a teleport message for every player. Everything below is saved for this world.'),
+      slider('Size (radius)', 2, 24, 1, c.radius, (v) => `${v} blocks`, (v) => { c.radius = v; }),
+      slider('Layers of treasure blocks', 1, 8, 1, c.layers, (v) => String(v), (v) => { c.layers = v; }),
+      slider('Chests', 0, 40, 1, c.chests, (v) => String(v), (v) => { c.chests = v; }),
+      slider('Item frames', 0, 40, 1, c.frames, (v) => String(v), (v) => { c.frames = v; }),
+      slider('Diamond and Netherite block rarity', 0, 1, 0.01, c.rare, pct, (v) => { c.rare = v; }),
+      slider('Elytra chance', 0, 1, 0.01, c.elytra, pct, (v) => { c.elytra = v; }),
+      slider('Teleport window', 0, 600, 15, c.tp, (v) => (v ? `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}` : 'off'), (v) => { c.tp = v; }),
+      h('div', { class: 'small' }, 'Shape'), segmented([['mound', 'Mound'], ['flat', 'Flat'], ['crater', 'Crater']], c.shape, (v) => { c.shape = v; }),
+      h('div', { class: 'small' }, 'Chest loot'), segmented([['light', 'Light'], ['normal', 'Normal'], ['rich', 'Rich']], c.tier, (v) => { c.tier = v; }),
+      toggle('Morph the land', c.morph, (v) => { c.morph = v; }, 'Ragged natural edges that blend into the terrain'),
+      toggle('Pillars under frames', c.pillars, (v) => { c.pillars = v; }),
+      toggle('Clear trees and plants', c.clear, (v) => { c.clear = v; }),
+      fb.el, fiItems.el, fiFrames.el,
+      h('div', { class: 'small' }, 'Add from the item list to'),
+      segmented([['items', 'Chest items'], ['frames', 'Frame prizes'], ['blocks', 'Blocks']], target, (v) => { target = v; fill(); }),
+      q, list,
+      h('div', { class: 'row wrap' },
+        h('button', { class: 'btn primary', onclick: () => run(`/lootdrop ${args()}`) }, 'Spawn lootdrop here'),
+        h('button', { class: 'btn', onclick: () => run(`/lootdrop set ${args()}`) }, 'Save settings'),
+        h('button', { class: 'btn ghost', onclick: () => run('/lootdrop reset') }, 'Reset to defaults')),
+    );
+  };
   const youTab = (): HTMLElement => h('div', { class: 'stack' },
     h('div', { class: 'row wrap' }, act('Heal and feed', '/heal'), act('Survival', '/gamemode survival'), act('Creative', '/gamemode creative')),
     h('div', { class: 'section-title' }, 'World'),

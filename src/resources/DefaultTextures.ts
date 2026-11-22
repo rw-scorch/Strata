@@ -523,6 +523,7 @@ Object.assign(TEX, {
   campfire_log: () => campLog(false, false),
   campfire_log_lit: () => campLog(true, false),
   soul_campfire_log_lit: () => campLog(true, true),
+  glass_pane_top: () => { const p = new Px(); for (let y = 0; y < 16; y++) { p.set(7, y, hex(0xd8eef2)); p.set(8, y, hex(0xb8d8e0)); } return p; },
   item_frame: () => speckle(noise('ifr', hex(0x8a5428), 0.1), 'ifr', [hex(0x6a3a1a), hex(0x9a6436)], 40),
   glow_item_frame: () => speckle(noise('gifr', hex(0x2a9a8c), 0.1), 'gifr', [hex(0x1a6a62), hex(0x7af0d8)], 40),
   campfire_fire: () => flame([0xfff4b0, 0xffc040, 0xf07a18, 0xc84010]),
@@ -613,6 +614,7 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
     TEX[`${c}_terracotta`] = () => noise(`${c}_terra`, mixc(col, hex(0x985e43), 0.45), 0.05);
     TEX[`${c}_concrete`] = () => noise(`${c}_conc`, col, 0.025);
     TEX[`${c}_concrete_powder`] = () => speckle(noise(`${c}_pow`, mixc(col, hex(0xffffff), 0.12), 0.1), `${c}_pow`, [shade(col, 0.8), mixc(col, hex(0xffffff), 0.3)], 60);
+    TEX[`${c}_stained_glass_pane_top`] = () => { const p = new Px(); for (let y = 0; y < 16; y++) { p.set(7, y, [col[0], col[1], col[2], 200]); p.set(8, y, [col[0], col[1], col[2], 200]); } return p; };
     TEX[`${c}_stained_glass`] = () => { const p = new Px().fill([col[0], col[1], col[2], 120]); const e: RGBA = [col[0], col[1], col[2], 220]; for (let i = 0; i < 16; i++) { p.set(i, 0, e); p.set(0, i, e); p.set(i, 15, e); p.set(15, i, e); } for (let i = 3; i < 7; i++) p.set(i, 9 - i, [255, 255, 255, 170]); return p; };
   }
   const fl: [string, number, number][] = [['cornflower', 0x4466dd, 0x2a3a90], ['lily_of_the_valley', 0xffffff, 0xd8d8c8], ['allium', 0xb060d8, 0x7a30a8], ['azure_bluet', 0xd8e8f0, 0xf0d040],
@@ -862,6 +864,9 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   T.cut_red_sandstone = () => { const p = noise('crs', hex(0xb5621f), 0.04); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0x9c521a)); p.set(i, 15, hex(0x9c521a)); p.set(i, 7, hex(0x9c521a)); p.set(i, 8, hex(0xc97a35)); } return p; };
   T.chiseled_red_sandstone = () => { const p = noise('chrs', hex(0xb5621f), 0.04); for (let i = 0; i < 16; i++) { p.set(i, 0, hex(0x9c521a)); p.set(i, 15, hex(0x9c521a)); p.set(i, 3, hex(0x9c521a)); p.set(i, 12, hex(0x9c521a)); } for (const [x, y] of [[7, 5], [8, 5], [6, 6], [9, 6], [6, 7], [9, 7], [7, 8], [8, 8], [7, 9], [8, 9], [7, 10], [8, 10]]) p.set(x, y, hex(0x7e4214)); return p; };
   T.polished_basalt_side = () => { const p = noise('pbas', hex(0x58585e), 0.05); for (let y = 0; y < 16; y++) { p.set(0, y, hex(0x3c3c41)); p.set(15, y, hex(0x3c3c41)); p.set(5, y, hex(0x47474c)); p.set(10, y, hex(0x47474c)); } return p; };
+  T.ender_chest_side = () => { const p = speckle(noise('ecs', hex(0x16202a), 0.2), 'ecs', [hex(0x253a44), hex(0x0b1014)], 22, 2); const rim = hex(0x0a3b38); for (let i = 0; i < 16; i++) { p.set(i, 0, rim); p.set(i, 15, rim); p.set(0, i, rim); p.set(15, i, rim); p.set(i, 5, rim); } for (let y = 4; y < 8; y++) for (let x = 7; x < 9; x++) p.set(x, y, hex(y === 5 ? 0x7ff5d8 : 0x2fbf9e)); return p; };
+  T.ender_chest_top = () => { const p = speckle(noise('ect', hex(0x16202a), 0.2), 'ect', [hex(0x253a44), hex(0x0b1014)], 22, 2); const rim = hex(0x0a3b38); for (let i = 0; i < 16; i++) { p.set(i, 0, rim); p.set(i, 15, rim); p.set(0, i, rim); p.set(15, i, rim); } return p; };
+  T.cobweb = () => { const p = new Px(); const c = hex(0xdcdcdc); for (let i = 0; i < 16; i++) { p.set(i, i, c); p.set(15 - i, i, c); p.set(i, 8, c); p.set(8, i, c); } for (const r of [3, 6]) { for (let t = 0; t < 16; t++) { const a = t / 16 * Math.PI * 2; p.set(Math.round(8 + Math.cos(a) * r), Math.round(8 + Math.sin(a) * r), shade(c, 0.85)); } } return p; };
   T.polished_basalt_top = () => { const p = rim(noise('pbat', hex(0x5c5c62), 0.05), hex(0x3c3c41)); for (let i = 4; i < 12; i++) { p.set(i, 4, hex(0x47474c)); p.set(i, 11, hex(0x47474c)); p.set(4, i, hex(0x47474c)); p.set(11, i, hex(0x47474c)); } return p; };
 }
 

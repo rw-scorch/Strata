@@ -106,7 +106,7 @@ describe('v44 new slabs, stairs and blocks', () => {
       expect(getItem(id), `item ${id}`).toBeTruthy();
       expect(BLOCKS[id], `block ${id}`).toBeTruthy();
     }
-    for (const id of ids.filter((id) => id !== NB.CRACKED_DEEPSLATE_BRICKS && id !== NB.CRACKED_DEEPSLATE_TILES && id !== NB.CRACKED_NETHER_BRICKS && id !== NB.SMOOTH_QUARTZ && id !== NB.SMOOTH_RED_SANDSTONE)) expect(crafted.has(id), `recipe ${BLOCKS[id].key}`).toBe(true);
+    for (const id of ids.filter((id) => id !== NB.CRACKED_DEEPSLATE_BRICKS && id !== NB.CRACKED_DEEPSLATE_TILES && id !== NB.CRACKED_NETHER_BRICKS && id !== NB.SMOOTH_QUARTZ && id !== NB.SMOOTH_RED_SANDSTONE && id !== NB.COBWEB)) expect(crafted.has(id), `recipe ${BLOCKS[id].key}`).toBe(true);
     for (let i = 27; i < SHAPE_MATS.length; i++) { expect(crafted.has(slabItem(i))).toBe(true); expect(crafted.has(stairsItem(i))).toBe(true); }
     const slabIds = SHAPE_MATS.map((_, i) => slabItem(i)), stairIds = SHAPE_MATS.map((_, i) => stairsItem(i));
     expect(new Set([...slabIds, ...stairIds]).size).toBe(SHAPE_MATS.length * 2);

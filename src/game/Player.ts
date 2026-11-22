@@ -51,11 +51,16 @@ export class LocalPlayer {
   rocketT = 0;
   roll = 0;
   rollStyle = true;
-  private rollV = 0;
-  private twirl = 0;
+  speedFov = 0;
+  private keyBank = 0;
+  private mouseBank = 0;
+  private lookRate = 0;
+  private twirlDir = 0;
+  private twirlT = 0;
   private tapDir = 0;
   private tapAt = -99;
   private strafeWas = 0;
+  private clock = 0;
   private glideTicks = 0;
   private jumpWas = false;
   depthStrider = 0;
@@ -74,33 +79,37 @@ export class LocalPlayer {
   }
 
   look(dx: number, dy: number): void {
-    if (this.gliding && this.roll) { const c = Math.cos(this.roll), s = Math.sin(this.roll); [dx, dy] = [dx * c - dy * s, dy * c + dx * s]; }
+    if (this.gliding) this.lookRate += dx;
     this.yaw += dx;
     this.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, this.pitch + dy));
   }
 
-  private flightControls(strafe: number): void {
-    const dir = strafe > 0.3 ? 1 : strafe < -0.3 ? -1 : 0;
-    if (dir && dir !== this.strafeWas) {
-      if (dir === this.tapDir && this.glideTicks - this.tapAt <= 6 && !this.twirl) this.twirl = dir * Math.PI * 2;
-      this.tapDir = dir; this.tapAt = this.glideTicks;
-    }
-    this.strafeWas = dir;
-    if (this.twirl) {
-      const step = Math.sign(this.twirl) * Math.min(Math.abs(this.twirl), (Math.PI * 2) / 12);
-      this.roll += step; this.twirl -= step;
-      if (Math.abs(this.twirl) < 1e-4) this.twirl = 0;
+  private flightFrame(dt: number, strafeIn: number): void {
+    this.clock += dt;
+    const k = 1 - Math.exp(-dt * 7);
+    const rate = dt > 0 ? this.lookRate / dt : 0;
+    this.lookRate = 0;
+    if (!this.gliding || !this.rollStyle) {
+      this.keyBank += (0 - this.keyBank) * k; this.mouseBank += (0 - this.mouseBank) * k;
+      this.twirlDir = 0; this.twirlT = 0; this.strafeWas = 0;
     } else {
-      this.rollV = (this.rollV + strafe * 0.028) * 0.78;
-      this.roll += this.rollV;
-      if (!dir && Math.abs(this.roll) <= Math.PI / 2) this.roll *= 0.9;
+      const strafe = Math.max(-1, Math.min(1, strafeIn));
+      const dir = strafe > 0.5 ? 1 : strafe < -0.5 ? -1 : 0;
+      if (dir && dir !== this.strafeWas) {
+        if (dir === this.tapDir && this.clock - this.tapAt < 0.3 && !this.twirlDir) { this.twirlDir = dir; this.twirlT = 0; }
+        this.tapDir = dir; this.tapAt = this.clock;
+      }
+      this.strafeWas = dir;
+      this.keyBank += (strafe * 0.7 - this.keyBank) * k;
+      this.mouseBank += (Math.max(-0.45, Math.min(0.45, -rate * 0.09)) - this.mouseBank) * (1 - Math.exp(-dt * 4));
+      const sp = Math.min(1, Math.hypot(this.body.vx, this.body.vz) / 0.6);
+      if (!this.twirlDir) this.yaw -= Math.sin(this.keyBank) * 1.1 * sp * dt;
+      if (this.twirlDir) { this.twirlT += dt; if (this.twirlT >= 0.65) { this.twirlDir = 0; this.twirlT = 0; } }
     }
-    this.roll = Math.atan2(Math.sin(this.roll), Math.cos(this.roll));
-    if (!this.twirl) {
-      const sp = Math.hypot(this.body.vx, this.body.vz);
-      this.yaw -= Math.sin(this.roll) * 0.05 * Math.min(1, sp / 0.6);
-      this.pitch = Math.max(-Math.PI / 2 + 0.01, this.pitch - (1 - Math.cos(this.roll)) * 0.004);
-    }
+    let twirl = 0;
+    if (this.twirlDir) { const p = Math.min(1, this.twirlT / 0.65); twirl = this.twirlDir * Math.PI * 2 * (p < 0.5 ? 2 * p * p : 1 - (2 - 2 * p) ** 2 / 2); }
+    this.roll = this.keyBank + this.mouseBank + twirl;
+    if (Math.abs(this.roll) < 1e-4) this.roll = 0;
   }
 
   flags(): number {
@@ -147,6 +156,9 @@ export class LocalPlayer {
     const targetEye = this.swimming ? 0.4 : this.crouching ? 1.27 : 1.62;
     this.eyeHeight += (targetEye - this.eyeHeight) * Math.min(1, dt * 18);
     this.fovBoost += ((this.sprinting && this.speedBps > 2 ? 1 : 0) - this.fovBoost) * Math.min(1, dt * 8);
+    const v3 = Math.hypot(this.body.vx, this.body.vy, this.body.vz) * 20;
+    this.speedFov += (Math.max(0, Math.min(1, (v3 - 9) / 35)) - this.speedFov) * Math.min(1, dt * 3);
+    this.flightFrame(dt, input.moveX);
   }
 
   private canStand(world: BlockReader): boolean {
@@ -211,11 +223,9 @@ export class LocalPlayer {
     if (this.levitateT > 0) this.levitateT--;
     if (this.gliding && (b.onGround || inFluid || !this.elytra || this.flying || this.levitateT > 0)) this.gliding = false;
     else if (!this.gliding && jumpEdge && this.elytra && !b.onGround && !inFluid && !this.flying && !m.ladder && this.levitateT <= 0) this.gliding = true;
-    if (!this.gliding) { this.rocketT = 0; this.glideTicks = 0; this.twirl = 0; this.rollV = 0; this.roll *= 0.7; if (Math.abs(this.roll) < 0.002) this.roll = 0; }
+    if (!this.gliding) { this.rocketT = 0; this.glideTicks = 0; }
     if (this.gliding) {
       this.glideTicks++;
-      if (this.rollStyle) this.flightControls(strafe);
-      else { this.roll *= 0.8; this.twirl = 0; }
       const ys = Math.sin(this.yaw), yc = Math.cos(this.yaw), cp = Math.cos(this.pitch);
       const lx = -ys * cp, ly = Math.sin(this.pitch), lz = -yc * cp;
       const jp = -this.pitch;
@@ -344,6 +354,7 @@ export class LocalPlayer {
       if (dx !== b.vx) b.vx = dx;
       if (dz !== b.vz) b.vz = dz;
     }
+    if (this.medium.web && !this.flying) { dx *= 0.25; dy *= 0.05; dz *= 0.25; b.vx = 0; b.vy = 0; b.vz = 0; }
     moveStep(b, dx, dy, dz, world, this.flying || this.medium.water ? STEP_HEIGHT : b.onGround ? STEP_HEIGHT : 0);
   }
 
