@@ -11,6 +11,7 @@ import { BLOCKS } from '../core/blocks';
 import { getItem, I, ITEM_LIST } from '../core/items';
 import { sanitizeLootCfg, LootEntry } from '../core/sim/lootdrop';
 import { sanitizeWard } from '../core/sim/anticheat';
+import { sanitizeCrucible, crucibleArgs, type CrucibleKit, type CrucibleArena } from '../core/sim/crucible';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { slotContent } from './HUD';
 import { ENCHANTS, supports, compatible, enchantLabel } from '../core/enchants';
@@ -110,6 +111,7 @@ export class ChatUI {
     const full = from ? `<${from.name}> ${text}` : text;
     const el = h('div', { class: `line ${from ? 'msg' : kind}` }, h('span', { class: 'ts' }, time), from ? h('span', { class: 'who' }, '<', from.sup ? h('span', { class: 'sup-badge', title: 'Supporter' }) : null, from.sup ? h('span', { style: `color:${from.sup}` }, from.name) : from.name, '>') : null, text,
       wp ? h('button', { class: 'wp-save', onclick: (e: Event) => { e.stopPropagation(); this.onWaypoint?.(wp); } }, found ? 'Save waypoint' : `Save ${wp.x} ${wp.y} ${wp.z}`) : null,
+      !from && /\/crucible join/.test(text) ? h('button', { class: 'wp-save tpa-yes', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/crucible join'); } }, 'Enter') : null,
       !from && /\/lootdrop tp/.test(text) ? h('button', { class: 'wp-save tpa-yes', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/lootdrop tp'); } }, 'Teleport') : null,
       !from && /Type \/tpaccept or \/tpdeny/.test(text) ? h('span', { class: 'tpa-btns' },
         h('button', { class: 'wp-save tpa-yes', onclick: (e: Event) => { e.stopPropagation(); this.onSend?.('/tpaccept'); (e.target as HTMLElement).parentElement!.remove(); } }, 'Accept'),
@@ -350,7 +352,7 @@ export function showDeath(root: HTMLElement, msg: string, onRespawn: () => void,
 
 export interface SovereignHeld { id: number; name: string; en?: Record<string, number>; dmg?: number }
 
-export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number; lootdrop?: unknown; anticheat?: unknown }, atlas?: TextureAtlas): void {
+export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number; lootdrop?: unknown; anticheat?: unknown; crucible?: unknown }, atlas?: TextureAtlas): void {
   const tabs = h('div', { class: 'tabs sov-tabs' });
   const pane = h('div', { class: 'stack sov-pane' });
   let tab = 'item';
@@ -457,6 +459,49 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
         h('button', { class: 'btn ghost', onclick: () => run('/lootdrop reset') }, 'Reset to defaults')),
     );
   };
+  const crucibleTab = (): HTMLElement => {
+    const c = sanitizeCrucible(rules().crucible);
+    const clock = (v: number) => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`;
+    const coin = (label: string, v: number, set: (n: number) => void) => {
+      const i = h('input', { class: 'input eco-num', value: String(v), inputmode: 'numeric', maxlength: 9 }) as HTMLInputElement;
+      i.addEventListener('input', () => set(Math.max(0, Math.floor(Number(i.value.replace(/[^\d]/g, ''))) || 0)));
+      return h('label', { class: 'field' }, h('span', {}, label), i);
+    };
+    let prizeT = c.prize.map((p) => `${p.key}${p.maxed ? '+' : ''}:${p.n}`).join(',');
+    const pi = h('input', { class: 'input', value: prizeT, placeholder: 'diamond:8,golden_apple:4,mace+:1 (blank = coins only)', spellcheck: 'false', autocapitalize: 'off' }) as HTMLInputElement;
+    pi.addEventListener('input', () => { prizeT = pi.value.trim(); });
+    const q = h('input', { class: 'input', placeholder: 'Search an item to add to the prize', maxlength: 24 }) as HTMLInputElement;
+    const list = h('div', { class: 'eco-pick' });
+    q.addEventListener('input', () => {
+      clear(list);
+      const t = q.value.trim().toLowerCase();
+      if (!t) return;
+      for (const it of ITEM_LIST.filter((x) => x.name.toLowerCase().includes(t) || x.key.includes(t)).slice(0, 36)) {
+        list.appendChild(h('button', { class: 'slot mc static eco-pick-item', title: `${it.name} (${it.key})`, onclick: () => { pi.value = pi.value.trim() ? `${pi.value.trim()},${it.key}:1` : `${it.key}:1`; pi.dispatchEvent(new Event('input')); } }, ...(atlas ? slotContent(atlas, { id: it.id, count: 1 }, 24) : [h('span', { class: 'small' }, it.name.slice(0, 3))])));
+      }
+    });
+    const args = () => crucibleArgs({ ...c, prize: [] }).replace(/prize=\S*/, `prize=${prizeT.replace(/\s+/g, '') || 'none'}`);
+    return h('div', { class: 'stack' },
+      h('div', { class: 'section-title' }, 'The Crucible'),
+      h('div', { class: 'small muted' }, 'A free-for-all PvP tournament. Opening it announces the event to everyone; players type /crucible join or tap Enter in chat while the gates are open. Then every fighter is pulled into the arena, and the last one standing (or whoever has the most kills when time runs out) takes the prize. Fighters get their own gear, position and game mode back afterwards, and nobody drops items inside. Works on online servers.'),
+      slider('Join window', 15, 600, 15, c.join, clock, (v) => { c.join = v; }),
+      slider('Fight time limit', 60, 1800, 30, c.fight, clock, (v) => { c.fight = v; }),
+      slider('Arena size (radius)', 6, 32, 1, c.radius, (v) => `${v} blocks`, (v) => { c.radius = v; }),
+      slider('Fewest fighters to start', 2, 32, 1, c.min, String, (v) => { c.min = v; }),
+      slider('Most fighters', 2, 32, 1, c.max, String, (v) => { c.max = v; }),
+      h('div', { class: 'small' }, 'Fighters use'), segmented<CrucibleKit>([['own', 'Own gear'], ['iron', 'Iron kit'], ['diamond', 'Diamond kit'], ['netherite', 'Netherite kit']], c.kit, (v) => { c.kit = v; }),
+      h('div', { class: 'small' }, 'Arena'), segmented<CrucibleArena>([['forge', 'Build the Crucible here'], ['here', 'Use the ground here']], c.arena, (v) => { c.arena = v; }),
+      toggle('Closing ring', c.ring, (v) => { c.ring = v; }, 'After half the time, the edge burns inwards and forces a finish'),
+      h('div', { class: 'row wrap' }, coin('Champion coins', c.money, (n) => { c.money = n; }), coin('Runner-up coins', c.second, (n) => { c.second = n; }), coin('Entry fee (added to the prize)', c.fee, (n) => { c.fee = n; })),
+      h('label', { class: 'field' }, h('span', {}, 'Champion items (name:count, + after a name = max enchants)'), pi),
+      q, list,
+      h('div', { class: 'row wrap' },
+        h('button', { class: 'btn primary', onclick: () => run(`/crucible start ${args()}`) }, 'Open the Crucible here'),
+        h('button', { class: 'btn', onclick: () => run(`/crucible set ${args()}`) }, 'Save settings'),
+        h('button', { class: 'btn ghost', onclick: () => run('/crucible reset') }, 'Reset to defaults')),
+      h('div', { class: 'row wrap' }, act('Start the fight now', '/crucible go'), act('Call it off', '/crucible stop'), act('Status', '/crucible status')),
+    );
+  };
   const youTab = (): HTMLElement => h('div', { class: 'stack' },
     h('div', { class: 'row wrap' }, act('Heal and feed', '/heal'), act('Survival', '/gamemode survival'), act('Creative', '/gamemode creative')),
     h('div', { class: 'section-title' }, 'World'),
@@ -482,7 +527,7 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
       toggle('Alert operators in chat', w.alerts, (v) => run(`/anticheat alerts ${v ? 'on' : 'off'}`)),
       h('div', { class: 'row wrap' }, act('Show status', '/anticheat status'), act('Recent flags', '/anticheat log')));
   };
-  const TABS: [string, string, () => HTMLElement][] = [['item', 'Held Item', itemTab], ['kits', 'Kits', kitTab], ['events', 'Events', eventTab], ['you', 'You and World', youTab], ['rules', 'Rules', rulesTab]];
+  const TABS: [string, string, () => HTMLElement][] = [['item', 'Held Item', itemTab], ['kits', 'Kits', kitTab], ['events', 'Events', eventTab], ['crucible', 'Crucible', crucibleTab], ['you', 'You and World', youTab], ['rules', 'Rules', rulesTab]];
   function redraw(): void {
     clear(tabs);
     for (const [k, l] of TABS) tabs.appendChild(h('button', { class: k === tab ? 'on' : '', onclick: () => { tab = k; redraw(); } }, l));

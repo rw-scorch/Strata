@@ -342,6 +342,7 @@ export class RemoteSession implements GameSession {
       case 'mn': ev.mobName?.(String(m.id), m.n); return;
       case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses, seed: m.seed ?? 0 }); return;
       case 'pong': this.rtt = Date.now() - m.c; return;
+      case 'cru': ev.crucible?.(m.s && typeof m.s === 'object' ? m.s : null); return;
       case 'cd': ev.countdown?.(Number(m.ms) || 0, String(m.l ?? '').slice(0, 60)); return;
       case 'reset': {
         try { sessionStorage.setItem('strata.rejoin', this.code); } catch { /* storage blocked */ }
@@ -438,7 +439,7 @@ export class RemoteSession implements GameSession {
     if (op.t === 'close') this.me.screen.type = null;
     this.ev?.inventory(this.me.inv);
   }
-  chat(text: string): void { const t = text.trim(); if (t) this.send({ t: 'chat', text: t.slice(0, t.startsWith('/lootdrop') ? 1500 : 200) }); }
+  chat(text: string): void { const t = text.trim(); if (t) this.send({ t: 'chat', text: t.slice(0, /^\/(lootdrop|crucible)\b/i.test(t) ? 1500 : 200) }); }
   respawn(): void { this.send({ t: 'respawn' }); }
   buy(k: string): void { this.send({ t: 'buy', k }); }
   roomUpdate(patch: Omit<Extract<C2S, { t: 'room' }>, 't'>): void { this.send({ t: 'room', ...patch }); }

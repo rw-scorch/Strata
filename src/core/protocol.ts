@@ -1,4 +1,5 @@
 import type { RuleSet } from './sim/WorldSim';
+import type { CrucibleView } from './sim/crucible';
 import type { ArenaKind } from './labs/minigames/arena';
 import type { GameState } from './labs/minigames/Minigame';
 import type { ScreenType } from './sim/WorldSim';
@@ -141,6 +142,7 @@ export type S2C =
   | { t: 'crafted'; r: string; n: number }
   | { t: 'game'; s: GameState }
   | { t: 'title'; text: string; sub: string }
+  | { t: 'cru'; s: CrucibleView | null }
   | { t: 'mn'; id: number; n: string }
   | { t: 'trade'; id: number; prof: number; xp: number; uses: number[]; seed?: number }
   | { t: 'lid'; x: number; y: number; z: number; n: number };

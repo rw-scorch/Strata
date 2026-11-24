@@ -685,6 +685,11 @@ body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; mi
 .eco-num { width: 72px; flex: none; }
 
 .hud-countdown { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 50%; transform: translateX(-50%); padding: 6px 14px; background: rgba(12, 14, 20, 0.72); border: 1px solid rgba(255, 255, 255, 0.18); color: #f3e6b0; font: 600 15px/1.2 var(--font, system-ui); letter-spacing: 0.04em; border-radius: 6px; pointer-events: none; z-index: 30; white-space: nowrap; }
+.hud-crucible { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 78px); left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: baseline; padding: 6px 14px; background: rgba(28, 10, 8, 0.78); border: 1px solid rgba(255, 140, 70, 0.45); color: #ffd9b0; font: 600 14px/1.2 var(--font, system-ui); letter-spacing: 0.03em; border-radius: 6px; pointer-events: none; z-index: 30; white-space: nowrap; }
+.hud-crucible b { color: #ff9a4a; letter-spacing: 0.12em; }
+.hud-crucible.tap { pointer-events: auto; cursor: pointer; border-color: #ffb36a; box-shadow: 0 0 12px rgba(255, 150, 60, 0.45); }
+.hud-crucible.fighting { border-color: #ff5a3a; }
+.hud-crucible.urgent span:first-of-type { color: #ff7a5a; }
 .hud-countdown.urgent { color: #ff8a6a; border-color: rgba(255, 120, 90, 0.6); }
 .dim-load.to-end { background: radial-gradient(circle at 50% 45%, #1e3a36 0%, #0c1416 45%, #040608 80%); }
 

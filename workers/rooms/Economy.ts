@@ -80,6 +80,19 @@ export class Economy {
 
   balance(id: string): number { return Number(this.sql.exec(`SELECT money FROM eco_bal WHERE id = ?`, id).toArray()[0]?.money ?? 0); }
 
+  get on(): boolean { return this.h.enabled(); }
+
+  charge(id: string, name: string, n: number): boolean {
+    if (n <= 0) return true;
+    if (this.balance(id) < n) return false;
+    this.add(id, name, -n);
+    const p = this.h.sim().players.get(id);
+    if (p) this.stats(p);
+    return true;
+  }
+
+  grant(id: string, name: string, n: number): void { this.credit(id, name, Math.floor(n)); }
+
   private add(id: string, name: string, n: number): void {
     this.sql.exec(`INSERT INTO eco_bal (id, name, money) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET money = money + excluded.money, name = excluded.name`, id, name, Math.floor(n));
   }

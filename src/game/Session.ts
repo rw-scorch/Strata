@@ -1,3 +1,4 @@
+import type { CrucibleView } from '../core/sim/crucible';
 import type { Blueprint } from '../core/blueprint';
 import type { BlockArray } from '../core/chunk';
 import type { RuleSet } from '../core/sim/WorldSim';
@@ -58,6 +59,7 @@ export interface SessionEvents {
   chunkData(cx: number, cz: number, data: BlockArray | null): void;
   rules?(r: RuleSet): void;
   countdown?(ms: number, label: string): void;
+  crucible?(v: CrucibleView | null): void;
   rtc?(from: string, d: unknown): void;
   recipes?(d: DataRecipes[]): void;
 }

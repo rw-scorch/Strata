@@ -227,6 +227,7 @@ export class WorldRoom extends DurableObject<Env> {
     });
     this.sim.serverMode = true;
     this.sim.onVirtualClose = (pp, kind, items) => this.eco.virtualClosed(pp, kind, items);
+    this.sim.bank = { on: () => this.eco.on, take: (id, name, n) => this.eco.charge(id, name, n), give: (id, name, n) => this.eco.grant(id, name, n) };
     this.sim.time = m.time ?? 1000;
     this.sim.endState = { ...freshEndState(), ...(m.end ?? {}) };
     this.sim.peakPlayers = m.peak ?? 0;
@@ -588,8 +589,9 @@ export class WorldRoom extends DurableObject<Env> {
 
   private savePlayer(p: SimPlayer): void {
     if (p.vanished) return;
+    const st = p.cru;
     const data = {
-      name: p.name, appearance: p.appearance, x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, mode: p.mode, inv: p.inv,
+      name: p.name, appearance: p.appearance, x: st?.x ?? p.x, y: st?.y ?? p.y, z: st?.z ?? p.z, yaw: p.yaw, pitch: p.pitch, mode: st?.mode ?? p.mode, inv: st?.inv ?? p.inv,
       health: p.health, food: p.food, sat: p.sat, air: p.air, xp: p.xp, dead: p.dead, spawn: p.spawn, anchor: p.anchor, homes: p.homes, back: p.back,
       kills: p.kills ?? 0, deaths: p.deaths ?? 0, playtime: Math.floor((p.playtime ?? 0) + (Date.now() - (this.playStart.get(p.id) ?? Date.now())) / 1000),
     };
@@ -1019,6 +1021,8 @@ export class WorldRoom extends DurableObject<Env> {
     for (const nm of sim.namedMobs()) this.send(s, { t: 'mn', id: nm.id, n: nm.name });
     const cdNow = this.countdownState();
     if (cdNow) this.send(s, { t: 'cd', ms: Math.max(0, cdNow.end - Date.now()), l: cdNow.label });
+    const cru = sim.crucible.view();
+    if (cru) this.send(s, { t: 'cru', s: cru });
     if (!spectate) this.eco.joined(p);
     if (spectate) { this.systemChat('You are spectating as a server admin. Other players cannot see you.', 'info', s); this.report(true); return; }
     this.broadcast({ t: 'pj', p: this.publicPlayer(p) }, s);
@@ -1140,7 +1144,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (!p.vanished) this.broadcast({ t: 'pj', p: this.publicPlayer(p) });
         return;
       }
-      case 'eco': this.eco.action(p, msg as unknown as Record<string, unknown>); return;
+      case 'eco': if (sim.crucible.busy(p)) { this.systemChat('The shop is closed to fighters inside the Crucible.', 'error', s); return; } this.eco.action(p, msg as unknown as Record<string, unknown>); return;
       case 'datapacks': {
         if (!p.op) { this.systemChat('Only the world owner and operators can change data packs.', 'error', s); return; }
         const now = Date.now();
@@ -1176,7 +1180,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private handleChat(s: Session, p: SimPlayer, raw: unknown, sim: WorldSim): void {
-    const text = cleanText(raw, p.op && typeof raw === 'string' && raw.startsWith('/lootdrop') ? 1500 : 200);
+    const text = cleanText(raw, p.op && typeof raw === 'string' && /^\/(lootdrop|crucible)\b/i.test(raw) ? 1500 : 200);
     if (!text) return;
     const now = Date.now();
     s.chatBurst = Math.min(4, s.chatBurst + (now - s.chatT) / 900);
@@ -1196,6 +1200,8 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       }
       if (lc === 'countdown' || lc === 'resetworld') { this.countdownCommand(s, p, lc, text.slice(1 + cmd.length).trim()); return; }
+      const caged = sim.crucible.blocks(p, lc);
+      if (caged) { this.systemChat(caged, 'error', s); return; }
       if (this.eco.command(p, text)) return;
       const out = sim.command(p, text);
       if (out) this.systemChat(out, out.startsWith('Unknown') || out.startsWith('You do not') ? 'error' : 'info', s);
@@ -1522,6 +1528,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'game': this.broadcast({ t: 'game', s: ev.state as never }); return;
       case 'mobname': this.broadcast({ t: 'mn', id: ev.id, n: ev.name }); return;
       case 'trade': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trade', id: ev.v.id, prof: ev.v.prof ?? 0, xp: ev.v.vxp ?? 0, uses: [...(ev.v.uses ?? [])].map((u) => u ?? 0), seed: ev.v.tseed ?? 0 }); return; }
+      case 'crucible': this.broadcast({ t: 'cru', s: ev.v }); return;
       case 'title': {
         const msg: S2C = { t: 'title', text: ev.text, sub: ev.sub };
         if (ev.to) { const s = this.sessionFor(ev.to); if (s) this.send(s, msg); } else this.broadcast(msg);

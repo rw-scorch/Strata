@@ -5,6 +5,7 @@ import { armorPoints } from '../core/inventory';
 import { getItem, maxDurability } from '../core/items';
 import { xpLevel } from '../core/sim/WorldSim';
 import type { Vitals } from '../game/Session';
+import type { CrucibleView } from '../core/sim/crucible';
 import { getSettings, isTouchDevice } from '../storage/Settings';
 import { guiFallback } from './mc/GuiPaint';
 import { guiURL } from './mc/Gui';
@@ -193,6 +194,31 @@ export class HUD {
     };
     draw();
     this.cdTimer = window.setInterval(draw, 250);
+  }
+
+  private cruEl: HTMLElement | null = null;
+  private cruTimer = 0;
+  setCrucible(v: CrucibleView | null, me: string, onJoin?: () => void): void {
+    window.clearInterval(this.cruTimer);
+    if (!v) { this.cruEl?.remove(); this.cruEl = null; return; }
+    if (!this.cruEl) { this.cruEl = h('div', { class: 'hud-crucible' }); this.root.appendChild(this.cruEl); }
+    const el = this.cruEl, end = Date.now() + v.left * 1000, mine = v.f.includes(me);
+    const canJoin = v.ph === 'open' && !mine && v.n < v.max && !!onJoin;
+    el.classList.toggle('tap', canJoin);
+    el.onclick = canJoin ? () => onJoin!() : null;
+    const draw = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      const t = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+      const line = v.ph === 'open' ? [`${t}`, `${v.n}/${v.max} entered`, mine ? 'You are in' : canJoin ? 'Tap to enter' : 'Full']
+        : v.ph === 'ready' ? [`${v.alive} fighters`, 'Gates closing']
+        : v.ph === 'fight' ? [`${v.alive} remain`, t, ...(v.r < v.R ? [`Ring ${Math.round(v.r)}`] : [])]
+        : [v.w ? `${v.w} is Champion` : 'Finished'];
+      el.replaceChildren(h('b', {}, v.ph === 'done' ? 'CHAMPION' : 'THE CRUCIBLE'), ...line.map((x) => h('span', {}, x)));
+      el.classList.toggle('urgent', (v.ph === 'open' || v.ph === 'fight') && left <= 10);
+      el.classList.toggle('fighting', mine && v.ph !== 'open');
+    };
+    draw();
+    this.cruTimer = window.setInterval(draw, 250);
   }
 
   setAtlas(a: TextureAtlas): void { this.atlas = a; this.lastInvKey = ''; for (const el of this.slots) el.dataset.k = ''; const os = this.offEl.firstElementChild as HTMLElement | null; if (os) os.dataset.k = ''; this.lastVit = ''; this.applySprites(); }

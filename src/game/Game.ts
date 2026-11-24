@@ -1,3 +1,4 @@
+import type { CrucibleView } from '../core/sim/crucible';
 import { Contrails, type Glider } from '../rendering/Contrails';
 import type { BlockArray } from '../core/chunk';
 import { isNether, isEnd, localX, dimOf } from '../core/dimension';
@@ -107,6 +108,7 @@ export class Game {
   private frames = 0;
   private lastInput = performance.now();
   private rulesState: RuleSet = {};
+  private cru: CrucibleView | null = null;
   zoomHeld = false;
   zoomLevel = 4;
   private dynLights: [number, number, number, number][] = [];
@@ -451,7 +453,7 @@ export class Game {
     this.interaction.onDigParticles = (x, y, z, v) => this.breakParticles(x, y, z, v, false);
     this.interaction.onEatTick = () => { this.renderer.handEat += 1 / 60; if (Math.random() < 0.08) audio.play('player.eat', this.player.x, this.player.eyeY, this.player.z); };
     this.interaction.riding = () => !!this.riding;
-    this.interaction.pvpCheck = () => this.session?.info.kind === 'remote' && ((this.session as unknown as { sim?: { settings: { pvp: boolean } } }).sim?.settings.pvp ?? !!this.room?.settings.pvp);
+    this.interaction.pvpCheck = () => this.session?.info.kind === 'remote' && ((this.cru?.ph === 'fight' && this.cru.f.includes(this.session.me.id)) || ((this.session as unknown as { sim?: { settings: { pvp: boolean } } }).sim?.settings.pvp ?? !!this.room?.settings.pvp));
     this.unsub = onSettings((st) => this.applySettings(st));
     this.applySettings(s);
     this.showLoading('Shaping the strata...');
@@ -473,6 +475,7 @@ export class Game {
     game: (st) => { this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
     title: (t, s) => this.arena?.title(t, s),
     countdown: (ms, l) => this.hud?.setCountdown(ms, l),
+    crucible: (v) => { this.cru = v; this.hud?.setCrucible(v, this.session.me.id, () => this.session.chat('/crucible join')); },
     trade: (info) => this.inv?.setTrade(info),
     mobName: (id, name) => this.renderer?.entities.setMobName(id, name),
     chestLid: (x, y, z, n) => { this.renderer?.chests.setOpen(x, y, z, n); audio.play(n > 0 ? 'chest.open' : 'chest.close', x + 0.5, y + 0.5, z + 0.5); },

@@ -38,6 +38,7 @@ import { dragonParts, rayPart, partDistance, pointPart, type DragonPart } from '
 import { tickFluid, fluidDelay, FluidWorld } from './fluids';
 import { ChunkInfo, chunkNum } from './light';
 import { Mischief } from './mischief';
+import { Crucible, type CrucibleCfg, type CrucibleView, type CrucibleStash } from './crucible';
 import { Blueprint, bpCosts, bpItem } from '../blueprint';
 import { isNether, isEnd, toNether, toOverworld, NETHER_HEIGHT, NETHER_LAVA, localX, cmdXYZ, END_X, END_SPAWN, dimOf } from '../dimension';
 import { portalRoomCenter } from '../worldgen/structures';
@@ -143,6 +144,7 @@ export interface SimPlayer {
   ward?: WardState;
   skin?: { png: string; slim: boolean } | null;
   kills?: number; deaths?: number; playtime?: number;
+  cru?: CrucibleStash;
   screenTitle?: string;
   stepAcc?: number; warn?: number; warnT?: number; shriekCd?: number;
 }
@@ -152,6 +154,12 @@ export type CartType = 'cart' | 'tntcart' | 'hoppercart' | 'chestcart';
 export const CARGO_X = 3_000_000;
 export interface Fixture { k: string; x: number; y: number; z: number; yaw?: number; f?: number; r?: number; item?: ItemStack | null; cargo?: (ItemStack | null)[]; off?: boolean }
 export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade' | 'enchant' | 'anvil' | 'smith';
+
+export interface SimBank {
+  on(): boolean;
+  take(id: string, name: string, n: number): boolean;
+  give(id: string, name: string, n: number): void;
+}
 
 export interface GameHooks {
   tick(): void;
@@ -297,6 +305,7 @@ export type SimEvent =
   | { e: 'respawn'; p: SimPlayer }
   | { e: 'tp'; p: SimPlayer }
   | { e: 'kick'; p: SimPlayer; reason: string; banMs: number }
+  | { e: 'crucible'; v: CrucibleView | null }
   | { e: 'msg'; text: string; kind: 'system' | 'death' | 'info' | 'error'; to?: string }
   | { e: 'lightning'; x: number; y: number; z: number }
   | { e: 'pmove'; l: number[] }
@@ -335,12 +344,12 @@ export interface SimSettings {
   pvp: boolean; cheats: boolean; guestsBuild: boolean; dayCycle: boolean; weatherCycle: boolean;
   dayLength?: number; nightLength?: number;
   simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number;
-  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean; lootdrop?: LootCfg; anticheat?: WardCfg;
+  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean; lootdrop?: LootCfg; anticheat?: WardCfg; crucible?: CrucibleCfg;
   tpDelay?: number; combatTime?: number;
 }
 
 const DT = 1 / 20;
-export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop', 'anticheat'] as const;
+export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop', 'anticheat', 'crucible'] as const;
 export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
 export function ruleSnapshot(s: SimSettings): RuleSet {
   const out: Record<string, unknown> = {};
@@ -512,6 +521,8 @@ export class WorldSim {
 
   players = new Map<string, SimPlayer>();
   readonly mischief = new Mischief(this);
+  readonly crucible = new Crucible(this);
+  bank: SimBank | null = null;
   entities = new Map<number, Entity>();
   blockEntities = new Map<string, BlockEntity>();
   activeFurnaces = new Set<string>();
@@ -1577,6 +1588,7 @@ export class WorldSim {
     if (p.screen.type) this.closeScreen(p);
     else if (p.inv.cursor || p.inv.craft.some(Boolean)) applyInvOp(this.invCtx(p), { t: 'close' });
     this.game?.onLeave(p);
+    this.crucible.onLeave(p);
     this.players.delete(id);
   }
 
@@ -2062,6 +2074,12 @@ export class WorldSim {
     return true;
   }
 
+  pvpOk(a: SimPlayer, t: SimPlayer): boolean {
+    const c = this.crucible.pvp(a, t);
+    if (c !== null) return c;
+    return this.settings.pvp && (!this.game || this.game.canHurtPlayer(a, t));
+  }
+
   canBuild(p: SimPlayer): boolean {
     return !p.dead && (p.op || this.settings.guestsBuild);
   }
@@ -2355,6 +2373,7 @@ export class WorldSim {
   damage(p: SimPlayer, amount: number, cause: string, fx: number, fz: number, knock = true, bypassArmor = false, killer?: string, kb = 0.4): void {
     if (knock) this.wardKnock(p, 1500 + kb * 2000);
     if (p.dead || p.mode === 'creative' || amount <= 0 || p.travel) return;
+    if (this.crucible.shield(p)) return;
     if (this.game) { if (this.game.protectedPlayer(p)) return; amount *= this.game.damageScale(p); }
     const exempt = cause === 'void' || cause === 'drown' || cause === 'starve';
     if (!exempt && this.shieldBlocks(p, amount, cause, fx, fz)) return;
@@ -2413,13 +2432,13 @@ export class WorldSim {
     const msgs: Record<string, string> = {
       fall: 'hit the ground too hard', kinetic: 'experienced kinetic energy', stalagmite: 'was impaled on a stalagmite', lava: 'tried to swim in lava', drown: 'ran out of air', suffocate: 'suffocated in a wall', cactus: 'was pricked to death', wither: 'withered away', small_fireball: 'was fireballed by a Blaze', combatlog: 'was killed for logging out in combat',
       void: 'fell out of the world', breath: "was withered by the Ender Dragon's breath", starve: 'starved to death', fire: 'burned to a crisp', arrow: 'was shot by a Skeleton',
-      kill: 'gave up on this life', player: `was struck down by ${killer ?? 'a rival'}`,
+      kill: 'gave up on this life', player: `was struck down by ${killer ?? 'a rival'}`, crucible: "was consumed by the Crucible's edge",
     };
     const mob = MOBS[cause as MobType];
     const text = `${p.name} ${mob ? `was slain by a ${mob.name}` : msgs[cause] ?? 'died'}`;
     if (p.screen.type) this.closeScreen(p);
     applyInvOp(this.invCtx(p), { t: 'close' });
-    if (this.game?.onKill(p, cause, killer)) {
+    if (this.crucible.onKill(p, cause, killer) || this.game?.onKill(p, cause, killer)) {
       this.emit({ e: 'inv', p });
       this.emit({ e: 'death', p, msg: text });
       this.emit({ e: 'msg', text, kind: 'death' });
@@ -2452,6 +2471,7 @@ export class WorldSim {
     p.hurtCd = 40;
     if (!this.game && !at) this.makeSafe(p);
     this.game?.onRespawn(p);
+    this.crucible.onRespawn(p);
     this.emit({ e: 'respawn', p });
     this.emit({ e: 'vitals', p });
   }
@@ -2777,6 +2797,7 @@ export class WorldSim {
       }
     } else if (blockId(v) === B.BEDROCK && !p.op) return fail();
     if (this.game && !this.game.canBreak(p, x, y, z, v)) return fail();
+    if (this.crucible.locked(p, x, y, z)) return fail();
     p.dig = null;
     this.breakBlock(x, y, z, p);
     this.game?.onBroken(p.name, x, y, z, v);
@@ -2906,7 +2927,7 @@ export class WorldSim {
       return true;
     }
     if (stack && (stack.id === I.ITEM_FRAME || stack.id === I.GLOW_ITEM_FRAME)) {
-      if (!this.canBuild(p) || (this.game && !this.game.canPlace(p, x + nx, y + ny, z + nz))) return false;
+      if (!this.canBuild(p) || (this.game && !this.game.canPlace(p, x + nx, y + ny, z + nz)) || this.crucible.locked(p, x + nx, y + ny, z + nz)) return false;
       if (this.authoritative && this.placeFrame(x, y, z, nx, ny, nz, stack.id === I.GLOW_ITEM_FRAME, p.yaw)) {
         if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
       }
@@ -2917,7 +2938,7 @@ export class WorldSim {
       const fx = x + nx, fy = y + ny, fz = z + nz;
       const fv = this.get(fx, fy, fz);
       if ((blockId(fv) !== 0 && !getBlock(fv).replaceable) || blockId(fv) === B.WATER || blockId(fv) === B.LAVA || blockId(fv) === B.FIRE || !this.store.isLoaded(fx, fz)) return false;
-      if (this.game && !this.game.canPlace(p, fx, fy, fz)) return false;
+      if ((this.game && !this.game.canPlace(p, fx, fy, fz)) || this.crucible.locked(p, fx, fy, fz)) return false;
       if (this.authoritative && !this.lightPortal(fx, fy, fz)) {
         if (!isSolid(this.get(fx, fy - 1, fz)) && !isSolid(v)) return false;
         this.setBlock(fx, fy, fz, B.FIRE, p.id);
@@ -3149,7 +3170,7 @@ export class WorldSim {
     }
     let tx = x, ty = y, tz = z;
     if (!isReplaceable(v) || blockId(v) === B.WATER || blockId(v) === B.LAVA) { tx += nx; ty += ny; tz += nz; }
-    if (!this.inReach(p, tx, ty, tz)) return false;
+    if (!this.inReach(p, tx, ty, tz) || this.crucible.locked(p, tx, ty, tz)) return false;
     const tv = this.get(tx, ty, tz);
     if (!isReplaceable(tv)) { this.emit({ e: 'reject', p, x: tx, y: ty, z: tz }); return false; }
     const fluid = stack.id === I.WATER_BUCKET ? B.WATER : B.LAVA;
@@ -3199,6 +3220,7 @@ export class WorldSim {
     const fail = () => { this.emit({ e: 'reject', p, x: tx, y: ty, z: tz }); return false; };
     if (this.wardOn(p) && placeRate((p.ward ??= newWardState(this.now)), this.now) > LEVEL[this.wardCfg.level].place) { this.wardFlag(p, 'fastplace', 1, `${p.ward.places.length} blocks in one second`); return fail(); }
     if (this.game && !this.game.canPlace(p, tx, ty, tz)) return fail();
+    if (this.crucible.locked(p, tx, ty, tz)) return fail();
     if (ty < 1 || ty >= WORLD_HEIGHT - 1) return fail();
     if (!this.store.isLoaded(tx, tz)) return fail();
     if (!this.inReach(p, tx, ty, tz)) return fail();
@@ -3419,8 +3441,8 @@ export class WorldSim {
       const d = this.rayBox(p, e.x, e.y, e.z, e.hw, e.h, SPEAR_MARGIN);
       if (d !== null && d >= SPEAR_MIN && d <= max) out.push({ mob: e, dist: d });
     }
-    if (this.settings.pvp) for (const o of this.players.values()) {
-      if (o === p || o.dead || o.mode === 'spectator' as GameMode || (this.game && !this.game.canHurtPlayer(p, o))) continue;
+    for (const o of this.players.values()) {
+      if (o === p || o.dead || o.mode === 'spectator' as GameMode || !this.pvpOk(p, o)) continue;
       if (Math.abs(o.x - p.x) > max + 2 || Math.abs(o.z - p.z) > max + 2) continue;
       const d = this.rayBox(p, o.x, o.y, o.z, PLAYER_HW, PLAYER_H, SPEAR_MARGIN);
       if (d !== null && d >= SPEAR_MIN && d <= max) out.push({ pl: o, dist: d });
@@ -3570,11 +3592,10 @@ export class WorldSim {
       const l = Math.hypot(o.x - p.x, o.z - p.z) || 1;
       this.hurtMob(o, sdmg, p.id, (o.x - p.x) / l, (o.z - p.z) / l, 0.4);
     }
-    if (!this.settings.pvp) return;
     for (const o of this.players.values()) {
       if (o === p || o.id === skipPlayer || o.dead) continue;
       if (Math.abs(o.x - x) > 1.3 || Math.abs(o.z - z) > 1.3 || Math.abs(o.y - y) > 0.6) continue;
-      if (this.game && !this.game.canHurtPlayer(p, o)) continue;
+      if (!this.pvpOk(p, o)) continue;
       this.damage(o, sdmg, 'player', p.x, p.z, true, false, p.name, 0.4);
     }
   }
@@ -3772,10 +3793,10 @@ export class WorldSim {
   }
 
   attackPlayer(p: SimPlayer, targetId: string): boolean {
-    if (!this.settings.pvp || p.dead) return false;
+    if (p.dead) return false;
     const t = this.players.get(targetId);
     if (!t || t.dead || t === p) return false;
-    if (this.game && !this.game.canHurtPlayer(p, t)) return false;
+    if (!this.pvpOk(p, t)) return false;
     const dx = t.x - p.x, dy = t.y + 0.9 - (p.y + 1.62), dz = t.z - p.z;
     const ws = attackStats(heldStack(p.inv));
     if (!this.wardHit(p, `p${t.id}`, dx, dy, dz, attackRange(ws, p.mode === 'creative') + 0.3, 1.8)) return false;
@@ -3918,6 +3939,7 @@ export class WorldSim {
     this.tickWarps();
     this.tickFurnaces();
     this.mischief.tick();
+    if (this.authoritative) this.crucible.tick();
     this.tickBlueprints();
     this.tickFire();
     if (this.game) this.game.tick();
@@ -5573,7 +5595,7 @@ export class WorldSim {
       if (p.dead || p.mode === 'creative' || p.id === e.shooterP) continue;
       if (e.shooterP) {
         const sh = this.players.get(e.shooterP);
-        if (!this.settings.pvp || (sh && this.game && !this.game.canHurtPlayer(sh, p))) continue;
+        if (sh ? !this.pvpOk(sh, p) : !this.settings.pvp) continue;
       }
       for (let s = 0; s <= 4; s++) {
         const t = (s / 4) * reach;
@@ -6546,7 +6568,7 @@ export class WorldSim {
     return true;
   }
 
-  private fireworkShows: { x: number; y: number; z: number; t: number }[] = [];
+  fireworkShows: { x: number; y: number; z: number; t: number }[] = [];
 
   levitate(p: SimPlayer, ticks: number): void {
     p.levT = this.tickCount + ticks;
@@ -6821,6 +6843,7 @@ export class WorldSim {
     for (const o of this.players.values()) {
       if (o === p || o.id === skipPlayer || o.dead) continue;
       if (this.game && !this.game.canHurtPlayer(p, o)) continue;
+      if (this.crucible.pvp(p, o) === false) continue;
       const v = push(o.x - x, o.y - y, o.z - z);
       if (v) this.emit({ e: 'knock', p: o, x: v[0], y: v[1], z: v[2] });
     }
@@ -7069,7 +7092,7 @@ export class WorldSim {
     }
   }
 
-  private maxEnchant(held: ItemStack): string[] {
+  maxEnchant(held: ItemStack): string[] {
     const pref = ['protection', 'sharpness', 'fortune', 'mending', 'depth_strider', 'multishot', 'density', 'power', 'efficiency', 'unbreaking'];
     const order = [...new Set([...pref, ...ENCHANTS.map((e) => e.key)])];
     const en: Record<string, number> = {};
@@ -7136,8 +7159,12 @@ export class WorldSim {
     const cmd = (parts[0] ?? '').toLowerCase();
     const allowed = p.op || (this.settings.cheats && p.mode === 'creative');
     const need = () => 'You do not have permission for that command.';
+    const caged = this.crucible.blocks(p, cmd);
+    if (caged) return caged;
     if (this.game) { const r = this.game.command(p, [cmd, ...parts.slice(1)]); if (r !== null) return r; }
     switch (cmd) {
+      case 'crucible': case 'pvpevent':
+        return this.crucible.command(p, parts, allowed);
       case 'sethome': case 'home': case 'delhome': case 'homes':
         return this.homeCommand(p, cmd, parts);
       case 'tpa': case 'tpahere': case 'tpaccept': case 'tpdeny': case 'tpyes': case 'tpno':

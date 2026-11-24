@@ -172,6 +172,7 @@ export class LocalSession implements GameSession {
       case 'crafted': ev.crafted(e.recipe.id, e.times); return;
       case 'game': ev.game(e.state as GameState); return;
       case 'title': if (!e.to || e.to === this.me.id) ev.title(e.text, e.sub); return;
+      case 'crucible': ev.crucible?.(e.v); return;
       case 'mobname': ev.mobName?.(String(e.id), e.name); return;
       case 'trade': if (e.p === this.me) ev.trade?.({ id: String(e.v.id), prof: e.v.prof ?? 0, xp: e.v.vxp ?? 0, uses: [...(e.v.uses ?? [])], seed: e.v.tseed ?? 0 }); return;
       case 'reject': return;
