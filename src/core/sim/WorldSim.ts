@@ -3,7 +3,7 @@ import { fortressAt, fortressesNear, bastionsNear } from '../worldgen/fortress';
 import { PORTAL_GRID } from '../worldgen/ruinedPortal';
 import { smithResult } from '../smithing';
 import { LandmarkKind, LANDMARK_KINDS, LANDMARK_NAMES } from '../worldgen/landmarks';
-import { WardCfg, WardState, WardFlag, Check, CHECK_NAMES, LEVEL, newWardState, sanitizeWard, totalVl, decay as wardDecay, windowSpeed, speedBudget, aimAngle, clickRate, placeRate } from './anticheat';
+import { WardCfg, WardState, WardFlag, Check, CHECK_NAMES, LEVEL, newWardState, sanitizeWard, totalVl, decay as wardDecay, windowSpeed, speedBudget, aimAngle, clickRate, placeRate, wardClock, legacyRate } from './anticheat';
 import { LootCfg, LOOT_DEFAULTS, parseLootArgs, lootArgs, sanitizeLootCfg, palette as lootPalette, pick as lootPick, chestLoot as lootChest, frameLoot as lootFrame } from './lootdrop';
 import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN, NB } from '../blocks';
 import { FRAME_EYE, CHORUS_DEAD, isFluid, CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON, isLantern, isCampfire, isSoulLight, LANTERN_HANGING, CAMPFIRE_LIT, ANCHOR_LIGHT, isSoulSand } from '../blocks';
@@ -110,7 +110,7 @@ export interface SimPlayer {
   spawn: { x: number; y: number; z: number };
   anchor?: [number, number, number];
   screen: { type: ScreenType | null; x: number; y: number; z: number };
-  dig: { x: number; y: number; z: number; t: number } | null;
+  dig: { x: number; y: number; z: number; t: number; mt?: number } | null;
   portalT?: number; portalLock?: boolean;
   endTrip?: { x: number; y: number; z: number; t: number; toEnd: boolean; gate?: { x: number; y: number; z: number } };
   levT?: number;
@@ -1970,8 +1970,9 @@ export class WorldSim {
       for (const o of this.players.values()) if (o.op && o !== p) this.emit({ e: 'msg', text: `[Warden] ${p.name} failed ${CHECK_NAMES[check]} (VL ${Math.round(vl)}): ${info}`, kind: 'error', to: o.id });
     }
     if (cfg.kick > 0 && vl >= cfg.kick) {
-      const repeat = this.wardKicks.get(p.id) ?? 0;
-      this.wardKicks.set(p.id, repeat + 1);
+      const prev = this.wardKicks.get(p.id);
+      const repeat = prev && Date.now() - prev.t < 1800000 ? prev.n : 0;
+      this.wardKicks.set(p.id, { n: repeat + 1, t: Date.now() });
       s.vl = {};
       const ban = repeat >= 1 ? Math.min(60, 5 * 2 ** (repeat - 1)) * 60000 : 0;
       this.wardLog.push({ t: Date.now(), id: p.id, name: p.name, check, vl: Math.round(vl), info: ban ? `kicked and barred for ${ban / 60000} minutes` : 'kicked' });
@@ -1980,14 +1981,16 @@ export class WorldSim {
     }
   }
 
-  private wardKicks = new Map<string, number>();
+  private wardKicks = new Map<string, { n: number; t: number }>();
+
+  wardNow(p: SimPlayer): number { return p.ward?.clk ? p.ward.clk.mt : this.now; }
 
   private wardQuiet = false;
 
   private wardSetback(p: SimPlayer): void {
     const s = p.ward;
     if (s?.safe) { p.x = s.safe.x; p.y = s.safe.y; p.z = s.safe.z; p.vref = undefined; p.peakY = p.y; }
-    if (s) s.pin = { x: p.x, y: p.y, z: p.z, until: this.now + 1200 };
+    if (s) s.pin = { x: p.x, y: p.y, z: p.z, until: this.now + 3000, sent: this.now };
     this.wardQuiet = true;
     try { this.emit({ e: 'tp', p }); } finally { this.wardQuiet = false; }
   }
@@ -2005,13 +2008,19 @@ export class WorldSim {
     return null;
   }
 
-  private wardMove(p: SimPlayer, x: number, y: number, z: number, flags: number): { ok: boolean; flags: number } {
+  private wardMove(p: SimPlayer, x: number, y: number, z: number, flags: number, ct?: number): { ok: boolean; flags: number } {
     if (!this.wardOn(p)) { if (p.ward) this.wardReset(p, 0); return { ok: true, flags }; }
     const s = (p.ward ??= newWardState(this.now));
     const now = this.now, L = LEVEL[this.wardCfg.level];
     wardDecay(s, now);
+    const clock = wardClock(s, now, ct), mt = clock.mt;
+    if (!s.clk) { if (s.lastAt !== undefined && now - s.lastAt > 300) s.lagAt = now; s.lastAt = now; }
+    if (clock.ahead > 2500 && s.clk) { s.clk.anchor = s.clk.base; s.clk.anchorAt = now; this.wardFlag(p, 'speed', 3, `game clock ran ${(clock.ahead / 1000).toFixed(1)}s ahead of real time`); }
     if (s.pin) {
-      if (now < s.pin.until && Math.hypot(x - s.pin.x, y - s.pin.y, z - s.pin.z) > 1.5) return { ok: false, flags };
+      if (now < s.pin.until && Math.hypot(x - s.pin.x, y - s.pin.y, z - s.pin.z) > 1.5) {
+        if (now - s.pin.sent > 700) { s.pin.sent = now; const keep = { x: p.x, y: p.y, z: p.z }; p.x = s.pin.x; p.y = s.pin.y; p.z = s.pin.z; this.wardQuiet = true; try { this.emit({ e: 'tp', p }); } finally { this.wardQuiet = false; } p.x = keep.x; p.y = keep.y; p.z = keep.z; }
+        return { ok: false, flags };
+      }
       s.pin = undefined;
     }
     if (!this.store.isLoaded(Math.floor(x), Math.floor(z)) || !this.store.isLoaded(Math.floor(p.x), Math.floor(p.z))) { this.wardReset(p, 500); return { ok: true, flags }; }
@@ -2034,8 +2043,8 @@ export class WorldSim {
     if (!grace && !free && boxCollides(r, x - 0.2, y + 0.2, z - 0.2, x + 0.2, y + h - 0.25, z + 0.2) && Math.hypot(x - p.x, z - p.z) + Math.abs(y - p.y) > 0.05) {
       if (++s.phase >= 3) { s.phase = 0; this.wardFlag(p, 'phase', 3, 'moved inside solid blocks'); this.wardSetback(p); return { ok: false, flags }; }
     } else s.phase = 0;
-    const ws = windowSpeed(s, now, x, z);
-    if (ws.rate > 16 && s.win.length > 12) this.wardFlag(p, 'speed', 1, `sent ${Math.round(ws.rate)} moves per second (the game sends at most 10)`);
+    const ws = windowSpeed(s, mt, x, z);
+    if (!s.clk && legacyRate(s, now)) this.wardFlag(p, 'speed', 1, 'sent moves faster than the game does');
     if (!grace && !free && now > s.knock && ws.span >= 0.5) {
       const soul = isSoulSand(under) || under === X(XV.SOUL_SOIL);
       const budget = speedBudget({ water: support === 'fluid', ice: now < s.ice, soul, crouch: (flags & MF.CROUCH) !== 0 }) * L.speed;
@@ -2045,19 +2054,22 @@ export class WorldSim {
       }
     }
     if (support || free || grace) {
-      s.airAt = now; s.airY = y; s.airMaxY = y; s.yHist.length = 0;
+      s.airAt = mt; s.airY = y; s.airMaxY = y; s.yHist.length = 0;
       if (support === 'ground' && !free && !grace && !(flags & MF.PRONE) && s.phase === 0) s.safe = { x, y, z };
     } else {
       s.airMaxY = Math.max(s.airMaxY, y);
-      s.yHist.push({ t: now, y });
-      while (s.yHist.length > 2 && now - s.yHist[0].t > 1200) s.yHist.shift();
-      const air = (now - s.airAt) / 1000, rise = s.airMaxY - s.airY;
+      s.yHist.push({ t: mt, y });
+      while (s.yHist.length > 2 && mt - s.yHist[0].t > 1200) s.yHist.shift();
+      const air = (mt - s.airAt) / 1000, rise = s.airMaxY - s.airY;
       const maxRise = now < s.slime ? 14 : L.air + 0.1;
       if (now > s.knock && rise > maxRise) { this.wardFlag(p, 'fly', 4, `rose ${rise.toFixed(1)} blocks without support`); this.wardSetback(p); this.wardReset(p, 300); return { ok: false, flags }; }
       const span = s.yHist.length > 1 ? (s.yHist[s.yHist.length - 1].t - s.yHist[0].t) / 1000 : 0;
-      if (now > s.knock && now > s.slime && air > 2 && span >= 0.9 && s.yHist[0].y - y < 0.5) { this.wardFlag(p, 'fly', 4, `hovered for ${air.toFixed(1)}s`); this.wardSetback(p); this.wardReset(p, 300); return { ok: false, flags }; }
+      if (now > s.knock && now > s.slime && air > 2 && span >= 0.9 && s.yHist[0].y - y < 0.5 && (s.clk || now - (s.lagAt ?? -1e9) > 2500)) { this.wardFlag(p, 'fly', 4, `hovered for ${air.toFixed(1)}s`); this.wardSetback(p); this.wardReset(p, 300); return { ok: false, flags }; }
     }
-    if (flags & MF.GROUND && !support && !free && !grace) { flags &= ~MF.GROUND; this.wardFlag(p, 'nofall', 1, 'claimed to be on the ground in mid-air'); }
+    if (flags & MF.GROUND && !support && !free && !grace) {
+      flags &= ~MF.GROUND;
+      if (now - (s.nofallAt ?? 0) > 1000) { s.nofallAt = now; this.wardFlag(p, 'nofall', 1, 'claimed to be on the ground in mid-air'); }
+    }
     return { ok: true, flags };
   }
 
@@ -2068,7 +2080,7 @@ export class WorldSim {
     const ang = Math.min(aimAngle(p.yaw, p.pitch, dx, dy, dz), aimAngle(p.yaw, p.pitch, dx, dy + th * 0.45, dz), aimAngle(p.yaw, p.pitch, dx, dy - th * 0.45, dz));
     if (dist > 1.2 && ang > L.aim) { this.wardFlag(p, 'aim', 2, `hit a target ${Math.round(ang)} degrees off their view`); return false; }
     if (dist > range + L.reach) this.wardFlag(p, 'reach', 2, `hit from ${dist.toFixed(2)} blocks (limit ${range.toFixed(1)})`);
-    const c = clickRate(s, this.now, target);
+    const c = clickRate(s, this.wardNow(p), target);
     if (c.cps > L.cps) { this.wardFlag(p, 'clicks', 1, `${c.cps} hits per second`); return false; }
     if (c.distinct >= 3) { this.wardFlag(p, 'multiaura', 3, `hit ${c.distinct} targets within 150 ms`); return false; }
     return true;
@@ -2084,7 +2096,7 @@ export class WorldSim {
     return !p.dead && (p.op || this.settings.guestsBuild);
   }
 
-  move(p: SimPlayer, x: number, y: number, z: number, yaw: number, pitch: number, flags: number): boolean {
+  move(p: SimPlayer, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, ct?: number): boolean {
     if (p.dead) return false;
     if (![x, y, z, yaw, pitch].every(Number.isFinite)) return false;
     if (p.riding !== undefined) {
@@ -2109,7 +2121,7 @@ export class WorldSim {
       }
     }
     if (this.validateMoves) {
-      const w = this.wardMove(p, x, y, z, flags);
+      const w = this.wardMove(p, x, y, z, flags, ct);
       if (!w.ok) return false;
       flags = w.flags;
     }
@@ -2773,7 +2785,7 @@ export class WorldSim {
   digStart(p: SimPlayer, x: number, y: number, z: number): boolean {
     if (p.dead || !this.canBuild(p)) return false;
     if (!this.inReach(p, x, y, z)) return false;
-    p.dig = { x, y, z, t: this.now };
+    p.dig = { x, y, z, t: this.now, mt: this.wardNow(p) };
     return true;
   }
 
@@ -2790,10 +2802,11 @@ export class WorldSim {
     if (p.mode !== 'creative') {
       if (d.hardness < 0) return fail();
       const need = breakTime(v, stack, !!(p.flags & MF.EYE_WATER), lvl(p.inv.armor[0], 'aqua_affinity') > 0);
-      const started = p.dig && p.dig.x === x && p.dig.y === y && p.dig.z === z ? p.dig.t : -1;
+      const dg = p.dig && p.dig.x === x && p.dig.y === y && p.dig.z === z ? p.dig : null;
       if (need > 0.06) {
-        if (started < 0) { this.wardFlag(p, 'fastbreak', 1, `broke ${d.key} without digging`); return fail(); }
-        if ((this.now - started) / 1000 < need * 0.7 - 0.15) { this.wardFlag(p, 'fastbreak', 2, `broke ${d.key} in ${((this.now - started) / 1000).toFixed(2)}s, needs ${need.toFixed(2)}s`); return fail(); }
+        if (!dg) { this.wardFlag(p, 'fastbreak', 1, `broke ${d.key} without digging`); return fail(); }
+        const took = Math.max(this.now - dg.t, this.wardNow(p) - (dg.mt ?? dg.t)) / 1000;
+        if (took < need * 0.7 - 0.15) { this.wardFlag(p, 'fastbreak', 2, `broke ${d.key} in ${took.toFixed(2)}s, needs ${need.toFixed(2)}s`); return fail(); }
       }
     } else if (blockId(v) === B.BEDROCK && !p.op) return fail();
     if (this.game && !this.game.canBreak(p, x, y, z, v)) return fail();
@@ -3218,7 +3231,7 @@ export class WorldSim {
     const clickedReplaceable = isReplaceable(clicked) && blockId(clicked) !== bid && blockId(clicked) !== 0 && !getBlock(clicked).fluid;
     if (!clickedReplaceable) { tx += nx; ty += ny; tz += nz; }
     const fail = () => { this.emit({ e: 'reject', p, x: tx, y: ty, z: tz }); return false; };
-    if (this.wardOn(p) && placeRate((p.ward ??= newWardState(this.now)), this.now) > LEVEL[this.wardCfg.level].place) { this.wardFlag(p, 'fastplace', 1, `${p.ward.places.length} blocks in one second`); return fail(); }
+    if (this.wardOn(p) && placeRate((p.ward ??= newWardState(this.now)), this.wardNow(p)) > LEVEL[this.wardCfg.level].place) { this.wardFlag(p, 'fastplace', 1, `${p.ward.places.length} blocks in one second`); return fail(); }
     if (this.game && !this.game.canPlace(p, tx, ty, tz)) return fail();
     if (this.crucible.locked(p, tx, ty, tz)) return fail();
     if (ty < 1 || ty >= WORLD_HEIGHT - 1) return fail();

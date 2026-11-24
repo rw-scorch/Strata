@@ -48,6 +48,7 @@ export interface RoomInfo {
   maxPlayers?: number;
   players?: { id: string; name: string }[];
   version?: number;
+  min?: number;
   pack?: PackRef | null;
   arena?: ArenaKind | null;
 }

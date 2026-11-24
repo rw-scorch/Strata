@@ -2,7 +2,7 @@ import type { BlockArray } from '../../src/core/chunk';
 import { decodeBlueprint, BP_PART, BP_MAX_PARTS } from '../../src/core/blueprint';
 import { cleanKey, keyHint } from '../adminKey';
 import { DurableObject } from 'cloudflare:workers';
-import { CHUNK_SIZE, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
+import { CHUNK_SIZE, PROTOCOL_VERSION, GAME_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator, type GeneratedChunk } from '../../src/core/worldgen/WorldGenerator';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
@@ -598,8 +598,27 @@ export class WorldRoom extends DurableObject<Env> {
     this.sql.exec(`UPDATE players SET data = ? WHERE id = ?`, JSON.stringify(data), p.id);
   }
 
+  private handingOver = false;
+
+  private handover(): void {
+    if (this.handingOver) return;
+    this.handingOver = true;
+    console.log('room handing over to', GAME_VERSION, '->', 'newer build');
+    try { for (const s of this.sessions.values()) if (s.pid) this.send(s, { t: 'chat', from: null, text: 'This world is updating to the new version. Reconnecting in a moment...', kind: 'info', ts: Date.now() }); } catch { /* ignore */ }
+    try { if (this.sim) this.flush(true); } catch (err) { console.error('handover flush failed', err); }
+    if (this.loop) { clearTimeout(this.loop); this.loop = null; }
+    for (const s of this.sessions.values()) { try { s.ws.close(1012, 'World updating'); } catch { /* gone */ } }
+    for (const ws of this.ctx.getWebSockets()) { try { ws.close(1012, 'World updating'); } catch { /* gone */ } }
+    setTimeout(() => { try { this.ctx.abort('code update'); } catch { /* reset */ } }, 50);
+  }
+
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
+    const build = req.headers.get('x-strata-build');
+    if (this.handingOver || (build && newerBuild(build, GAME_VERSION))) {
+      this.handover();
+      return Response.json({ error: 'World is updating, please retry.', retry: true }, { status: 503, headers: { 'retry-after': '1' } });
+    }
     if (url.pathname === '/init' && req.method === 'POST') return this.handleInit(req);
     if (url.pathname === '/info') { try { return Response.json(this.info()); } catch (err) { console.error('info error', err); return Response.json({ error: 'World is busy, please retry.', retry: true }, { status: 503, headers: { 'retry-after': '3' } }); } }
     if (url.pathname === '/delete' && req.method === 'POST') return this.handleDelete(req);
@@ -621,7 +640,7 @@ export class WorldRoom extends DurableObject<Env> {
     const m = this.loadMeta();
     if (!m) return { exists: false, code: '' };
     const players = [...this.sessions.values()].filter((s) => s.pid).map((s) => ({ id: s.pid!, name: s.name }));
-    return { exists: true, code: m.code, name: m.name, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, players, version: PROTOCOL_VERSION, pack: m.pack, arena: m.arena ?? null };
+    return { exists: true, code: m.code, name: m.name, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, players, version: PROTOCOL_VERSION, min: MIN_PROTOCOL_VERSION, pack: m.pack, arena: m.arena ?? null };
   }
 
   private async handleInit(req: Request): Promise<Response> {
@@ -833,6 +852,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    if (this.handingOver) return;
     let s = this.sessions.get(ws);
     if (!s) { s = this.newSession(ws, ws.deserializeAttachment() as Attachment | null); this.sessions.set(ws, s); }
     if (typeof raw !== 'string' || (raw.length > 65536 && !(raw.length <= 140000 && raw.startsWith('{"t":"datapacks"')))) { s.strikes++; return; }
@@ -1053,7 +1073,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'mv': {
         const a = msg.p;
         if (!Array.isArray(a) || a.length < 6 || !a.every((n) => isNum(n))) { s.strikes++; return; }
-        if (sim.move(p, a[0], a[1], a[2], a[3], a[4], a[5] | 0)) { const moved = Math.floor(p.x / 16) !== s.chunkCX || Math.floor(p.z / 16) !== s.chunkCZ; this.queueChunks(s, p); if (moved) this.queueOres(s, p); }
+        if (sim.move(p, a[0], a[1], a[2], a[3], a[4], a[5] | 0, a.length > 6 ? a[6] : undefined)) { const moved = Math.floor(p.x / 16) !== s.chunkCX || Math.floor(p.z / 16) !== s.chunkCZ; this.queueChunks(s, p); if (moved) this.queueOres(s, p); }
         return;
       }
       case 'chunks': {
@@ -1655,4 +1675,10 @@ function fmtSpan(ms: number): string {
   const m = Math.floor(s / 60); s -= m * 60;
   const out = [d && `${d}d`, h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean);
   return out.length ? out.join(' ') : '0s';
+}
+
+export function newerBuild(a: string, b: string): boolean {
+  const x = a.split('.').map((n) => parseInt(n, 10) || 0), y = b.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? 0) - (y[i] ?? 0); if (d) return d > 0; }
+  return false;
 }

@@ -373,7 +373,7 @@ export class RemoteSession implements GameSession {
     if (this.moveState && now - this.lastMoveSent > 100) {
       const key = this.moveState.map((n) => Math.round(n * 100)).join(',');
       if (key !== this.lastMoveKey || now - this.lastMoveSent > 1000) {
-        this.send({ t: 'mv', p: this.moveState });
+        this.send({ t: 'mv', p: [...this.moveState, Math.round(performance.now())] });
         this.lastMoveKey = key;
         this.lastMoveSent = now;
       }
@@ -389,7 +389,7 @@ export class RemoteSession implements GameSession {
   }
 
   private flushMove(): void {
-    if (this.moveState) { this.send({ t: 'mv', p: this.moveState }); this.lastMoveSent = Date.now(); }
+    if (this.moveState) { this.send({ t: 'mv', p: [...this.moveState, Math.round(performance.now())] }); this.lastMoveSent = Date.now(); }
   }
 
   digStart(x: number, y: number, z: number): void { this.flushMove(); this.sim.digStart(this.me, x, y, z); this.send({ t: 'dig', a: 'start', x, y, z }); }

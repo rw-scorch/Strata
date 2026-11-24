@@ -620,7 +620,7 @@ export class Menus {
       if (!res.ok || info.exists === undefined) {
         clear(box);
         box.append(h('div', { class: 'error-box' }, 'The world is busy right now. Trying again in a few seconds...'), h('button', { class: 'btn', onclick: () => void this.joinPreview(code) }, 'Retry now'));
-        setTimeout(() => { if (box.isConnected) void this.joinPreview(code); }, 4000);
+        setTimeout(() => { if (box.isConnected) void this.joinPreview(code); }, 1500);
         return;
       }
     } catch {
@@ -631,10 +631,12 @@ export class Menus {
     clear(box);
     if (!info.exists) { box.append(h('div', { class: 'error-box' }, 'No world uses that code. It may have been typed incorrectly, or the owner deleted it.')); return; }
     const full = (info.players?.length ?? 0) >= (info.maxPlayers ?? DEFAULT_MAX_PLAYERS);
-    const versionOk = info.version === PROTOCOL_VERSION;
+    const newerWorld = (info.version ?? 0) > PROTOCOL_VERSION && (info.min ?? Infinity) <= PROTOCOL_VERSION;
+    const versionOk = info.version === PROTOCOL_VERSION || newerWorld;
+    if (newerWorld) void navigator.serviceWorker?.getRegistration().then((r) => r?.update()).catch(() => {});
     const mine = getRooms('hosted').some((r) => r.code === code);
     if (!versionOk) {
-      if ((info.version ?? 0) < PROTOCOL_VERSION) setTimeout(() => { if (box.isConnected) void this.joinPreview(code); }, 4000);
+      if ((info.version ?? 0) < PROTOCOL_VERSION) setTimeout(() => { if (box.isConnected) void this.joinPreview(code); }, 2000);
       else {
         try {
           if (!sessionStorage.getItem('strata.vreload')) { sessionStorage.setItem('strata.vreload', '1'); void navigator.serviceWorker?.getRegistration().then((r) => r?.update()).finally(() => location.reload()); }

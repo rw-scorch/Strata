@@ -3,7 +3,23 @@ import { WorldRoom, Env } from './rooms/WorldRoom';
 import { Accounts } from './accounts/Accounts';
 import { Registry } from './registry/Registry';
 import { supporterRoute } from './stripe';
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode, PROTOCOL_VERSION } from '../src/core/constants';
+import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode, PROTOCOL_VERSION, GAME_VERSION } from '../src/core/constants';
+
+function stamped(stub: DurableObjectStub) {
+  return {
+    fetch(input: string | Request, init?: RequestInit): Promise<Response> {
+      const r = new Request(input, init);
+      const h = new Headers(r.headers);
+      h.set('x-strata-build', GAME_VERSION);
+      return stub.fetch(new Request(r, { headers: h }));
+    },
+  };
+}
+
+function roomStub(env: Env, name: string, opts?: DurableObjectNamespaceGetDurableObjectOptions) {
+  const id = env.WORLD_ROOMS.idFromName(name);
+  return stamped(opts ? env.WORLD_ROOMS.get(id, opts) : env.WORLD_ROOMS.get(id));
+}
 
 export { WorldRoom, Accounts, Registry };
 
@@ -109,7 +125,7 @@ async function admin(req: Request, env: Env, path: string): Promise<Response> {
     if (!isValidRoomCode(code)) return json({ error: 'Invalid room code' }, 400);
     const target = await resolveCode(env, code);
     if (!target) return json({ error: 'That code is no longer in use.' }, 404);
-    const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(target));
+    const stub = roomStub(env, target);
     const text = (await req.text()).slice(0, 4096);
     let body: Record<string, unknown> = {};
     try { body = JSON.parse(text); } catch { /* handled by room */ }
@@ -118,7 +134,7 @@ async function admin(req: Request, env: Env, path: string): Promise<Response> {
       if (!isValidRoomCode(to)) return json({ error: `Codes are ${ROOM_CODE_LENGTH} characters from ${ROOM_CODE_ALPHABET}.` }, 400);
       if (to === code) return json({ ok: true, code });
       if (!env.REGISTRY) return json({ error: 'No registry' }, 503);
-      const clash = (await (await env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(to)).fetch('https://room/info')).json()) as { exists?: boolean };
+      const clash = (await (await roomStub(env, to).fetch('https://room/info')).json()) as { exists?: boolean };
       if (clash.exists && to !== target) return json({ error: 'Another world already uses that code.' }, 409);
       const reg = env.REGISTRY.get(env.REGISTRY.idFromName('global'));
       const rr = await reg.fetch('https://registry/recode', { method: 'POST', body: JSON.stringify({ from: code, to, target }) });
@@ -148,7 +164,7 @@ async function createRoom(req: Request, env: Env): Promise<Response> {
     const code = makeCode();
     if ((await resolveCode(env, code)) !== code) continue;
     const id = env.WORLD_ROOMS.idFromName(code);
-    const stub = region ? env.WORLD_ROOMS.get(id, { locationHint: region as DurableObjectLocationHint }) : env.WORLD_ROOMS.get(id);
+    const stub = stamped(region ? env.WORLD_ROOMS.get(id, { locationHint: region as DurableObjectLocationHint }) : env.WORLD_ROOMS.get(id));
     const res = await stub.fetch('https://room/init', { method: 'POST', body: JSON.stringify({ ...body, code }) });
     if (res.status === 409) continue;
     if (!res.ok) return json(await res.json().catch(() => ({ error: 'Room creation failed' })), res.status);
@@ -210,7 +226,7 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (!isValidRoomCode(code)) return json({ exists: false, code, error: 'Invalid room code' }, 400);
       const target = await resolveCode(env, code);
       if (!target) return json({ exists: false, code });
-      const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(target));
+      const stub = roomStub(env, target);
       if (roomMatch[2] && req.method === 'POST') {
         const res = await stub.fetch('https://room/delete', { method: 'POST', body: await req.text() });
         return json(await res.json(), res.status);
@@ -227,7 +243,7 @@ async function route(req: Request, env: Env): Promise<Response> {
       if (!isValidRoomCode(code)) return new Response('Invalid room code', { status: 400 });
       const target = await resolveCode(env, code);
       if (!target) return new Response('Unknown room', { status: 404 });
-      const stub = env.WORLD_ROOMS.get(env.WORLD_ROOMS.idFromName(target));
+      const stub = roomStub(env, target);
       return stub.fetch(new Request('https://room/ws', req));
     }
 

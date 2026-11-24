@@ -24,7 +24,12 @@ export interface WardState {
   places: number[];
   phase: number;
   alertAt: number;
-  pin?: { x: number; y: number; z: number; until: number };
+  pin?: { x: number; y: number; z: number; until: number; sent: number };
+  clk?: { c: number; base: number; mt: number; anchor: number; anchorAt: number };
+  bucket?: { n: number; t: number };
+  nofallAt?: number;
+  lastAt?: number;
+  lagAt?: number;
 }
 
 export const LEVEL = {
@@ -100,4 +105,27 @@ export function placeRate(s: WardState, now: number): number {
   s.places.push(now);
   while (s.places.length && now - s.places[0] > 1000) s.places.shift();
   return s.places.length;
+}
+
+export function wardClock(s: WardState, now: number, ct: number | undefined): { mt: number; ahead: number } {
+  if (ct === undefined || !Number.isFinite(ct)) { s.clk = undefined; return { mt: now, ahead: 0 }; }
+  const k = s.clk;
+  if (!k || ct < k.c - 2000 || ct - k.c > 120000) { const d = now - ct; s.clk = { c: ct, base: d, mt: now, anchor: d, anchorAt: now }; return { mt: now, ahead: 0 }; }
+  const c = Math.max(ct, k.c);
+  k.c = c;
+  k.base = Math.min(k.base, now - c);
+  k.mt = Math.max(k.mt, c + k.base);
+  const ahead = k.anchor - k.base;
+  if (now - k.anchorAt > 60000) { k.anchor = k.base; k.anchorAt = now; }
+  return { mt: k.mt, ahead };
+}
+
+export function legacyRate(s: WardState, now: number): boolean {
+  const b = (s.bucket ??= { n: 40, t: now });
+  b.n = Math.min(40, b.n + ((now - b.t) / 1000) * 20);
+  b.t = now;
+  b.n -= 1;
+  if (b.n >= 0) return false;
+  b.n = 10;
+  return true;
 }
