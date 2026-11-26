@@ -17,7 +17,7 @@ function retryDelay(n: number): number {
 }
 
 const FATAL = new Set(['kicked', 'banned', 'auth', 'version', 'unavailable', 'full', 'duplicate']);
-const KIND = ['mob', 'item', 'arrow', 'tnt', 'cart', 'fireball', 'frame'] as const;
+const KIND = ['mob', 'item', 'arrow', 'tnt', 'cart', 'fireball', 'frame', 'boat'] as const;
 
 export function wsURL(code: string): string {
   const base = import.meta.env.VITE_SERVER_URL as string | undefined;
@@ -419,12 +419,12 @@ export class RemoteSession implements GameSession {
   shareState(): { all: boolean; to: string[] } { return { all: this.share.all, to: [...this.share.to] }; }
   setShare(to: string[], all: boolean): void { this.share = { all, to: to.slice(0, 64) }; this.send({ t: 'share', to: this.share.to, all }); }
 
-  placeBlueprint(bp: Blueprint, x: number, y: number, z: number): void {
+  placeBlueprint(bp: Blueprint, x: number, y: number, z: number, replace = false): void {
     const enc = encodeBlueprint(bp);
     const n = Math.ceil(enc.length / BP_PART);
     if (n > BP_MAX_PARTS) { this.ev?.chat(null, 'That blueprint is too detailed to send.', 'error', Date.now()); return; }
     for (let i = 0; i < n; i++) this.send({ t: 'bpc', i, n, s: enc.slice(i * BP_PART, (i + 1) * BP_PART) });
-    this.send({ t: 'bp', x, y, z, n, name: bp.name });
+    this.send({ t: 'bp', x, y, z, n, name: bp.name, rep: replace || undefined });
   }
 
   attack(id: string): void { this.flushMove(); this.send({ t: 'atk', id: Number(id) }); }

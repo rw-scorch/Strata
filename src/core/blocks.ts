@@ -700,6 +700,34 @@ export const CAVE_TEX = [
   'sculk_vein', 'sculk_sensor_tendril_inactive', 'sculk_sensor_tendril_active', 'sculk_shrieker_inner_top', 'sculk_shrieker_can_summon_inner_top', 'azalea_top', 'flowering_azalea_top', 'azalea_plant',
 ];
 
+export const WOOD_KINDS = ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'cherry', 'mangrove'] as const;
+export const STRIPPED_LOG_BASE = 1162, WOOD_BASE = 1170, STRIPPED_WOOD_BASE = 1178;
+export const LOG_VALUES: number[] = [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, sp(14, SPECIES.ACACIA), sp(14, SPECIES.DARK_OAK), sp(14, SPECIES.CHERRY), sp(14, SPECIES.MANGROVE)];
+WOOD_KINDS.forEach((k, i) => {
+  const n = k.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+  def(STRIPPED_LOG_BASE + i, `stripped_${k}_log`, `Stripped ${n} Log`, 'A log with its bark shaved off by an axe.', { faces: COL(`stripped_${k}_log`, `stripped_${k}_log_top`), ...LOG });
+  def(WOOD_BASE + i, `${k}_wood`, `${n} Wood`, 'Bark on every side, for pillars and beams.', { faces: ALL(`${k}_log`), ...LOG });
+  def(STRIPPED_WOOD_BASE + i, `stripped_${k}_wood`, `Stripped ${n} Wood`, 'Smooth bare timber on every side.', { faces: ALL(`stripped_${k}_log`), ...LOG });
+});
+export function strippedOf(v: number): number | null {
+  const id = bid(v), ax = logAxis(v);
+  const li = LOG_VALUES.findIndex((lv) => bid(lv) === id && (lv >>> 12) === (v >>> 12));
+  if (li >= 0) return makeBlock(STRIPPED_LOG_BASE + li, ax);
+  if (id >= WOOD_BASE && id < WOOD_BASE + 8) return makeBlock(STRIPPED_WOOD_BASE + id - WOOD_BASE, ax);
+  return null;
+}
+export function isLogLike(v: number): boolean {
+  const id = bid(v);
+  return id === 14 || id === 16 || id === 18 || id === 20 || (id >= STRIPPED_LOG_BASE && id < STRIPPED_WOOD_BASE + 8);
+}
+export const AXIS_X = 1, AXIS_Z = 2;
+export function logAxis(v: number): number {
+  const id = bid(v);
+  if (id >= STRIPPED_LOG_BASE && id < STRIPPED_WOOD_BASE + 8) return (v >>> 8) & 3;
+  if (id === 14 || id === 16 || id === 18 || id === 20) return (v >>> 8) & 3;
+  return 0;
+}
+
 export const BLOCKS: BlockDef[] = defs;
 
 export const BLOCK_BY_KEY = new Map<string, BlockDef>(defs.filter(Boolean).map((d) => [d.key, d] as [string, BlockDef]));

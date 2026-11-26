@@ -1,4 +1,4 @@
-import { blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand, isConnecting, isWall, connMask, connCollision, connVisual, connBounds, wallPost, NB } from './blocks';
+import { BLOCKS, blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand, isConnecting, isWall, connMask, connCollision, connVisual, connBounds, wallPost, NB } from './blocks';
 
 function connShape(world: BlockReader, v: number, x: number, y: number, z: number, collide: boolean): number[][] {
   const id = bid(v);
@@ -125,6 +125,10 @@ function liquidTop(v: number, above: number, id: number): number {
 
 export interface Medium { water: boolean; lava: boolean; ladder: boolean; eyeWater: boolean; cactus: boolean; web?: boolean; }
 
+const CLIMB = new Uint8Array(4096);
+for (const d of BLOCKS) if (d && d.climbable && d.id !== NB.COBWEB) CLIMB[d.id] = 1;
+CLIMB[B.VINE] = 1; CLIMB[B.WEEPING_VINES] = 1; CLIMB[B.TWISTING_VINES] = 1;
+
 export function sampleMedium(world: BlockReader, x: number, y: number, z: number, hw: number, h: number, eye: number): Medium {
   const m: Medium = { water: false, lava: false, ladder: false, eyeWater: false, cactus: false, web: false };
   const e = 0.001;
@@ -137,7 +141,7 @@ export function sampleMedium(world: BlockReader, x: number, y: number, z: number
       const top = by + (id === B.WATER || id === B.LAVA ? liquidTop(v, bid(world.getBlock(bx, by + 1, bz)), id) : 1);
       if (y + e >= top) continue;
       if (id === B.LAVA) m.lava = true; else m.water = true;
-    } else if (by >= y0 && id === B.LADDER) m.ladder = true;
+    } else if (by >= y0 && (id === B.LADDER || CLIMB[id])) m.ladder = true;
     else if (id === NB.COBWEB) m.web = true;
     else if (id === B.CAULDRON && ((v >>> 8) & 4) && y + e < by + 15 / 16 && y + e >= by + 3 / 16 && x > bx + 0.1 && x < bx + 0.9 && z > bz + 0.1 && z < bz + 0.9) m.lava = true;
   }

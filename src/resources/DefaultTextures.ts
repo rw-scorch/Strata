@@ -131,6 +131,28 @@ function logSide(key: string, bark: RGBA, streak: RGBA, birch = false): Px {
   return p;
 }
 
+function strippedSide(key: string, base: RGBA): Px {
+  const p = new Px();
+  const r = rngFor(key);
+  for (let x = 0; x < 16; x++) {
+    const col = 0.9 + r.next() * 0.14 + (x % 5 === 0 ? -0.08 : 0);
+    for (let y = 0; y < 16; y++) p.set(x, y, shade(base, col * (0.97 + r.next() * 0.05)));
+  }
+  for (let i = 0; i < 4; i++) { const x = r.int(16), y = r.int(13), len = 2 + r.int(3); for (let k = 0; k < len; k++) p.set(x, y + k, shade(base, 0.74)); }
+  return p;
+}
+
+function boatIcon(base: RGBA): Px {
+  const p = new Px();
+  for (let x = 1; x < 15; x++) {
+    const inset = x < 3 ? 3 - x : x > 12 ? x - 12 : 0;
+    for (let y = 8 + inset; y < 13; y++) p.set(x, y, y === 12 - 0 || y === 8 + inset ? shade(base, 0.62) : shade(base, x % 4 === 0 ? 0.8 : 0.95));
+  }
+  for (let x = 3; x < 13; x++) p.set(x, 9, shade(base, 0.5));
+  for (let k = 0; k < 6; k++) { p.set(2 + k, 7 - Math.floor(k / 2), hex(0x6b4a2b)); p.set(13 - k, 7 - Math.floor(k / 2), hex(0x6b4a2b)); }
+  return p;
+}
+
 function logTop(key: string, bark: RGBA, inner: RGBA): Px {
   const p = new Px();
   const r = rngFor(key);
@@ -337,6 +359,22 @@ const TEX: Record<string, () => Px> = {
   cherry_log_top: () => logTop('cherry_top', hex(0x3a2230), hex(0xd9a29a)),
   mangrove_log: () => logSide('mangrove_log', hex(0x544433), hex(0x3d3024)),
   mangrove_log_top: () => logTop('mangrove_top', hex(0x544433), hex(0x7a3a33)),
+  stripped_oak_log: () => strippedSide('stripped_oak', hex(0xb08d57)),
+  stripped_oak_log_top: () => logTop('stripped_oak_top', shade(hex(0xb08d57), 0.82), hex(0xb08d57)),
+  stripped_birch_log: () => strippedSide('stripped_birch', hex(0xcdb87f)),
+  stripped_birch_log_top: () => logTop('stripped_birch_top', shade(hex(0xcdb87f), 0.82), hex(0xcdb87f)),
+  stripped_spruce_log: () => strippedSide('stripped_spruce', hex(0x7a5a38)),
+  stripped_spruce_log_top: () => logTop('stripped_spruce_top', shade(hex(0x7a5a38), 0.82), hex(0x7a5a38)),
+  stripped_jungle_log: () => strippedSide('stripped_jungle', hex(0xa8794f)),
+  stripped_jungle_log_top: () => logTop('stripped_jungle_top', shade(hex(0xa8794f), 0.82), hex(0xa8794f)),
+  stripped_acacia_log: () => strippedSide('stripped_acacia', hex(0xb05d37)),
+  stripped_acacia_log_top: () => logTop('stripped_acacia_top', shade(hex(0xb05d37), 0.82), hex(0xb05d37)),
+  stripped_dark_oak_log: () => strippedSide('stripped_dark_oak', hex(0x5a4129)),
+  stripped_dark_oak_log_top: () => logTop('stripped_dark_oak_top', shade(hex(0x5a4129), 0.82), hex(0x5a4129)),
+  stripped_cherry_log: () => strippedSide('stripped_cherry', hex(0xd9a29a)),
+  stripped_cherry_log_top: () => logTop('stripped_cherry_top', shade(hex(0xd9a29a), 0.82), hex(0xd9a29a)),
+  stripped_mangrove_log: () => strippedSide('stripped_mangrove', hex(0x7a3a33)),
+  stripped_mangrove_log_top: () => logTop('stripped_mangrove_top', shade(hex(0x7a3a33), 0.82), hex(0x7a3a33)),
   cherry_leaves: () => { const p = noise('cherryl', hex(0xf0a6c8), 0.12); for (let i = 0; i < 40; i++) { const x = (i * 7) % 16, y = (i * 11) % 16; p.set(x, y, i % 3 ? hex(0xf7c1da) : hex(0xd97fae)); } for (let i = 0; i < 18; i++) p.set((i * 5 + 3) % 16, (i * 9 + 1) % 16, [0, 0, 0, 0]); return p; },
   mangrove_leaves: () => leaves('mangrove_leaves'),
   cherry_sapling: () => plant('csap', (p) => { stem(p, 7, 9, 15, hex(0x3a2230)); for (let y = 2; y < 9; y++) for (let x = 3; x < 13; x++) if ((x - 7.5) ** 2 + (y - 5) ** 2 < 14 && (x + 2 * y) % 3) p.set(x, y, hex(0xf0a6c8)); }),
@@ -982,6 +1020,32 @@ const ITEM_MAP: Record<string, () => Px> = {
   shulker_shell: () => { const p = new Px(); for (let y = 4; y < 13; y++) for (let x = 2; x < 14; x++) { const d = Math.hypot(x - 7.5, (y - 12) * 1.3); if (d < 6) p.set(x, y, y === 12 ? hex(0x5e3a6a) : (x + y) % 4 === 0 ? hex(0xa878b4) : hex(0x8e5e9a)); } return p; },
   elytra: () => { const p = new Px(); for (let y = 1; y < 15; y++) for (let x = 1; x < 15; x++) { const side = x < 8 ? 7.5 - x : x - 7.5; const edge = 1 + (y / 15) * 6.5; if (side < 0.5 || side > edge) continue; p.set(x, y, side > edge - 1 ? hex(0x6a6478) : (y % 3 === 0) ? hex(0x9a94aa) : hex(0xb8b2c8)); } return p; },
   firework_rocket: () => { const p = new Px(); for (let y = 4; y < 11; y++) for (let x = 6; x < 10; x++) p.set(x, y, x === 6 ? hex(0x8a1a1a) : hex(0xd83a2a)); for (let x = 6; x < 10; x++) { p.set(x, 3, hex(0xf0e8d0)); p.set(x, 4, hex(0xe8d8b0)); } p.set(7, 2, hex(0xf0e8d0)); p.set(8, 2, hex(0xf0e8d0)); for (let y = 11; y < 15; y++) p.set(8, y, hex(0x8a6a3e)); return p; },
+  oak_boat: () => boatIcon(hex(0xa8834d)),
+  birch_boat: () => boatIcon(hex(0xd2bf88)),
+  spruce_boat: () => boatIcon(hex(0x6e5134)),
+  jungle_boat: () => boatIcon(hex(0xa87656)),
+  acacia_boat: () => boatIcon(hex(0xb05d37)),
+  dark_oak_boat: () => boatIcon(hex(0x4a3220)),
+  cherry_boat: () => boatIcon(hex(0xe3b3ad)),
+  mangrove_boat: () => boatIcon(hex(0x773631)),
+  totem_of_undying: () => {
+    const p = new Px();
+    const g = hex(0xf2c94c), d = hex(0xb8862e), e = hex(0x2ecc71), l = hex(0xfff1a8);
+    for (let y = 2; y < 7; y++) for (let x = 5; x < 11; x++) p.set(x, y, y === 2 || x === 5 || x === 10 ? d : g);
+    p.set(6, 4, e); p.set(9, 4, e); p.set(7, 3, l);
+    for (let y = 7; y < 13; y++) for (let x = 6; x < 10; x++) p.set(x, y, x === 6 ? d : g);
+    for (let x = 2; x < 14; x++) if (x < 6 || x > 9) p.set(x, 8, x === 2 || x === 13 ? d : g);
+    for (let x = 3; x < 13; x++) if (x < 6 || x > 9) p.set(x, 9, d);
+    for (let y = 13; y < 15; y++) { p.set(6, y, d); p.set(9, y, d); }
+    return p;
+  },
+  splash_potion_healing: () => {
+    const p = new Px();
+    for (let y = 6; y < 15; y++) for (let x = 3; x < 13; x++) { const dd = Math.hypot(x - 7.5, y - 10.5); if (dd < 4.6) p.set(x, y, dd > 3.8 ? hex(0xdfe8f0, 230) : y < 8 ? hex(0xff8a8a) : (x + y) % 5 === 0 ? hex(0xffb0b0) : hex(0xe0312f)); }
+    for (let y = 2; y < 7; y++) for (let x = 6; x < 10; x++) p.set(x, y, y === 2 ? hex(0x8a6a3e) : hex(0xdfe8f0, 220));
+    p.set(5, 5, hex(0xdfe8f0, 220)); p.set(10, 5, hex(0xdfe8f0, 220));
+    return p;
+  },
   experience_bottle: () => { const p = new Px(); for (let y = 5; y < 15; y++) for (let x = 4; x < 12; x++) { const d = Math.hypot(x - 7.5, y - 10); if (d < 4) p.set(x, y, d > 3.2 ? hex(0xd8f0e0, 220) : hex((x + y) % 4 === 0 ? 0xf0ff90 : y < 8 ? 0x9af060 : 0x4ab830)); } for (let y = 2; y < 6; y++) for (let x = 6; x < 10; x++) p.set(x, y, y === 2 ? hex(0x8a6a3e) : hex(0xd8f0e0, 220)); return p; },
   dragon_breath: () => { const p = new Px(); for (let y = 5; y < 15; y++) for (let x = 4; x < 12; x++) { const d = Math.hypot(x - 7.5, y - 10); if (d < 4) p.set(x, y, d > 3.2 ? hex(0xd8e8f0, 220) : hex(y < 8 ? 0xf0a0d0 : 0xc84aa0)); } for (let y = 2; y < 6; y++) for (let x = 6; x < 10; x++) p.set(x, y, y === 2 ? hex(0x8a6a3e) : hex(0xd8e8f0, 220)); return p; },
   ender_pearl: () => { const p = new Px(); for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) { const d = Math.hypot(x - 7.5, y - 7.5); if (d < 4.8) p.set(x, y, d < 1.6 ? hex(0x9ff0d8) : d < 3.2 ? hex(0x1f8a6e) : hex(0x0f4a3e)); } p.set(6, 5, hex(0xd8fff2)); return p; },

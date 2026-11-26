@@ -1,3 +1,4 @@
+import { enchantLabel } from '../core/enchants';
 import { h, clear } from './dom';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import type { PlayerInv, ItemStack } from '../core/inventory';
@@ -245,9 +246,11 @@ export class HUD {
     if (inv.selected !== this.lastSel) {
       this.lastSel = inv.selected;
       const s = inv.slots[inv.selected];
-      this.itemName.textContent = s ? getItem(s.id)?.name ?? '' : '';
+      const en = s?.en ? Object.entries(s.en).map(([k, l]) => enchantLabel(k, l)) : [];
+      this.itemName.replaceChildren(h('div', {}, s ? s.nm ?? getItem(s.id)?.name ?? '' : ''), ...(en.length ? [h('div', { class: 'item-ench' }, en.join(', '))] : []));
+      this.itemName.classList.toggle('enchanted', en.length > 0);
       this.itemName.classList.add('show');
-      this.nameTimer = 2;
+      this.nameTimer = en.length ? 3.5 : 2;
     }
     this.renderArmor(armorPoints(inv));
   }

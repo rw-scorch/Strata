@@ -81,7 +81,7 @@ export type C2S =
   | { t: 'kick'; pid: string }
   | { t: 'mute'; pid: string; on: boolean }
   | { t: 'bpc'; i: number; n: number; s: string }
-  | { t: 'bp'; x: number; y: number; z: number; n: number; name: string }
+  | { t: 'bp'; x: number; y: number; z: number; n: number; name: string; rep?: boolean }
   | { t: 'ping'; c: number }
   | { t: 'resync' }
   | { t: 'share'; to: string[]; all?: boolean }
@@ -148,7 +148,7 @@ export type S2C =
   | { t: 'trade'; id: number; prof: number; xp: number; uses: number[]; seed?: number }
   | { t: 'lid'; x: number; y: number; z: number; n: number };
 
-export const ENT_KIND = { mob: 0, item: 1, arrow: 2, tnt: 3, cart: 4, fireball: 5, frame: 6 } as const;
+export const ENT_KIND = { mob: 0, item: 1, arrow: 2, tnt: 3, cart: 4, fireball: 5, frame: 6, boat: 7 } as const;
 
 export function q2(n: number): number { return Math.round(n * 100) / 100; }
 

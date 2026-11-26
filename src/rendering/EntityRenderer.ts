@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
 import { PROFESSIONS } from '../core/trades';
 import { I, getItem, toolId } from '../core/items';
-import { BLOCKS, B, customBoxes, CUSTOM_BOX, makeBlock } from '../core/blocks';
+import { BLOCKS, B, SB, customBoxes, CUSTOM_BOX, makeBlock } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
@@ -307,7 +307,7 @@ export interface EntityView {
   peekS?: number;
   cage?: boolean;
   id: string;
-  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame' | 'player';
+  kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame' | 'boat' | 'player';
   type: number;
   obj: THREE.Group;
   parts: Map<string, THREE.Object3D>;
@@ -906,6 +906,28 @@ export class EntityRenderer {
         }
         built = { obj: g, parts: new Map(), mats };
         hw = 0.49; h = 0.7;
+      } else if (kind === 'boat') {
+        const g = new THREE.Group();
+        const mats: THREE.ShaderMaterial[] = [];
+        const plank = [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS, SB.ACACIA_PLANKS, SB.DARK_OAK_PLANKS, SB.CHERRY_PLANKS, SB.MANGROVE_PLANKS][type] ?? B.OAK_PLANKS;
+        const part = (sx: number, sy: number, sz: number, px: number, py: number, pz: number, ry = 0, id = plank) => {
+          const im = this.itemModel(id);
+          im.obj.scale.set(sx / 0.26, sy / 0.26, sz / 0.26);
+          im.obj.position.set(px, py, pz);
+          im.obj.rotation.y = ry;
+          for (const m of im.mats) { m.uniforms.uLight.value = 0.6; mats.push(m); }
+          g.add(im.obj);
+        };
+        part(1.1, 0.1, 1.5, 0, 0.06, 0);
+        part(0.1, 0.36, 1.5, -0.55, 0.26, 0);
+        part(0.1, 0.36, 1.5, 0.55, 0.26, 0);
+        part(1.0, 0.36, 0.1, 0, 0.26, 0.72);
+        part(0.8, 0.3, 0.1, 0, 0.3, -0.8);
+        part(0.9, 0.06, 0.32, 0, 0.32, 0.15);
+        part(0.05, 0.05, 1.0, -0.7, 0.42, 0.05, 0.25, B.OAK_PLANKS);
+        part(0.05, 0.05, 1.0, 0.7, 0.42, 0.05, -0.25, B.OAK_PLANKS);
+        built = { obj: g, parts: new Map(), mats };
+        hw = 0.68; h = 0.56;
       } else if (kind === 'frame') {
         built = { ...this.frameModel(type === 1, extra, flags & 7, (flags >> 3) & 7), parts: new Map() };
         hw = 0.375; h = 0.75;
@@ -1127,7 +1149,7 @@ export class EntityRenderer {
       const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
       for (const m of v.mats) { m.uniforms.uLight.value = Math.max(0.2, v.light); if (!v.dying) m.uniforms.uHurt.value = hurt; }
       if (v.kind === 'frame' && v.type === 1) for (const m of v.mats) m.uniforms.uLight.value = 1;
-      if (v.kind === 'tnt' || v.kind === 'cart') for (const m of v.mats) if (m.uniforms.uWhite) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
+      if (v.kind === 'tnt' || v.kind === 'cart' || v.kind === 'boat') for (const m of v.mats) if (m.uniforms.uWhite) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
     this.drawTnt();

@@ -102,9 +102,16 @@ class TooltipEl {
   private key = '';
   private hideT = 0;
 
-  constructor() {
+  constructor(private kind: 'tip' | 'dock' = 'tip') {
     this.el = h('div', { class: 'mc-tooltip', style: 'display:none' });
     document.body.appendChild(this.el);
+  }
+
+  pin(atlas: TextureAtlas, lines: { text: string; color: string }[]): void {
+    this.show(atlas, lines, 0, 0);
+    const r = this.el.getBoundingClientRect();
+    this.el.style.left = `${Math.max(4, (window.innerWidth - r.width) / 2)}px`;
+    this.el.style.top = 'calc(env(safe-area-inset-top, 0px) + 8px)';
   }
 
   show(atlas: TextureAtlas, lines: { text: string; color: string }[], x: number, y: number, ms = 0): void {
@@ -115,7 +122,7 @@ class TooltipEl {
       this.key = key;
       this.atlas = atlas;
       const pack = !!atlas.guiCanvas('gs:tooltip/background') && !!atlas.guiCanvas('gs:tooltip/frame');
-      this.el.className = `mc-tooltip${pack ? ' pack' : ''}`;
+      this.el.className = `mc-tooltip${pack ? ' pack' : ''}${this.kind === 'dock' ? ' dock' : ''}`;
       this.el.style.setProperty('--ts', String(s));
       if (pack) {
         this.el.style.setProperty('--tt-bg', `url(${guiURL(atlas, 'gs:tooltip/background')})`);
@@ -140,6 +147,8 @@ class TooltipEl {
 
 let tip: TooltipEl | null = null;
 export function tooltip(): TooltipEl { return (tip ??= new TooltipEl()); }
+let dock: TooltipEl | null = null;
+export function itemDock(): TooltipEl { return (dock ??= new TooltipEl('dock')); }
 
 export function applyGuiVars(): void {
   const s = guiScale(176, 166);

@@ -1,7 +1,7 @@
 import { DRAGON_HEAD_PARTS, headBox, headLocalFace, headTileKey } from '../core/dragonHead';
 import type { BlockArray } from '../core/chunk';
 import { WORLD_HEIGHT } from '../core/constants';
-import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, shapeMatIndex, connMask, connVisual, wallPost, gateVisual, isWall, isStainedPane, STAINED_PANE_BASE, COLORS, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING } from '../core/blocks';
+import { BLOCKS, B, OPAQUE, LIGHT_FILTER, LIGHT_EMIT, DOOR_OPEN, DOOR_UPPER, doorFacing, edgeBox, FACING_DIRS, isWaterPlant, SHAPE_MATS, shapeBoxes, customBoxes, fenceBoxes, shapeMatIndex, connMask, connVisual, wallPost, gateVisual, isWall, isStainedPane, STAINED_PANE_BASE, COLORS, CROPS, tix, trapdoorBox, TD_SPECIES_MIN, bid, isBaseId, ID_LIMIT, CB, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, DRIP_THICK, SENSOR_ACTIVE, FRAME_EYE, CHORUS_DEAD, emitOf, CAMPFIRE_LIT, LANTERN_HANGING, isLogLike, makeBlock } from '../core/blocks';
 import { wireShape } from '../core/sim/redstone';
 import { fluidHeight } from '../core/sim/fluids';
 import type { WorldGenerator } from '../core/worldgen/WorldGenerator';
@@ -26,6 +26,8 @@ const CULLSELF = new Uint8Array(ID_LIMIT);
 for (const b of BLOCKS) if (b && isBaseId(b.id)) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(ID_LIMIT);
 for (const b of BLOCKS) if (b && isBaseId(b.id) && b.orientable && b.render === 'cube') ORIENT[b.id] = 1;
+const LOGAX = new Uint8Array(ID_LIMIT);
+for (const b of BLOCKS) if (b && isBaseId(b.id) && isLogLike(makeBlock(b.id))) LOGAX[b.id] = 1;
 const OFFSET_PLANT = new Uint8Array(ID_LIMIT);
 for (const id of [B.TALL_GRASS, B.FERN, B.DANDELION, B.POPPY, B.DEAD_BUSH]) OFFSET_PLANT[id] = 1;
 const EXTRA = new Uint8Array(ID_LIMIT);
@@ -354,6 +356,10 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (B
         if (!faceVisible(id, code, nv, ny)) continue;
         const ti = tix(bv);
         let tile = tiles[ti * FS + d];
+        if (LOGAX[id]) {
+          const ax = (bv >>> 8) & 3;
+          if (ax) { const end = ax === 1 ? d < 2 : d > 3; tile = tiles[ti * FS + (end ? 2 : 0)]; }
+        }
         if (ORIENT[id]) {
           const f = (bv >>> 8) & 3;
           const fd = f === 0 ? 5 : f === 1 ? 0 : f === 2 ? 4 : 1;

@@ -1,6 +1,6 @@
 import { NETHER_EDGE } from '../core/dimension';
 import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium, bubbleColumn, bubbleSurface } from '../core/physics';
-import { getBlock, blockId, B, isDoorBlock, isTrapdoor, TD_OPEN, isSoulSand, X, XV } from '../core/blocks';
+import { getBlock, blockId, B, isSoulSand, X, XV } from '../core/blocks';
 import { MF } from '../core/sim/WorldSim';
 import type { InputState } from '../controls/InputState';
 import type { GameMode } from '../core/constants';
@@ -364,14 +364,13 @@ export class LocalPlayer {
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const fx = -sin * forward + cos * strafe, fz = -cos * forward - sin * strafe;
     const l = Math.hypot(fx, fz) || 1;
-    const ax = b.x + fx / l * 0.45, az = b.z + fz / l * 0.45;
-    const by = Math.floor(b.y + 0.01);
-    const front = world.getBlock(Math.floor(ax), by, Math.floor(az));
-    if (!getBlock(front).solid || isDoorBlock(front) || (isTrapdoor(front) && (front >>> 8) & TD_OPEN)) return false;
-    const up1 = world.getBlock(Math.floor(ax), by + 1, Math.floor(az));
-    const up2 = world.getBlock(Math.floor(ax), by + 2, Math.floor(az));
-    const head = world.getBlock(Math.floor(b.x), by + 2, Math.floor(b.z));
-    return !getBlock(up1).solid && !getBlock(up2).solid && !getBlock(head).solid;
+    const dx = (fx / l) * 0.32, dz = (fz / l) * 0.32, hw = b.hw - 0.02;
+    const hit = (ox: number, oy: number, oz: number, h = b.h) => boxCollides(world, b.x + ox - hw, b.y + oy, b.z + oz - hw, b.x + ox + hw, b.y + oy + h, b.z + oz + hw);
+    if (!hit(dx, 0.02, dz)) return false;
+    if (!hit(dx, STEP_HEIGHT + 0.02, dz)) return false;
+    if (hit(dx, 1.22, dz)) return false;
+    if (hit(0, 1.22, 0)) return false;
+    return true;
   }
 
   knockback(fromX: number, fromZ: number, strength = 0.4): void {

@@ -222,9 +222,9 @@ export class LocalSession implements GameSession {
   buy(key: string): void { this.sim.buy(this.me, key); }
 
   respawn(): void { this.sim.respawn(this.me); }
-  placeBlueprint(bp: Blueprint, x: number, y: number, z: number): void {
+  placeBlueprint(bp: Blueprint, x: number, y: number, z: number, replace = false): void {
     this.sim.setNow(performance.now());
-    const r = this.sim.placeBlueprint(this.me, bp, x, y, z);
+    const r = this.sim.placeBlueprint(this.me, bp, x, y, z, replace);
     if (r) this.ev.chat(null, r, 'info', Date.now());
   }
 

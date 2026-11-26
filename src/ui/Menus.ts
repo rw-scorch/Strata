@@ -454,6 +454,29 @@ export class Menus {
     const act = async (code: string, body: Record<string, unknown>, done: string) => {
       try { const r = await api(`/api/admin/rooms/${code}`, body); toast(r.result ? String(r.result) : done, 'success'); void load(); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); }
     };
+    const banFlow = async (code: string, pid: string, name: string) => {
+      const dur = await promptDialog(`Ban ${name}`, 'How long? 30m, 2h, 7d, 2w, 3mo, or perm for permanent', '7d', 12);
+      if (dur === null || !dur.trim()) return;
+      const reason = await promptDialog(`Ban ${name}`, 'Reason shown to the player (optional)', '', 120);
+      if (reason === null) return;
+      const perm = /^(perm|permanent|forever|p)$/i.test(dur.trim());
+      void act(code, { action: 'ban', pid, duration: dur.trim(), perm, reason }, `${name} was ${perm ? 'permanently banned' : `banned for ${dur.trim()}`}.`);
+    };
+    const bansFor = async (code: string, name: string) => {
+      let data: { bans: { id: string; name: string; until: number | null; by: string; reason: string }[] };
+      try { data = (await api(`/api/admin/rooms/${code}`, { action: 'bans' })) as typeof data; } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); return; }
+      const list = h('div', { class: 'stack' });
+      const add = h('input', { class: 'input', placeholder: 'Player name who has joined before', maxlength: 24 }) as HTMLInputElement;
+      const draw = () => {
+        clear(list);
+        if (!data.bans.length) list.appendChild(h('div', { class: 'muted small' }, 'Nobody is banned from this world.'));
+        for (const b of data.bans) list.appendChild(h('div', { class: 'list-item' },
+          h('div', { class: 'meta' }, h('div', { class: 'name' }, b.name), h('div', { class: 'sub' }, `${b.until === null ? 'Permanent' : `Until ${new Date(b.until).toLocaleString()}`}${b.by ? ` · by ${b.by}` : ''}${b.reason ? ` · ${b.reason}` : ''}`)),
+          h('div', { class: 'actions' }, h('button', { class: 'btn small', onclick: async () => { try { await api(`/api/admin/rooms/${code}`, { action: 'unban', pid: b.id }); data.bans = data.bans.filter((x) => x !== b); draw(); toast(`${b.name} unbanned.`, 'success'); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); } } }, 'Unban'))));
+      };
+      draw();
+      modal(`Bans in ${name}`, h('div', { class: 'stack' }, list, h('div', { class: 'row', style: 'gap:6px' }, add, h('button', { class: 'btn small danger', onclick: async () => { const n = add.value.trim(); if (n) { await banFlow(code, n, n); try { data = (await api(`/api/admin/rooms/${code}`, { action: 'bans' })) as typeof data; draw(); } catch { /* keep */ } } } }, 'Ban by name'))), [{ label: 'Close', kind: 'primary', onClick: () => {} }]);
+    };
     const prices = async (code: string, name: string) => {
       let data: { sell: Record<string, number>; shop: Record<string, number>; economy: boolean };
       try { data = (await api(`/api/admin/rooms/${code}`, { action: 'prices' })) as typeof data; } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); return; }
@@ -535,6 +558,7 @@ export class Menus {
           h('div', { class: 'actions' },
             h('button', { class: 'btn small teal', onclick: () => spectate(r.code, p.id) }, 'Watch'),
             h('button', { class: 'btn small danger', onclick: async () => { if (await confirmDialog('Kick player', `Remove ${p.name} from "${r.name}"?`, 'Kick', true)) void act(r.code, { action: 'kick', pid: p.id }, `${p.name} was kicked.`); } }, 'Kick'),
+            h('button', { class: 'btn small danger', onclick: () => void banFlow(r.code, p.id, p.name) }, 'Ban'),
           )));
       }
       const msg = h('input', { class: 'input', placeholder: 'Message everyone in this world', maxlength: 200, style: 'width:100%' }) as HTMLInputElement;
@@ -546,6 +570,7 @@ export class Menus {
             h('button', { class: 'btn small teal', onclick: () => spectate(r.code) }, 'Spectate'),
             h('button', { class: 'btn small', onclick: () => void prices(r.code, r.name) }, 'Prices'),
             h('button', { class: 'btn small', onclick: () => void warden(r.code, r.name) }, 'Anticheat'),
+            h('button', { class: 'btn small', onclick: () => void bansFor(r.code, r.name) }, 'Bans'),
             h('button', { class: 'btn small', onclick: async () => { const n = await promptDialog('Rename world', 'New name', r.name, 32); if (n && n.trim()) void act(r.code, { action: 'rename', name: n.trim() }, 'World renamed.'); } }, 'Rename'),
             h('button', { class: 'btn small', onclick: async () => { const c = await promptDialog('Change join code', `New code (${ROOM_CODE_LENGTH} characters). The old code stops working.`, r.code, ROOM_CODE_LENGTH); if (c && c.trim()) void act(r.code, { action: 'recode', to: c.trim().toUpperCase() }, `Code changed to ${c.trim().toUpperCase()}.`); } }, 'Change code'),
             h('button', { class: `btn small ${r.featured ? 'gold' : ''}`, onclick: async () => {

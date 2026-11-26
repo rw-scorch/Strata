@@ -5,16 +5,16 @@ import { smithResult } from '../smithing';
 import { LandmarkKind, LANDMARK_KINDS, LANDMARK_NAMES } from '../worldgen/landmarks';
 import { WardCfg, WardState, WardFlag, Check, CHECK_NAMES, LEVEL, newWardState, sanitizeWard, totalVl, decay as wardDecay, windowSpeed, speedBudget, aimAngle, clickRate, placeRate, wardClock, legacyRate } from './anticheat';
 import { LootCfg, LOOT_DEFAULTS, parseLootArgs, lootArgs, sanitizeLootCfg, palette as lootPalette, pick as lootPick, chestLoot as lootChest, frameLoot as lootFrame } from './lootdrop';
-import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN, NB } from '../blocks';
+import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN, NB, isLogLike, AXIS_X, AXIS_Z, strippedOf, STRIPPED_LOG_BASE, WOOD_BASE, STRIPPED_WOOD_BASE, LOG_VALUES } from '../blocks';
 import { FRAME_EYE, CHORUS_DEAD, isFluid, CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON, isLantern, isCampfire, isSoulLight, LANTERN_HANGING, CAMPFIRE_LIT, ANCHOR_LIGHT, isSoulSand } from '../blocks';
 import { isRail, railShape, railPowered, railHeight, railLine, RAIL_EXITS, shapeFor, reshapeNeighbor, neighborRails } from '../rails';
-import { CHUNK_SIZE, WORLD_HEIGHT, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
+import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, TICKS_PER_DAY, timeRate, DEFAULT_DAY_LENGTH, DEFAULT_NIGHT_LENGTH, REACH_CREATIVE, REACH_SURVIVAL, GameMode, Difficulty } from '../constants';
 import {
   B, BLOCKS, CAULDRON_LAVA, isPowder, getBlock, blockId, blockMeta, makeBlock, isSolid, isReplaceable, blockBox, facingFromYaw,
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE, isWaterPlant, isWaterLike,
   SHAPE_MATS, SLAB_TOP, STAIRS_UP, slabItem, stairsItem, BLAST_RES, X, XV, isFullCube,
 } from '../blocks';
-import { getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorId, toolId } from '../items';
+import { boatWood, getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorId, toolId } from '../items';
 import { catOf, lvl, tableOffers, tableList, anvilResult, JavaRandom, ENCH, ENCHANTS, supports, compatible, enchantLabel, type TableOffer } from '../enchants';
 import {
   PlayerInv, ItemStack, InvOp, applyInvOp, emptyInv, giveItem, heldStack, damageHeld, consumeHeld,
@@ -39,6 +39,7 @@ import { tickFluid, fluidDelay, FluidWorld } from './fluids';
 import { ChunkInfo, chunkNum } from './light';
 import { Mischief } from './mischief';
 import { Crucible, type CrucibleCfg, type CrucibleView, type CrucibleStash } from './crucible';
+import { KIT_PRESETS, presetKit, kitFromInv, kitInvOf, kitName, sanitizeKits, kitSummary, type KitBook, type KitDef } from './kits';
 import { Blueprint, bpCosts, bpItem } from '../blueprint';
 import { isNether, isEnd, toNether, toOverworld, NETHER_HEIGHT, NETHER_LAVA, localX, cmdXYZ, END_X, END_SPAWN, dimOf } from '../dimension';
 import { portalRoomCenter } from '../worldgen/structures';
@@ -71,11 +72,13 @@ export function entTypeCode(e: Entity): number {
   if (e.kind === 'mob') return MOBS[e.type as MobType].code;
   if (e.kind === 'item') return e.item!.id;
   if (e.kind === 'cart') return e.type === 'tntcart' ? 1 : e.type === 'hoppercart' ? 2 : e.type === 'chestcart' ? 3 : 0;
+  if (e.kind === 'boat') return e.wood ?? 0;
   if (e.kind === 'frame') return e.type === 'glowframe' ? 1 : 0;
   if (e.kind === 'fireball') return e.type === 'dfire' ? 1 : 0;
   if (e.kind === 'arrow' && e.type === 'bullet') return 60001;
   if (e.kind === 'arrow' && e.type === 'pearl') return I.ENDER_PEARL;
   if (e.kind === 'arrow' && e.type === 'xpbottle') return I.EXPERIENCE_BOTTLE;
+  if (e.kind === 'arrow' && e.type === 'potion') return I.SPLASH_HEALING;
   if (e.kind === 'arrow' && e.type === 'eye') return I.EYE_OF_ENDER;
   return 0;
 }
@@ -96,7 +99,7 @@ const RAYS: Float32Array = (() => {
 
 export const MF = {
   GROUND: 1, CROUCH: 2, SPRINT: 4, FLY: 8, WATER: 16, EYE_WATER: 32, LAVA: 64, LADDER: 128, CACTUS: 256,
-  JUMP: 512, SWING: 1024, EAT: 2048, FORWARD: 4096, RIDE: 8192, PRONE: 16384, CHARGE: 32768, BLOCK: 65536, GLIDE: 131072, LEVITATE: 262144 } as const;
+  JUMP: 512, SWING: 1024, EAT: 2048, FORWARD: 4096, RIDE: 8192, PRONE: 16384, CHARGE: 32768, BLOCK: 65536, GLIDE: 131072, LEVITATE: 262144, BACK: 524288, LEFT: 1048576, RIGHT: 2097152 } as const;
 
 export interface SimPlayer {
   id: string;
@@ -145,11 +148,12 @@ export interface SimPlayer {
   skin?: { png: string; slim: boolean } | null;
   kills?: number; deaths?: number; playtime?: number;
   cru?: CrucibleStash;
+  rtpSettle?: number;
   screenTitle?: string;
   stepAcc?: number; warn?: number; warnT?: number; shriekCd?: number;
 }
 
-export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame';
+export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame' | 'boat';
 export type CartType = 'cart' | 'tntcart' | 'hoppercart' | 'chestcart';
 export const CARGO_X = 3_000_000;
 export interface Fixture { k: string; x: number; y: number; z: number; yaw?: number; f?: number; r?: number; item?: ItemStack | null; cargo?: (ItemStack | null)[]; off?: boolean }
@@ -187,7 +191,7 @@ export interface GameHooks {
 export interface Entity extends Body {
   id: number;
   kind: EntityKind;
-  type: MobType | 'item' | 'arrow' | 'tnt' | CartType | 'fireball' | 'pearl' | 'xpbottle' | 'eye' | 'bullet' | 'firework' | 'dfire' | 'frame' | 'glowframe';
+  type: MobType | 'item' | 'arrow' | 'tnt' | CartType | 'fireball' | 'pearl' | 'xpbottle' | 'potion' | 'boat' | 'eye' | 'bullet' | 'firework' | 'dfire' | 'frame' | 'glowframe';
   sup?: [number, number, number];
   face?: number;
   rot?: number;
@@ -211,6 +215,7 @@ export interface Entity extends Body {
   rider?: string;
   fall?: number;
   wob?: number;
+  wood?: number;
   fuse?: number;
   portalCd?: number;
   dodgeT?: number;
@@ -344,12 +349,12 @@ export interface SimSettings {
   pvp: boolean; cheats: boolean; guestsBuild: boolean; dayCycle: boolean; weatherCycle: boolean;
   dayLength?: number; nightLength?: number;
   simDistance?: number; randomTickSpeed?: number; mobSpawning?: boolean; mobCap?: number;
-  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean; lootdrop?: LootCfg; anticheat?: WardCfg; crucible?: CrucibleCfg;
+  maxHomes?: number; tpa?: boolean; allowMinimap?: boolean; allowCoords?: boolean; allowBlueprints?: boolean; fireTick?: boolean; lootdrop?: LootCfg; anticheat?: WardCfg; crucible?: CrucibleCfg; kits?: KitBook;
   tpDelay?: number; combatTime?: number;
 }
 
 const DT = 1 / 20;
-export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop', 'anticheat', 'crucible'] as const;
+export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop', 'anticheat', 'crucible', 'kits'] as const;
 export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
 export function ruleSnapshot(s: SimSettings): RuleSet {
   const out: Record<string, unknown> = {};
@@ -388,7 +393,7 @@ for (const d of BLOCKS) {
   else if (/^scaffolding$/.test(k)) FLAM[d.id] = [60, 60];
 }
 const GHAST_SPACING = 40;
-type BpJobT = { bp: Blueprint; x0: number; y0: number; z0: number };
+type BpJobT = { bp: Blueprint; x0: number; y0: number; z0: number; rep?: boolean };
 export type LocateKind = 'village' | 'stronghold' | 'trial_chamber' | 'ruined_portal' | 'fortress' | 'bastion_remnant';
 const LOCATE_NAMES: Record<LocateKind, string> = { village: 'village', stronghold: 'stronghold', trial_chamber: 'trial chamber', ruined_portal: 'ruined portal', fortress: 'Nether fortress', bastion_remnant: 'bastion remnant' };
 const LANDMARK_ALIASES: Record<string, LandmarkKind> = {
@@ -452,7 +457,7 @@ const COMPOST: Record<number, number> = {
   [I.PUMPKIN_PIE]: 1, [B.CAKE]: 1,
 };
 
-export function rideOffset(e: { type: string }): number { return e.type === 'lavastrider' ? 1.6 : 0.35; }
+export function rideOffset(e: { type: string }): number { return e.type === 'lavastrider' ? 1.6 : e.type === 'boat' ? 0.1 : 0.35; }
 
 export function wearsGold(p: SimPlayer): boolean { return p.inv.armor.some((a) => !!a && a.id >= 338 && a.id < 342); }
 
@@ -834,6 +839,10 @@ export class WorldSim {
     const e = this.entities.get(entityId);
     if (e?.kind === 'frame' && !p.dead) return this.useFrame(p, e);
     if (e?.kind === 'cart' && !p.dead && (e.type === 'hoppercart' || e.type === 'chestcart') && Math.hypot(e.x - p.x, e.z - p.z) <= 6) { this.openCargo(p, e); return true; }
+    if (e?.kind === 'boat' && !p.dead && Math.hypot(e.x - p.x, e.z - p.z) <= 6) {
+      if (p.riding === e.id) { this.dismount(p); return true; }
+      return this.mount(p, e);
+    }
     if (e?.kind === 'cart' && !p.dead && Math.hypot(e.x - p.x, e.z - p.z) <= 6) {
       const held = heldStack(p.inv);
       if (e.type === 'tntcart' && held?.id === I.FLINT_AND_STEEL) { this.cartFuse(e, 80); if (p.mode === 'survival') { damageHeld(p.inv, 1); this.emit({ e: 'inv', p }); } return true; }
@@ -945,11 +954,13 @@ export class WorldSim {
     return true;
   }
 
-  private bpJobs: { pid: string; name: string; bp: Blueprint; x0: number; y0: number; z0: number; phase: 'prep' | 'place'; t0: number; i: number; chunks: number[][] }[] = [];
+  private bpJobs: { pid: string; name: string; bp: Blueprint; x0: number; y0: number; z0: number; phase: 'prep' | 'place'; t0: number; i: number; chunks: number[][]; rep?: boolean }[] = [];
 
   private bpSay(pid: string, text: string, kind: 'info' | 'error' = 'info'): void { this.emit({ e: 'msg', text, kind, to: pid }); }
 
-  placeBlueprint(p: SimPlayer, bp: Blueprint, x0: number, y0: number, z0: number): string {
+  placeBlueprint(p: SimPlayer, bp: Blueprint, x0: number, y0: number, z0: number, replace = false): string {
+    if (replace && !(p.op || !this.serverMode)) return 'Only operators can paste over terrain.';
+    if (replace && p.mode !== 'creative') return 'Switch to creative to paste over terrain.';
     if (!this.authoritative) return '';
     if (this.settings.allowBlueprints === false) return 'Blueprints are turned off in this world.';
     if (this.game) return 'Blueprints cannot be used in arena games.';
@@ -964,8 +975,8 @@ export class WorldSim {
     const chunks: number[][] = [];
     for (let qx = x0 >> 4; qx <= (x0 + bp.w - 1) >> 4; qx++) for (let qz = z0 >> 4; qz <= (z0 + bp.d - 1) >> 4; qz++) chunks.push([qx, qz]);
     p.bpAt = this.now;
-    this.bpJobs.push({ pid: p.id, name: bp.name, bp, x0, y0, z0, phase: 'prep', t0: this.tickCount, i: 0, chunks });
-    return `Preparing ${bp.name}...`;
+    this.bpJobs.push({ pid: p.id, name: bp.name, bp, x0, y0, z0, phase: 'prep', t0: this.tickCount, i: 0, chunks, rep: replace || undefined });
+    return `Preparing ${bp.name}${replace ? ' (replacing everything in its space)' : ''}...`;
   }
 
   private bpCheck(p: SimPlayer, j: BpJobT): string | null {
@@ -976,7 +987,7 @@ export class WorldSim {
       const v = this.get(x0 + x, y0 + y, z0 + z);
       if (blockId(v) && !isReplaceable(v)) blocked++;
     }
-    if (blocked) return `${bp.name} would overlap ${blocked} existing block${blocked === 1 ? '' : 's'}. Find a clear spot.`;
+    if (blocked && !j.rep) return `${bp.name} would overlap ${blocked} existing block${blocked === 1 ? '' : 's'}. Find a clear spot.`;
     for (const o of this.players.values()) {
       if (o.dead) continue;
       for (let y = Math.floor(o.y); y <= Math.floor(o.y + 1.8); y++) for (const [dx, dz] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]]) {
@@ -1026,10 +1037,11 @@ export class WorldSim {
     while (j.i < total && n < 2500) {
       const i = j.i++;
       const v = bp.blocks[i];
-      if (!v) continue;
+      if (!v && !j.rep) continue;
       const x = i % bp.w, z = Math.floor(i / bp.w) % bp.d, y = Math.floor(i / (bp.w * bp.d));
       const cur = this.get(x0 + x, y0 + y, z0 + z);
-      if (blockId(cur) && !isReplaceable(cur)) continue;
+      if (j.rep) { if (cur === v || blockId(cur) === B.BEDROCK) continue; }
+      else if (blockId(cur) && !isReplaceable(cur)) continue;
       this.setBlock(x0 + x, y0 + y, z0 + z, v, 'blueprint');
       n++;
     }
@@ -2429,7 +2441,24 @@ export class WorldSim {
     this.emit({ e: 'hurt', p, amount: dmg, cause, fx: knock ? fx : p.x, fz: knock ? fz : p.z, kb: knock ? kb : 0 });
     this.emit({ e: 'sound', s: 'player.hurt', x: p.x, y: p.y + 1, z: p.z });
     this.emit({ e: 'vitals', p });
+    if (p.health <= 0 && this.useTotem(p, cause)) return;
     if (p.health <= 0) this.kill(p, cause, killer);
+  }
+
+  private useTotem(p: SimPlayer, cause: string): boolean {
+    if (cause === 'void' || cause === 'kill' || cause === 'combatlog') return false;
+    const main = heldStack(p.inv), off = p.inv.off?.[0];
+    const fromOff = off?.id === I.TOTEM;
+    if (!fromOff && main?.id !== I.TOTEM) return false;
+    if (fromOff) p.inv.off[0] = null; else p.inv.slots[p.inv.selected] = null;
+    p.health = 1; p.fireT = 0;
+    p.absorb = Math.max(p.absorb ?? 0, 8); p.absorbT = 100; p.regenT = 900;
+    this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
+    this.emit({ e: 'particles', k: 'heart', x: p.x, y: p.y + 1.2, z: p.z });
+    this.emit({ e: 'msg', text: 'Your Totem of Undying shattered and saved you.', kind: 'info', to: p.id });
+    this.emit({ e: 'inv', p });
+    this.emit({ e: 'vitals', p });
+    return true;
   }
 
   private kill(p: SimPlayer, cause: string, killer?: string): void {
@@ -3003,10 +3032,26 @@ export class WorldSim {
       if (p.mode === 'survival') { damageHeld(p.inv); this.emit({ e: 'inv', p }); }
       return true;
     }
+    if (item?.tool?.type === 'axe' && !(p.flags & MF.CROUCH)) {
+      const sv = strippedOf(v);
+      if (sv !== null && this.crucible.locked(p, x, y, z) === false) {
+        this.setBlock(x, y, z, sv, p.id);
+        this.emit({ e: 'sound', s: 'place.wood', x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
+        if (p.mode === 'survival') { damageHeld(p.inv); this.emit({ e: 'inv', p }); }
+        return true;
+      }
+    }
     if (stack?.id === I.BONE_MEAL) return this.boneMeal(p, x, y, z);
     if (stack?.id === I.END_CRYSTAL && this.placeCrystal(p, x, y, z, ny)) return true;
     if (stack?.id === I.FIREWORK_ROCKET) return this.useFirework(p, [x + nx + 0.5, y + ny, z + nz + 0.5]);
     if (stack?.id === I.GLASS_BOTTLE && this.clouds.length && this.bottleBreath(p)) return true;
+    const bw = boatWood(stack?.id ?? 0);
+    if (bw >= 0) {
+      const water = blockId(this.get(x, y, z)) === B.WATER;
+      const ok = water ? this.placeBoat(p, x, y, z, bw) : this.placeBoat(p, x + nx, y + ny, z + nz, bw);
+      if (ok && p.mode !== 'creative') { p.inv.slots[p.inv.selected] = null; this.emit({ e: 'inv', p }); }
+      return ok;
+    }
     if (item?.kind === 'bucket') return this.useBucket(p, x, y, z, nx, ny, nz, stack!);
     if (item?.kind === 'food' && !(item.places)) return false;
     const off = p.inv.off?.[0];
@@ -3308,6 +3353,7 @@ export class WorldSim {
     if (bid === CB.SMALL_DRIPLEAF && !isReplaceable(this.get(tx, ty + 1, tz))) return fail();
     if (def.render === 'leaves') meta = 1;
     if (item.placeMeta && bid !== B.EXT && !isSlabId(bid) && !isStairsId(bid)) meta = (meta & 15) | item.placeMeta;
+    if (isLogLike(makeBlock(bid))) meta = (meta & ~3) | (nx !== 0 ? AXIS_X : nz !== 0 ? AXIS_Z : 0);
     const td = bid === B.OAK_DOOR && (item.placeMeta ?? 0) >= TD_SPECIES_MIN << 4;
     if (td) {
       const hinge = ny === 0 ? FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz) : look;
@@ -3542,6 +3588,14 @@ export class WorldSim {
     if (p.dead) return false;
     const e = this.entities.get(entityId);
     if (e?.kind === 'frame') return this.hitFrame(p, e);
+    if (e?.kind === 'boat') {
+      if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || this.now - p.lastAttack < 200) return false;
+      p.lastAttack = this.now;
+      e.hurt = 10; e.health -= p.mode === 'creative' ? 9 : 1;
+      this.emit({ e: 'sound', s: 'place.wood', x: e.x, y: e.y, z: e.z });
+      if (e.health <= 0) this.removeBoat(e, p.mode !== 'creative');
+      return true;
+    }
     if (e?.kind === 'cart') {
       if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || this.now - p.lastAttack < 45) return false;
       if (attackStats(heldStack(p.inv)).mace) { p.lastAttack = this.now; p.strengthAt = this.now; if (e.type === 'tntcart' && p.mode !== 'creative') this.hitCart(p, e, 100); else this.removeCart(e, p.mode !== 'creative'); return true; }
@@ -3734,12 +3788,13 @@ export class WorldSim {
   private throwXpBottle(p: SimPlayer, yaw: number, pitch: number): boolean {
     if (this.now < (p.pearlCd ?? 0) - 750) return false;
     const st = heldStack(p.inv);
-    if (!st || st.id !== I.EXPERIENCE_BOTTLE) return false;
+    if (!st || (st.id !== I.EXPERIENCE_BOTTLE && st.id !== I.SPLASH_HEALING)) return false;
+    const potion = st.id === I.SPLASH_HEALING;
     p.pearlCd = this.now + 250;
     if (p.mode !== 'creative' && --st.count <= 0) p.inv.slots[p.inv.selected] = null;
     const pt = pitch + 20 * Math.PI / 180, cy = Math.cos(pt), sp = 14;
     const e: Entity = {
-      id: this.allocId(), kind: 'arrow', type: 'xpbottle', x: p.x - Math.sin(yaw) * 0.3, y: p.y + 1.5, z: p.z - Math.cos(yaw) * 0.3,
+      id: this.allocId(), kind: 'arrow', type: potion ? 'potion' : 'xpbottle', x: p.x - Math.sin(yaw) * 0.3, y: p.y + 1.5, z: p.z - Math.cos(yaw) * 0.3,
       vx: -Math.sin(yaw) * cy * sp + (p.vel?.x ?? 0), vy: Math.sin(pt) * sp, vz: -Math.cos(yaw) * cy * sp + (p.vel?.z ?? 0),
       hw: 0.12, h: 0.24, onGround: false, hitH: false, hitCeil: false, yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0,
       shooterP: p.id, dmg: 0,
@@ -3749,6 +3804,20 @@ export class WorldSim {
     this.emit({ e: 'inv', p });
     this.emit({ e: 'sound', s: 'pearl.throw', x: p.x, y: p.y + 1.5, z: p.z });
     return true;
+  }
+
+  private splashHeal(x: number, y: number, z: number): void {
+    this.emit({ e: 'particles', k: 'heart', x, y: y + 0.5, z });
+    this.emit({ e: 'particles', k: 'splash', x, y, z });
+    for (const o of this.players.values()) {
+      if (o.dead || dimOf(o.x) !== dimOf(x)) continue;
+      const d = Math.hypot(o.x - x, o.y + 0.9 - y, o.z - z);
+      if (d > 4.1) continue;
+      const amt = Math.round(8 * Math.min(1, 1 - (d - 1) / 4) * 10) / 10;
+      if (amt <= 0) continue;
+      o.health = Math.min(20, o.health + amt);
+      this.emit({ e: 'vitals', p: o });
+    }
   }
 
   private tickXpBottle(e: Entity): void {
@@ -3772,6 +3841,7 @@ export class WorldSim {
     this.entities.delete(e.id);
     this.emit({ e: 'remove', id: e.id, why: 'hit' });
     this.emit({ e: 'sound', s: 'block.break.glass', x: hit[0], y: hit[1], z: hit[2] });
+    if (e.type === 'potion') { this.splashHeal(hit[0], hit[1], hit[2]); return; }
     this.emit({ e: 'particles', k: 'xp', x: hit[0], y: hit[1], z: hit[2] });
     const amount = 3 + this.rng.int(5) + this.rng.int(5);
     let best: SimPlayer | null = null, bd = 8;
@@ -4184,7 +4254,7 @@ export class WorldSim {
 
   mount(p: SimPlayer, e: Entity): boolean {
     const strider = e.type === 'lavastrider' && !!e.saddled;
-    if ((!strider && (e.kind !== 'cart' || e.type !== 'cart')) || e.rider || p.riding !== undefined || p.dead) return false;
+    if ((!strider && e.kind !== 'boat' && (e.kind !== 'cart' || e.type !== 'cart')) || e.rider || p.riding !== undefined || p.dead) return false;
     e.rider = p.id;
     p.riding = e.id;
     p.x = e.x; p.y = e.y + rideOffset(e); p.z = e.z; p.peakY = p.y;
@@ -4212,6 +4282,67 @@ export class WorldSim {
     if (!this.entities.has(e.id)) return;
     this.removeCart(e, false);
     this.blasts.push({ x: e.x, y: e.y + 0.35, z: e.z, power: 4 + this.rng.next() * 1.5 * Math.min(5, bonus) });
+  }
+
+  placeBoat(p: SimPlayer, x: number, y: number, z: number, wood: number): boolean {
+    const v = this.get(x, y, z), here = blockId(v);
+    const onWater = here === B.WATER;
+    if (!onWater && !isReplaceable(v)) return false;
+    if (!onWater && !isSolid(this.get(x, y - 1, z)) && blockId(this.get(x, y - 1, z)) !== B.WATER) return false;
+    const e: Entity = {
+      id: this.allocId(), kind: 'boat', type: 'boat', wood, x: x + 0.5, y: onWater ? y + 0.6 : y, z: z + 0.5, vx: 0, vy: 0, vz: 0,
+      hw: 0.68, h: 0.5625, onGround: false, hitH: false, hitCeil: false, yaw: p.yaw, health: 4, maxHealth: 4, hurt: 0, age: 0, fire: 0, flags: 0,
+    };
+    this.entities.set(e.id, e);
+    this.emit({ e: 'spawn', ent: e });
+    this.emit({ e: 'sound', s: 'place.wood', x: e.x, y: e.y, z: e.z });
+    return true;
+  }
+
+  private removeBoat(e: Entity, drop: boolean): void {
+    if (e.rider) { const r = this.players.get(e.rider); if (r) this.dismount(r); }
+    this.entities.delete(e.id);
+    this.emit({ e: 'remove', id: e.id, why: 'despawn' });
+    if (drop) this.spawnItem(e.x, e.y + 0.4, e.z, { id: I.BOAT_BASE + (e.wood ?? 0), count: 1 });
+  }
+
+  private boatWater(x: number, y: number, z: number): number | null {
+    for (let dy = 1; dy >= -1; dy--) {
+      const by = Math.floor(y) + dy, v = this.get(Math.floor(x), by, Math.floor(z));
+      if (blockId(v) === B.WATER) { const above = blockId(this.get(Math.floor(x), by + 1, Math.floor(z))); return above === B.WATER ? by + 1 : by + 0.9; }
+    }
+    return null;
+  }
+
+  private tickBoat(e: Entity): void {
+    e.age++;
+    if (e.hurt > 0) e.hurt--;
+    if (e.health < e.maxHealth && e.age % 100 === 0) e.health++;
+    const r = e.rider ? this.players.get(e.rider) : undefined;
+    if (e.rider && (!r || r.riding !== e.id || r.dead)) e.rider = undefined;
+    const f = r?.flags ?? 0;
+    const surf = this.boatWater(e.x, e.y, e.z);
+    const below = this.get(Math.floor(e.x), Math.floor(e.y - 0.1), Math.floor(e.z));
+    const key = getBlock(below).key;
+    const ice = blockId(below) === B.ICE || /ice$/.test(key);
+    if (r) {
+      if (f & MF.LEFT) e.yaw += 0.07;
+      if (f & MF.RIGHT) e.yaw -= 0.07;
+      const thrust = f & MF.FORWARD ? 0.8 : f & MF.BACK ? -0.16 : 0;
+      e.vx += -Math.sin(e.yaw) * thrust; e.vz += -Math.cos(e.yaw) * thrust;
+    }
+    let fr: number;
+    if (surf !== null && e.y < surf + 0.05) { fr = 0.9; e.vy += (surf - 0.1 - e.y) * 6 - e.vy * 0.25; }
+    else { e.vy -= 20 * DT; fr = e.onGround ? (ice ? (key === 'blue_ice' ? 0.989 : 0.98) : 0.45) : 0.95; }
+    e.vx *= fr; e.vz *= fr;
+    const sp = Math.hypot(e.vx, e.vz);
+    if (sp > 40) { e.vx *= 40 / sp; e.vz *= 40 / sp; }
+    if (Math.abs(e.vx) < 0.01) e.vx = 0;
+    if (Math.abs(e.vz) < 0.01) e.vz = 0;
+    moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
+    if (e.hitH) { e.vx *= 0.5; e.vz *= 0.5; }
+    if (e.y < -64) { this.removeBoat(e, false); return; }
+    if (r) { r.x = e.x; r.y = e.y + rideOffset(e); r.z = e.z; r.peakY = r.y; r.vel = { x: e.vx, y: e.vy, z: e.vz }; }
   }
 
   private removeCart(e: Entity, drop: boolean): void {
@@ -5475,12 +5606,13 @@ export class WorldSim {
     else if (e.kind !== 'fireball' && e.age % 4 === 0 && !isEnd(e.x) && blockId(this.get(Math.floor(e.x), Math.floor(e.y + 0.1), Math.floor(e.z))) === B.NETHER_PORTAL && !e.rider && !this.game) { this.entityPortal(e); return; }
     if (e.kind === 'item') return this.tickItem(e);
     if (e.kind === 'arrow' && e.type === 'pearl') return this.tickPearl(e);
-    if (e.kind === 'arrow' && e.type === 'xpbottle') return this.tickXpBottle(e);
+    if (e.kind === 'arrow' && (e.type === 'xpbottle' || e.type === 'potion')) return this.tickXpBottle(e);
     if (e.kind === 'arrow' && e.type === 'eye') return this.tickEye(e);
     if (e.kind === 'arrow' && e.type === 'bullet') return this.tickBullet(e);
     if (e.kind === 'arrow') return this.tickArrow(e);
     if (e.kind === 'tnt') return this.tickTnt(e);
     if (e.kind === 'cart') return this.tickCart(e);
+    if (e.kind === 'boat') return this.tickBoat(e);
     if (e.kind === 'frame') return this.tickFrame(e);
     if (e.kind === 'fireball' && e.type === 'dfire') return this.tickDragonFire(e);
     if (e.kind === 'fireball') return this.tickFireball(e);
@@ -6797,7 +6929,7 @@ export class WorldSim {
     const held = heldStack(p.inv);
     if (held?.id === I.ENDER_PEARL) return this.throwPearl(p, yaw, pitch);
     if (held?.id === I.EYE_OF_ENDER) return this.throwEye(p, yaw, pitch);
-    if (held?.id === I.EXPERIENCE_BOTTLE) return this.throwXpBottle(p, yaw, pitch);
+    if (held?.id === I.EXPERIENCE_BOTTLE || held?.id === I.SPLASH_HEALING) return this.throwXpBottle(p, yaw, pitch);
     if (held?.id === I.FIREWORK_ROCKET) return this.useFirework(p, null);
     if (held?.id === I.CROSSBOW) return this.crossbow(p, held, power < 0, yaw, pitch);
     if (p.inv.off?.[0]?.id === I.ENDER_PEARL && (!held || (held.id !== I.BOW && getItem(held.id)?.places === undefined && !getItem(held.id)?.food))) return this.withOff(p, () => this.throwPearl(p, yaw, pitch));
@@ -7090,7 +7222,125 @@ export class WorldSim {
     return { ok: true, msg: `Teleporting in ${d / 20} second${d === 20 ? '' : 's'}. Do not move.` };
   }
 
+  get kits(): KitBook { return sanitizeKits(this.settings.kits); }
+
+  private kitAt = new Map<string, number>();
+
+  private saveKits(book: KitBook): void { this.settings.kits = book; this.emit({ e: 'rules' }); }
+
+  giveKitTo(t: SimPlayer, k: KitDef): number {
+    const inv = kitInvOf(k);
+    let n = 0;
+    for (let a = 0; a < 4; a++) { const s = inv.armor[a]; if (!s) continue; n++; if (!t.inv.armor[a]) t.inv.armor[a] = s; else this.giveOrDrop(t, s); }
+    if (inv.off[0]) { n++; if (!t.inv.off[0]) t.inv.off[0] = inv.off[0]; else this.giveOrDrop(t, inv.off[0]); }
+    inv.slots.forEach((s, i) => { if (!s) return; n++; if (!t.inv.slots[i]) t.inv.slots[i] = s; else this.giveOrDrop(t, s); });
+    this.emit({ e: 'inv', p: t });
+    return n;
+  }
+
+  private kitCommand(p: SimPlayer, sub: string, args: string[], allowed: boolean, book: KitBook): string | null {
+    const need = 'Only operators can change kits.';
+    const names = Object.keys(book);
+    if (sub === '' || sub === 'list') {
+      const mine = names.filter((n) => !book[n].ops || allowed);
+      return mine.length ? `Kits: ${mine.map((n) => `${n} (${kitSummary(book[n])})`).join(', ')}. Use /kit <name>.${allowed ? ' Operators: /kit save|delete|preset|cooldown|ops|give.' : ''}` : allowed ? 'No custom kits yet. Arrange your inventory and use /kit save <name>, or /kit preset <name> to start from a popular PvP kit.' : 'This world has no kits.';
+    }
+    if (sub === 'presets') return `Presets: ${Object.entries(KIT_PRESETS).map(([k, v]) => `${k} (${v.blurb})`).join(' | ')}`;
+    if (sub === 'save') {
+      if (!allowed) return need;
+      const n = kitName(args[0] ?? '');
+      if (!n) return 'Usage: /kit save <name> (letters, numbers, - and _). Saves your whole inventory, armour and offhand.';
+      if (!book[n] && names.length >= 40) return 'This world already has 40 kits.';
+      const k = kitFromInv(p.inv);
+      this.saveKits({ ...book, [n]: { ...k, cd: book[n]?.cd ?? 0, ops: book[n]?.ops ?? false, by: p.name } });
+      return `Saved your inventory as kit ${n} (${kitSummary(k)}).`;
+    }
+    if (sub === 'preset') {
+      if (!allowed) return need;
+      const pre = (args[0] ?? '').toLowerCase(), n = kitName(args[1] ?? pre);
+      const k = presetKit(pre);
+      if (!k || !n) return `Usage: /kit preset <${Object.keys(KIT_PRESETS).join('|')}> [name]`;
+      this.saveKits({ ...book, [n]: { ...k, by: p.name } });
+      return `Added the ${KIT_PRESETS[pre].label} kit as ${n} (${kitSummary(k)}).`;
+    }
+    if (sub === 'delete' || sub === 'remove') {
+      if (!allowed) return need;
+      const n = kitName(args[0] ?? '');
+      if (!n || !book[n]) return 'No kit by that name.';
+      const next = { ...book }; delete next[n]; this.saveKits(next);
+      return `Deleted kit ${n}.`;
+    }
+    if (sub === 'cooldown' || sub === 'cd') {
+      if (!allowed) return need;
+      const n = kitName(args[0] ?? ''), s = Math.max(0, Math.min(86400, Math.floor(Number(args[1]))));
+      if (!n || !book[n] || !Number.isFinite(s)) return 'Usage: /kit cooldown <name> <seconds>';
+      this.saveKits({ ...book, [n]: { ...book[n], cd: s } });
+      return s ? `Kit ${n} can be claimed once every ${s}s.` : `Kit ${n} has no cooldown.`;
+    }
+    if (sub === 'ops') {
+      if (!allowed) return need;
+      const n = kitName(args[0] ?? '');
+      if (!n || !book[n]) return 'Usage: /kit ops <name> on|off';
+      const on = (args[1] ?? 'on').toLowerCase() !== 'off';
+      this.saveKits({ ...book, [n]: { ...book[n], ops: on } });
+      return on ? `Only operators can claim ${n}.` : `Everyone can claim ${n}.`;
+    }
+    if (sub === 'give') {
+      if (!allowed) return need;
+      const t = this.findPlayer(args[0] ?? ''), n = kitName(args[1] ?? '');
+      if (!t || !n || !book[n]) return 'Usage: /kit give <player> <kit>';
+      const c = this.giveKitTo(t, book[n]);
+      this.emit({ e: 'msg', text: `${p.name} gave you the ${n} kit.`, kind: 'info', to: t.id });
+      return `Gave ${t.name} the ${n} kit (${c} stacks).`;
+    }
+    const n = kitName(sub);
+    if (!n || !book[n]) return null;
+    const k = book[n];
+    if (k.ops && !allowed) return 'That kit is for operators only.';
+    if (p.dead) return 'You cannot do that while dead.';
+    const key = `${p.id}:${n}`, wait = (this.kitAt.get(key) ?? -1e12) + k.cd * 20 - this.tickCount;
+    if (k.cd && wait > 0 && !allowed) return `You can claim ${n} again in ${Math.ceil(wait / 20)}s.`;
+    this.kitAt.set(key, this.tickCount);
+    const c = this.giveKitTo(p, k);
+    this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
+    return `Claimed the ${n} kit (${c} stacks).`;
+  }
+
+  private rtpAt = new Map<string, number>();
+  static readonly RTP_RANGE = 2500;
+
+  randomTeleport(p: SimPlayer, allowed: boolean): string {
+    if (!this.authoritative) return '';
+    if (dimOf(Math.floor(p.x)) !== 'overworld') return 'Random teleport only works in the Overworld.';
+    const wait = (this.rtpAt.get(p.id) ?? -1e9) + 30 * 20 - this.tickCount;
+    if (wait > 0 && !allowed) return `You can random teleport again in ${Math.ceil(wait / 20)}s.`;
+    const R = WorldSim.RTP_RANGE;
+    for (let tries = 0; tries < 40; tries++) {
+      const x = Math.floor((this.rng.next() * 2 - 1) * R), z = Math.floor((this.rng.next() * 2 - 1) * R);
+      if (Math.hypot(x - this.spawn.x, z - this.spawn.z) < 200) continue;
+      const col = this.gen.column(x, z);
+      const b = col.biome.id;
+      if (col.height <= SEA_LEVEL + 1 || /ocean|river|beach/.test(b)) continue;
+      if (col.height > WORLD_HEIGHT - 6) continue;
+      this.rtpAt.set(p.id, this.tickCount);
+      const r = this.warpPlayer(p, x + 0.5, col.height + 1, z + 0.5, true, `Sent somewhere wild: ${x} ${col.height + 1} ${z}.`, () => { p.rtpSettle = this.tickCount + 20 * 20; });
+      return r.msg;
+    }
+    return 'Could not find dry land this time. Try again.';
+  }
+
+  private settleRtp(): void {
+    for (const p of this.players.values()) {
+      if (p.rtpSettle === undefined) continue;
+      if (this.tickCount > p.rtpSettle) { p.rtpSettle = undefined; continue; }
+      if (!this.store.isLoaded(Math.floor(p.x), Math.floor(p.z))) continue;
+      p.rtpSettle = undefined;
+      this.makeSafe(p);
+    }
+  }
+
   private tickWarps(): void {
+    this.settleRtp();
     for (const p of this.players.values()) {
       if (p.inCombat && this.combatLeft(p) <= 0) { p.inCombat = false; this.emit({ e: 'msg', text: 'You are no longer in combat.', kind: 'info', to: p.id }); }
       const w = p.tpWarm;
@@ -7189,7 +7439,7 @@ export class WorldSim {
         return this.warpPlayer(p, b.x, b.y, b.z, true, 'Returned to your previous location.').msg;
       }
       case 'help': {
-        const base = 'Teleports: /spawn, /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back. Teleports take a short warm-up and are blocked in combat. Other: /coords, /clearsel, /help.';
+        const base = 'Teleports: /spawn, /sethome [name], /home [name], /delhome <name>, /homes, /tpa <player>, /tpahere <player>, /tpaccept, /tpdeny, /back, /rtp (random spot within 2500 blocks). Kits: /kit list, /kit <name>. Teleports take a short warm-up and are blocked in combat. Other: /coords, /clearsel, /help.';
         if (!allowed) return base;
         return `${base} Admin and creative: /time set day|noon|night|midnight|<n>, /time cycle on|off, /weather clear|rain|thunder, /give <item> [n], /enchant <enchantment> [level], /unenchant [enchantment|all], /enchantmax, /kit maxdiamond|maxnetherite, /lootdrop, /repair, /heal, /tp <x> <y> <z> [overworld|nether] (~ for relative), /setspawn, /summon <creature> [n], /kill, /pos1, /pos2, /fill <block> [hollow|outline], /replace <from> <to>, /seed, /locate <${Object.keys(LOCATE_NAMES).join('|')}>, /gamerule <rule> [value]${p.op ? ', /gamemode survival|creative, /troll <prank> <player>, /anticheat status|on|off|level|kick|log' : ''}${p.op && this.serverMode ? ', /countdown <time> [label], /resetworld <time> confirm (owner)' : ''}.`;
       }
@@ -7295,11 +7545,15 @@ export class WorldSim {
         this.emit({ e: 'inv', p });
         return key === 'all' ? 'Removed every enchantment.' : `Removed ${ENCH.get(key)?.name ?? key}.`;
       }
-      case 'kit': {
+      case 'kit': case 'kits': {
+        const sub = (parts[1] ?? '').toLowerCase();
+        const book = this.kits;
+        const r = this.kitCommand(p, sub, parts.slice(2), allowed, book);
+        if (r !== null) return r;
         if (!allowed) return need();
-        const t = (parts[1] ?? '').toLowerCase();
+        const t = sub;
         const tier = t === 'maxnetherite' || t === 'netherite' ? 'netherite' : t === 'maxdiamond' || t === 'diamond' ? 'diamond' : null;
-        if (!tier) return 'Usage: /kit maxdiamond or /kit maxnetherite';
+        if (!tier) return `No kit called ${t}. Try /kit list.`;
         const n = this.giveKit(p, tier);
         this.emit({ e: 'sound', s: 'player.levelup', x: p.x, y: p.y + 1, z: p.z });
         return `Gave a maxed-out ${tier === 'netherite' ? 'Netherite' : 'Diamond'} kit (${n} pieces).`;
@@ -7411,6 +7665,8 @@ export class WorldSim {
       case 'spawn': {
         return this.warpPlayer(p, this.spawn.x, this.spawn.y, this.spawn.z, true, 'Teleported to the world spawn.').msg;
       }
+      case 'rtp': case 'wild': case 'randomtp':
+        return this.randomTeleport(p, allowed);
       case 'setspawn': {
         if (!allowed) return need();
         p.spawn = { x: p.x, y: p.y, z: p.z };

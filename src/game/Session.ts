@@ -17,7 +17,7 @@ export interface Vitals { health: number; food: number; sat: number; air: number
 
 export interface SessionEvents {
   block(x: number, y: number, z: number, v: number, old: number): void;
-  entity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
+  entity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame' | 'boat', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void;
   entityRemove(id: string, death: boolean, pickupBy?: string): void;
   sound(name: string, x: number, y: number, z: number, vol?: number, pitch?: number): void;
   fx(kind: string, x: number, y: number, z: number, data?: number): void;
@@ -112,7 +112,7 @@ export interface GameSession {
   close(): void;
   stats(): { rtt: number; inRate: number; outRate: number; state: string };
   setDataPacks?(d: DataRecipes[]): void;
-  placeBlueprint?(bp: Blueprint, x: number, y: number, z: number): void;
+  placeBlueprint?(bp: Blueprint, x: number, y: number, z: number, replace?: boolean): void;
   sharedPositions?(): { id: string; name: string; x: number; y: number; z: number }[];
   roster?(): { id: string; name: string }[];
   shareState?(): { all: boolean; to: string[] };

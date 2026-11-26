@@ -36,7 +36,7 @@ describe('v47 Crucible settings', () => {
     expect(sanitizeCrucible(cfg)).toEqual(cfg);
     expect(parseCrucibleArgs(cfg, crucibleArgs(cfg).split(' ')).cfg).toEqual(cfg);
     expect(parseCrucibleArgs(CRUCIBLE_DEFAULTS, ['prize=unobtainium:1']).err).toMatch(/No item/);
-    expect(parseCrucibleArgs(CRUCIBLE_DEFAULTS, ['kit=gold']).err).toBeTruthy();
+    expect(parseCrucibleArgs(CRUCIBLE_DEFAULTS, ['kit=gold!']).err).toBeTruthy();
     expect(parseCrucibleArgs(CRUCIBLE_DEFAULTS, ['r=99']).cfg.radius).toBe(32);
     expect(ruleSnapshot({ pvp: true, cheats: true, guestsBuild: true, dayCycle: true, weatherCycle: true, crucible: cfg })).toHaveProperty('crucible');
   });

@@ -9,7 +9,7 @@ import { B } from '../core/blocks';
 import { SkinPreview } from './SkinEditor';
 import { loadCustomSkin, skinFromAppearance, convertLegacy, detectSlim } from '../resources/skins';
 import { audio } from '../audio/AudioEngine';
-import { crop, sprite, label, guiScale, guiURL, nineSlice, tooltip, itemTooltipLines } from './mc/Gui';
+import { crop, sprite, label, guiScale, guiURL, nineSlice, tooltip, itemDock, itemTooltipLines } from './mc/Gui';
 import { getSettings } from '../storage/Settings';
 import { anvilResult, enchantLabel, type TableOffer } from '../core/enchants';
 import { smithResult } from '../core/smithing';
@@ -46,6 +46,7 @@ export class InventoryUI {
   private session: GameSession | null = null;
   private atlas: TextureAtlas;
   private cursorEl: HTMLElement;
+  private touchy = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   private slotEls: SlotEntry[] = [];
   private tab: CTab = 'building';
   private search = '';
@@ -158,7 +159,7 @@ export class InventoryUI {
     this.cursorEl = h('div', { class: 'cursor-item mc', style: 'display:none' });
     parent.appendChild(this.root);
     document.body.appendChild(this.cursorEl);
-    const track = (e: PointerEvent) => { this.pointer = { x: e.clientX, y: e.clientY }; this.trackPreview(e.clientX, e.clientY); this.cursorEl.style.left = `${e.clientX}px`; this.cursorEl.style.top = `${e.clientY}px`; };
+    const track = (e: PointerEvent) => { this.touchy = e.pointerType !== 'mouse'; this.pointer = { x: e.clientX, y: e.clientY }; this.trackPreview(e.clientX, e.clientY); this.cursorEl.style.left = `${e.clientX}px`; this.cursorEl.style.top = `${e.clientY}px`; };
     this.root.addEventListener('pointermove', (e) => { track(e); this.onDragMove(e); });
     this.root.addEventListener('pointerdown', (e) => {
       track(e);
@@ -224,6 +225,7 @@ export class InventoryUI {
     this.isOpen = false;
     this.root.style.display = 'none';
     this.cursorEl.style.display = 'none';
+    itemDock().hide();
     tooltip().hide();
     this.container = null;
     this.trade = null;
@@ -319,6 +321,7 @@ export class InventoryUI {
     e.stopPropagation();
     e.preventDefault();
     const touch = e.pointerType !== 'mouse';
+    this.touchy = touch;
     if (s.action) {
       if (touch && this.screen === 'creative') { this.cscroll = { startY: e.clientY, startRow: this.creativeRow, moved: false, entry: s, pid: e.pointerId }; return; }
       s.action(e);
@@ -432,6 +435,8 @@ export class InventoryUI {
       this.cursorEl.style.top = `${this.pointer.y}px`;
       tooltip().hide();
     } else this.cursorEl.style.display = 'none';
+    if (cur && this.touchy) itemDock().pin(this.atlas, itemTooltipLines(cur, getSettings().advancedTooltips));
+    else itemDock().hide();
     this.refreshFurnace();
     this.refreshBook();
     this.refreshEnchant();

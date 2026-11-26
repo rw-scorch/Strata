@@ -696,7 +696,7 @@ export class Game {
     this.mobile.refreshState();
   }
 
-  private bpMode: { bp: Blueprint; el: HTMLElement; status: HTMLElement; dy: number; pos: [number, number, number] | null; cells: Int32Array; checkAt: number; blocked: number } | null = null;
+  private bpMode: { bp: Blueprint; el: HTMLElement; status: HTMLElement; dy: number; pos: [number, number, number] | null; cells: Int32Array; checkAt: number; blocked: number; rep: boolean } | null = null;
 
   private openBlueprints(): void {
     const s = this.session;
@@ -720,6 +720,14 @@ export class Game {
     for (let i = 0; i < bp.blocks.length; i++) if (bp.blocks[i]) cells.push(i);
     const status = h('div', { class: 'bp-status' }, 'Aim at the ground where you want to build.');
     const hint = matchMedia('(pointer: coarse)').matches ? null : h('div', { class: 'small muted' }, 'Right-click to place, middle-click to cancel, [ and ] to lower or raise.');
+    const me = this.session.me;
+    const canRep = me.mode === 'creative' && (this.session.info.kind === 'local' || me.op === true);
+    const repBtn = canRep ? h('button', { class: 'btn small', title: 'Overwrite terrain in the footprint, air included', onclick: () => {
+      const m = this.bpMode; if (!m) return;
+      m.rep = !m.rep; m.checkAt = 0;
+      repBtn!.classList.toggle('primary', m.rep);
+      repBtn!.textContent = m.rep ? 'Supplant: on' : 'Supplant: off';
+    } }, 'Supplant: off') : null;
     const el = h('div', { class: 'bp-hud' },
       h('div', {}, h('b', {}, bp.name), ` (${bp.w} x ${bp.h} x ${bp.d})`),
       status,
@@ -728,9 +736,10 @@ export class Game {
         h('button', { class: 'btn small', onclick: () => { if (this.bpMode) { this.bpMode.dy--; this.bpMode.checkAt = 0; } } }, 'Lower'),
         h('button', { class: 'btn small', onclick: () => { if (this.bpMode) { this.bpMode.dy++; this.bpMode.checkAt = 0; } } }, 'Raise'),
         h('button', { class: 'btn small primary', onclick: () => this.confirmBlueprint() }, 'Place'),
+        repBtn,
         h('button', { class: 'btn small danger', onclick: () => this.endBlueprint() }, 'Cancel')));
     document.getElementById('hud-root')!.appendChild(el);
-    this.bpMode = { bp, el, status, dy: 0, pos: null, cells: Int32Array.from(cells), checkAt: 0, blocked: -1 };
+    this.bpMode = { bp, el, status, dy: 0, pos: null, cells: Int32Array.from(cells), checkAt: 0, blocked: -1, rep: false };
     this.renderer.ghost.show(bp);
   }
 
@@ -744,8 +753,8 @@ export class Game {
   private confirmBlueprint(): void {
     const m = this.bpMode;
     if (!m?.pos) { toast('Aim at the ground first', 'error'); return; }
-    if (m.blocked > 0) { toast(`Blocked by ${m.blocked} block${m.blocked === 1 ? '' : 's'}. Move it to a clear spot.`, 'error'); return; }
-    this.session.placeBlueprint?.(m.bp, m.pos[0], m.pos[1], m.pos[2]);
+    if (m.blocked > 0 && !m.rep) { toast(`Blocked by ${m.blocked} block${m.blocked === 1 ? '' : 's'}. Move it to a clear spot.`, 'error'); return; }
+    this.session.placeBlueprint?.(m.bp, m.pos[0], m.pos[1], m.pos[2], m.rep);
     this.endBlueprint();
   }
 
@@ -773,11 +782,11 @@ export class Game {
         if (bid(v) && !isReplaceable(v)) blocked += stride;
       }
       m.blocked = blocked;
-      m.status.textContent = blocked ? `Overlaps about ${blocked} block${blocked === 1 ? '' : 's'}. Move it or raise it.` : 'Clear spot. Tap Place to build.';
-      m.status.classList.toggle('bad', blocked > 0);
+      m.status.textContent = m.rep ? `Supplant: replaces ${bp.w * bp.h * bp.d} cells, air included. Tap Place to build.` : blocked ? `Overlaps about ${blocked} block${blocked === 1 ? '' : 's'}. Move it or raise it.` : 'Clear spot. Tap Place to build.';
+      m.status.classList.toggle('bad', blocked > 0 && !m.rep);
     }
     this.renderer.ghost.group.visible = true;
-    this.renderer.ghost.place(pos[0], pos[1], pos[2], m.blocked === 0);
+    this.renderer.ghost.place(pos[0], pos[1], pos[2], m.blocked === 0 || m.rep);
   }
 
   private aimFar(): [number, number, number] | null {
@@ -987,7 +996,7 @@ export class Game {
   // ---- SessionEvents ----
   private onBlock(): void { /* chunk data is updated by the store */ }
 
-  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
+  onEntity(id: string, kind: 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame' | 'boat', type: number, x: number, y: number, z: number, yaw: number, flags: number, extra: number): void {
     this.renderer?.entities.upsert(id, kind, type, x, y, z, yaw, 0, flags, extra, performance.now());
   }
 
@@ -1035,9 +1044,9 @@ export class Game {
     this.portalEl.style.opacity = String(this.portalFx * 0.85);
   }
 
-  private updateScreenFx(camId: number, now: number): void {
+  private updateScreenFx(camV: number, now: number): void {
     const o = this.overlay;
-    const d = getBlock(camId);
+    const camId = blockId(camV), d = getBlock(camV);
     const inWall = camId !== 0 && d.solid && d.opaque && d.render === 'cube';
     const wid = inWall ? camId : -1;
     if (wid !== o.wallId) {
@@ -1296,9 +1305,9 @@ export class Game {
     const cartView = this.riding ? this.renderer.entities.views.get(this.riding) : undefined;
     if (this.riding && !cartView && !frozen) this.riding = null;
     if (cartView && !frozen) {
-      this.player.setPos(cartView.x, cartView.y + (cartView.kind === 'mob' ? 1.6 : 0.35), cartView.z);
+      this.player.setPos(cartView.x, cartView.y + (cartView.kind === 'mob' ? 1.6 : cartView.kind === 'boat' ? 0.1 : 0.35), cartView.z);
       if (playing && this.input.usePressed && heldStack(me.inv)?.id === I.FUNGUS_STICK) { s.useEntity(this.riding!); this.input.usePressed = false; }
-      const rf = MF.RIDE | (playing && this.input.moveZ > 0.3 ? MF.FORWARD : 0) | (playing && this.input.crouch ? MF.CROUCH : 0) | (this.interaction?.charging ? MF.CHARGE : 0);
+      const rf = MF.RIDE | (playing && this.input.moveZ > 0.3 ? MF.FORWARD : 0) | (playing && this.input.moveZ < -0.3 ? MF.BACK : 0) | (playing && this.input.moveX < -0.3 ? MF.LEFT : 0) | (playing && this.input.moveX > 0.3 ? MF.RIGHT : 0) | (playing && this.input.crouch ? MF.CROUCH : 0) | (this.interaction?.charging ? MF.CHARGE : 0);
       if (!me.dead) s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, rf);
       s.tick(dt, performance.now());
     } else if (!frozen && !this.dim) {
@@ -1397,7 +1406,7 @@ export class Game {
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 3);
     const camBlock = this.chunks.getBlock(Math.floor(cam.position.x), Math.floor(cam.position.y), Math.floor(cam.position.z));
     const underwater = isWaterLike(camBlock);
-    this.updateScreenFx(blockId(camBlock), now);
+    this.updateScreenFx(camBlock, now);
     const inLava = blockId(camBlock) === 13;
     this.renderer.entities.interpDelay = local ? 60 : 110;
     this.renderer.updateCages(dt, this.player.x, this.player.y, this.player.z);

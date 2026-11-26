@@ -12,6 +12,7 @@ import { getItem, I, ITEM_LIST } from '../core/items';
 import { sanitizeLootCfg, LootEntry } from '../core/sim/lootdrop';
 import { sanitizeWard } from '../core/sim/anticheat';
 import { sanitizeCrucible, crucibleArgs, type CrucibleKit, type CrucibleArena } from '../core/sim/crucible';
+import { sanitizeKits, kitSummary, KIT_PRESETS } from '../core/sim/kits';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { slotContent } from './HUD';
 import { ENCHANTS, supports, compatible, enchantLabel } from '../core/enchants';
@@ -352,7 +353,7 @@ export function showDeath(root: HTMLElement, msg: string, onRespawn: () => void,
 
 export interface SovereignHeld { id: number; name: string; en?: Record<string, number>; dmg?: number }
 
-export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number; lootdrop?: unknown; anticheat?: unknown; crucible?: unknown }, atlas?: TextureAtlas): void {
+export function showSovereign(run: (cmd: string) => void, held: () => SovereignHeld | null, rules: () => { tpDelay?: number; combatTime?: number; lootdrop?: unknown; anticheat?: unknown; crucible?: unknown; kits?: unknown }, atlas?: TextureAtlas): void {
   const tabs = h('div', { class: 'tabs sov-tabs' });
   const pane = h('div', { class: 'stack sov-pane' });
   let tab = 'item';
@@ -459,6 +460,61 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
         h('button', { class: 'btn ghost', onclick: () => run('/lootdrop reset') }, 'Reset to defaults')),
     );
   };
+  const armouryTab = (): HTMLElement => {
+    const run2 = (c: string) => { run(c); later(redraw); };
+    const book = sanitizeKits(rules().kits);
+    const list = h('div', { class: 'stack' });
+    const names = Object.keys(book);
+    if (!names.length) list.appendChild(h('div', { class: 'small muted' }, 'No kits yet. Start from a preset below, or arrange your own inventory and save it.'));
+    for (const n of names) {
+      const k = book[n];
+      const icons = h('div', { class: 'row kit-icons' }, ...[...k.armor, k.off, ...k.items].filter((s): s is NonNullable<typeof s> => !!s).slice(0, 14).map((s) => h('div', { class: 'slot mc static kit-ico', title: `${s.count} x ${s.id}` }, ...(atlas ? slotContent(atlas, s, 22) : []))));
+      const cd = h('input', { class: 'input eco-num', value: String(k.cd), inputmode: 'numeric', maxlength: 5, style: 'width:70px' }) as HTMLInputElement;
+      list.appendChild(h('div', { class: 'list-item', style: 'flex-direction:column;align-items:stretch;gap:6px' },
+        h('div', { class: 'row', style: 'justify-content:space-between;gap:8px;flex-wrap:wrap' },
+          h('div', { class: 'meta' }, h('div', { class: 'name' }, n), h('div', { class: 'sub' }, `${kitSummary(k)}${k.by ? ` · made by ${k.by}` : ''}`)),
+          h('div', { class: 'actions' },
+            h('button', { class: 'btn small teal', onclick: () => run(`/kit ${n}`) }, 'Claim'),
+            h('button', { class: `btn small ${k.ops ? 'gold' : ''}`, onclick: () => run2(`/kit ops ${n} ${k.ops ? 'off' : 'on'}`) }, k.ops ? 'Operators only' : 'Everyone'),
+            h('button', { class: 'btn small danger', onclick: () => run2(`/kit delete ${n}`) }, 'Delete'))),
+        icons,
+        h('div', { class: 'row', style: 'gap:6px;align-items:center' }, h('span', { class: 'small' }, 'Cooldown (seconds)'), cd, h('button', { class: 'btn small', onclick: () => run2(`/kit cooldown ${n} ${Math.max(0, Math.floor(Number(cd.value) || 0))}`) }, 'Set'))));
+    }
+    const nm = h('input', { class: 'input', placeholder: 'Kit name (letters, numbers, - and _)', maxlength: 20, autocapitalize: 'off', spellcheck: 'false' }) as HTMLInputElement;
+    return h('div', { class: 'stack' },
+      h('div', { class: 'section-title' }, 'Armoury'),
+      h('div', { class: 'small muted' }, 'Kits are loadouts players claim with /kit <name>. Fill your inventory, armour and offhand exactly how you want the kit, then save it. Saved kits also appear as choices in the Crucible.'),
+      list,
+      h('div', { class: 'row wrap', style: 'gap:6px' }, nm, h('button', { class: 'btn primary', onclick: () => { const v = nm.value.trim().toLowerCase(); if (v) run2(`/kit save ${v}`); } }, 'Save my inventory as a kit')),
+      h('div', { class: 'section-title' }, 'Maxed kits'),
+      kitTab(),
+      h('div', { class: 'section-title' }, 'Popular PvP kits'),
+      h('div', { class: 'small muted' }, 'Loadouts modelled on the kits used across competitive PvP servers. Add one, then edit it by claiming it, changing your inventory and saving over it.'),
+      h('div', { class: 'stack' }, ...Object.entries(KIT_PRESETS).map(([key, pr]) => h('div', { class: 'list-item' },
+        h('div', { class: 'meta' }, h('div', { class: 'name' }, pr.label), h('div', { class: 'sub' }, pr.blurb)),
+        h('div', { class: 'actions' }, h('button', { class: 'btn small', onclick: () => run2(`/kit preset ${key}`) }, book[key] ? 'Reset' : 'Add'))))),
+    );
+  };
+  const tribunalTab = (): HTMLElement => {
+    let span = '7d';
+    const who = h('input', { class: 'input', placeholder: 'Player name (online or has joined before)', maxlength: 24, autocapitalize: 'off', spellcheck: 'false' }) as HTMLInputElement;
+    const custom = h('input', { class: 'input', placeholder: 'Or a custom time: 45m, 12h, 3w, 6mo', maxlength: 8, autocapitalize: 'off' }) as HTMLInputElement;
+    const why = h('input', { class: 'input', placeholder: 'Reason shown to the player (optional)', maxlength: 120 }) as HTMLInputElement;
+    const name = () => who.value.trim().split(/\s+/)[0] ?? '';
+    return h('div', { class: 'stack' },
+      h('div', { class: 'section-title' }, 'Tribunal'),
+      h('div', { class: 'small muted' }, 'Ban players for as long as you choose, or for good. Bans work on players who are offline too, and the player sees the reason and time left when they try to join. Only the world owner can ban another operator.'),
+      who,
+      h('div', { class: 'small' }, 'Length'),
+      segmented<string>([['1h', '1 hour'], ['1d', '1 day'], ['7d', '7 days'], ['30d', '30 days'], ['perm', 'Permanent']], span, (v) => { span = v; custom.value = ''; }),
+      custom, why,
+      h('div', { class: 'row wrap' },
+        h('button', { class: 'btn danger', onclick: () => { const n = name(); if (!n) return; const t = custom.value.trim() || span; run(`/ban ${n} ${t}${why.value.trim() ? ` ${why.value.trim()}` : ''}`); } }, 'Ban'),
+        h('button', { class: 'btn', onclick: () => { const n = name(); if (n) run(`/unban ${n}`); } }, 'Unban'),
+        h('button', { class: 'btn ghost', onclick: () => run('/banlist') }, 'Show bans')),
+      h('div', { class: 'small muted' }, 'Chat commands: /ban <player> [30m|2h|7d|2w|3mo|perm] [reason], /tempban <player> <time> [reason], /unban <player>, /banlist.'),
+    );
+  };
   const crucibleTab = (): HTMLElement => {
     const c = sanitizeCrucible(rules().crucible);
     const clock = (v: number) => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`;
@@ -489,7 +545,7 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
       slider('Arena size (radius)', 6, 32, 1, c.radius, (v) => `${v} blocks`, (v) => { c.radius = v; }),
       slider('Fewest fighters to start', 2, 32, 1, c.min, String, (v) => { c.min = v; }),
       slider('Most fighters', 2, 32, 1, c.max, String, (v) => { c.max = v; }),
-      h('div', { class: 'small' }, 'Fighters use'), segmented<CrucibleKit>([['own', 'Own gear'], ['iron', 'Iron kit'], ['diamond', 'Diamond kit'], ['netherite', 'Netherite kit']], c.kit, (v) => { c.kit = v; }),
+      h('div', { class: 'small' }, 'Fighters use'), segmented<CrucibleKit>([['own', 'Own gear'], ['iron', 'Iron kit'], ['diamond', 'Diamond kit'], ['netherite', 'Netherite kit'], ...Object.keys(sanitizeKits(rules().kits)).map((n): [string, string] => [n, n])], c.kit, (v) => { c.kit = v; }),
       h('div', { class: 'small' }, 'Arena'), segmented<CrucibleArena>([['forge', 'Build the Crucible here'], ['here', 'Use the ground here']], c.arena, (v) => { c.arena = v; }),
       toggle('Closing ring', c.ring, (v) => { c.ring = v; }, 'After half the time, the edge burns inwards and forces a finish'),
       h('div', { class: 'row wrap' }, coin('Champion coins', c.money, (n) => { c.money = n; }), coin('Runner-up coins', c.second, (n) => { c.second = n; }), coin('Entry fee (added to the prize)', c.fee, (n) => { c.fee = n; })),
@@ -527,7 +583,7 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
       toggle('Alert operators in chat', w.alerts, (v) => run(`/anticheat alerts ${v ? 'on' : 'off'}`)),
       h('div', { class: 'row wrap' }, act('Show status', '/anticheat status'), act('Recent flags', '/anticheat log')));
   };
-  const TABS: [string, string, () => HTMLElement][] = [['item', 'Held Item', itemTab], ['kits', 'Kits', kitTab], ['events', 'Events', eventTab], ['crucible', 'Crucible', crucibleTab], ['you', 'You and World', youTab], ['rules', 'Rules', rulesTab]];
+  const TABS: [string, string, () => HTMLElement][] = [['item', 'Held Item', itemTab], ['kits', 'Armoury', armouryTab], ['events', 'Events', eventTab], ['crucible', 'Crucible', crucibleTab], ['tribunal', 'Tribunal', tribunalTab], ['you', 'You and World', youTab], ['rules', 'Rules', rulesTab]];
   function redraw(): void {
     clear(tabs);
     for (const [k, l] of TABS) tabs.appendChild(h('button', { class: k === tab ? 'on' : '', onclick: () => { tab = k; redraw(); } }, l));

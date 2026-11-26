@@ -1,4 +1,4 @@
-import { isSlabId, isStairsId, isGate, SLAB2, GATE_OPEN } from './blocks';
+import { isSlabId, isStairsId, isGate, SLAB2, GATE_OPEN, isLogLike, AXIS_X, AXIS_Z } from './blocks';
 import { B, BLOCKS, makeBlock, SHAPE_MATS, SLAB_TOP, STAIRS_UP, doorMeta, trapdoorMeta, TD_SPECIES_MIN, CB } from './blocks';
 import { getItem, ITEMS } from './items';
 import { BP_MAX, Blueprint, bpItem } from './blueprint';
@@ -108,6 +108,7 @@ export function blockFromState(name: string, props: Record<string, string>): num
   }
   let meta = 0;
   if (def?.orientable) meta = f;
+  if (isLogLike(makeBlock(blockId))) meta = props.axis === 'x' ? AXIS_X : props.axis === 'z' ? AXIS_Z : 0;
   if (def?.render === 'leaves') meta = 1;
   if (pm && blockId !== B.EXT) meta = (meta & 15) | pm;
   else if (blockId === B.EXT) meta = pm;

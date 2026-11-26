@@ -2,7 +2,7 @@ import { MOB_BY_CODE } from '../core/sim/mobs';
 import * as THREE from 'three';
 import { raycast, RayHit, selectionAt } from '../core/physics';
 import { getBlock, selectionBox, blockId, B, CB, tix } from '../core/blocks';
-import { getItem, I, spearIndex } from '../core/items';
+import { boatWood, getItem, I, spearIndex } from '../core/items';
 import { attackStats, attackRange, attackCharge, SPEAR_MIN } from '../core/sim/combat';
 import { breakTime, canHarvest } from '../core/sim/WorldSim';
 import { heldStack } from '../core/inventory';
@@ -64,13 +64,13 @@ export class BlockInteraction {
     }
     const held = heldStack(me.inv);
     const item = held ? getItem(held.id) : undefined;
-    const fluids = item?.kind === 'bucket' && held!.id === 282 || item?.key === 'lily_pad';
+    const fluids = item?.kind === 'bucket' && held!.id === 282 || item?.key === 'lily_pad' || boatWood(held?.id ?? 0) >= 0;
     const hit = blocked || me.dead ? null : raycast(world, origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, reach, fluids);
     const spear = spearIndex(held?.id ?? 0) >= 0;
     if ((held?.id ?? 0) !== this.seenId) { this.seenId = held?.id ?? 0; this.strengthT = performance.now(); }
     const jabReady = !spear || attackCharge(performance.now() - Math.max(this.lastSwing, this.strengthT), attackStats(held).speed) >= 1;
     const entReach = attackRange(attackStats(held), creative);
-    let ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, entReach, (v) => v.kind === 'mob' || v.kind === 'cart' || v.kind === 'frame' || (v.kind === 'fireball' && !(v.flags & 1)) || (v.kind === 'player' && v.id !== 'me' && !(v.flags & (1 << 14))));
+    let ent = blocked || me.dead ? null : renderer.entities.pick(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, entReach, (v) => v.kind === 'mob' || v.kind === 'cart' || v.kind === 'boat' || v.kind === 'frame' || (v.kind === 'fireball' && !(v.flags & 1)) || (v.kind === 'player' && v.id !== 'me' && !(v.flags & (1 << 14))));
     if (ent && spear && ent.dist < SPEAR_MIN) ent = null;
     const entityFirst = ent && (!hit || ent.dist < hit.dist);
     this.entityTarget = entityFirst ? ent!.view : null;
@@ -78,7 +78,7 @@ export class BlockInteraction {
 
     const tdef = this.entityTarget?.kind === 'mob' ? MOB_BY_CODE[this.entityTarget.type] : undefined;
     const strider = tdef?.type === 'lavastrider' && !!this.entityTarget && (held?.id === I.SADDLE || (this.entityTarget.flags & 64) !== 0);
-    const lure = strider || (held?.id === I.NAME_TAG && !!held.nm) || this.entityTarget?.kind === 'cart' || this.entityTarget?.kind === 'frame' || !!tdef?.trader || (held ? !!tdef?.lure?.includes(held.id) : false);
+    const lure = strider || (held?.id === I.NAME_TAG && !!held.nm) || this.entityTarget?.kind === 'cart' || this.entityTarget?.kind === 'boat' || this.entityTarget?.kind === 'frame' || !!tdef?.trader || (held ? !!tdef?.lure?.includes(held.id) : false);
     if (this.entityTarget && lure && input.usePressed && this.useCd <= 0) {
       session.useEntity(this.entityTarget.id);
       this.useCd = 0.3;
@@ -90,7 +90,7 @@ export class BlockInteraction {
     this.charging = spear && input.using && !me.dead && !lure && !t0Interactive;
     if (this.entityTarget && jabReady && (input.attackPressed || (input.usePressed && input.touchAim)) && this.attackCd <= 0) {
       const v = this.entityTarget;
-      if (v.kind === 'mob' || v.kind === 'cart' || v.kind === 'frame' || v.kind === 'fireball') session.attack(v.id);
+      if (v.kind === 'mob' || v.kind === 'cart' || v.kind === 'boat' || v.kind === 'frame' || v.kind === 'fireball') session.attack(v.id);
       else if (this.pvpCheck?.() && !(v.extra & 256)) session.attackPlayer(v.id.replace(/^p:/, ''));
       this.attackCd = 0.05;
       this.lastSwing = performance.now();
@@ -147,11 +147,11 @@ export class BlockInteraction {
     const off = me.inv.off?.[0] ?? null;
     const offItem = off ? getItem(off.id) : undefined;
     const tInteractive = !!t && !!getBlock(world.getBlock(t.x, t.y, t.z)).interactive;
-    const mainIdle = !held || (item?.places === undefined && !item?.food && held.id !== I.BOW && held.id !== I.CROSSBOW && held.id !== I.ENDER_PEARL && held.id !== I.EYE_OF_ENDER && held.id !== I.EXPERIENCE_BOTTLE && held.id !== I.SHIELD);
+    const mainIdle = !held || (item?.places === undefined && !item?.food && held.id !== I.BOW && held.id !== I.CROSSBOW && held.id !== I.ENDER_PEARL && held.id !== I.EYE_OF_ENDER && held.id !== I.EXPERIENCE_BOTTLE && held.id !== I.SPLASH_HEALING && held.id !== I.SHIELD);
     const shieldUp = !me.dead && input.using && !tInteractive && !this.entityTarget && (held?.id === I.SHIELD || (off?.id === I.SHIELD && mainIdle));
     this.blocking = shieldUp;
     if (held?.id === I.FIREWORK_ROCKET && input.usePressed && !me.dead && (player.gliding || !t)) { if (player.gliding) player.rocketT = 10 * ((held.fl ?? 1) + 1) + Math.floor(Math.random() * 6) + Math.floor(Math.random() * 7); session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
-    const pearlMain = held?.id === I.ENDER_PEARL || held?.id === I.EXPERIENCE_BOTTLE || (held?.id === I.EYE_OF_ENDER && !(t && blockId(world.getBlock(t.x, t.y, t.z)) === CB.END_PORTAL_FRAME)), pearlOff = off?.id === I.ENDER_PEARL && mainIdle;
+    const pearlMain = held?.id === I.ENDER_PEARL || held?.id === I.EXPERIENCE_BOTTLE || held?.id === I.SPLASH_HEALING || (held?.id === I.EYE_OF_ENDER && !(t && blockId(world.getBlock(t.x, t.y, t.z)) === CB.END_PORTAL_FRAME)), pearlOff = off?.id === I.ENDER_PEARL && mainIdle;
     if ((pearlMain || pearlOff) && input.usePressed && !tInteractive && !me.dead) { session.shoot(1, player.yaw, player.pitch); this.onSwing?.(); input.usePressed = false; }
     const bow = held?.id === I.BOW;
     const xbow = held?.id === I.CROSSBOW;

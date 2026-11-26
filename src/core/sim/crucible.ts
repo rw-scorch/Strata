@@ -5,9 +5,12 @@ import { I, armorId, toolId, getItem, ITEM_BY_KEY } from '../items';
 import { emptyInv, giveItem, type ItemStack, type PlayerInv } from '../inventory';
 import { money } from '../economy';
 import { resolveItem, blockValueOf } from './lootdrop';
+import { kitInvOf } from './kits';
 import { isNether, localX } from '../dimension';
 
-export type CrucibleKit = 'own' | 'iron' | 'diamond' | 'netherite';
+export type BuiltinKit = 'own' | 'iron' | 'diamond' | 'netherite';
+export type CrucibleKit = BuiltinKit | string;
+export function isBuiltinKit(k: string): k is BuiltinKit { return k === 'own' || k === 'iron' || k === 'diamond' || k === 'netherite'; }
 export type CrucibleArena = 'forge' | 'here';
 export type CruciblePhase = 'open' | 'ready' | 'fight' | 'done';
 export interface Prize { key: string; n: number; maxed?: boolean }
@@ -29,7 +32,7 @@ export const CRUCIBLE_DEFAULTS: CrucibleCfg = {
 
 export const CRUCIBLE_LIMITS = { join: [15, 600], fight: [60, 1800], radius: [6, 32], min: [2, 32], max: [2, 32], money: [0, 10_000_000], second: [0, 10_000_000], fee: [0, 1_000_000] } as const;
 
-export const KIT_NAMES: Record<CrucibleKit, string> = { own: 'their own gear', iron: 'an iron kit', diamond: 'a diamond kit', netherite: 'a netherite kit' };
+export const KIT_NAMES: Record<BuiltinKit, string> = { own: 'their own gear', iron: 'an iron kit', diamond: 'a diamond kit', netherite: 'a netherite kit' };
 
 const KEYS: Record<string, keyof CrucibleCfg> = {
   join: 'join', wait: 'join', t: 'fight', time: 'fight', fight: 'fight', r: 'radius', radius: 'radius', size: 'radius', min: 'min', max: 'max',
@@ -70,7 +73,7 @@ export function parseCrucibleArgs(base: CrucibleCfg, args: string[]): { cfg: Cru
         cfg[key] = n;
         break;
       }
-      case 'kit': if (v !== 'own' && v !== 'iron' && v !== 'diamond' && v !== 'netherite') return { cfg, err: 'kit is own, iron, diamond or netherite' }; cfg.kit = v; break;
+      case 'kit': if (!isBuiltinKit(v) && !/^[a-z0-9_-]{1,20}$/.test(v)) return { cfg, err: 'kit is own, iron, diamond, netherite or the name of a saved kit' }; cfg.kit = v; break;
       case 'arena': if (v !== 'forge' && v !== 'here') return { cfg, err: 'arena is forge (build one) or here (use the ground)' }; cfg.arena = v; break;
       case 'ring': cfg.ring = v === 'on' || v === 'true' || v === '1' || v === 'yes'; break;
       case 'prize': {
@@ -115,7 +118,9 @@ export function ringRadius(R: number, ring: boolean, frac: number): number {
   return Math.round((R - (R - Math.max(3, R * 0.25)) * k) * 10) / 10;
 }
 
-export function kitInv(kit: Exclude<CrucibleKit, 'own'>, maxEnchant: (s: ItemStack) => void): PlayerInv {
+export function kitLabel(kit: string): string { return isBuiltinKit(kit) ? KIT_NAMES[kit] : `the ${kit} kit`; }
+
+export function kitInv(kit: Exclude<BuiltinKit, 'own'>, maxEnchant: (s: ItemStack) => void): PlayerInv {
   const inv = emptyInv();
   const tool = kit === 'iron' ? 2 : kit === 'diamond' ? 4 : 5, arm = kit === 'iron' ? 1 : kit === 'diamond' ? 3 : 4;
   const en = (st: ItemStack, e: Record<string, number>): ItemStack => { if (kit === 'netherite') maxEnchant(st); else if (kit === 'diamond') st.en = e; return st; };
@@ -271,6 +276,7 @@ export class Crucible {
     let fy = Math.floor(p.y - 0.01);
     while (fy > Math.floor(p.y) - 5 && fy > 1 && !isSolid(sim.get(cx, fy, cz))) fy--;
     if (fy < 2 || fy > WORLD_HEIGHT - 30 || !isSolid(sim.get(cx, fy, cz))) return 'Stand on solid ground to open the Crucible.';
+    if (!isBuiltinKit(cfg.kit) && !sim.kits[cfg.kit]) return `There is no saved kit called ${cfg.kit}. Use /kit list.`;
     for (const [dx, dz] of [[0, 0], [cfg.radius, 0], [-cfg.radius, 0], [0, cfg.radius], [0, -cfg.radius]]) if (!sim.store.isLoaded(cx + dx, cz + dz)) return 'Part of that area is not loaded. Try a smaller radius or move closer to the middle.';
     const b: Bout = {
       ph: 'open', cfg, host: p.name, cx: cx + 0.5, cz: cz + 0.5, fy, R: cfg.radius, r: cfg.radius, built: cfg.arena === 'forge', nether: isNether(cx),
@@ -281,7 +287,7 @@ export class Crucible {
     const where = `${Math.round(localX(cx))} ${fy + 1} ${cz}${b.nether ? ' in the Nether' : ''}`;
     const bank = this.bank();
     const fee = cfg.fee > 0 && bank ? ` Entry costs ${money(cfg.fee)}, added to the prize.` : '';
-    this.say(`[Crucible] ${p.name} opened the Crucible at ${where}. Fighters use ${KIT_NAMES[cfg.kit]}, last one standing wins ${prizeLabel(cfg, bank ? cfg.money : 0)}.${fee} Type /crucible join to enter (${cfg.join}s).`);
+    this.say(`[Crucible] ${p.name} opened the Crucible at ${where}. Fighters use ${kitLabel(cfg.kit)}, last one standing wins ${prizeLabel(cfg, bank ? cfg.money : 0)}.${fee} Type /crucible join to enter (${cfg.join}s).`);
     sim.emit({ e: 'title', text: 'THE CRUCIBLE', sub: `${p.name} calls for challengers - open chat and tap Enter` });
     sim.emit({ e: 'sound', s: 'bell.ring', x: b.cx, y: fy + 2, z: b.cz, vol: 4 });
     this.push();
@@ -373,8 +379,11 @@ export class Crucible {
     p.tpWarm = undefined;
     if (p.screen.type) sim.closeScreen(p);
     if (p.riding !== undefined) sim.dismount(p);
-    p.cru = { x: p.x, y: p.y, z: p.z, mode: p.mode, inv: b.cfg.kit === 'own' ? undefined : p.inv };
-    if (b.cfg.kit !== 'own') { p.inv = kitInv(b.cfg.kit, (s) => sim.maxEnchant(s)); }
+    const custom = isBuiltinKit(b.cfg.kit) ? null : sim.kits[b.cfg.kit] ?? null;
+    const own = b.cfg.kit === 'own' || (!custom && !isBuiltinKit(b.cfg.kit));
+    p.cru = { x: p.x, y: p.y, z: p.z, mode: p.mode, inv: own ? undefined : p.inv };
+    if (custom) p.inv = kitInvOf(custom);
+    else if (!own) p.inv = kitInv(b.cfg.kit as Exclude<BuiltinKit, 'own'>, (s) => sim.maxEnchant(s));
     if (p.mode !== 'survival') { p.mode = 'survival'; sim.emit({ e: 'mode', p }); }
     p.health = 20; p.food = 20; p.sat = 5; p.exh = 0; p.air = 300; p.fireT = 0; p.absorb = 0; p.witherT = 0;
     p.inCombat = false; p.combatT = 0;

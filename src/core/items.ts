@@ -30,7 +30,7 @@ export interface ItemDef {
 export const I = {
   GLOW_BERRIES: 4096,
   SHIELD: 490, ENDER_PEARL: 491,
-  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505, PRISMARINE_SHARD: 506, PRISMARINE_CRYSTALS: 507,
+  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, TOTEM: 508, SPLASH_HEALING: 509, BOAT_BASE: 510, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505, PRISMARINE_SHARD: 506, PRISMARINE_CRYSTALS: 507,
   STICK: 256, APPLE: 258, COAL: 260, CHARCOAL: 261, IRON_INGOT: 262, FLINT: 263, AETHERITE: 264,
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
@@ -115,6 +115,10 @@ add({ id: I.POPPED_CHORUS_FRUIT, key: 'popped_chorus_fruit', name: 'Popped Choru
 add({ id: I.SHULKER_SHELL, key: 'shulker_shell', name: 'Shulker Shell', desc: 'Two shells and a chest make a shulker box.', kind: 'material', texture: 'shulker_shell', tab: 'materials' });
 add({ id: I.ELYTRA, key: 'elytra', name: 'Elytra', desc: 'Wear in the chest slot, then jump while falling to glide. Fireworks give a boost. Only found aboard End ships.', kind: 'armor', texture: 'elytra', maxStack: 1, durability: 432, armor: { slot: 1, points: 0, durability: 432 }, tab: 'combat' });
 add({ id: I.FIREWORK_ROCKET, key: 'firework_rocket', name: 'Firework Rocket', desc: 'Launch it for a show, or use it while gliding for a burst of speed.', kind: 'material', texture: 'firework_rocket', tab: 'tools' });
+for (const [i, k] of ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'cherry', 'mangrove'].entries()) add({ id: I.BOAT_BASE + i, key: `${k}_boat`, name: `${k.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')} Boat`, desc: 'Place it on water and climb in. Forward and back to row, left and right to turn. Crouch to get out. Flies across ice.', kind: 'material', texture: `${k}_boat`, maxStack: 1, tab: 'tools' });
+export function boatWood(id: number): number { return id >= I.BOAT_BASE && id < I.BOAT_BASE + 8 ? id - I.BOAT_BASE : -1; }
+add({ id: I.TOTEM, key: 'totem_of_undying', name: 'Totem of Undying', desc: 'Hold it in either hand. When a blow would kill you, it shatters instead and pulls you back with regeneration and absorption.', kind: 'material', texture: 'totem_of_undying', maxStack: 1, tab: 'combat' });
+add({ id: I.SPLASH_HEALING, key: 'splash_potion_healing', name: 'Splash Potion of Healing', desc: 'Throw it to heal everyone in the splash by up to 4 hearts. Throw it at your feet to heal yourself mid-fight.', kind: 'material', texture: 'splash_potion_healing', maxStack: 1, tab: 'combat' });
 add({ id: I.EXPERIENCE_BOTTLE, key: 'experience_bottle', name: "Bottle o' Enchanting", desc: 'Throw it and it shatters into 3 to 11 experience for whoever is closest.', kind: 'material', texture: 'experience_bottle', tab: 'tools' });
 add({ id: I.ITEM_FRAME, key: 'item_frame', name: 'Item Frame', desc: 'Hang it on a wall, floor or ceiling and set any item in it. Use it again to turn the item.', kind: 'material', texture: 'item_frame', tab: 'functional' });
 add({ id: I.GLOW_ITEM_FRAME, key: 'glow_item_frame', name: 'Glow Item Frame', desc: 'An item frame whose contents shine in the dark.', kind: 'material', texture: 'glow_item_frame', tab: 'functional' });

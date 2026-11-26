@@ -1,4 +1,4 @@
-import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB, NB, WOODS, WALL_MATS, FENCE_BASE, GATE_BASE, WALL_BASE, GLASS_PANE, STAINED_PANE_BASE } from './blocks';
+import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB, NB, WOODS, WALL_MATS, FENCE_BASE, GATE_BASE, WALL_BASE, GLASS_PANE, STAINED_PANE_BASE, WOOD_KINDS, STRIPPED_LOG_BASE, WOOD_BASE, STRIPPED_WOOD_BASE } from './blocks';
 import { I, toolId, armorId, dyeId, SPEAR_MATS, getItem } from './items';
 import type { ItemStack } from './inventory';
 
@@ -6,7 +6,7 @@ export type Ingredient = number | string | number[];
 
 export const TAGS: Record<string, number[]> = {
   planks: [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS, SB.ACACIA_PLANKS, SB.DARK_OAK_PLANKS, SB.CHERRY_PLANKS, SB.MANGROVE_PLANKS, XB + XV.CRIMSON_PLANKS, XB + XV.WARPED_PLANKS],
-  logs: [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, SB.ACACIA_LOG, SB.DARK_OAK_LOG, SB.CHERRY_LOG, SB.MANGROVE_LOG],
+  logs: [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, SB.ACACIA_LOG, SB.DARK_OAK_LOG, SB.CHERRY_LOG, SB.MANGROVE_LOG, ...Array.from({ length: 24 }, (_, i) => STRIPPED_LOG_BASE + i)],
   coals: [I.COAL, I.CHARCOAL],
   stones: [B.COBBLESTONE, B.MOSSY_COBBLESTONE],
   wool: COLORS.map(woolId),
@@ -40,6 +40,16 @@ shapeless('acacia_planks', 'basics', SB.ACACIA_PLANKS, 4, [SB.ACACIA_LOG]);
 shapeless('dark_oak_planks', 'basics', SB.DARK_OAK_PLANKS, 4, [SB.DARK_OAK_LOG]);
 shapeless('cherry_planks', 'basics', SB.CHERRY_PLANKS, 4, [SB.CHERRY_LOG]);
 shapeless('mangrove_planks', 'basics', SB.MANGROVE_PLANKS, 4, [SB.MANGROVE_LOG]);
+{
+  const planks = [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS, SB.ACACIA_PLANKS, SB.DARK_OAK_PLANKS, SB.CHERRY_PLANKS, SB.MANGROVE_PLANKS];
+  const logs = [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.JUNGLE_LOG, SB.ACACIA_LOG, SB.DARK_OAK_LOG, SB.CHERRY_LOG, SB.MANGROVE_LOG];
+  WOOD_KINDS.forEach((k, i) => {
+    shaped(`${k}_wood`, 'basics', WOOD_BASE + i, 3, ['LL', 'LL'], { L: logs[i] });
+    shaped(`${k}_boat`, 'tools', I.BOAT_BASE + i, 1, ['P P', 'PPP'], { P: planks[i] });
+    shaped(`stripped_${k}_wood`, 'basics', STRIPPED_WOOD_BASE + i, 3, ['LL', 'LL'], { L: STRIPPED_LOG_BASE + i });
+    for (const src of [STRIPPED_LOG_BASE + i, WOOD_BASE + i, STRIPPED_WOOD_BASE + i]) shapeless(`${k}_planks_from_${src}`, 'basics', planks[i], 4, [src]);
+  });
+}
 shaped('stick', 'basics', I.STICK, 4, ['P', 'P'], { P: 'planks' });
 shaped('shield', 'tools', I.SHIELD, 1, ['PIP', 'PPP', ' P '], { P: 'planks', I: I.IRON_INGOT });
 shaped('crafting_table', 'basics', B.WORKBENCH, 1, ['PP', 'PP'], { P: 'planks' });

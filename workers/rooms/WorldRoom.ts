@@ -2,6 +2,7 @@ import type { BlockArray } from '../../src/core/chunk';
 import { decodeBlueprint, BP_PART, BP_MAX_PARTS } from '../../src/core/blueprint';
 import { cleanKey, keyHint } from '../adminKey';
 import { DurableObject } from 'cloudflare:workers';
+import { parseBanSpan } from '../../src/core/bans';
 import { CHUNK_SIZE, PROTOCOL_VERSION, GAME_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator, type GeneratedChunk } from '../../src/core/worldgen/WorldGenerator';
@@ -37,7 +38,7 @@ export interface Env {
   SUPPORTER_AMOUNT?: string;
 }
 
-interface StoredMeta extends RoomMeta { end?: EndState; peak?: number; genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; }
+interface StoredMeta extends RoomMeta { end?: EndState; peak?: number; genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; banInfo?: Record<string, BanInfo>; }
 
 interface Session {
   ws: WebSocket;
@@ -712,6 +713,18 @@ export class WorldRoom extends DurableObject<Env> {
       if (text) this.systemChat(`[Admin] ${text}`, 'info');
       return Response.json({ ok: true });
     }
+    if (act === 'ban' || act === 'unban' || act === 'bans') {
+      if (act === 'bans') return Response.json({ ok: true, bans: this.activeBans() });
+      const who = this.findKnown(String(b.pid ?? b.name ?? ''));
+      if (!who) return Response.json({ error: 'No player by that name or id has joined this world.' }, { status: 404 });
+      if (act === 'unban') { const ok = this.clearBan(who.id); return Response.json(ok ? { ok: true } : { error: `${who.name} is not banned.` }, { status: ok ? 200 : 404 }); }
+      if (who.id === m.ownerId) return Response.json({ error: 'The world owner cannot be banned.' }, { status: 400 });
+      const ms = b.perm === true ? null : parseBanSpan(String(b.duration ?? ''));
+      if (ms === undefined) return Response.json({ error: 'Duration must look like 30m, 2h, 7d, 2w, 3mo or perm.' }, { status: 400 });
+      this.setBan(who.id, who.name, ms, 'server admin', cleanText(b.reason, 120));
+      this.report(true);
+      return Response.json({ ok: true });
+    }
     if (act === 'kick') {
       const t = this.sessionFor(String(b.pid ?? ''));
       if (!t) return Response.json({ error: 'That player is not online.' }, { status: 404 });
@@ -936,7 +949,7 @@ export class WorldRoom extends DurableObject<Env> {
     const id = String(msg.id ?? ''), secret = String(msg.secret ?? '');
     if (!/^[a-zA-Z0-9-]{8,64}$/.test(id) || secret.length < 16 || secret.length > 128) { this.sendErr(s, 'auth', 'Invalid player credentials.'); return; }
     const ban = m.bans[id];
-    if (ban && ban > Date.now()) { this.sendErr(s, 'banned', 'You were removed from this world. Try again later.'); return; }
+    if (ban && ban > Date.now()) { const bi = m.banInfo?.[id]; this.sendErr(s, 'banned', `${ban >= PERMA ? 'You are permanently banned from this world.' : `You are banned from this world for another ${fmtSpan(ban - Date.now())}.`}${bi?.reason ? ` Reason: ${bi.reason}` : ''}`); return; }
     if (this.joining.has(id)) { this.sendErr(s, 'duplicate', 'This player is already joining. Try again in a moment.'); return; }
     const adminKey = typeof (msg as { admin?: unknown }).admin === 'string' ? String((msg as { admin?: string }).admin) : '';
     const spectate = !!adminKey && !!cleanKey(this.env.ADMIN_KEY) && safeEqual(cleanKey(adminKey), cleanKey(this.env.ADMIN_KEY));
@@ -1118,7 +1131,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (!parts || parts.length !== msg.n || !isInt(msg.x, -3e7, 3e7) || !isInt(msg.y, -64, 512) || !isInt(msg.z, -3e7, 3e7)) { this.systemChat('Blueprint upload failed. Try again.', 'error', s); return; }
         const bp = decodeBlueprint(parts.join(''), cleanText(msg.name, 32) || 'Blueprint');
         if (!bp) { this.systemChat('That blueprint contains blocks that cannot be placed.', 'error', s); return; }
-        const r = sim.placeBlueprint(p, bp, msg.x, msg.y, msg.z);
+        const r = sim.placeBlueprint(p, bp, msg.x, msg.y, msg.z, msg.rep === true && p.op);
         if (r) this.systemChat(r, 'info', s);
         return;
       }
@@ -1219,6 +1232,7 @@ export class WorldRoom extends DurableObject<Env> {
         if (lc === 'kick') this.kick(s, target.id, 'kicked'); else this.mute(s, target.id, lc === 'mute');
         return;
       }
+      if (BAN_CMDS.has(lc)) { this.banCommand(s, p, lc, text.slice(1 + cmd.length).trim(), sim); return; }
       if (lc === 'countdown' || lc === 'resetworld') { this.countdownCommand(s, p, lc, text.slice(1 + cmd.length).trim()); return; }
       const caged = sim.crucible.blocks(p, lc);
       if (caged) { this.systemChat(caged, 'error', s); return; }
@@ -1296,13 +1310,82 @@ export class WorldRoom extends DurableObject<Env> {
     this.systemChat('World settings were updated by the owner.');
   }
 
+  private findKnown(q: string): { id: string; name: string } | null {
+    const want = q.trim().toLowerCase();
+    if (!want) return null;
+    for (const x of this.sessions.values()) if (x.pid && (x.pid === q || x.name.toLowerCase() === want)) return { id: x.pid, name: x.name };
+    const info = this.meta?.banInfo ?? {};
+    for (const [id, bi] of Object.entries(info)) if (id === q || bi.name.toLowerCase() === want) return { id, name: bi.name };
+    for (const row of this.sql.exec(`SELECT id, data FROM players`).toArray()) {
+      try { const nm = String((JSON.parse(String(row.data)) as { name?: string }).name ?? ''); if (row.id === q || nm.toLowerCase() === want) return { id: String(row.id), name: nm || String(row.id) }; } catch { /* skip */ }
+    }
+    return null;
+  }
+
+  private setBan(id: string, name: string, ms: number | null, by: string, reason: string): void {
+    const m = this.meta!;
+    m.bans[id] = ms === null ? PERMA : Date.now() + ms;
+    (m.banInfo ??= {})[id] = { name, by, reason, at: Date.now() };
+    this.saveMeta();
+    const t = this.sessionFor(id);
+    if (t) { this.sendErr(t, 'banned', `${ms === null ? 'You were permanently banned from this world' : `You were banned from this world for ${fmtSpan(ms)}`}${reason ? `: ${reason}` : '.'}`); this.handleLeave(t); }
+  }
+
+  private clearBan(id: string): boolean {
+    const m = this.meta!;
+    const had = (m.bans[id] ?? 0) > Date.now();
+    delete m.bans[id];
+    if (m.banInfo) delete m.banInfo[id];
+    this.saveMeta();
+    return had;
+  }
+
+  private activeBans(): { id: string; name: string; until: number | null; by: string; reason: string; at: number }[] {
+    const m = this.meta!, now = Date.now(), out: { id: string; name: string; until: number | null; by: string; reason: string; at: number }[] = [];
+    for (const [id, until] of Object.entries(m.bans)) {
+      if (until <= now) { delete m.bans[id]; if (m.banInfo) delete m.banInfo[id]; continue; }
+      const bi = m.banInfo?.[id];
+      out.push({ id, name: bi?.name ?? id, until: until >= PERMA ? null : until, by: bi?.by ?? '', reason: bi?.reason ?? '', at: bi?.at ?? 0 });
+    }
+    return out.sort((a, b) => b.at - a.at);
+  }
+
+  private banCommand(s: Session, p: SimPlayer, lc: string, rest: string, sim: WorldSim): void {
+    if (!s.op) { this.systemChat('Only operators can ban players.', 'error', s); return; }
+    const say = (t: string, kind: 'info' | 'error' = 'info') => this.systemChat(t, kind, s);
+    if (lc === 'banlist' || lc === 'bans') {
+      const list = this.activeBans();
+      if (!list.length) { say('Nobody is banned.'); return; }
+      say(`Banned (${list.length}): ${list.slice(0, 20).map((b) => `${b.name} (${b.until === null ? 'permanent' : fmtSpan(b.until - Date.now()) + ' left'}${b.reason ? `, ${b.reason}` : ''})`).join('; ')}`);
+      return;
+    }
+    const [name, ...more] = rest.split(/\s+/).filter(Boolean);
+    if (!name) { say(lc === 'unban' || lc === 'pardon' ? 'Usage: /unban <player>' : 'Usage: /ban <player> [30m|2h|7d|2w|3mo|perm] [reason]. Without a time the ban is permanent.', 'error'); return; }
+    const who = this.findKnown(name);
+    if (!who) { say(`No player named ${name} has joined this world.`, 'error'); return; }
+    if (lc === 'unban' || lc === 'pardon') { say(this.clearBan(who.id) ? `${who.name} is unbanned.` : `${who.name} is not banned.`, this.meta!.bans[who.id] ? 'error' : 'info'); return; }
+    if (who.id === p.id) { say('You cannot ban yourself.', 'error'); return; }
+    if (who.id === this.meta!.ownerId) { say('The world owner cannot be banned.', 'error'); return; }
+    const tgt = sim.players.get(who.id);
+    if (tgt?.op && p.id !== this.meta!.ownerId) { say('Only the world owner can ban another operator.', 'error'); return; }
+    let ms: number | null = null, reasonParts = more;
+    const first = more[0]?.toLowerCase();
+    if (first !== undefined) {
+      const span = parseBanSpan(first);
+      if (span !== undefined) { ms = span; reasonParts = more.slice(1); }
+      else if (lc === 'tempban') { say('Give a time like 30m, 2h, 7d, 2w or 3mo.', 'error'); return; }
+    } else if (lc === 'tempban') { say('Usage: /tempban <player> <30m|2h|7d|2w|3mo> [reason]', 'error'); return; }
+    const reason = reasonParts.join(' ').slice(0, 120);
+    this.setBan(who.id, who.name, ms, p.name, reason);
+    this.systemChat(`${who.name} was ${ms === null ? 'permanently banned' : `banned for ${fmtSpan(ms)}`} by ${p.name}${reason ? `: ${reason}` : '.'}`);
+  }
+
   private kick(s: Session, pid: unknown, _why: string): void {
     if (!s.op) { this.systemChat('Only the world owner can remove players.', 'error', s); return; }
     if (typeof pid !== 'string' || pid === s.pid) return;
     const t = this.sessionFor(pid);
     if (!t) return;
-    this.meta!.bans[pid] = Date.now() + 10 * 60 * 1000;
-    this.saveMeta();
+    this.setBan(pid, t.name, 10 * 60 * 1000, s.name, 'Kicked by an operator');
     this.sendErr(t, 'kicked', 'You were removed from this world by the owner.');
     this.handleLeave(t);
   }
@@ -1509,7 +1592,7 @@ export class WorldRoom extends DurableObject<Env> {
         const pid = ev.p.id, reason = ev.reason, banMs = ev.banMs;
         setTimeout(() => {
           const t = this.sessionFor(pid);
-          if (banMs > 0 && this.meta) { this.meta.bans[pid] = Date.now() + banMs; this.saveMeta(); }
+          if (banMs > 0 && this.meta) this.setBan(pid, ev.p.name, banMs, 'Warden', reason);
           if (!t) return;
           this.sendErr(t, 'kicked', reason);
           this.handleLeave(t);
@@ -1682,3 +1765,9 @@ export function newerBuild(a: string, b: string): boolean {
   for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? 0) - (y[i] ?? 0); if (d) return d > 0; }
   return false;
 }
+
+interface BanInfo { name: string; by: string; reason: string; at: number }
+const PERMA = 8.64e15;
+const BAN_CMDS = new Set(['ban', 'tempban', 'unban', 'pardon', 'banlist', 'bans']);
+
+

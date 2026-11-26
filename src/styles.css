@@ -195,6 +195,10 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .hud-btn svg { width: 24px; height: 24px; }
 .item-name { position: absolute; bottom: calc(var(--hs, 2px) * 59 + var(--sab)); font-family: var(--mc-font); font-weight: 400 !important; font-size: calc(var(--hs, 2px) * 8) !important; text-shadow: var(--hs, 2px) var(--hs, 2px) 0 #3f3f3f !important; left: 50%; transform: translateX(-50%); font-weight: 750; text-shadow: 0 2px 0 #000; opacity: 0; transition: opacity 0.4s; white-space: nowrap; font-size: 15px; }
 .item-name.show { opacity: 1; transition: none; }
+.item-name { text-align: center; }
+.item-name.enchanted > div:first-child { color: #55ffff; }
+.item-name .item-ench { color: #b9b9ff; font-size: calc(var(--hs, 2px) * 6.5) !important; margin-top: calc(var(--hs, 2px) * 1); }
+.mc-tooltip.dock { white-space: normal; max-width: min(92vw, 520px); z-index: 320; }
 .hud-top { position: absolute; top: calc(8px + var(--sat)); left: calc(10px + var(--sal)); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .chip { background: rgba(10, 12, 16, 0.66); border: 1px solid rgba(255, 255, 255, 0.08); padding: 4px 10px; border-radius: 99px; font-size: 12px; font-weight: 650; display: flex; gap: 6px; align-items: center; }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
@@ -714,3 +718,5 @@ body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; mi
 .ad-banner { position: relative; width: min(728px, 92vw); height: 90px; margin: calc(var(--ms) * 4) auto 0; background: rgba(0, 0, 0, 0.35); border: var(--ms) solid rgba(0, 0, 0, 0.6); overflow: hidden; z-index: 2; }
 .ad-tag { position: absolute; top: 2px; left: 4px; font: 10px sans-serif; color: #aaa; z-index: 1; pointer-events: none; }
 @media (max-height: 600px) { .ad-banner { height: 50px; width: min(320px, 92vw); } }
+.kit-icons { flex-wrap: wrap; gap: 3px; }
+.slot.mc.static.kit-ico { position: relative; width: 30px; height: 30px; }
