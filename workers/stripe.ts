@@ -5,7 +5,11 @@ export interface StripeEnv {
   STRIPE_PRICE_ID?: string;
   SUPPORTER_CURRENCY?: string;
   SUPPORTER_AMOUNT?: string;
+  HOSTING_PRICE_ID?: string;
+  HOSTING_LABEL?: string;
 }
+
+export type RoomLookup = (code: string) => Promise<{ target: string; stub: { fetch(input: string | Request, init?: RequestInit): Promise<Response> } } | null>;
 
 const API = 'https://api.stripe.com/v1';
 
@@ -73,9 +77,9 @@ async function readBody(req: Request): Promise<Record<string, string>> {
   try { return JSON.parse((await req.text()).slice(0, 2048)) as Record<string, string>; } catch { return {}; }
 }
 
-export async function supporterRoute(req: Request, env: StripeEnv, path: string): Promise<Response> {
+export async function supporterRoute(req: Request, env: StripeEnv, path: string, rooms?: RoomLookup): Promise<Response> {
+  if (path === '/api/stripe/webhook') return webhook(req, env, rooms);
   if (!env.ACCOUNTS) return json({ error: 'Accounts are not enabled on this server.' }, 503);
-  if (path === '/api/stripe/webhook') return webhook(req, env);
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   const body = await readBody(req);
   const me = await accountsPost<{ ok?: boolean; error?: string; pid: string; name: string; customerId: string | null; active: boolean; until: number; color: string | null; status: string | null }>(env, '/sup/verify', { id: body.id, secret: body.secret });
@@ -118,7 +122,7 @@ export async function supporterRoute(req: Request, env: StripeEnv, path: string)
   return json({ error: 'Not found' }, 404);
 }
 
-async function webhook(req: Request, env: StripeEnv): Promise<Response> {
+async function webhook(req: Request, env: StripeEnv, rooms?: RoomLookup): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   if (!env.STRIPE_WEBHOOK_SECRET || !env.STRIPE_SECRET_KEY) return json({ error: 'Webhook not configured' }, 503);
   const payload = await req.text();
@@ -127,7 +131,16 @@ async function webhook(req: Request, env: StripeEnv): Promise<Response> {
   const evt = JSON.parse(payload) as { id: string; type: string; data: { object: Record<string, unknown> } };
   const obj = evt.data.object;
   try {
-    if (evt.type === 'checkout.session.completed' && obj.mode === 'subscription' && typeof obj.subscription === 'string') {
+    const md = (obj.metadata ?? {}) as Record<string, string>;
+    if (evt.type === 'checkout.session.completed' && obj.mode === 'subscription' && typeof obj.subscription === 'string' && md.kind === 'hosting') {
+      const sub = await stripe<Sub>(env, 'GET', `/subscriptions/${obj.subscription}`);
+      await hostEvent(rooms, md.room ?? sub.metadata?.room ?? '', { event: evt.id, sub: sub.id, status: sub.status, until: periodEnd(sub), customer: typeof obj.customer === 'string' ? obj.customer : null });
+    } else if (evt.type.startsWith('customer.subscription.') && md.kind === 'hosting') {
+      const sub = obj as unknown as Sub;
+      await hostEvent(rooms, md.room ?? '', { event: evt.id, sub: sub.id, status: evt.type.endsWith('deleted') ? 'canceled' : sub.status, until: periodEnd(sub), customer: sub.customer });
+    } else if (!env.ACCOUNTS) {
+      return json({ received: true, ignored: 'accounts off' });
+    } else if (evt.type === 'checkout.session.completed' && obj.mode === 'subscription' && typeof obj.subscription === 'string') {
       const sub = await stripe<Sub>(env, 'GET', `/subscriptions/${obj.subscription}`);
       const pid = (obj.client_reference_id as string | null) ?? sub.metadata?.pid ?? '';
       await accountsPost(env, '/sup/event', { event: evt.id, pid, customer: obj.customer, sub: sub.id, status: sub.status, until: periodEnd(sub) });
@@ -139,4 +152,58 @@ async function webhook(req: Request, env: StripeEnv): Promise<Response> {
     return json({ error: (e as Error).message }, 500);
   }
   return json({ received: true });
+}
+
+async function hostEvent(rooms: RoomLookup | undefined, code: string, e: { event: string; sub: string; status: string; until: number; customer: string | null }): Promise<void> {
+  if (!rooms || !code) throw new Error('Hosting event without a world');
+  const found = await rooms(`@${code}`);
+  if (!found) { console.warn('hosting event for missing world', code); return; }
+  const r = await found.stub.fetch('https://room/host/event', { method: 'POST', body: JSON.stringify(e) });
+  if (!r.ok && r.status !== 404) throw new Error(`World rejected hosting event (${r.status})`);
+}
+
+export function hostingEnabled(env: StripeEnv): boolean {
+  return !!(env.STRIPE_SECRET_KEY && env.HOSTING_PRICE_ID);
+}
+
+export async function hostingRoute(req: Request, env: StripeEnv, path: string, rooms: RoomLookup): Promise<Response> {
+  const enabled = hostingEnabled(env);
+  const label = env.HOSTING_LABEL ?? '$3 USD a month';
+  if (path === '/api/hosting/config') return json({ enabled, price: label });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  if (!enabled) return json({ error: 'Paid hosting is not set up on this server.' }, 503);
+  const body = await readBody(req);
+  const code = String(body.code ?? '').toUpperCase();
+  const found = await rooms(code);
+  if (!found) return json({ error: 'No world uses that code.' }, 404);
+  const or = await found.stub.fetch('https://room/host/owner', { method: 'POST', body: JSON.stringify({ ownerId: body.ownerId, ownerSecret: body.ownerSecret }) });
+  const owner = (await or.json()) as { ok?: boolean; error?: string; name: string; ownerId: string; customer: string | null; view: { renewing: boolean } };
+  if (!owner.ok) return json({ error: owner.error ?? 'Only the world owner can manage hosting.' }, or.status);
+  const origin = new URL(req.url).origin;
+  try {
+    if (path === '/api/hosting/checkout') {
+      if (owner.view.renewing) return json({ error: 'Hosting for this world is already active. Use Manage billing to change it.' }, 409);
+      const meta = { kind: 'hosting', room: found.target, code, name: owner.name.slice(0, 60) };
+      const session = await stripe<{ url: string }>(env, 'POST', '/checkout/sessions', {
+        mode: 'subscription',
+        line_items: [{ price: env.HOSTING_PRICE_ID, quantity: 1 }],
+        client_reference_id: owner.ownerId,
+        customer: owner.customer ?? undefined,
+        metadata: meta,
+        subscription_data: { metadata: meta, description: `Realm Hosting for ${owner.name.slice(0, 60)} (${code})` },
+        allow_promotion_codes: true,
+        success_url: `${origin}/?hosting=thanks&world=${encodeURIComponent(code)}`,
+        cancel_url: `${origin}/?hosting=cancelled&world=${encodeURIComponent(code)}`,
+      });
+      return json({ url: session.url });
+    }
+    if (path === '/api/hosting/portal') {
+      if (!owner.customer) return json({ error: 'This world has no hosting subscription yet.' }, 404);
+      const session = await stripe<{ url: string }>(env, 'POST', '/billing_portal/sessions', { customer: owner.customer, return_url: `${origin}/` });
+      return json({ url: session.url });
+    }
+  } catch (e) {
+    return json({ error: `Payment service error: ${(e as Error).message}` }, 502);
+  }
+  return json({ error: 'Not found' }, 404);
 }

@@ -2,7 +2,7 @@ import { dragonParts, rayPart } from '../core/sim/dragon';
 import * as THREE from 'three';
 import { MOB_BY_CODE, MobType, MOBS } from '../core/sim/mobs';
 import { PROFESSIONS } from '../core/trades';
-import { I, getItem, toolId } from '../core/items';
+import { I, getItem, toolId, armorId } from '../core/items';
 import { BLOCKS, B, SB, customBoxes, CUSTOM_BOX, makeBlock } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
 import type { TextureAtlas } from '../resources/TextureAtlas';
@@ -797,7 +797,7 @@ export class EntityRenderer {
       this.removeNow(id);
       v = undefined;
     }
-    if (v && kind === 'mob' && (v as EntityView & { pb?: number }).pb !== undefined && (v as EntityView & { pb?: number }).pb !== ((flags >> 9) & 15)) {
+    if (v && kind === 'mob' && (v as EntityView & { pb?: number }).pb !== undefined && (v as EntityView & { pb?: number }).pb !== ((flags >> 9) & (MOB_BY_CODE[type]?.type === 'rival' ? 31 : 15))) {
       this.removeNow(id);
       v = undefined;
     }
@@ -1004,10 +1004,17 @@ export class EntityRenderer {
         else { const mn = this.mobNames.get(id); if (mn) { v.name = mn; v.tag = this.nameTag(mn); v.tag.position.y = Math.max(1.2, v.h + 0.35); v.obj.add(v.tag); } }
       }
       if (kind === 'mob' && MOB_BY_CODE[type]?.type === 'villager') (v as EntityView & { pb?: number }).pb = (flags >> 9) & 15;
+      if (kind === 'mob' && MOB_BY_CODE[type]?.type === 'rival') {
+        const pb = (flags >> 9) & 31;
+        (v as EntityView & { pb?: number }).pb = pb;
+        const sw = pb & 7, gr = (pb >> 3) & 3;
+        const gm = [0, 2, 1, 3][gr];
+        this.equip.set(id, [sw ? toolId([0, 0, 1, 2, 4][sw], 3) : 0, 0, armorId(0, 0), armorId(0, 1), armorId(gm, 2), armorId(gm, 3), 0]);
+      }
       v.obj.position.set(x, y, z);
       this.group.add(v.obj);
       this.views.set(id, v);
-      if (kind === 'player') this.applyEquip(v);
+      if (kind === 'player' || (kind === 'mob' && MOB_BY_CODE[type]?.type === 'rival')) this.applyEquip(v);
     }
     if ((flags & 1) && !(v.flags & 1) && kind === 'mob') v.hurtT = 0.4;
     if (kind === 'player' && (flags & 1024) && !(v.flags & 1024)) v.swing = 1;

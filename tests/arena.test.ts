@@ -5,7 +5,7 @@ import { ChunkData } from '../src/core/chunk';
 import { B, blockId } from '../src/core/blocks';
 import { I } from '../src/core/items';
 import { Minigame, GameState } from '../src/core/labs/minigames/Minigame';
-import { ArenaKind, arenaLayout } from '../src/core/labs/minigames/arena';
+import { ArenaKind, arenaLayout, TEAM_WOOLS } from '../src/core/labs/minigames/arena';
 
 function arenaWorld(kind: ArenaKind) {
   const gen = new WorldGenerator(1, kind);
@@ -86,7 +86,7 @@ describe('Hearthfall', () => {
     sim.attack(p, qm.id);
     expect(p.screen.type).toBe('shop');
     sim.buy(p, 'wool');
-    expect(p.inv.slots.some((s) => s && s.count === 16 && (s.id === B.RED_WOOL || s.id === B.WHITE_WOOL || s.id === B.YELLOW_WOOL))).toBe(true);
+    expect(p.inv.slots.some((s) => s && s.count === 16 && TEAM_WOOLS.has(s.id))).toBe(true);
     expect(p.inv.slots[5]?.count).toBe(6);
     const L = arenaLayout('hearthfall');
     const enemy = L.teams.findIndex((_, i) => i !== mine.team && st.players.some((x) => x.team === i));
@@ -108,20 +108,20 @@ describe('Hearthfall', () => {
     sim.setBlock(0, 64, 0, 0);
     game.command({ ...sim.players.get('h1')!, op: true }, ['game', 'stop']);
     expect(blockId(store.getBlock(0, 70, 0))).toBe(0);
-    expect(blockId(store.getBlock(0, 64, 0))).toBe(B.AETHERITE_BLOCK);
+    expect(blockId(store.getBlock(0, 64, 0))).toBe(B.SMOOTH_STONE);
   });
 
-  it('lets rivals bridge and fight on their own', () => {
+  it('lets rivals earn, buy and build on their own', () => {
     const { sim, game, p } = arenaWorld('hearthfall');
     game.botFill = 3;
     for (let i = 0; i < 20 * 16; i++) sim.tick();
     p.x = 0.5; p.y = 101; p.z = 0.5;
-    const before = [...sim.entities.values()].filter((e) => e.type === 'rival').map((e) => [e.x, e.z]);
-    for (let i = 0; i < 20 * 20; i++) sim.tick();
-    const moved = [...sim.entities.values()].filter((e) => e.type === 'rival');
-    expect(before.length).toBe(3);
+    for (let i = 0; i < 20 * 40; i++) sim.tick();
+    const bots = [...game.parts.values()].filter((x) => x.bot);
+    expect(bots.length).toBe(3);
     let wool = 0;
-    for (let x = -40; x <= 40; x++) for (let z = -40; z <= 40; z++) { const id = blockId(sim.get(x, 64, z)); if (id === B.WHITE_WOOL || id === B.RED_WOOL || id === B.YELLOW_WOOL) wool++; }
-    expect(wool + moved.length).toBeGreaterThan(3);
+    for (let x = -48; x <= 48; x++) for (let z = -48; z <= 48; z++) for (let y = 64; y <= 68; y++) if (TEAM_WOOLS.has(blockId(sim.get(x, y, z))) && game.placed.has(`${x},${y},${z}`)) wool++;
+    expect(wool).toBeGreaterThan(3);
+    expect(bots.some((b) => b.kit!.sword >= 1 || b.kit!.blocks > 0)).toBe(true);
   });
 });

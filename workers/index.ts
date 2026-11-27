@@ -2,7 +2,7 @@ import { cleanKey, keyHint } from './adminKey';
 import { WorldRoom, Env } from './rooms/WorldRoom';
 import { Accounts } from './accounts/Accounts';
 import { Registry } from './registry/Registry';
-import { supporterRoute } from './stripe';
+import { supporterRoute, hostingRoute, RoomLookup } from './stripe';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode, PROTOCOL_VERSION, GAME_VERSION } from '../src/core/constants';
 
 function stamped(stub: DurableObjectStub) {
@@ -146,6 +146,12 @@ async function admin(req: Request, env: Env, path: string): Promise<Response> {
     const res = await stub.fetch('https://room/admin', { method: 'POST', body: text });
     return json(await res.json(), res.status);
   }
+  const ex = path.match(/^\/api\/admin\/rooms\/([A-Za-z0-9]+)\/export$/);
+  if (ex && req.method === 'POST') {
+    const found = await roomsFor(env)(ex[1]);
+    if (!found) return json({ error: 'That code is no longer in use.' }, 404);
+    return found.stub.fetch('https://room/export', { method: 'POST', headers: { 'x-strata-admin': '1' }, body: '{}' });
+  }
   if (path === '/api/admin/check') return json({ ok: true });
   return json({ error: 'Not found' }, 404);
 }
@@ -209,7 +215,9 @@ async function route(req: Request, env: Env): Promise<Response> {
       return new Response(r.body, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=20' } });
     }
 
-    if (path.startsWith('/api/supporter/') || path === '/api/stripe/webhook') return supporterRoute(req, env, path);
+    if (path.startsWith('/api/supporter/') || path === '/api/stripe/webhook') return supporterRoute(req, env, path, roomsFor(env));
+
+    if (path.startsWith('/api/hosting/')) return hostingRoute(req, env, path, roomsFor(env));
 
     const auth = path.match(/^\/api\/auth\/(register|login|password)$/);
     if (auth) {
@@ -218,6 +226,13 @@ async function route(req: Request, env: Env): Promise<Response> {
       const stub = env.ACCOUNTS.get(env.ACCOUNTS.idFromName('global'));
       const res = await stub.fetch(`https://accounts/${auth[1]}`, { method: 'POST', body: (await req.text()).slice(0, 2048), headers: { 'cf-connecting-ip': req.headers.get('cf-connecting-ip') ?? 'local' } });
       return new Response(res.body, { status: res.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+    }
+
+    const exportMatch = path.match(/^\/api\/rooms\/([A-Za-z0-9]+)\/export$/);
+    if (exportMatch && req.method === 'POST') {
+      const found = await roomsFor(env)(exportMatch[1]);
+      if (!found) return json({ error: 'No world uses that code.' }, 404);
+      return found.stub.fetch('https://room/export', { method: 'POST', body: (await req.text()).slice(0, 2048) });
     }
 
     const roomMatch = path.match(/^\/api\/rooms\/([A-Za-z0-9]+)(\/delete)?$/);
@@ -249,4 +264,15 @@ async function route(req: Request, env: Env): Promise<Response> {
 
     if (path.startsWith('/api/')) return json({ error: 'Not found' }, 404);
     return env.ASSETS.fetch(req);
+}
+
+function roomsFor(env: Env): RoomLookup {
+  return async (raw: string) => {
+    const str = String(raw ?? '');
+    if (str.startsWith('@')) { const t = str.slice(1); return /^[A-Za-z0-9]{4,16}$/.test(t) ? { target: t, stub: roomStub(env, t) } : null; }
+    const code = str.toUpperCase();
+    if (!isValidRoomCode(code)) return null;
+    const target = await resolveCode(env, code);
+    return target ? { target, stub: roomStub(env, target) } : null;
+  };
 }

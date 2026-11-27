@@ -3,7 +3,7 @@ import { decodeBlueprint, BP_PART, BP_MAX_PARTS } from '../../src/core/blueprint
 import { cleanKey, keyHint } from '../adminKey';
 import { DurableObject } from 'cloudflare:workers';
 import { parseBanSpan } from '../../src/core/bans';
-import { CHUNK_SIZE, PROTOCOL_VERSION, GAME_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode } from '../../src/core/constants';
+import { CHUNK_SIZE, PROTOCOL_VERSION, GAME_VERSION, MIN_PROTOCOL_VERSION, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, DIFFICULTIES, Difficulty, GameMode, SAVE_VERSION } from '../../src/core/constants';
 import { ChunkData, chunkKey, encodeRLE, decodeRLE, u16ToBase64 } from '../../src/core/chunk';
 import { WorldGenerator, type GeneratedChunk } from '../../src/core/worldgen/WorldGenerator';
 import { GenRegistry, GEN_LEVEL, LEGACY_LEVEL } from '../../src/core/worldgen/genLevel';
@@ -16,6 +16,7 @@ import { B, blockId } from '../../src/core/blocks';
 import { sanitizeInv, validateOp, invHash, validStack, cloneStack, equipmentOf } from '../../src/core/inventory';
 import { cleanPackList } from '../../src/core/datapack';
 import { Economy } from './Economy';
+import { HostState, HostView, SubEvent, hostView, freshHost, applySubEvent, fmtDay, daysLeft, hostLine, DAY, HOST_FREE_DAYS, HOST_TRIAL_DAYS, HOST_PURGE_DAYS, HOST_WARN_DAYS } from '../../src/core/hosting';
 import { ORE_REVEAL_RADIUS, maskChunk, exposedOres, revealAround, publicValue } from '../../src/core/antixray';
 import {
   C2S, S2C, RoomMeta, RoomInfo, PublicPlayer, RoomSettings, PackRef, ENT_KIND, q2, isNum, isInt, cleanName, cleanText, cleanAppearance,
@@ -36,9 +37,11 @@ export interface Env {
   STRIPE_PRICE_ID?: string;
   SUPPORTER_CURRENCY?: string;
   SUPPORTER_AMOUNT?: string;
+  HOSTING_PRICE_ID?: string;
+  HOSTING_TRIAL_DAYS?: string;
 }
 
-interface StoredMeta extends RoomMeta { end?: EndState; peak?: number; genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; banInfo?: Record<string, BanInfo>; }
+interface StoredMeta extends RoomMeta { end?: EndState; peak?: number; genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; banInfo?: Record<string, BanInfo>; host?: HostState; }
 
 interface Session {
   ws: WebSocket;
@@ -624,6 +627,9 @@ export class WorldRoom extends DurableObject<Env> {
     if (url.pathname === '/info') { try { return Response.json(this.info()); } catch (err) { console.error('info error', err); return Response.json({ error: 'World is busy, please retry.', retry: true }, { status: 503, headers: { 'retry-after': '3' } }); } }
     if (url.pathname === '/delete' && req.method === 'POST') return this.handleDelete(req);
     if (url.pathname === '/admin' && req.method === 'POST') return this.handleAdmin(req);
+    if (url.pathname === '/host/owner' && req.method === 'POST') return this.hostOwner(req);
+    if (url.pathname === '/host/event' && req.method === 'POST') return this.hostEvent(req);
+    if (url.pathname === '/export' && req.method === 'POST') return this.exportWorld(req);
     if (url.pathname === '/ws') {
       if (req.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('Expected WebSocket', { status: 426 });
       const pair = new WebSocketPair();
@@ -641,7 +647,9 @@ export class WorldRoom extends DurableObject<Env> {
     const m = this.loadMeta();
     if (!m) return { exists: false, code: '' };
     const players = [...this.sessions.values()].filter((s) => s.pid).map((s) => ({ id: s.pid!, name: s.name }));
-    return { exists: true, code: m.code, name: m.name, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, players, version: PROTOCOL_VERSION, min: MIN_PROTOCOL_VERSION, pack: m.pack, arena: m.arena ?? null };
+    const host = this.hostNow();
+    if (host.phase === 'purge') { this.ctx.waitUntil(this.purge()); return { exists: false, code: '' }; }
+    return { exists: true, code: m.code, name: m.name, ownerName: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, players, version: PROTOCOL_VERSION, min: MIN_PROTOCOL_VERSION, pack: m.pack, arena: m.arena ?? null, ...(host.phase === 'off' ? {} : { host }) };
   }
 
   private async handleInit(req: Request): Promise<Response> {
@@ -669,8 +677,10 @@ export class WorldRoom extends DurableObject<Env> {
       settings: { ...defaultSettings(), pvp: s.pvp !== false || !!arena, guestsBuild: s.guestsBuild !== false, cheats: mode === 'creative' ? s.cheats !== false : !!s.cheats, personalPacks: s.personalPacks !== false },
       region: cleanText(body.region, 8) || 'auto',
       ownerHash: await sha256(ownerSecret), time: 1000, weather: 'clear', dayCycle: true, muted: [], bans: {},
+      ...(this.hostingOn() && !arena ? { host: freshHost(Date.now(), this.trialDays()) } : {}),
     };
     this.saveMeta();
+    if (this.meta.host) this.armHostAlarm();
     return Response.json({ room: this.publicMeta() });
   }
 
@@ -685,6 +695,181 @@ export class WorldRoom extends DurableObject<Env> {
     const reg = this.env.REGISTRY;
     if (reg) await reg.get(reg.idFromName('global')).fetch('https://registry/remove', { method: 'POST', body: JSON.stringify({ code: m.code }) }).catch(() => undefined);
     return Response.json({ ok: true });
+  }
+
+  private hostingOn(): boolean {
+    return !!(this.env.STRIPE_SECRET_KEY && this.env.HOSTING_PRICE_ID);
+  }
+
+  private trialDays(): number {
+    const n = Number(this.env.HOSTING_TRIAL_DAYS ?? HOST_TRIAL_DAYS);
+    return Number.isFinite(n) ? Math.max(0, Math.min(60, n)) : HOST_TRIAL_DAYS;
+  }
+
+  private hostNow(): HostView {
+    const m = this.loadMeta();
+    if (!m || m.arena || !this.hostingOn()) return hostView(null, Date.now());
+    if (!m.host) {
+      m.host = freshHost(Date.now(), HOST_FREE_DAYS);
+      this.saveMeta();
+      this.armHostAlarm();
+    }
+    return hostView(m.host, Date.now());
+  }
+
+  private armHostAlarm(): void {
+    const h = this.meta?.host;
+    if (!h) return;
+    const v = hostView(h, Date.now());
+    const at = v.phase === 'active' ? v.lockAt + 60000 : v.purgeAt + 60000;
+    this.ctx.waitUntil(this.ctx.storage.setAlarm(Math.max(Date.now() + 60000, at)).catch(() => undefined));
+  }
+
+  async alarm(): Promise<void> {
+    const m = this.loadMeta();
+    if (!m?.host) return;
+    const v = this.hostNow();
+    if (v.phase === 'purge') { await this.purge(); return; }
+    if (v.phase === 'locked' && this.sessions.size) this.freeze();
+    this.armHostAlarm();
+  }
+
+  private freeze(): void {
+    const m = this.meta;
+    if (!m) return;
+    try { if (this.sim) this.flush(true); } catch (err) { console.error('freeze flush failed', err); }
+    const v = hostView(m.host, Date.now());
+    for (const s of [...this.sessions.values()]) this.sendErr(s, 'unpaid', `${m.name} is now frozen because its hosting lapsed. The owner can renew it or export it from the world page before ${fmtDay(v.purgeAt)}.`);
+    for (const s of [...this.sessions.values()]) this.handleLeave(s);
+    this.sessions.clear();
+    if (this.loop) { clearTimeout(this.loop); this.loop = null; }
+    this.armHostAlarm();
+  }
+
+  private purging = false;
+
+  private async purge(): Promise<void> {
+    const m = this.loadMeta();
+    if (!m?.host || this.purging) return;
+    if (!this.hostingOn() || m.host.comp || hostView(m.host, Date.now()).phase !== 'purge') return;
+    this.purging = true;
+    console.log('purging lapsed world', m.code);
+    for (const s of this.sessions.values()) this.sendErr(s, 'unavailable', 'This world was deleted after its hosting lapsed.');
+    const code = m.code;
+    try {
+      await this.wipe();
+      await this.ctx.storage.deleteAlarm().catch(() => undefined);
+      const reg = this.env.REGISTRY;
+      if (reg) await reg.get(reg.idFromName('global')).fetch('https://registry/remove', { method: 'POST', body: JSON.stringify({ code }) }).catch(() => undefined);
+    } finally { this.purging = false; }
+  }
+
+  private hostNotice(s: Session, id: string): void {
+    const m = this.meta;
+    if (!m?.host) return;
+    const isOwner = id === m.ownerId;
+    if (!isOwner && !s.op) return;
+    const v = hostView(m.host, Date.now());
+    if (v.phase !== 'active' || v.renewing) return;
+    const left = daysLeft(v.until, Date.now());
+    if (left > HOST_WARN_DAYS) return;
+    this.systemChat(isOwner
+      ? `${hostLine(v, Date.now())} Keep ${m.name} online with Realm Hosting ($3 a month) from the world page in Multiplayer. If it lapses the world freezes, and it is deleted ${HOST_PURGE_DAYS} days later.`
+      : `${hostLine(v, Date.now())} Ask the owner to renew Realm Hosting so the world stays online.`, 'info', s);
+  }
+
+  private async ownerOk(body: Record<string, unknown>): Promise<boolean> {
+    const m = this.loadMeta();
+    return !!m && body.ownerId === m.ownerId && (await sha256(String(body.ownerSecret ?? ''))) === m.ownerHash;
+  }
+
+  private async hostOwner(req: Request): Promise<Response> {
+    let body: Record<string, unknown>;
+    try { body = await req.json(); } catch { return Response.json({ error: 'bad json' }, { status: 400 }); }
+    const m = this.loadMeta();
+    if (!m) return Response.json({ error: 'This world does not exist.' }, { status: 404 });
+    if (!(await this.ownerOk(body))) return Response.json({ error: 'Only the world owner can manage hosting.' }, { status: 403 });
+    if (m.arena) return Response.json({ error: 'Game mode worlds do not need hosting.' }, { status: 400 });
+    const v = this.hostNow();
+    return Response.json({ ok: true, name: m.name, owner: m.ownerName, ownerId: m.ownerId, customer: m.host?.customer ?? null, view: v });
+  }
+
+  private async hostEvent(req: Request): Promise<Response> {
+    let e: SubEvent;
+    try { e = await req.json(); } catch { return Response.json({ error: 'bad json' }, { status: 400 }); }
+    const m = this.loadMeta();
+    if (!m) return Response.json({ error: 'gone' }, { status: 404 });
+    m.host ??= freshHost(Date.now(), 0);
+    const before = hostView(m.host, Date.now()).phase;
+    const changed = applySubEvent(m.host, e);
+    this.saveMeta();
+    this.armHostAlarm();
+    const after = hostView(m.host, Date.now());
+    if (changed && before === 'locked' && after.phase === 'active') console.log('world unfrozen by payment', m.code);
+    if (changed && after.renewing && this.sessions.size) this.systemChat(`Realm Hosting is active for ${m.name}. Thank you for keeping it online.`, 'info');
+    return Response.json({ ok: true, view: after });
+  }
+
+  private async exportWorld(req: Request): Promise<Response> {
+    const m = this.loadMeta();
+    if (!m) return Response.json({ error: 'This world does not exist.' }, { status: 404 });
+    let body: Record<string, unknown> = {};
+    try { body = await req.json(); } catch { /* admin export has no body */ }
+    const admin = req.headers.get('x-strata-admin') === '1';
+    if (!admin && !(await this.ownerOk(body))) return Response.json({ error: 'Only the world owner can export it.' }, { status: 403 });
+    if (m.arena) return Response.json({ error: 'Game mode worlds cannot be exported.' }, { status: 400 });
+    try { if (this.sim) this.flush(true); } catch (err) { console.error('export flush failed', err); }
+    const kv = (k: string): unknown => { const row = this.sql.exec(`SELECT v FROM kv WHERE k = ?`, k).toArray()[0]; if (!row) return undefined; try { return JSON.parse(row.v as string); } catch { return undefined; } };
+    const ownerRow = this.sql.exec(`SELECT data FROM players WHERE id = ?`, m.ownerId).toArray()[0];
+    let player: Record<string, unknown> | null = null;
+    if (ownerRow) {
+      try {
+        const d = JSON.parse(ownerRow.data as string) as Record<string, unknown>;
+        player = { x: d.x, y: d.y, z: d.z, yaw: d.yaw ?? 0, pitch: d.pitch ?? 0, mode: d.mode ?? m.mode, flying: false, inv: d.inv, health: d.health ?? 20, food: d.food ?? 20, sat: d.sat ?? 5, air: d.air ?? 300, xp: d.xp ?? 0, dead: !!d.dead, spawn: d.spawn, anchor: d.anchor, homes: d.homes, back: d.back };
+        if (!player.inv || !player.spawn) player = null;
+      } catch { player = null; }
+    }
+    const blockEntities: [string, unknown][] = [];
+    for (const row of this.sql.exec(`SELECT k, data FROM be`).toArray()) { try { blockEntities.push([row.k as string, JSON.parse(row.data as string)]); } catch { /* skip */ } }
+    const beChunks = this.sql.exec(`SELECT k FROM genbe`).toArray().map((r) => r.k as string);
+    const genLv: Record<string, string[]> = {};
+    for (const row of this.sql.exec(`SELECT k, v FROM genlv`).toArray()) (genLv[String(row.v)] ??= []).push(row.k as string);
+    const rules = m.rules ?? {};
+    const state = {
+      player, time: this.sim?.time ?? m.time, weather: this.sim?.weather ?? m.weather, weatherTimer: 6000, spawn: kv('spawn') ?? null,
+      blockEntities, beChunks, mobs: [], fixtures: kv('fixtures'), end: m.end, dayCycle: m.dayCycle ?? true,
+      genBase: m.genBase, genPts: kv('genpts'), genLv: Object.fromEntries(Object.entries(genLv).map(([k, v]) => [k, v.join(';')])),
+      rules, cheats: !!m.settings.cheats, datapacks: kv('datapacks'),
+    };
+    const meta = { id: 'export', name: m.name, seed: m.seed, mode: m.mode, difficulty: m.difficulty, createdAt: m.createdAt, lastPlayed: Date.now(), version: SAVE_VERSION, playTime: 0, secret: this.oreSeed(), ...(m.climate === undefined ? {} : { climate: m.climate }) };
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const w = writable.getWriter();
+    const enc = new TextEncoder();
+    const head = JSON.stringify({ format: 'strata-world', version: SAVE_VERSION, meta, state });
+    const job = (async () => {
+      try {
+        await w.write(enc.encode(`${head.slice(0, -1)},"chunks":{`));
+        let last = 0, first = true;
+        for (;;) {
+          const rows = this.sql.exec(`SELECT rowid AS r, k, d FROM chunks WHERE rowid > ? ORDER BY rowid LIMIT 200`, last).toArray();
+          if (!rows.length) break;
+          let part = '';
+          for (const row of rows) {
+            last = row.r as number;
+            const buf = row.d as ArrayBuffer;
+            const u16 = new Uint16Array(buf.slice(0, buf.byteLength - (buf.byteLength % 2)));
+            part += `${first ? '' : ','}${JSON.stringify(row.k)}:"${u16ToBase64(u16)}"`;
+            first = false;
+          }
+          await w.write(enc.encode(part));
+        }
+        await w.write(enc.encode('}}'));
+        await w.close();
+      } catch (err) { console.error('export failed', err); try { await w.abort(err); } catch { /* closed */ } }
+    })();
+    this.ctx.waitUntil(job);
+    const file = `${m.name.replace(/[^a-z0-9]+/gi, '_') || 'world'}.strata.json`;
+    return new Response(readable, { headers: { 'content-type': 'application/json', 'content-disposition': `attachment; filename="${file}"`, 'cache-control': 'no-store' } });
   }
 
   private lastReport = 0;
@@ -708,6 +893,16 @@ export class WorldRoom extends DurableObject<Env> {
     let b: Record<string, unknown>;
     try { b = await req.json(); } catch { return Response.json({ error: 'bad json' }, { status: 400 }); }
     const act = String(b.action ?? '');
+    if (act === 'hosting') {
+      if (!m.host && !m.arena) m.host = freshHost(Date.now(), HOST_FREE_DAYS);
+      if (m.host) {
+        if (typeof b.comp === 'boolean') m.host.comp = b.comp || undefined;
+        if (isInt(b.addDays, -365, 365) && b.addDays !== 0) m.host.free = Math.max(Date.now(), m.host.free) + b.addDays * DAY;
+        this.saveMeta();
+        this.armHostAlarm();
+      }
+      return Response.json({ ok: true, on: this.hostingOn(), host: m.host ? { ...hostView(m.host, Date.now()), comp: !!m.host.comp, sub: m.host.sub, status: m.host.status, start: m.host.start } : null });
+    }
     if (act === 'say') {
       const text = cleanText(b.text, 200);
       if (text) this.systemChat(`[Admin] ${text}`, 'info');
@@ -842,7 +1037,7 @@ export class WorldRoom extends DurableObject<Env> {
 
   private sendErr(s: Session, code: Extract<S2C, { t: 'err' }>['code'], msg: string): void {
     this.send(s, { t: 'err', code, msg });
-    try { s.ws.close(4000 + ['invalid', 'full', 'version', 'auth', 'kicked', 'banned', 'unavailable', 'duplicate'].indexOf(code), msg.slice(0, 100)); } catch { /* ignore */ }
+    try { s.ws.close(4000 + ['invalid', 'full', 'version', 'auth', 'kicked', 'banned', 'unavailable', 'duplicate', 'unpaid'].indexOf(code), msg.slice(0, 100)); } catch { /* ignore */ }
   }
 
   private broadcast(msg: S2C, except?: Session): void {
@@ -945,6 +1140,9 @@ export class WorldRoom extends DurableObject<Env> {
     if (s.pid) return;
     const m = this.loadMeta();
     if (!m) { this.sendErr(s, 'unavailable', 'This world does not exist or was deleted.'); return; }
+    const hv = this.hostNow();
+    if (hv.phase === 'purge') { await this.purge(); this.sendErr(s, 'unavailable', 'This world was deleted after its hosting lapsed.'); return; }
+    if (hv.phase === 'locked') { this.sendErr(s, (msg.v ?? 0) >= 41 ? 'unpaid' : 'unavailable', `${m.name} is frozen because its hosting lapsed. The owner can renew it ($3 a month) or export it from the world page. Unless renewed it will be deleted on ${fmtDay(hv.purgeAt)}.`); return; }
     if (typeof msg.v !== 'number' || msg.v < MIN_PROTOCOL_VERSION || msg.v > PROTOCOL_VERSION) { this.sendErr(s, 'version', `Version mismatch: the world runs protocol ${PROTOCOL_VERSION}, your game uses ${msg.v}. Reload the page to update.`); return; }
     const id = String(msg.id ?? ''), secret = String(msg.secret ?? '');
     if (!/^[a-zA-Z0-9-]{8,64}$/.test(id) || secret.length < 16 || secret.length > 128) { this.sendErr(s, 'auth', 'Invalid player credentials.'); return; }
@@ -1060,6 +1258,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (spectate) { this.systemChat('You are spectating as a server admin. Other players cannot see you.', 'info', s); this.report(true); return; }
     this.broadcast({ t: 'pj', p: this.publicPlayer(p) }, s);
     this.systemChat(`${name} joined the world.`, 'join');
+    this.hostNotice(s, id);
     this.report(true);
   }
 
@@ -1655,6 +1854,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (!this.loadMeta()) return;
     this.ticks++;
     if (this.ticks % 200 === 0) this.report();
+    if (this.ticks % 1200 === 900 && this.sessions.size && this.hostNow().phase === 'locked') { this.freeze(); return; }
     const now = Date.now();
     for (const s of [...this.sessions.values()]) {
       if (!s.pid && (s.queuedAt ? now - s.queuedAt > 45000 : now - s.joinedAt > 15000)) { this.sendErr(s, 'invalid', s.queuedAt ? 'World is busy, please retry.' : 'Handshake timed out.'); this.sessions.delete(s.ws); }

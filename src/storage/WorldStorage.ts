@@ -20,6 +20,7 @@ export interface WorldMeta {
   arena?: ArenaKind | null;
   climate?: number;
   studio?: boolean;
+  secret?: number;
 }
 
 export interface SavedPlayer {

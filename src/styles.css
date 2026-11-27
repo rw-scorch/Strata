@@ -330,6 +330,7 @@ body.vanilla-slots .inv-screen .slot:not(.mc).hover { filter: brightness(1.25); 
 .arena-board .ab-title { font-weight: 800; letter-spacing: 0.02em; font-size: 14px; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .arena-board .ab-alt { font-weight: 500; opacity: 0.55; font-size: 11px; }
 .arena-board .ab-phase { color: #f3c969; font-weight: 700; margin: 4px 0 8px; }
+.arena-board .ab-event { color: #9fd8ff; font-size: 12px; margin: -4px 0 8px; }
 .arena-board .ab-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
 .arena-board .ab-row.mine { font-weight: 800; }
 .arena-board .ab-row.out { opacity: 0.4; text-decoration: line-through; }

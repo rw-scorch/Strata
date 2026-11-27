@@ -311,11 +311,11 @@ export class Game {
     this.hurtEl = document.getElementById('hurt-flash')!;
   }
 
-  private setupCommon(seed: number, remote: boolean, arena: ArenaKind | null = null, climate?: number, studio = false): void {
+  private setupCommon(seed: number, remote: boolean, arena: ArenaKind | null = null, climate?: number, studio = false, secret?: number): void {
     const s = getSettings();
     const tint = document.getElementById('tint') as HTMLDivElement;
     this.renderer = new Renderer(this.canvas, this.atlas, (x, y, z) => Math.max(this.chunks?.lightProbe(x, y, z, this.renderer.skyState.day) ?? 1, this.dynLightAt(x, y, z)), tint);
-    this.gen = new WorldGenerator(seed, arena, remote ? { secret: null, climate } : climate === undefined && !studio ? undefined : { climate, studio });
+    this.gen = new WorldGenerator(seed, arena, remote ? { secret: null, climate } : climate === undefined && !studio && secret === undefined ? undefined : { climate, studio, ...(secret === undefined ? {} : { secret }) });
     this.renderer.setLodWorld(seed, arena, climate, studio);
     this.renderer.moving.ctx = { atlas: this.atlas.data, gen: this.gen };
     this.renderer.ghost.ctx = { atlas: this.atlas.data, gen: this.gen };
@@ -348,7 +348,7 @@ export class Game {
       }
       return null;
     };
-    this.chunks = new ChunkManager(seed, arena, this.atlas.data, { climate, studio }, {
+    this.chunks = new ChunkManager(seed, arena, this.atlas.data, { climate, studio, secret }, {
       loadStored: (cx, cz) => this.storedKeys?.has(`${cx},${cz}`) && this.worldMeta ? WorldStorage.loadChunk(this.worldMeta.id, cx, cz) : null,
       requestRemote: (cx, cz) => this.session?.requestChunk?.(cx, cz),
       onGenerated: (cx, cz, ents) => { if (this.session instanceof LocalSession) this.session.onGenerated(cx, cz, ents); },
@@ -515,7 +515,7 @@ export class Game {
     if (!rec) throw new Error('World not found');
     this.worldMeta = rec.meta;
     this.storedKeys = await WorldStorage.chunkKeys(meta.id);
-    this.setupCommon(rec.meta.seed, false, rec.meta.arena ?? null, rec.meta.climate, !!rec.meta.studio);
+    this.setupCommon(rec.meta.seed, false, rec.meta.arena ?? null, rec.meta.climate, !!rec.meta.studio, rec.meta.secret);
     const s = getSettings();
     const local = new LocalSession(rec.meta, rec.state, this.chunks, this.ev, s.playerName || 'Wayfarer', s.appearance);
     local.initLevels(rec.state, this.storedKeys ?? new Set());

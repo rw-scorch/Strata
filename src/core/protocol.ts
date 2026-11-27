@@ -1,3 +1,4 @@
+import type { HostView } from './hosting';
 import type { RuleSet } from './sim/WorldSim';
 import type { CrucibleView } from './sim/crucible';
 import type { ArenaKind } from './labs/minigames/arena';
@@ -51,6 +52,7 @@ export interface RoomInfo {
   min?: number;
   pack?: PackRef | null;
   arena?: ArenaKind | null;
+  host?: HostView;
 }
 
 export interface SkinRef { png: string; slim: boolean }
@@ -102,7 +104,7 @@ export type S2C =
   | { t: 'eco'; k: 'view'; view: EcoView }
   | { t: 'rtc'; from: string; d: unknown }
   | { t: 'welcome'; you: YouState; room: RoomMeta; players: PublicPlayer[]; time: number; cycle: boolean; weather: string; wd?: number; worldSpawn: { x: number; y: number; z: number }; rules?: RuleSet; recipes?: DataRecipes[] }
-  | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate'; msg: string }
+  | { t: 'err'; code: 'invalid' | 'full' | 'version' | 'auth' | 'kicked' | 'banned' | 'unavailable' | 'duplicate' | 'unpaid'; msg: string }
   | { t: 'chunk'; cx: number; cz: number; d: string | null; o?: number[]; lv?: number; om?: number[] }
   | { t: 'ores'; cx: number; cz: number; o: number[] }
   | { t: 'blk'; u: number[][] }

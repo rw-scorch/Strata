@@ -20,7 +20,7 @@ Until `STRIPE_SECRET_KEY` is set, the Supporter section is hidden from the Profi
    - Events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
 4) Copy that endpoint's signing secret (it starts with `whsec_`) and run `npx wrangler secret put STRIPE_WEBHOOK_SECRET`.
 5) Set the price. Choose one of these:
-   - Create a recurring monthly Price in Stripe and run `npx wrangler secret put STRIPE_PRICE_ID` with its `price_...` id.
+   - Create a recurring monthly Price in Stripe and put its `price_...` id in `STRIPE_PRICE_ID` under `vars` in `wrangler.jsonc` (price ids are not secret). This is already done for the live Supporter price.
    - Or skip the Price, and Strata creates the line item itself. It defaults to 200 cents USD a month. Change that with the `SUPPORTER_CURRENCY` (for example `nzd`) and `SUPPORTER_AMOUNT` (in cents) variables in the Cloudflare dashboard.
 6) In Stripe, under Settings, then Billing, then Customer portal, turn the portal on so players can cancel or update their card from the game.
 7) Test with Stripe's test card `4242 4242 4242 4242`. When it works, repeat steps 2 to 5 with your live keys.

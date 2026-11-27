@@ -186,6 +186,8 @@ export interface GameHooks {
   command(p: SimPlayer, parts: string[]): string | null;
   buy(p: SimPlayer, key: string): string | null;
   state(): unknown;
+  mobDamageScale?(e: Entity): number;
+  blastable?(x: number, y: number, z: number, v: number): boolean;
 }
 
 export interface Entity extends Body {
@@ -3906,6 +3908,7 @@ export class WorldSim {
   hurtMob(e: Entity, dmg: number, by: string | null, kx: number, kz: number, knock = 0.4): void {
     if (e.health <= 0) return;
     if (this.game?.mobInvulnerable(e)) return;
+    if (this.game?.mobDamageScale) dmg *= this.game.mobDamageScale(e);
     if (e.type === 'riftcore') { this.burstCrystal(e); return; }
     if (e.type === 'voidwyrm') { this.hurtDragon(e, dmg, by); return; }
     if (e.type === 'shellward') {
@@ -4786,6 +4789,12 @@ export class WorldSim {
       const imp = impactOf(p.id, p.x, p.y, p.z, 0.3, 1.8);
       if (imp <= 0) continue;
       this.damage(p, Math.floor((imp * imp + imp) / 2 * 7 * r + 1), 'explosion', x, z, true, false, undefined, imp * 1.6);
+    }
+    if (this.game?.blastable && hit.length) {
+      const keep: number[] = [];
+      for (let i = 0; i < hit.length; i += 3) if (this.game.blastable(hit[i], hit[i + 1], hit[i + 2], this.get(hit[i], hit[i + 1], hit[i + 2]))) keep.push(hit[i], hit[i + 1], hit[i + 2]);
+      hit.length = 0;
+      hit.push(...keep);
     }
     this.lastBlast = { x, y, z, power, broke: hit.length / 3 };
     if (hit.length) this.bulkBlast(hit, x, y, z);

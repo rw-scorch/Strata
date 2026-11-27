@@ -2,10 +2,10 @@ import { h } from '../dom';
 import type { TextureAtlas } from '../../resources/TextureAtlas';
 import type { GameState } from '../../core/labs/minigames/Minigame';
 import { ARENA_INFO } from '../../core/labs/minigames/arena';
-import { SHOP, CURRENCY_ITEM, CURRENCY_NAME, ShopOffer, Currency } from '../../core/labs/minigames/shop';
+import { SHOP, CURRENCY_ITEM, CURRENCY_NAME, CURRENCIES, ShopOffer, Currency, offerVisible, offerMaxed, UpgradeKey } from '../../core/labs/minigames/shop';
 import type { PlayerInv } from '../../core/inventory';
 
-const CATS: [ShopOffer['cat'], string][] = [['blocks', 'Blocks'], ['combat', 'Combat'], ['tools', 'Tools'], ['supplies', 'Supplies'], ['upgrades', 'Team upgrades']];
+const CATS: [ShopOffer['cat'], string][] = [['blocks', 'Blocks'], ['melee', 'Melee'], ['armour', 'Armour'], ['tools', 'Tools'], ['ranged', 'Ranged'], ['utility', 'Utility'], ['upgrades', 'Team']];
 
 function mmss(s: number): string { return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
@@ -19,6 +19,7 @@ export class ArenaUI {
   private onBuy: ((k: string) => void) | null = null;
   private inv: PlayerInv | null = null;
   state: GameState | null = null;
+  private myId = '';
   shopOpen = false;
   onShopClose: (() => void) | null = null;
 
@@ -33,12 +34,14 @@ export class ArenaUI {
 
   setState(s: GameState, myId: string): void {
     this.state = s;
+    this.myId = myId;
+    if (this.shopOpen) this.renderShop();
     const info = ARENA_INFO[s.kind];
     const me = s.players.find((p) => p.id === myId);
     let phase = '';
     if (s.phase === 'waiting') phase = 'Waiting for players';
     else if (s.phase === 'countdown') phase = `Starting in ${s.timer}s`;
-    else if (s.phase === 'playing') phase = s.kind === 'spires' ? `Fortune in ${s.next}s` : `Time ${mmss(s.timer)}`;
+    else if (s.phase === 'playing') phase = s.kind === 'spires' ? `Fortune in ${s.next}s · ${mmss(s.timer)}` : `Time ${mmss(s.timer)}`;
     else phase = s.winner ? `${s.winner} wins` : 'Draw';
     const rows: HTMLElement[] = [];
     if (s.kind === 'hearthfall' && s.phase !== 'waiting' && s.phase !== 'countdown') {
@@ -60,11 +63,14 @@ export class ArenaUI {
       rows.push(h('div', { class: 'ab-hint' }, info.desc));
       rows.push(h('div', { class: 'ab-hint dim' }, `Rivals fill ${s.bots} empty slot${s.bots === 1 ? '' : 's'}. Type /game for options.`));
     }
-    this.board.replaceChildren(
+    const ev = s.event ? h('div', { class: 'ab-event' }, `${s.event.name} in ${mmss(s.event.in)}`) : null;
+    if (me && s.phase === 'playing' && s.kind === 'hearthfall') rows.push(h('div', { class: 'ab-ups' }, `You: ${me.kills} takedowns, ${me.finals} final`));
+    this.board.replaceChildren(...[
       h('div', { class: 'ab-title' }, info.name, h('span', { class: 'ab-alt' }, info.alt)),
       h('div', { class: 'ab-phase' }, phase),
+      ev,
       ...rows,
-    );
+    ].filter((x): x is HTMLElement => !!x));
     this.board.style.display = 'block';
   }
 
@@ -105,15 +111,20 @@ export class ArenaUI {
   }
 
   private renderShop(): void {
-    const wallet = (['iron', 'gold', 'aetherite'] as Currency[]).map((c) => h('span', { class: `wallet ${c}` },
+    const me = this.state?.players.find((p) => p.id === this.myId);
+    const lv: Partial<Record<UpgradeKey, number>> = (me && this.state?.teams[me.team]?.lv) || {};
+    const ctx = { pick: me?.pick ?? 0, axe: me?.axe ?? 0, greaves: me?.greaves ?? 0, lv };
+    const wallet = CURRENCIES.map((c: Currency) => h('span', { class: `wallet ${c}` },
       h('span', { class: 'shop-ico', style: `${this.atlas.iconStyle(CURRENCY_ITEM[c], 22)};width:22px;height:22px` }), `${this.count(c)} ${CURRENCY_NAME[c]}`));
     const tabs = CATS.map(([k, label]) => h('button', { class: `tab${k === this.cat ? ' on' : ''}`, onclick: () => { this.cat = k; this.renderShop(); } }, label));
-    const offers = SHOP.filter((o) => o.cat === this.cat).map((o) => {
-      const afford = this.count(o.cost[0]) >= o.cost[1];
+    const shown = SHOP.filter((o) => o.cat === this.cat && (offerVisible(o, ctx) || (offerMaxed(o, ctx) && !SHOP.some((x) => x !== o && x.cat === o.cat && offerVisible(x, ctx) && (x.tool ? x.tool === o.tool : x.greaves ? true : x.upgrade === o.upgrade)))));
+    const offers = shown.map((o) => {
+      const maxed = offerMaxed(o, ctx);
+      const afford = !maxed && this.count(o.cost[0]) >= o.cost[1];
       return h('div', { class: `offer${afford ? '' : ' poor'}` },
         h('span', { class: 'shop-ico', style: `${this.atlas.iconStyle(o.icon, 40)};width:40px;height:40px` }),
         h('div', { class: 'of-text' }, h('div', { class: 'of-name' }, o.name), h('div', { class: 'of-desc' }, o.desc)),
-        h('button', { class: `btn ${afford ? 'primary' : ''} of-buy`, disabled: !afford, onclick: () => this.onBuy?.(o.key) }, `${o.cost[1]} ${CURRENCY_NAME[o.cost[0]]}`),
+        h('button', { class: `btn ${afford ? 'primary' : ''} of-buy`, disabled: !afford, onclick: () => this.onBuy?.(o.key) }, maxed ? 'Owned' : `${o.cost[1]} ${CURRENCY_NAME[o.cost[0]]}`),
       );
     });
     this.shopEl.replaceChildren(h('div', { class: 'card panel shop-card' },

@@ -33,7 +33,7 @@ export class LocalSession implements GameSession {
     this.meta = meta;
     this.ev = ev;
     this.chunks = chunks;
-    const gen = new WorldGenerator(meta.seed, meta.arena ?? null, meta.climate === undefined && !meta.studio ? undefined : { climate: meta.climate, studio: meta.studio });
+    const gen = new WorldGenerator(meta.seed, meta.arena ?? null, meta.climate === undefined && !meta.studio && meta.secret === undefined ? undefined : { climate: meta.climate, studio: meta.studio, ...(meta.secret === undefined ? {} : { secret: meta.secret }) });
     this.sim = new WorldSim({
       seed: meta.seed, store: chunks, gen, difficulty: meta.difficulty, emit: (e) => this.onEvent(e),
       validateMoves: false, authoritative: true, spawn: state?.spawn ?? undefined,

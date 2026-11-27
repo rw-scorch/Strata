@@ -59,6 +59,13 @@ class App {
       if (sup === 'thanks') toast('Thank you for supporting Strata! Your perks switch on as soon as the payment is confirmed.', 'info', 8000);
       else toast('Checkout cancelled. Nothing was charged.', 'info');
     }
+    const hostRet = new URLSearchParams(location.search).get('hosting');
+    if (hostRet) {
+      const world = new URLSearchParams(location.search).get('world') ?? '';
+      history.replaceState(null, '', location.pathname);
+      if (hostRet === 'thanks') toast(`Realm Hosting is set up${world ? ` for ${world}` : ''}. It switches on as soon as Stripe confirms the payment.`, 'info', 8000);
+      else toast('Checkout cancelled. Nothing was charged.', 'info');
+    }
     if (getAccount()) void supporterRequest('status');
     let rejoin: string | null = null;
     try { rejoin = sessionStorage.getItem('strata.rejoin'); sessionStorage.removeItem('strata.rejoin'); } catch { /* storage blocked */ }

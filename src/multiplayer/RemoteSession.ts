@@ -16,7 +16,7 @@ function retryDelay(n: number): number {
   return n <= 1 ? 1500 + Math.random() * 3500 : Math.min(30000, 2000 * 2 ** (n - 1)) * (0.5 + Math.random());
 }
 
-const FATAL = new Set(['kicked', 'banned', 'auth', 'version', 'unavailable', 'full', 'duplicate']);
+const FATAL = new Set(['kicked', 'banned', 'auth', 'version', 'unavailable', 'full', 'duplicate', 'unpaid']);
 const KIND = ['mob', 'item', 'arrow', 'tnt', 'cart', 'fireball', 'frame', 'boat'] as const;
 
 export function wsURL(code: string): string {

@@ -1,91 +1,101 @@
-import { B, blockId, isSolid } from '../../blocks';
-import { I, toolId, armorId, getItem } from '../../items';
+import { B, blockId } from '../../blocks';
+import { I, toolId, armorId, getItem, ITEM_LIST, CREATIVE_HIDDEN, maxStack } from '../../items';
 import { ItemStack, giveItem, emptyInv } from '../../inventory';
-import { moveBody, sampleMedium } from '../../physics';
+import { moveBody } from '../../physics';
 import type { WorldSim, SimPlayer, Entity, GameHooks } from '../../sim/WorldSim';
-import { ArenaKind, ArenaLayout, arenaLayout, ARENA_INFO, V3 } from './arena';
-import { SHOP, CURRENCY_ITEM, CURRENCY_NAME } from './shop';
+import { ArenaKind, ArenaLayout, arenaLayout, ARENA_INFO, V3, TEAM_TINTS, TEAM_WOOLS } from './arena';
+import { SHOP, CURRENCY_ITEM, CURRENCY_NAME, CURRENCIES, ShopOffer, UpgradeKey, UPGRADE_MAX, toolOf, GREAVES_MATS, offerVisible } from './shop';
+import { Rivals, Part, Host, Foe, newKit, botArmourPoints, Difficulty, SKILL } from './bots';
 
 export type Phase = 'waiting' | 'countdown' | 'playing' | 'ended';
 
-export interface GamePlayerState { id: string; name: string; team: number; alive: boolean; bot: boolean; kills: number; ent?: number; }
+export interface GamePlayerState { id: string; name: string; team: number; alive: boolean; bot: boolean; kills: number; finals: number; ent?: number; pick: number; axe: number; greaves: number }
 export interface GameState {
   kind: ArenaKind;
   phase: Phase;
   timer: number;
-  teams: { name: string; color: string; hearth: boolean; alive: number; upgrades: string[] }[];
+  teams: { name: string; color: string; hearth: boolean; alive: number; upgrades: string[]; lv: Partial<Record<UpgradeKey, number>> }[];
   players: GamePlayerState[];
   winner: string | null;
   next: number;
   bots: number;
+  event?: { name: string; in: number } | null;
+  difficulty?: Difficulty;
 }
 
-interface Part {
-  id: string;
-  name: string;
-  bot: boolean;
-  team: number;
-  alive: boolean;
-  out: boolean;
-  kills: number;
-  ent: number;
-  respawnAt: number;
-  bonus: number;
-  dig: { k: string; t: number } | null;
-  placeCd: number;
-  target: string | null;
-  lastHit: string | null;
-  rushAt: number;
-}
-
-interface TeamState { hearth: boolean; forge: number; blades: boolean; plating: boolean; npc: number; }
+interface TeamState { hearth: boolean; lv: Record<UpgradeKey, number> }
 
 const DT = 1 / 20;
-const BOT_NAMES = ['Kestrel', 'Thornwick', 'Vesper', 'Corvin', 'Sable', 'Quillon', 'Marrow', 'Halcyon', 'Juniper', 'Brisk', 'Wren', 'Ashby'];
-const WOOLS = new Set<number>([B.WHITE_WOOL, B.RED_WOOL, B.YELLOW_WOOL]);
+const BOT_NAMES = ['Kestrel', 'Thornwick', 'Vesper', 'Corvin', 'Sable', 'Quillon', 'Marrow', 'Halcyon', 'Juniper', 'Brisk', 'Wren', 'Ashby', 'Lark', 'Rook', 'Fennic', 'Ostler'];
 const key = (x: number, y: number, z: number) => `${x},${y},${z}`;
-
 const sw = (m: number): ItemStack => ({ id: toolId(m, 3), count: 1 });
-const LUCKY: [number, () => ItemStack][] = [
-  [10, () => ({ id: B.STONE, count: 8 + Math.floor(Math.random() * 8) })],
-  [10, () => ({ id: B.WHITE_WOOL, count: 12 })],
-  [8, () => ({ id: B.OAK_PLANKS, count: 10 })],
-  [5, () => ({ id: B.COBBLESTONE, count: 10 })],
-  [3, () => ({ id: B.GLASS, count: 6 })],
-  [2, () => ({ id: B.OBSIDIAN, count: 3 })],
-  [3, () => ({ id: B.LADDER, count: 6 })],
-  [6, () => sw(1)], [4, () => sw(2)], [3, () => sw(3)], [1, () => sw(4)],
-  [3, () => ({ id: toolId(2, 1), count: 1 })], [3, () => ({ id: toolId(1, 0), count: 1 })], [2, () => ({ id: toolId(2, 0), count: 1 })],
-  [3, () => ({ id: armorId(0, 1), count: 1 })], [2, () => ({ id: armorId(1, 0), count: 1 })], [2, () => ({ id: armorId(1, 1), count: 1 })],
-  [2, () => ({ id: armorId(1, 2), count: 1 })], [2, () => ({ id: armorId(1, 3), count: 1 })], [1, () => ({ id: armorId(3, 1), count: 1 })],
-  [5, () => ({ id: I.BREAD, count: 3 })], [4, () => ({ id: I.COOKED_PORK, count: 2 })], [3, () => ({ id: I.APPLE, count: 3 })],
-  [2, () => ({ id: I.WATER_BUCKET, count: 1 })],
-];
-const LUCKY_TOTAL = LUCKY.reduce((a, [w]) => a + w, 0);
+const MIN = 20 * 60;
 
-export class Minigame implements GameHooks {
+interface TimelineEvent { at: number; name: string; run: (g: Minigame) => void }
+const TIMELINE: TimelineEvent[] = [
+  { at: 4 * MIN, name: 'Diamond II', run: (g) => { g.tier.dia = 2; } },
+  { at: 8 * MIN, name: 'Emerald II', run: (g) => { g.tier.em = 2; } },
+  { at: 12 * MIN, name: 'Diamond III', run: (g) => { g.tier.dia = 3; } },
+  { at: 16 * MIN, name: 'Emerald III', run: (g) => { g.tier.em = 3; } },
+  { at: 20 * MIN, name: 'Hearths gutter', run: (g) => g.gutter() },
+  { at: 25 * MIN, name: 'Round ends', run: (g) => g.timeUp() },
+];
+const GEN_EVERY = { dia: [600, 460, 240], em: [1300, 1000, 700] };
+const FORGE_RATE = [1, 1.5, 2, 2, 3];
+
+const SPIRES_LIMIT = 8 * MIN;
+const FORTUNE_EVERY = 100;
+const FORTUNE_BANNED = new Set<number>([B.BEDROCK]);
+let fortunePool: number[] | null = null;
+function fortuneItems(): number[] {
+  if (!fortunePool) {
+    const bad = /spawner|end_portal_frame|dragon_egg|command|structure|barrier|jigsaw/;
+    fortunePool = ITEM_LIST.filter((it) => !CREATIVE_HIDDEN.has(it.id) && !FORTUNE_BANNED.has(it.id) && !bad.test(it.key)).map((it) => it.id);
+  }
+  return fortunePool;
+}
+
+export function rollFortune(rnd: () => number = Math.random): ItemStack {
+  const pool = fortuneItems();
+  const id = pool[Math.floor(rnd() * pool.length)];
+  const def = getItem(id);
+  const cap = maxStack(id);
+  let count = 1;
+  if (def?.kind === 'block') count = Math.min(cap, 6 + Math.floor(rnd() * 11));
+  else if (def?.kind === 'food') count = Math.min(cap, 1 + Math.floor(rnd() * 4));
+  else if (def?.kind === 'material') count = Math.min(cap, 1 + Math.floor(rnd() * 6));
+  return { id, count };
+}
+
+export class Minigame implements GameHooks, Host {
   readonly kind: ArenaKind;
   readonly layout: ArenaLayout;
-  private sim: WorldSim;
+  readonly sim: WorldSim;
   phase: Phase = 'waiting';
   private timer = 0;
-  private parts = new Map<string, Part>();
+  readonly parts = new Map<string, Part>();
   private teams: TeamState[] = [];
-  private placed = new Set<string>();
+  readonly placed = new Set<string>();
   private changed = new Map<string, number>();
   private restoring = false;
   private genT: number[] = [];
   private luckyT = 0;
   private winner: string | null = null;
   private dirty = true;
-  private elapsed = 0;
+  elapsed = 0;
   botFill: number;
+  difficulty: Difficulty = 'normal';
+  tier = { dia: 1, em: 1 };
+  private tnt: [number, number, number][] = [];
+  private snared = new Set<number>();
+  private rivals: Rivals;
 
   constructor(sim: WorldSim, kind: ArenaKind) {
     this.sim = sim;
     this.kind = kind;
     this.layout = arenaLayout(kind);
     this.botFill = kind === 'spires' ? 5 : 4;
+    this.rivals = new Rivals(this);
     Object.assign(sim.settings, { pvp: true, dayCycle: false, weatherCycle: false });
     sim.time = 6000;
     sim.weather = 'clear';
@@ -95,19 +105,25 @@ export class Minigame implements GameHooks {
       if (!this.restoring) {
         const k = key(x, y, z);
         if (!this.changed.has(k)) this.changed.set(k, store.getBlock(x, y, z));
-        if (this.phase === 'playing') { if (v) this.placed.add(k); else this.placed.delete(k); }
+        if (this.phase === 'playing') {
+          if (v) this.placed.add(k); else this.placed.delete(k);
+          if (blockId(v) === B.TNT) this.tnt.push([x, y, z]);
+        }
       }
       orig(x, y, z, v);
     };
   }
 
-  private get now(): number { return this.sim.tickCount; }
+  get now(): number { return this.sim.tickCount; }
   private humans(): SimPlayer[] { return [...this.sim.players.values()]; }
   private part(p: SimPlayer): Part | undefined { return this.parts.get(p.id); }
   private teamCount(): number { return this.kind === 'hearthfall' ? this.layout.teams.length : 0; }
 
   private title(text: string, sub = '', to?: string): void { this.sim.emit({ e: 'title', text, sub, to }); }
   private say(text: string, kind: 'system' | 'info' | 'death' | 'error' = 'system', to?: string): void { this.sim.emit({ e: 'msg', text, kind, to }); }
+  private teamSay(team: number, text: string, title?: [string, string]): void {
+    for (const pt of this.parts.values()) if (!pt.bot && pt.team === team) { this.say(text, 'info', pt.id); if (title) this.title(title[0], title[1], pt.id); }
+  }
 
   private tpTo(p: SimPlayer, v: V3): void {
     p.x = v[0]; p.y = v[1]; p.z = v[2]; p.peakY = p.y;
@@ -146,13 +162,16 @@ export class Minigame implements GameHooks {
     this.clearEntities();
     this.parts.clear();
     this.placed.clear();
+    this.snared.clear();
+    this.tnt = [];
     this.winner = null;
     this.elapsed = 0;
+    this.tier = { dia: 1, em: 1 };
     this.luckyT = 60;
     const L = this.layout;
     const hs = this.humans().filter((p) => p.mode === 'survival');
     const tc = this.teamCount();
-    this.teams = L.teams.map(() => ({ hearth: true, forge: 0, blades: false, plating: false, npc: 0 }));
+    this.teams = L.teams.map(() => ({ hearth: true, lv: { edge: 0, bulwark: 0, forge: 0, spring: 0, snare: 0 } }));
     const order = [...hs].sort(() => Math.random() - 0.5);
     const slots = this.kind === 'spires' ? L.spawns.length : tc * 2;
     const humanParts = order.slice(0, slots);
@@ -160,13 +179,20 @@ export class Minigame implements GameHooks {
     const botCount = Math.max(0, Math.min(this.botFill, slots - humanParts.length));
     const want = Math.min(slots, humanParts.length + botCount);
     let bi = 0;
+    const used = new Set<string>();
     while (this.parts.size < want) {
       let team = -1;
       if (tc) { const counts = new Array(tc).fill(0); for (const pt of this.parts.values()) counts[pt.team]++; team = counts.indexOf(Math.min(...counts)); }
-      const name = BOT_NAMES[(bi + Math.floor(Math.random() * 3)) % BOT_NAMES.length];
+      const name = BOT_NAMES[(bi * 7 + Math.floor(Math.random() * BOT_NAMES.length)) % BOT_NAMES.length];
       const id = `bot:${bi++}`;
-      if ([...this.parts.values()].some((x) => x.name === name)) continue;
+      if (used.has(name) || [...this.parts.values()].some((x) => x.name === name)) continue;
+      used.add(name);
       this.parts.set(id, this.newPart(id, name, true, team));
+    }
+    if (tc) for (let t = 0; t < tc; t++) {
+      const bots = [...this.parts.values()].filter((x) => x.bot && x.team === t);
+      const humansOnTeam = [...this.parts.values()].some((x) => !x.bot && x.team === t);
+      bots.forEach((b, i) => { b.kit!.role = bots.length === 1 ? (humansOnTeam ? 'guard' : 'solo') : i === 0 ? 'guard' : 'rush'; });
     }
     const spawnIdx = [...L.spawns.keys()].sort(() => Math.random() - 0.5);
     let si = 0;
@@ -177,7 +203,7 @@ export class Minigame implements GameHooks {
         const p = this.sim.players.get(pt.id)!;
         p.dead = false; p.health = 20; p.food = 20; p.sat = 5; p.air = 300; p.fireT = 0;
         p.inv = emptyInv();
-        if (tc) giveItem(p.inv, sw(0));
+        if (tc) this.kitOut(p, pt, true);
         p.spawn = { x: sp[0], y: sp[1], z: sp[2] };
         this.sim.emit({ e: 'inv', p });
         this.sim.emit({ e: 'vitals', p });
@@ -186,21 +212,38 @@ export class Minigame implements GameHooks {
       }
     }
     for (const p of hs) if (!this.parts.has(p.id)) this.say('The arena is full this round. You are watching from the gallery.', 'info', p.id);
-    if (tc) L.teams.forEach((t, i) => {
+    if (tc) L.teams.forEach((t) => {
       const e = this.sim.spawnMob('quartermaster', t.npc[0], t.npc[1], t.npc[2]);
       e.yaw = Math.atan2(t.dir[0], t.dir[1]);
-      this.teams[i].npc = e.id;
     });
     this.genT = L.gens.map(() => 0);
     this.phase = 'playing';
     this.timer = 0;
     this.dirty = true;
     this.title(ARENA_INFO[this.kind].name, this.kind === 'spires' ? 'Last one standing wins' : 'Guard your hearth. Snuff out theirs.');
-    if (tc) for (const pt of this.parts.values()) if (!pt.bot) this.say(`You fight for ${L.teams[pt.team].name}.`, 'info', pt.id);
+    if (tc) for (const pt of this.parts.values()) if (!pt.bot) this.say(`You fight for ${L.teams[pt.team].name}. Gather iron and gold at your forge, then visit the Quartermaster.`, 'info', pt.id);
   }
 
   private newPart(id: string, name: string, bot: boolean, team: number): Part {
-    return { id, name, bot, team, alive: true, out: false, kills: 0, ent: 0, respawnAt: 0, bonus: 0, dig: null, placeCd: 0, target: null, lastHit: null, rushAt: 0 };
+    const pt: Part = { id, name, bot, team, alive: true, out: false, kills: 0, finals: 0, ent: 0, respawnAt: 0, lastHit: null, pick: 0, axe: 0, greaves: 0, shears: false };
+    if (bot) pt.kit = newKit(SKILL[this.difficulty], 'solo');
+    return pt;
+  }
+
+  private kitOut(p: SimPlayer, pt: Part, fresh: boolean): void {
+    giveItem(p.inv, sw(0));
+    if (pt.pick) giveItem(p.inv, { id: toolOf('pick', pt.pick), count: 1 });
+    if (pt.axe) giveItem(p.inv, { id: toolOf('axe', pt.axe), count: 1 });
+    if (pt.shears) giveItem(p.inv, { id: I.SHEARS, count: 1 });
+    if (fresh || !p.inv.armor[0]) p.inv.armor[0] = { id: armorId(0, 0), count: 1 };
+    if (fresh || !p.inv.armor[1]) p.inv.armor[1] = { id: armorId(0, 1), count: 1 };
+    this.wearGreaves(p, pt);
+  }
+
+  private wearGreaves(p: SimPlayer, pt: Part): void {
+    const m = GREAVES_MATS[Math.min(3, pt.greaves)];
+    p.inv.armor[2] = { id: armorId(m, 2), count: 1 };
+    p.inv.armor[3] = { id: armorId(m, 3), count: 1 };
   }
 
   private spawnBot(pt: Part, sp: V3): void {
@@ -208,7 +251,9 @@ export class Minigame implements GameHooks {
     e.health = e.maxHealth = 20;
     pt.ent = e.id;
     pt.alive = true;
-    pt.rushAt = this.now + 500 + Math.floor(Math.random() * 700);
+    const k = pt.kit!;
+    k.plan = 'idle'; k.goal = null; k.foe = null; k.dig = null; k.tower = 0; k.best = Infinity; k.bestT = this.now; k.fort = 0; k.trail = []; k.back = false; k.leap = false;
+    if (this.kind === 'spires') k.blocks = 0;
     this.dirty = true;
   }
 
@@ -218,7 +263,9 @@ export class Minigame implements GameHooks {
     this.winner = winner;
     this.dirty = true;
     this.title(winner ? `${winner} wins` : 'Draw', 'Next round soon');
-    this.say(winner ? `${winner} won the round.` : 'Nobody survived. The round is a draw.');
+    this.say(winner ? `${winner} won the round.` : [...this.parts.values()].some((p) => !p.out) ? 'The round is a draw.' : 'Nobody survived. The round is a draw.');
+    const top = [...this.parts.values()].sort((a, b) => b.finals - a.finals || b.kills - a.kills)[0];
+    if (top && (top.kills || top.finals)) this.say(`Most takedowns: ${top.name} with ${top.kills}${this.kind === 'hearthfall' ? ` (${top.finals} final)` : ''}.`);
   }
 
   private finish(): void {
@@ -233,7 +280,7 @@ export class Minigame implements GameHooks {
 
   private clearEntities(): void {
     for (const e of [...this.sim.entities.values()]) {
-      if (e.kind === 'item' || e.kind === 'arrow' || e.type === 'rival' || e.type === 'quartermaster') {
+      if (e.kind === 'item' || e.kind === 'arrow' || e.kind === 'tnt' || e.type === 'rival' || e.type === 'quartermaster' || e.type === 'pearl') {
         this.sim.entities.delete(e.id);
         this.sim.emit({ e: 'remove', id: e.id, why: 'despawn' });
       }
@@ -248,6 +295,23 @@ export class Minigame implements GameHooks {
     }
     this.changed.clear();
     this.restoring = false;
+  }
+
+  gutter(): void {
+    this.teams.forEach((t) => { t.hearth = false; });
+    this.title('Hearths gutter', 'Every fall is final now');
+    this.say('The hearths have guttered out. Nobody respawns from here.');
+    this.dirty = true;
+  }
+
+  timeUp(): void {
+    const ps = [...this.parts.values()];
+    const score = this.layout.teams.map((_, i) => ({ i, alive: ps.filter((p) => p.team === i && !p.out).length, finals: ps.filter((p) => p.team === i).reduce((a, p) => a + p.finals, 0) }));
+    score.sort((a, b) => b.alive - a.alive || b.finals - a.finals);
+    const best = score[0];
+    const tie = score[1] && score[1].alive === best.alive && score[1].finals === best.finals;
+    this.say('Time is up.');
+    this.end(best && best.alive > 0 && !tie ? this.layout.teams[best.i].name : null);
   }
 
   // ---------- tick ----------
@@ -289,12 +353,23 @@ export class Minigame implements GameHooks {
       if (!pt.bot || pt.out) continue;
       if (!pt.alive && pt.respawnAt && this.now >= pt.respawnAt) { pt.respawnAt = 0; this.spawnBot(pt, L.teams[pt.team].spawn); }
     }
-    if (this.kind === 'spires' && --this.luckyT <= 0) {
-      this.luckyT = 140;
+    if (this.tnt.length) {
+      const q = this.tnt; this.tnt = [];
+      for (const [x, y, z] of q) if (blockId(this.sim.get(x, y, z)) === B.TNT) { this.sim.setBlock(x, y, z, 0); this.sim.primeTnt(x + 0.5, y, z + 0.5, 52); }
+    }
+    if (this.kind === 'spires') this.tickSpires();
+    else this.tickHearthfall();
+    if (this.now % 20 === 0) for (const e of [...this.sim.entities.values()]) if (e.kind === 'item' && e.y < L.voidY - 20) { this.sim.entities.delete(e.id); this.sim.emit({ e: 'remove', id: e.id, why: 'despawn' }); }
+    if (this.phase === 'playing') this.checkWin();
+  }
+
+  private tickSpires(): void {
+    if (--this.luckyT <= 0) {
+      this.luckyT = FORTUNE_EVERY;
       for (const pt of this.parts.values()) {
         if (!pt.alive) continue;
-        const st = this.rollLucky();
-        if (pt.bot) { pt.bonus = Math.min(6, pt.bonus + (getItem(st.id)?.kind === 'tool' ? 1 : 0.25)); continue; }
+        const st = rollFortune();
+        if (pt.bot) { this.botFortune(pt, st); continue; }
         const p = this.sim.players.get(pt.id);
         if (!p || p.dead) continue;
         if (giveItem(p.inv, st) > 0) this.sim.spawnItem(p.x, p.y + 1, p.z, st);
@@ -303,29 +378,88 @@ export class Minigame implements GameHooks {
       }
       this.dirty = true;
     }
-    if (this.kind === 'hearthfall') {
-      L.gens.forEach((g, i) => {
-        const lvl = g.team !== undefined ? this.teams[g.team].forge : 0;
-        this.genT[i] += 1 + lvl * 0.5;
-        if (this.genT[i] < g.every) return;
-        this.genT[i] = 0;
-        let near = 0;
-        for (const e of this.sim.entities.values()) if (e.kind === 'item' && e.item!.id === CURRENCY_ITEM[g.item] && Math.abs(e.x - g.pos[0]) < 2 && Math.abs(e.z - g.pos[2]) < 2) near += e.item!.count;
-        if (near >= (g.item === 'iron' ? 48 : 12)) return;
-        const e = this.sim.spawnItem(g.pos[0], g.pos[1], g.pos[2], { id: CURRENCY_ITEM[g.item], count: 1 }, 0, 0, 0, 0);
-        if (e) e.age = 0;
-      });
-      if (this.elapsed === 20 * 60 * 9) this.say('The hearths gutter in one minute. After that, every fall is final.');
-      if (this.elapsed === 20 * 60 * 10) { this.teams.forEach((t) => { t.hearth = false; }); this.title('Sudden death', 'No more respawns'); this.dirty = true; }
+    if (this.elapsed === SPIRES_LIMIT - MIN) this.say('One minute left. If more than one survivor remains, the one with the most takedowns wins.');
+    if (this.elapsed >= SPIRES_LIMIT) {
+      const alive = [...this.parts.values()].filter((p) => p.alive || (!p.out && p.respawnAt > 0)).sort((a, b) => b.kills - a.kills);
+      const tie = alive.length > 1 && alive[0].kills === alive[1].kills;
+      this.say('Time is up.');
+      this.end(alive.length && !tie ? alive[0].name : null);
     }
-    if (this.now % 20 === 0) for (const e of [...this.sim.entities.values()]) if (e.kind === 'item' && e.y < L.voidY - 20) { this.sim.entities.delete(e.id); this.sim.emit({ e: 'remove', id: e.id, why: 'despawn' }); }
-    this.checkWin();
   }
 
-  private rollLucky(): ItemStack {
-    let r = Math.random() * LUCKY_TOTAL;
-    for (const [w, f] of LUCKY) { r -= w; if (r <= 0) return f(); }
-    return LUCKY[0][1]();
+  private botFortune(pt: Part, st: ItemStack): void {
+    const k = pt.kit!;
+    const def = getItem(st.id);
+    const e = this.sim.entities.get(pt.ent);
+    if (def?.kind === 'block') {
+      const b = def.places !== undefined ? def.places : st.id;
+      if (b && b !== B.SAND && b !== B.GRAVEL && b !== B.TNT) k.blocks = Math.min(64, k.blocks + st.count);
+    } else if (def?.tool?.type === 'sword' || def?.tool?.type === 'axe') {
+      const tier = [0, 1, 2, 2, 3, 3][TOOL_TIER(st.id)];
+      k.sword = Math.max(k.sword, tier);
+    } else if (def?.armor) pt.greaves = Math.min(3, pt.greaves + (def.armor.points >= 5 ? 1 : def.armor.points >= 3 ? 0.5 : 0.25));
+    else if (def?.kind === 'food' && e) { e.health = Math.min(e.maxHealth, e.health + 3); if (st.id === I.GOLDEN_APPLE) k.gapples++; }
+  }
+
+  private tickHearthfall(): void {
+    const L = this.layout;
+    for (const ev of TIMELINE) if (this.elapsed === ev.at) {
+      ev.run(this);
+      if (ev.name.startsWith('Diamond') || ev.name.startsWith('Emerald')) { this.title(ev.name, `${ev.name.split(' ')[0]} islands work faster`); this.say(`${ev.name}: ${ev.name.split(' ')[0].toLowerCase()} generators speed up.`); }
+      this.dirty = true;
+      if (this.phase !== 'playing') return;
+    }
+    if (this.elapsed === 20 * MIN - MIN) this.say('The hearths gutter in one minute. After that, every fall is final.');
+    L.gens.forEach((g, i) => {
+      let every = g.every, rate = 1;
+      if (g.team !== undefined) {
+        const lv = this.teams[g.team].lv.forge;
+        if (g.needForge && lv < g.needForge) return;
+        rate = FORGE_RATE[lv];
+      } else if (g.tier) every = GEN_EVERY[g.tier][(g.tier === 'dia' ? this.tier.dia : this.tier.em) - 1];
+      this.genT[i] += rate;
+      if (this.genT[i] < every) return;
+      this.genT[i] = 0;
+      const id = CURRENCY_ITEM[g.item];
+      let near = 0;
+      for (const e of this.sim.entities.values()) if (e.kind === 'item' && e.item!.id === id && Math.abs(e.x - g.pos[0]) < 2 && Math.abs(e.z - g.pos[2]) < 2) near += e.item!.count;
+      if (near >= ({ iron: 48, gold: 16, aetherite: 4, emerald: 2 } as const)[g.item]) return;
+      const e = this.sim.spawnItem(g.pos[0], g.pos[1], g.pos[2], { id, count: 1 }, 0, 0, 0, 0);
+      if (e) e.age = 0;
+    });
+    if (this.now % 40 === 0) this.teams.forEach((t, i) => {
+      if (!t.lv.spring) return;
+      const base = L.teams[i].base;
+      for (const pt of this.parts.values()) {
+        if (pt.team !== i || !pt.alive) continue;
+        const b = this.body(pt);
+        if (!b || Math.hypot(b.x - base[0], b.z - base[2]) > 10 || Math.abs(b.y - base[1]) > 8) continue;
+        if (b.pl) { if (b.pl.health < 20) { b.pl.health = Math.min(20, b.pl.health + 1); this.sim.emit({ e: 'vitals', p: b.pl }); } }
+        else if (b.ent && b.ent.health < b.ent.maxHealth) b.ent.health = Math.min(b.ent.maxHealth, b.ent.health + 1);
+      }
+    });
+    if (this.now % 5 === 0) this.teams.forEach((t, i) => {
+      if (!t.lv.snare) return;
+      const base = L.teams[i].base;
+      for (const pt of this.parts.values()) {
+        if (pt.team === i || !pt.alive || pt.out) continue;
+        const b = this.body(pt);
+        if (!b || Math.hypot(b.x - base[0], b.z - base[2]) > 8 || Math.abs(b.y - base[1] - 1) > 5) continue;
+        t.lv.snare = 0;
+        const name = L.teams[i].name;
+        this.teamSay(i, `Tripwire Snare sprung: ${pt.name} is on your island.`, ['Snare sprung', `${pt.name} is on your island`]);
+        if (b.pl) { this.sim.damage(b.pl, 3, 'magic', base[0], base[2], true, true, undefined, 1.2); this.say(`You tripped ${name}'s snare.`, 'error', pt.id); }
+        else if (b.ent) { this.sim.hurtMob(b.ent, 3, null, (b.ent.x - base[0]) / 8, (b.ent.z - base[2]) / 8, 0.9); b.ent.vy = 9; }
+        this.dirty = true;
+        break;
+      }
+    });
+  }
+
+  private body(pt: Part): { x: number; y: number; z: number; pl?: SimPlayer; ent?: Entity } | null {
+    if (pt.bot) { const e = this.sim.entities.get(pt.ent); return e ? { x: e.x, y: e.y, z: e.z, ent: e } : null; }
+    const p = this.sim.players.get(pt.id);
+    return p && !p.dead ? { x: p.x, y: p.y, z: p.z, pl: p } : null;
   }
 
   private checkWin(): void {
@@ -347,16 +481,21 @@ export class Minigame implements GameHooks {
   onKill(p: SimPlayer, _cause: string, killer?: string): boolean {
     const pt = this.part(p);
     if (!pt || this.phase !== 'playing') { this.toLobby(p); return false; }
-    this.credit(killer ?? pt.lastHit);
+    const final = this.kind === 'hearthfall' && !this.teams[pt.team].hearth;
+    this.credit(killer ?? pt.lastHit, final);
     pt.lastHit = null;
     pt.alive = false;
     const canRespawn = this.kind === 'hearthfall' && this.teams[pt.team].hearth;
     let handled = false;
     if (this.kind === 'hearthfall') {
       const armor = p.inv.armor.map((s) => (s ? { ...s } : null));
-      const loot = p.inv.slots.filter((s): s is ItemStack => !!s && (s.id === I.IRON_INGOT || s.id === I.GOLD_INGOT || s.id === I.AETHERITE));
-      const kp = killer ? [...this.sim.players.values()].find((x) => x.name === killer) : undefined;
-      if (kp && !kp.dead) { for (const s of loot) giveItem(kp.inv, s); this.sim.emit({ e: 'inv', p: kp }); }
+      const loot = p.inv.slots.filter((s): s is ItemStack => !!s && CURRENCIES.some((c) => CURRENCY_ITEM[c] === s.id));
+      const kname = killer ?? null;
+      const kp = kname ? [...this.sim.players.values()].find((x) => x.name === kname) : undefined;
+      if (kp && !kp.dead) { for (const s of loot) giveItem(kp.inv, s); this.sim.emit({ e: 'inv', p: kp }); if (loot.length) this.say(`You took ${loot.map((s) => `${s.count} ${getItem(s.id)?.name ?? ''}`).join(', ')} from ${pt.name}.`, 'info', kp.id); }
+      else { const kb = kname ? [...this.parts.values()].find((x) => x.bot && x.name === kname) : undefined; if (kb?.kit) for (const s of loot) { const c = CURRENCIES.find((c) => CURRENCY_ITEM[c] === s.id); if (c) kb.kit.purse[c] += s.count; } }
+      pt.pick = Math.max(pt.pick ? 1 : 0, pt.pick - 1);
+      pt.axe = Math.max(pt.axe ? 1 : 0, pt.axe - 1);
       const sel = p.inv.selected;
       p.inv = emptyInv();
       p.inv.selected = sel;
@@ -373,15 +512,15 @@ export class Minigame implements GameHooks {
       const l = this.layout.lobby;
       p.spawn = { x: l[0], y: l[1], z: l[2] };
       this.title('Eliminated', 'Respawn to watch from the gallery', p.id);
-      this.say(`${pt.name} has been eliminated.`);
+      this.say(`${pt.name} has been eliminated${final ? ' (final takedown)' : ''}.`);
     }
     this.dirty = true;
     return handled;
   }
 
-  private credit(name: string | null | undefined): void {
+  private credit(name: string | null | undefined, final = false): void {
     if (!name) return;
-    for (const x of this.parts.values()) if (x.name === name) { x.kills++; break; }
+    for (const x of this.parts.values()) if (x.name === name) { x.kills++; if (final) x.finals++; break; }
   }
 
   allowRespawn(p: SimPlayer): boolean {
@@ -395,7 +534,7 @@ export class Minigame implements GameHooks {
     if (!pt || pt.out || this.phase !== 'playing') { this.toLobby(p); return; }
     pt.alive = true;
     pt.respawnAt = 0;
-    if (this.kind === 'hearthfall') { giveItem(p.inv, sw(0)); this.sim.emit({ e: 'inv', p }); }
+    if (this.kind === 'hearthfall') { this.kitOut(p, pt, false); this.sim.emit({ e: 'inv', p }); p.hurtCd = 60; }
     this.dirty = true;
   }
 
@@ -403,12 +542,22 @@ export class Minigame implements GameHooks {
     const pt = [...this.parts.values()].find((x) => x.bot && x.ent === e.id);
     if (!pt) return;
     const killerName = by ? this.sim.players.get(by)?.name ?? null : pt.lastHit;
-    this.credit(killerName);
+    const final = this.kind === 'hearthfall' && !this.teams[pt.team].hearth;
+    this.credit(killerName, final);
+    const k = pt.kit!;
+    if (this.kind === 'hearthfall') {
+      const kp = killerName ? [...this.sim.players.values()].find((x) => x.name === killerName) : undefined;
+      const loot = CURRENCIES.filter((c) => k.purse[c] > 0).map((c) => ({ id: CURRENCY_ITEM[c], count: k.purse[c] }));
+      if (kp && !kp.dead && loot.length) { for (const s of loot) giveItem(kp.inv, { ...s }); this.sim.emit({ e: 'inv', p: kp }); this.say(`You took ${loot.map((s) => `${s.count} ${getItem(s.id)?.name ?? ''}`).join(', ')} from ${pt.name}.`, 'info', kp.id); }
+      k.purse = { iron: 0, gold: 0, aetherite: 0, emerald: 0 };
+      k.blocks = 0; k.sword = 0; k.gapples = 0;
+      pt.pick = Math.max(pt.pick ? 1 : 0, pt.pick - 1);
+    }
     pt.alive = false;
     pt.ent = 0;
     pt.lastHit = null;
     if (this.kind === 'hearthfall' && this.teams[pt.team].hearth) pt.respawnAt = this.now + 100;
-    else { pt.out = true; this.say(`${pt.name} has been eliminated.`); }
+    else { pt.out = true; this.say(`${pt.name} has been eliminated${final ? ' (final takedown)' : ''}.`); }
     this.say(`${pt.name} ${killerName ? `was struck down by ${killerName}` : 'fell into the void'}.`, 'death');
     this.dirty = true;
   }
@@ -431,12 +580,31 @@ export class Minigame implements GameHooks {
 
   damageBonus(p: SimPlayer): number {
     const pt = this.part(p);
-    return pt && this.kind === 'hearthfall' && this.teams[pt.team]?.blades ? 1 : 0;
+    if (!pt || this.kind !== 'hearthfall' || !this.teams[pt.team]?.lv.edge) return 0;
+    const held = p.inv.slots[p.inv.selected];
+    return held && getItem(held.id)?.tool?.type === 'sword' ? 1 : 0;
   }
 
   damageScale(p: SimPlayer): number {
     const pt = this.part(p);
-    return pt && this.kind === 'hearthfall' && this.teams[pt.team]?.plating ? 0.85 : 1;
+    return pt && this.kind === 'hearthfall' ? 1 - 0.08 * (this.teams[pt.team]?.lv.bulwark ?? 0) : 1;
+  }
+
+  mobDamageScale(e: Entity): number {
+    if (e.type !== 'rival') return 1;
+    const pt = [...this.parts.values()].find((x) => x.ent === e.id);
+    if (!pt) return 1;
+    const armour = 1 - Math.min(20, botArmourPoints(pt)) / 25;
+    return armour * (this.kind === 'hearthfall' ? 1 - 0.08 * (this.teams[pt.team]?.lv.bulwark ?? 0) : 1);
+  }
+
+  blastable(x: number, y: number, z: number, v: number): boolean {
+    if (y >= 99) return false;
+    const id = blockId(v);
+    if (id === B.BEDROCK) return false;
+    if (this.kind === 'spires') return true;
+    if (id === B.GLASS || id === B.OBSIDIAN || TEAM_TINTS.some((t) => t.glass === id)) return false;
+    return this.placed.has(key(x, y, z));
   }
 
   private inLobby(y: number): boolean { return y >= 99; }
@@ -444,11 +612,11 @@ export class Minigame implements GameHooks {
   canBreak(p: SimPlayer, x: number, y: number, z: number, v: number): boolean {
     if (p.mode === 'creative' && p.op) return true;
     if (this.protectedPlayer(p) || this.inLobby(y)) return false;
-    if (this.kind === 'spires') return true;
+    if (this.kind === 'spires') return blockId(v) !== B.BEDROCK;
     const k = key(x, y, z);
     if (this.placed.has(k)) return true;
     const id = blockId(v);
-    if (WOOLS.has(id)) return true;
+    if (TEAM_WOOLS.has(id)) return true;
     if (id === B.GLOWSTONE) {
       const ti = this.layout.teams.findIndex((t) => t.hearth[0] === x && t.hearth[1] === y && t.hearth[2] === z);
       if (ti < 0) return false;
@@ -474,13 +642,17 @@ export class Minigame implements GameHooks {
   canPlace(p: SimPlayer, x: number, y: number, z: number): boolean {
     if (p.mode === 'creative' && p.op) return true;
     if (this.protectedPlayer(p) || this.inLobby(y)) return false;
-    if (y > this.layout.buildTop || y < this.layout.voidY) return false;
+    return this.canBotPlace(x, y, z);
+  }
+
+  canBotPlace(x: number, y: number, z: number): boolean {
+    if (y > this.layout.buildTop || y < this.layout.voidY || y >= 99) return false;
     if (Math.abs(x) > this.layout.bounds || Math.abs(z) > this.layout.bounds) return false;
     if (this.kind === 'hearthfall') {
       for (const t of this.layout.teams) {
         for (const q of [t.spawn, t.npc]) if (Math.abs(q[0] - 0.5 - x) <= 1 && Math.abs(q[2] - 0.5 - z) <= 1 && y >= q[1] && y <= q[1] + 2) return false;
       }
-      for (const g of this.layout.gens) if (Math.abs(g.pos[0] - 0.5 - x) <= 1 && Math.abs(g.pos[2] - 0.5 - z) <= 1 && y >= 65 && y <= 66) return false;
+      for (const g of this.layout.gens) if (Math.abs(g.pos[0] - 0.5 - x) <= 1 && Math.abs(g.pos[2] - 0.5 - z) <= 1 && y >= Math.floor(g.pos[1]) && y <= Math.floor(g.pos[1]) + 1) return false;
     }
     return true;
   }
@@ -503,6 +675,41 @@ export class Minigame implements GameHooks {
     return false;
   }
 
+  // ---------- bot host ----------
+  hearthAlive(team: number): boolean { return !!this.teams[team]?.hearth; }
+  level(team: number, k: UpgradeKey): number { return this.teams[team]?.lv[k] ?? 0; }
+
+  botUpgrade(pt: Part, o: ShopOffer): boolean {
+    if (!o.upgrade || !o.level) return false;
+    const t = this.teams[pt.team];
+    if (t.lv[o.upgrade] !== o.level - 1) return false;
+    t.lv[o.upgrade] = o.level;
+    this.say(`${pt.name} bought ${o.name} for team ${this.layout.teams[pt.team].name}.`);
+    this.dirty = true;
+    return true;
+  }
+
+  botBreak(pt: Part, x: number, y: number, z: number, v: number): void {
+    this.sim.setBlock(x, y, z, 0);
+    this.sim.emit({ e: 'particles', k: 'break', x: x + 0.5, y: y + 0.5, z: z + 0.5, d: v });
+    this.onBroken(pt.name, x, y, z, v);
+  }
+
+  botPlace(_pt: Part, x: number, y: number, z: number, v: number): void {
+    this.sim.setBlock(x, y, z, v);
+    this.sim.emit({ e: 'sound', s: 'block.place', x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+  }
+
+  botStrike(pt: Part, foe: Foe, dmg: number): void {
+    const e = this.sim.entities.get(pt.ent);
+    if (!e) return;
+    const d = Math.hypot(foe.x - e.x, foe.z - e.z) || 1;
+    const kx = (foe.x - e.x) / d, kz = (foe.z - e.z) / d;
+    foe.part.lastHit = pt.name;
+    if (foe.pl) this.sim.damage(foe.pl, dmg * this.damageScale(foe.pl), 'player', e.x, e.z, true, false, pt.name);
+    else if (foe.ent) this.sim.hurtMob(foe.ent, dmg, null, kx, kz);
+  }
+
   // ---------- shop ----------
   buy(p: SimPlayer, offerKey: string): string | null {
     const pt = this.part(p);
@@ -511,9 +718,11 @@ export class Minigame implements GameHooks {
     const o = SHOP.find((x) => x.key === offerKey);
     if (!o) return 'That offer does not exist.';
     const team = this.teams[pt.team];
-    if (o.upgrade === 'forge' && team.forge >= 2) return 'Your forge is already fully upgraded.';
-    if (o.upgrade === 'blades' && team.blades) return 'Your team already has sharpened blades.';
-    if (o.upgrade === 'plating' && team.plating) return 'Your team already has reinforced plating.';
+    const ctx = { pick: pt.pick, axe: pt.axe, greaves: pt.greaves, lv: team.lv };
+    if (o.upgrade && o.level && team.lv[o.upgrade] >= o.level) return `Your team already has ${o.name}.`;
+    if (o.upgrade && team.lv[o.upgrade] >= UPGRADE_MAX[o.upgrade]) return 'That upgrade is maxed out.';
+    if (!offerVisible(o, ctx)) return o.tool || o.greaves ? 'Buy the tier before this one first.' : 'Buy the level before this one first.';
+    if (o.key === 'shears' && pt.shears) return 'You already have shears.';
     const [cur, cost] = o.cost;
     const id = CURRENCY_ITEM[cur];
     let have = 0;
@@ -527,33 +736,32 @@ export class Minigame implements GameHooks {
       s.count -= take; left -= take;
       if (s.count <= 0) p.inv.slots[i] = null;
     }
-    const gifts = [...(o.give ?? [])];
-    if (o.teamBlock) gifts.push({ id: this.layout.teams[pt.team].wool, count: o.teamBlock });
-    for (const g of gifts) {
-      const def = getItem(g.id);
-      if (def?.armor && !p.inv.armor[def.armor.slot]) { p.inv.armor[def.armor.slot] = { id: g.id, count: 1 }; continue; }
-      if (giveItem(p.inv, { ...g }) > 0) this.sim.spawnItem(p.x, p.y + 1, p.z, { ...g });
+    const give = (st: ItemStack) => { if (giveItem(p.inv, st) > 0) this.sim.spawnItem(p.x, p.y + 1, p.z, st); };
+    if (o.key.endsWith('_sword')) {
+      for (let i = 0; i < p.inv.slots.length; i++) if (p.inv.slots[i]?.id === toolId(0, 3)) { p.inv.slots[i] = null; break; }
     }
-    if (o.upgrade === 'forge') team.forge++;
-    if (o.upgrade === 'blades') team.blades = true;
-    if (o.upgrade === 'plating') team.plating = true;
-    if (o.upgrade) { this.say(`${p.name} bought ${o.name} for team ${this.layout.teams[pt.team].name}.`); this.dirty = true; }
+    if (o.tool) {
+      const prev = toolOf(o.tool, (o.tool === 'pick' ? pt.pick : pt.axe));
+      for (let i = 0; i < p.inv.slots.length; i++) if (p.inv.slots[i]?.id === prev && (o.tool === 'pick' ? pt.pick : pt.axe) > 0) { p.inv.slots[i] = null; break; }
+      if (o.tool === 'pick') pt.pick = o.tier!; else pt.axe = o.tier!;
+      give({ id: toolOf(o.tool, o.tier!), count: 1 });
+    }
+    if (o.greaves) { pt.greaves = o.greaves; this.wearGreaves(p, pt); }
+    if (o.key === 'shears') pt.shears = true;
+    for (const g of o.give ?? []) give({ id: g.id, count: g.count, ...(g.en ? { en: { ...g.en } } : {}) });
+    if (o.team) { const t = TEAM_TINTS[pt.team]; give({ id: t[o.team[0]], count: o.team[1] }); }
+    if (o.upgrade && o.level) {
+      team.lv[o.upgrade] = o.level;
+      this.say(`${p.name} bought ${o.name} for team ${this.layout.teams[pt.team].name}.`);
+      this.dirty = true;
+    }
     this.sim.emit({ e: 'inv', p });
     this.sim.emit({ e: 'sound', s: 'ui.buy', x: p.x, y: p.y + 1, z: p.z, to: p.id });
+    this.dirty = true;
     return null;
   }
 
   // ---------- bots ----------
-  private enemyTargets(pt: Part): { id: string; x: number; y: number; z: number; ent?: Entity; pl?: SimPlayer }[] {
-    const out: { id: string; x: number; y: number; z: number; ent?: Entity; pl?: SimPlayer }[] = [];
-    for (const o of this.parts.values()) {
-      if (o === pt || !o.alive || (this.kind === 'hearthfall' && o.team === pt.team)) continue;
-      if (o.bot) { const e = this.sim.entities.get(o.ent); if (e) out.push({ id: o.id, x: e.x, y: e.y, z: e.z, ent: e }); }
-      else { const p = this.sim.players.get(o.id); if (p && !p.dead) out.push({ id: o.id, x: p.x, y: p.y, z: p.z, pl: p }); }
-    }
-    return out;
-  }
-
   tickNpc(e: Entity): boolean {
     if (e.type === 'quartermaster') {
       let best: SimPlayer | null = null, bd = 64;
@@ -566,103 +774,8 @@ export class Minigame implements GameHooks {
     if (e.type !== 'rival') return false;
     const pt = [...this.parts.values()].find((x) => x.ent === e.id);
     if (!pt || this.phase !== 'playing') { this.sim.entities.delete(e.id); this.sim.emit({ e: 'remove', id: e.id, why: 'despawn' }); return true; }
-    this.tickBot(e, pt);
+    this.rivals.tick(e, pt);
     return true;
-  }
-
-  private tickBot(e: Entity, pt: Part): void {
-    const sim = this.sim, L = this.layout;
-    if (e.y < L.voidY) { e.hurt = 0; sim.hurtMob(e, 1000, null, 0, 0); return; }
-    if (e.attackCd! > 0) e.attackCd!--;
-    if (pt.placeCd > 0) pt.placeCd--;
-    let flags = 0;
-    const foes = this.enemyTargets(pt);
-    let goal: { x: number; y: number; z: number } | null = null;
-    let foe = foes.find((f) => f.id === pt.target);
-    if (!foe || this.now % 10 === e.id % 10) {
-      let bd = Infinity; foe = undefined;
-      for (const f of foes) { const d = (f.x - e.x) ** 2 + (f.z - e.z) ** 2 + (f.y - e.y) ** 2 * 4; if (d < bd) { bd = d; foe = f; } }
-      pt.target = foe?.id ?? null;
-    }
-    const foeDist = foe ? Math.hypot(foe.x - e.x, foe.z - e.z) : Infinity;
-    let hearth = null as V3 | null;
-    const homeT = this.kind === 'hearthfall' ? L.teams[pt.team] : null;
-    if (homeT && this.now < pt.rushAt && foeDist > 12) {
-      const f = homeT.forge;
-      if (Math.hypot(f[0] - e.x, f[2] - e.z) > 1.2) goal = { x: f[0], y: f[1], z: f[2] };
-    } else if (this.kind === 'hearthfall' && foeDist > 9) {
-      let bd = Infinity;
-      for (let i = 0; i < L.teams.length; i++) {
-        const t = L.teams[i];
-        if (i === pt.team || !this.teams[i].hearth) continue;
-        if (![...this.parts.values()].some((x) => x.team === i)) continue;
-        const d = (t.hearth[0] - e.x) ** 2 + (t.hearth[2] - e.z) ** 2;
-        if (d < bd) { bd = d; hearth = t.hearth; }
-      }
-    }
-    if (hearth) goal = { x: hearth[0] + 0.5, y: hearth[1], z: hearth[2] + 0.5 };
-    else if (foe && (!homeT || this.now >= pt.rushAt || foeDist <= 12)) goal = foe;
-    let wantX = 0, wantZ = 0;
-    const def = { speed: 3.9 };
-    if (goal) {
-      const dx = goal.x - e.x, dz = goal.z - e.z;
-      const d = Math.hypot(dx, dz) || 1;
-      e.yaw = Math.atan2(-dx, -dz);
-      const stop = hearth ? 1.6 : 1.4;
-      if (d > stop) { wantX = (dx / d) * def.speed; wantZ = (dz / d) * def.speed; }
-      const ux = dx / d, uz = dz / d;
-      const fy = Math.floor(e.y) - 1;
-      const ax = Math.floor(e.x + ux * 0.75), az = Math.floor(e.z + uz * 0.75);
-      if (e.onGround && d > stop && !isSolid(sim.get(ax, fy, az)) && !isSolid(sim.get(Math.floor(e.x + ux * 0.75), fy - 1, Math.floor(e.z + uz * 0.75)))) {
-        if (pt.placeCd <= 0 && fy > L.voidY && Math.abs(ax) <= L.bounds && Math.abs(az) <= L.bounds) {
-          const v = L.teams[pt.team]?.wool ?? B.WHITE_WOOL;
-          sim.setBlock(ax, fy, az, v);
-          sim.emit({ e: 'sound', s: 'block.place', x: ax + 0.5, y: fy + 0.5, z: az + 0.5 });
-          pt.placeCd = 3;
-          flags |= 4;
-        } else { wantX = 0; wantZ = 0; }
-      }
-      if ((e.hitH || hearth && d <= 2.2) && (wantX || wantZ || hearth)) {
-        let bx = Math.floor(e.x + ux * 0.9), by = Math.floor(e.y), bz = Math.floor(e.z + uz * 0.9);
-        if (hearth && d <= 2.2) [bx, by, bz] = hearth;
-        if (!isSolid(sim.get(bx, by, bz))) by++;
-        const v = sim.get(bx, by, bz);
-        const k = key(bx, by, bz);
-        const breakable = isSolid(v) && (this.placed.has(k) || WOOLS.has(blockId(v)) || (hearth && bx === hearth[0] && by === hearth[1] && bz === hearth[2]) || this.kind === 'spires' && blockId(v) !== B.BEDROCK);
-        if (breakable) {
-          if (!pt.dig || pt.dig.k !== k) pt.dig = { k, t: 0 };
-          pt.dig.t++;
-          flags |= 4;
-          const need = blockId(v) === B.GLOWSTONE ? 40 : WOOLS.has(blockId(v)) ? 14 : 30;
-          if (pt.dig.t >= need) {
-            pt.dig = null;
-            sim.setBlock(bx, by, bz, 0);
-            sim.emit({ e: 'particles', k: 'break', x: bx + 0.5, y: by + 0.5, z: bz + 0.5, d: v });
-            this.onBroken(pt.name, bx, by, bz, v);
-          }
-        } else if (e.onGround) e.vy = 8.2;
-      }
-    }
-    if (foe && foeDist < 2.6 && Math.abs(foe.y - e.y) < 1.8 && e.attackCd! <= 0) {
-      e.attackCd = 12;
-      flags |= 4;
-      const dmg = 1 + pt.bonus + (this.kind === 'hearthfall' && this.teams[pt.team]?.blades ? 1 : 0);
-      const kx = (foe.x - e.x) / (foeDist || 1), kz = (foe.z - e.z) / (foeDist || 1);
-      if (foe.pl) { this.part(foe.pl)!.lastHit = pt.name; sim.damage(foe.pl, dmg * this.damageScale(foe.pl), 'player', e.x, e.z, true, false, pt.name); }
-      else if (foe.ent) {
-        const op = this.parts.get(foe.id);
-        if (op) op.lastHit = pt.name;
-        sim.hurtMob(foe.ent, dmg, null, kx, kz);
-      }
-    }
-    const med = sampleMedium(sim.store, e.x, e.y, e.z, e.hw, e.h, e.h * 0.8);
-    const acc = e.onGround ? 0.4 : 0.08;
-    e.vx += (wantX - e.vx) * acc;
-    e.vz += (wantZ - e.vz) * acc;
-    if (med.water) { e.vy = Math.min(e.vy + 24 * DT, 2.2); e.vx *= 0.9; e.vz *= 0.9; }
-    else e.vy = Math.max(e.vy - 28 * DT, -40);
-    moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, sim.store);
-    e.flags = flags;
   }
 
   // ---------- commands / state ----------
@@ -670,7 +783,7 @@ export class Minigame implements GameHooks {
     if (parts[0] !== 'game' && parts[0] !== 'arena') return null;
     const sub = (parts[1] ?? 'info').toLowerCase();
     const info = ARENA_INFO[this.kind];
-    if (sub === 'info') return `${info.name} (${info.alt}). Phase: ${this.phase}. Rivals fill: ${this.botFill}. Ops can use /game start, /game stop, /game bots <0-7>.`;
+    if (sub === 'info') return `${info.name} (${info.alt}). Phase: ${this.phase}. Rivals fill: ${this.botFill}, skill: ${this.difficulty}. Ops can use /game start, /game stop, /game bots <0-7>, /game skill <easy|normal|hard>.`;
     if (!p.op) return 'You do not have permission for that command.';
     if (sub === 'start') { if (this.phase === 'playing') return 'A round is already running.'; this.start(); return 'Round started.'; }
     if (sub === 'stop' || sub === 'reset') { this.finish(); return 'Round stopped and arena restored.'; }
@@ -681,7 +794,22 @@ export class Minigame implements GameHooks {
       this.dirty = true;
       return `Rivals will fill up to ${this.botFill} empty slots next round.`;
     }
-    return 'Usage: /game info | start | stop | bots <0-7>';
+    if (sub === 'skill' || sub === 'difficulty') {
+      const d = (parts[2] ?? '').toLowerCase();
+      if (d !== 'easy' && d !== 'normal' && d !== 'hard') return 'Usage: /game skill <easy|normal|hard>';
+      this.difficulty = d;
+      for (const pt of this.parts.values()) if (pt.kit) pt.kit.skill = SKILL[d];
+      this.dirty = true;
+      return `Rivals now fight at ${d} skill.`;
+    }
+    return 'Usage: /game info | start | stop | bots <0-7> | skill <easy|normal|hard>';
+  }
+
+  private nextEvent(): { name: string; in: number } | null {
+    if (this.phase !== 'playing') return null;
+    if (this.kind === 'spires') return { name: 'Time limit', in: Math.max(0, Math.ceil((SPIRES_LIMIT - this.elapsed) / 20)) };
+    const ev = TIMELINE.find((x) => x.at > this.elapsed);
+    return ev ? { name: ev.name, in: Math.ceil((ev.at - this.elapsed) / 20) } : null;
   }
 
   state(): GameState {
@@ -689,19 +817,27 @@ export class Minigame implements GameHooks {
     return {
       kind: this.kind,
       phase: this.phase,
-      timer: Math.ceil((this.phase === 'playing' ? this.timer : this.timer) / 20),
+      timer: Math.ceil(this.timer / 20),
       teams: L.teams.map((t, i) => {
         const ts = this.teams[i];
         const ups: string[] = [];
-        if (ts?.forge) ups.push(`Forge ${ts.forge}`);
-        if (ts?.blades) ups.push('Blades');
-        if (ts?.plating) ups.push('Plating');
-        return { name: t.name, color: t.color, hearth: ts ? ts.hearth : true, alive: [...this.parts.values()].filter((p) => p.team === i && !p.out).length, upgrades: ups };
+        if (ts) {
+          const names: Record<UpgradeKey, string[]> = { forge: ['', 'Iron Forge', 'Golden Forge', 'Emerald Forge', 'Molten Forge'], bulwark: ['', 'Bulwark I', 'Bulwark II', 'Bulwark III', 'Bulwark IV'], edge: ['', 'Keen Edge'], spring: ['', 'Mending Spring'], snare: ['', 'Snare set'] };
+          for (const k of Object.keys(names) as UpgradeKey[]) if (ts.lv[k]) ups.push(names[k][ts.lv[k]]);
+        }
+        return { name: t.name, color: t.color, hearth: ts ? ts.hearth : true, alive: [...this.parts.values()].filter((p) => p.team === i && !p.out).length, upgrades: ups, lv: ts ? { ...ts.lv } : {} };
       }),
-      players: [...this.parts.values()].map((p) => ({ id: p.id, name: p.name, team: p.team, alive: p.alive && !p.out, bot: p.bot, kills: p.kills, ent: p.bot ? p.ent : undefined })),
+      players: [...this.parts.values()].map((p) => ({ id: p.id, name: p.name, team: p.team, alive: p.alive && !p.out, bot: p.bot, kills: p.kills, finals: p.finals, ent: p.bot ? p.ent : undefined, pick: p.pick, axe: p.axe, greaves: p.greaves })),
       winner: this.winner,
       next: this.kind === 'spires' ? Math.ceil(this.luckyT / 20) : 0,
       bots: this.botFill,
+      event: this.nextEvent(),
+      difficulty: this.difficulty,
     };
   }
+}
+
+function TOOL_TIER(id: number): number {
+  const m = Math.floor((id - 300) / 5);
+  return [1, 2, 3, 2, 4, 5][m] ?? 0;
 }

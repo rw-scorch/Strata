@@ -16,6 +16,7 @@ import { mcButton, menuScale, menuSpread } from './mc/Widgets';
 import { drawLogo } from './mc/Logo';
 import { SHOP } from '../core/economy';
 import { ITEM_LIST, getItem } from '../core/items';
+import { hostLine, HostView } from '../core/hosting';
 
 const SPLASHES = ['Dig deep!', 'Build together!', 'Now with villagers!', 'Made in a browser!', 'Blocks all the way down!', 'iPad approved!', 'Try a double chest!', 'Emeralds wanted!', 'Thirty-minute days!', 'Watch your step!', 'Hand-placed pixels!', 'Fresh from the forge!', 'One more block!', 'Strata strata strata!', 'Sunsets included!', 'Villagers say hmm!'];
 
@@ -477,6 +478,38 @@ export class Menus {
       draw();
       modal(`Bans in ${name}`, h('div', { class: 'stack' }, list, h('div', { class: 'row', style: 'gap:6px' }, add, h('button', { class: 'btn small danger', onclick: async () => { const n = add.value.trim(); if (n) { await banFlow(code, n, n); try { data = (await api(`/api/admin/rooms/${code}`, { action: 'bans' })) as typeof data; draw(); } catch { /* keep */ } } } }, 'Ban by name'))), [{ label: 'Close', kind: 'primary', onClick: () => {} }]);
     };
+    const hosting = async (code: string, name: string) => {
+      type HV = { on: boolean; host: (HostView & { comp: boolean; sub: string | null; status: string | null; start: number }) | null };
+      let data: HV;
+      try { data = (await api(`/api/admin/rooms/${code}`, { action: 'hosting' })) as HV; } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); return; }
+      const body = h('div', { class: 'stack' });
+      const send = async (patch: Record<string, unknown>, done: string) => { try { data = (await api(`/api/admin/rooms/${code}`, { action: 'hosting', ...patch })) as HV; draw(); toast(done, 'success'); } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); } };
+      const draw = () => {
+        clear(body);
+        const hv = data.host;
+        body.append(...[
+          h('div', { class: data.on ? 'small muted' : 'info-box' }, data.on ? 'Paid hosting is switched on for this server.' : 'Paid hosting is off (STRIPE_SECRET_KEY or HOSTING_PRICE_ID is missing), so every world stays online for free.'),
+          hv ? h('div', {}, hostLine(hv, Date.now())) : h('div', { class: 'muted small' }, 'Game mode worlds never need hosting.'),
+          hv ? h('div', { class: 'small muted' }, `Tracked since ${fmtDate(hv.start)} · subscription ${hv.sub ? `${hv.status ?? 'unknown'}` : 'none'}`) : null,
+          hv ? h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
+            h('button', { class: `btn small ${hv.comp ? 'gold' : ''}`, onclick: () => void send({ comp: !hv.comp }, hv.comp ? 'Free hosting removed.' : 'This world is now hosted free.') }, hv.comp ? 'Free hosting: on' : 'Free hosting: off'),
+            h('button', { class: 'btn small', onclick: () => void send({ addDays: 30 }, 'Added 30 free days.') }, '+30 days'),
+            h('button', { class: 'btn small', onclick: () => void send({ addDays: 7 }, 'Added 7 free days.') }, '+7 days'),
+          ) : null,
+          h('button', { class: 'btn small', onclick: async (e: Event) => {
+            const b = e.currentTarget as HTMLButtonElement; b.disabled = true;
+            try {
+              const res = await fetch(apiURL(`/api/admin/rooms/${code}/export`), { method: 'POST', headers: { 'x-admin-key': encodeURIComponent(keyIn.value.trim()) } });
+              if (!res.ok) throw new Error((await res.json().catch(() => ({})) as { error?: string }).error ?? String(res.status));
+              download(await res.blob(), `${name.replace(/[^a-z0-9]+/gi, '_') || code}.strata.json`);
+            } catch (err) { toast(`Export failed: ${(err as Error).message}`, 'error'); }
+            b.disabled = false;
+          } }, 'Download world backup'),
+        ].filter((x) => !!x) as HTMLElement[]);
+      };
+      draw();
+      modal(`Hosting for ${name}`, body, [{ label: 'Close', kind: 'primary', onClick: () => {} }]);
+    };
     const prices = async (code: string, name: string) => {
       let data: { sell: Record<string, number>; shop: Record<string, number>; economy: boolean };
       try { data = (await api(`/api/admin/rooms/${code}`, { action: 'prices' })) as typeof data; } catch (e) { toast(`Failed: ${(e as Error).message}`, 'error'); return; }
@@ -571,6 +604,7 @@ export class Menus {
             h('button', { class: 'btn small', onclick: () => void prices(r.code, r.name) }, 'Prices'),
             h('button', { class: 'btn small', onclick: () => void warden(r.code, r.name) }, 'Anticheat'),
             h('button', { class: 'btn small', onclick: () => void bansFor(r.code, r.name) }, 'Bans'),
+            h('button', { class: 'btn small', onclick: () => void hosting(r.code, r.name) }, 'Hosting'),
             h('button', { class: 'btn small', onclick: async () => { const n = await promptDialog('Rename world', 'New name', r.name, 32); if (n && n.trim()) void act(r.code, { action: 'rename', name: n.trim() }, 'World renamed.'); } }, 'Rename'),
             h('button', { class: 'btn small', onclick: async () => { const c = await promptDialog('Change join code', `New code (${ROOM_CODE_LENGTH} characters). The old code stops working.`, r.code, ROOM_CODE_LENGTH); if (c && c.trim()) void act(r.code, { action: 'recode', to: c.trim().toUpperCase() }, `Code changed to ${c.trim().toUpperCase()}.`); } }, 'Change code'),
             h('button', { class: `btn small ${r.featured ? 'gold' : ''}`, onclick: async () => {
@@ -615,7 +649,7 @@ export class Menus {
   private roomRow(r: RoomRecord, kind: 'recent' | 'hosted', refresh: () => void): HTMLElement {
     const sub = h('div', { class: 'sub' }, `${r.code} · ${fmtDate(r.at)}`);
     void fetch(apiURL(`/api/rooms/${r.code}`)).then(async (x) => ({ ok: x.ok, info: await x.json() as RoomInfo })).then(({ ok, info }) => {
-      sub.textContent = ok && info.exists ? `${r.code} · ${info.players?.length ?? 0}/${info.maxPlayers} online · ${MODE_TITLES[info.mode ?? 'survival'].title}` : ok && info.exists === false ? `${r.code} · no longer exists` : `${r.code} · busy, status unavailable`;
+      sub.textContent = ok && info.exists ? `${r.code} · ${info.players?.length ?? 0}/${info.maxPlayers} online · ${MODE_TITLES[info.mode ?? 'survival'].title}${info.host?.phase === 'locked' ? ' · frozen, renew to unlock' : info.host?.phase === 'active' && !info.host.renewing && kind === 'hosted' ? ` · free hosting until ${new Date(info.host.until).toLocaleDateString()}` : ''}` : ok && info.exists === false ? `${r.code} · no longer exists` : `${r.code} · busy, status unavailable`;
     }).catch(() => { sub.textContent = `${r.code} · status unavailable`; });
     return h('div', { class: 'list-item' },
       h('div', { class: 'meta' }, h('div', { class: 'name' }, r.name, kind === 'hosted' ? h('span', { class: 'badge gold', style: 'margin-left:6px' }, 'Owner') : null), sub),
@@ -680,12 +714,50 @@ export class Menus {
         info.players?.length ? h('div', { class: 'small muted' }, `Online: ${info.players.map((p) => p.name).join(', ')}`) : null,
         !versionOk ? h('div', { class: 'info-box' }, (info.version ?? 0) < PROTOCOL_VERSION ? 'This world\'s server is finishing an update. Trying again in a few seconds...' : 'A newer version of Strata is out. Updating the game...') : null,
         full && !mine ? h('div', { class: 'error-box' }, 'This world is full right now.') : null,
+        info.host ? h('div', { class: info.host.phase === 'locked' ? 'error-box' : info.host.phase === 'active' && !info.host.renewing && info.host.until - Date.now() < 7 * 864e5 ? 'info-box' : 'small muted' }, hostLine(info.host, Date.now()), info.host.phase === 'locked' && !mine ? ' Ask the owner to renew it.' : '') : null,
+        mine ? this.hostPanel(code, info) : null,
       ].filter((x): x is HTMLDivElement => !!x),
-      h('button', { class: 'btn primary block', disabled: !versionOk || (full && !mine), onclick: () => {
+      h('button', { class: 'btn primary block', disabled: !versionOk || (full && !mine) || info.host?.phase === 'locked', onclick: () => {
         rememberRoom('recent', { code, name: info.name ?? code, at: Date.now(), owner: mine, mode: info.mode });
         this.app.playRemote(code);
       } }, 'Join world'),
     );
+  }
+
+  private hostPanel(code: string, info: RoomInfo): HTMLDivElement {
+    const v = info.host;
+    const id = getIdentity();
+    const creds = { code, ownerId: id.id, ownerSecret: id.secret };
+    const go = async (path: string, btn: HTMLButtonElement) => {
+      btn.disabled = true;
+      try {
+        const res = await fetch(apiURL(path), { method: 'POST', body: JSON.stringify(creds) });
+        const j = await res.json() as { url?: string; error?: string };
+        if (!res.ok || !j.url) throw new Error(j.error ?? 'failed');
+        location.href = j.url;
+      } catch (e) { toast((e as Error).message, 'error'); btn.disabled = false; }
+    };
+    const renew = v && v.phase !== 'comp' && !v.renewing ? h('button', { class: 'btn small primary', onclick: (e: Event) => void go('/api/hosting/checkout', e.currentTarget as HTMLButtonElement) }, v.phase === 'locked' ? 'Renew and unfreeze ($3/month)' : 'Keep online ($3/month)') as HTMLButtonElement : null;
+    const manage = v && (v.renewing || v.paid) ? h('button', { class: 'btn small', onclick: (e: Event) => void go('/api/hosting/portal', e.currentTarget as HTMLButtonElement) }, 'Manage billing') as HTMLButtonElement : null;
+    const exp = h('button', { class: 'btn small', onclick: (e: Event) => void this.exportRemote(code, info.name ?? code, e.currentTarget as HTMLButtonElement) }, 'Export to singleplayer') as HTMLButtonElement;
+    return h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' }, renew, manage, exp) as HTMLDivElement;
+  }
+
+  private async exportRemote(code: string, name: string, btn: HTMLButtonElement): Promise<void> {
+    const id = getIdentity();
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Exporting...';
+    try {
+      const res = await fetch(apiURL(`/api/rooms/${code}/export`), { method: 'POST', body: JSON.stringify({ ownerId: id.id, ownerSecret: id.secret }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})) as { error?: string }).error ?? `failed (${res.status})`);
+      const blob = await res.blob();
+      const file = new File([blob], `${name.replace(/[^a-z0-9]+/gi, '_') || 'world'}.strata.json`, { type: 'application/json' });
+      const meta = await WorldStorage.importWorld(file);
+      toast(`Saved "${meta.name}" to your singleplayer worlds (${(blob.size / 1048576).toFixed(1)} MB).`, 'success', 6000);
+      if (await confirmDialog('Exported', `"${meta.name}" is now in Singleplayer on this device. Also download the backup file?`, 'Download')) download(blob, file.name);
+    } catch (e) { toast(`Export failed: ${(e as Error).message}`, 'error'); }
+    finally { btn.disabled = false; btn.textContent = label; }
   }
 
   credits(): void {
