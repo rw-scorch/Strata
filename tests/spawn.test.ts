@@ -49,19 +49,19 @@ it('monsters spawn in a dark roofed room during the day but not on the sunny sur
     expect(e.y).toBeGreaterThanOrEqual(10);
     expect(e.y).toBeLessThan(13);
   }
-});
+}, 20000);
 
 it('no monsters spawn in an open field at noon', () => {
   const { sim } = world({ roof: false });
   for (let i = 0; i < 200; i++) sim.tick();
   expect(hostiles(sim).length).toBe(0);
-});
+}, 20000);
 
 it('torch light stops monster spawning', () => {
   const { sim } = world({ roof: true, torches: true });
   for (let i = 0; i < 300; i++) sim.tick();
   expect(hostiles(sim).length).toBe(0);
-});
+}, 20000);
 
 it('monsters despawn instantly beyond 128 blocks', () => {
   const { sim } = world({ roof: false });

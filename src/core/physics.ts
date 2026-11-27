@@ -1,4 +1,4 @@
-import { BLOCKS, blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand, isConnecting, isWall, connMask, connCollision, connVisual, connBounds, wallPost, NB } from './blocks';
+import { BLOCKS, blockBoxes, selectionBox, B, getBlock, isFluid, isWaterPlant, bid, isSoulSand, isConnecting, isWall, connMask, connCollision, connVisual, connBounds, wallPost, NB, blockId } from './blocks';
 
 function connShape(world: BlockReader, v: number, x: number, y: number, z: number, collide: boolean): number[][] {
   const id = bid(v);
@@ -258,4 +258,14 @@ export function bubbleColumn(world: BlockReader, x: number, y: number, z: number
 
 export function bubbleSurface(world: BlockReader, x: number, y: number, z: number): boolean {
   return bid(world.getBlock(Math.floor(x), Math.floor(y) + 1, Math.floor(z))) === 0;
+}
+
+export function slipperiness(v: number): number {
+  const id = blockId(v);
+  if (id === B.ICE || id === B.PACKED_ICE) return 0.98;
+  if (id === B.SLIME_BLOCK) return 0.8;
+  const k = getBlock(v).key;
+  if (k === 'blue_ice') return 0.989;
+  if (k === 'frosted_ice' || k.endsWith('_ice')) return 0.98;
+  return 0.6;
 }

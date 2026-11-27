@@ -1,7 +1,7 @@
 import { MOB_BY_CODE } from '../core/sim/mobs';
 import * as THREE from 'three';
 import { raycast, RayHit, selectionAt } from '../core/physics';
-import { getBlock, selectionBox, blockId, B, CB, tix } from '../core/blocks';
+import { getBlock, selectionBox, blockId, B, CB, tix, BLOCKS, bid, isSignId, CHAIN } from '../core/blocks';
 import { boatWood, getItem, I, spearIndex } from '../core/items';
 import { attackStats, attackRange, attackCharge, SPEAR_MIN } from '../core/sim/combat';
 import { breakTime, canHarvest } from '../core/sim/WorldSim';
@@ -210,6 +210,7 @@ export class BlockInteraction {
     if (id === 36) id = 35;
     if (id === 42) id = 280;
     if (id === 54) id = 276;
+    { const dr = BLOCKS[bid(v)]?.drops?.[0]?.item; if ((isSignId(bid(v)) || bid(v) === CHAIN) && typeof dr === 'number') id = dr; }
     if (!getItem(id)) return;
     const inv = session.me.inv;
     const slot = inv.slots.findIndex((s, i) => i < 9 && s?.id === id);

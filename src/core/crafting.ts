@@ -1,4 +1,4 @@
-import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB, NB, WOODS, WALL_MATS, FENCE_BASE, GATE_BASE, WALL_BASE, GLASS_PANE, STAINED_PANE_BASE, WOOD_KINDS, STRIPPED_LOG_BASE, WOOD_BASE, STRIPPED_WOOD_BASE } from './blocks';
+import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB, NB, WOODS, WALL_MATS, FENCE_BASE, GATE_BASE, WALL_BASE, GLASS_PANE, STAINED_PANE_BASE, WOOD_KINDS, STRIPPED_LOG_BASE, WOOD_BASE, STRIPPED_WOOD_BASE, DEEPSLATE_ORE_BASE } from './blocks';
 import { I, toolId, armorId, dyeId, SPEAR_MATS, getItem } from './items';
 import type { ItemStack } from './inventory';
 
@@ -46,6 +46,9 @@ shapeless('mangrove_planks', 'basics', SB.MANGROVE_PLANKS, 4, [SB.MANGROVE_LOG])
   WOOD_KINDS.forEach((k, i) => {
     shaped(`${k}_wood`, 'basics', WOOD_BASE + i, 3, ['LL', 'LL'], { L: logs[i] });
     shaped(`${k}_boat`, 'tools', I.BOAT_BASE + i, 1, ['P P', 'PPP'], { P: planks[i] });
+    shapeless(`${k}_chest_boat`, 'tools', I.CHEST_BOAT_BASE + i, 1, [I.BOAT_BASE + i, B.CHEST]);
+    shaped(`${k}_sign`, 'decor', I.SIGN_BASE + i, 3, ['PPP', 'PPP', ' S '], { P: planks[i], S: I.STICK });
+    shaped(`${k}_hanging_sign`, 'decor', I.HANGING_SIGN_BASE + i, 6, ['C C', 'LLL', 'LLL'], { C: I.CHAIN, L: STRIPPED_LOG_BASE + i });
     shaped(`stripped_${k}_wood`, 'basics', STRIPPED_WOOD_BASE + i, 3, ['LL', 'LL'], { L: STRIPPED_LOG_BASE + i });
     for (const src of [STRIPPED_LOG_BASE + i, WOOD_BASE + i, STRIPPED_WOOD_BASE + i]) shapeless(`${k}_planks_from_${src}`, 'basics', planks[i], 4, [src]);
   });
@@ -204,6 +207,7 @@ shaped('cartography_table', 'decor', B.CARTOGRAPHY_TABLE, 1, ['AA', 'PP', 'PP'],
 shaped('cauldron', 'decor', B.CAULDRON, 1, ['I I', 'I I', 'III'], { I: I.IRON_INGOT });
 shaped('loom', 'decor', B.LOOM, 1, ['SS', 'PP'], { S: I.STRING, P: 'planks' });
 shaped('grindstone', 'decor', B.GRINDSTONE, 1, ['TST', 'P P'], { T: I.STICK, S: STONE_SLAB, P: 'planks' });
+shaped('chain', 'decor', I.CHAIN, 1, ['N', 'I', 'N'], { N: I.IRON_NUGGET, I: I.IRON_INGOT });
 shaped('lantern', 'decor', B.LANTERN, 1, ['NNN', 'NTN', 'NNN'], { N: I.IRON_NUGGET, T: B.TORCH });
 shaped('soul_torch', 'basics', CB.SOUL_TORCH, 4, ['C', 'S', 'X'], { C: 'coals', S: I.STICK, X: 'souls' });
 shaped('soul_lantern', 'decor', CB.SOUL_LANTERN, 1, ['NNN', 'NTN', 'NNN'], { N: I.IRON_NUGGET, T: CB.SOUL_TORCH });
@@ -420,6 +424,11 @@ export const SMELTING: SmeltRecipe[] = [
   { input: B.STONE_BRICKS, result: B.CRACKED_STONE_BRICKS, xp: 0.1 },
   { input: B.SANDSTONE, result: B.SMOOTH_SANDSTONE, xp: 0.1 },
   { input: B.COPPER_ORE, result: I.COPPER_INGOT, xp: 0.7 },
+  { input: DEEPSLATE_ORE_BASE + 1, result: I.IRON_INGOT, xp: 0.7 },
+  { input: DEEPSLATE_ORE_BASE + 2, result: I.GOLD_INGOT, xp: 1 },
+  { input: DEEPSLATE_ORE_BASE + 4, result: I.COPPER_INGOT, xp: 0.7 },
+  { input: DEEPSLATE_ORE_BASE + 5, result: I.REDSTONE, xp: 0.7 },
+  { input: DEEPSLATE_ORE_BASE + 6, result: I.LAPIS, xp: 0.2 },
   { input: B.CACTUS, result: dyeId('green'), xp: 1 },
   { input: B.KELP, result: I.DRIED_KELP, xp: 0.1 },
   { input: B.REDSTONE_ORE, result: I.REDSTONE, xp: 0.7 },

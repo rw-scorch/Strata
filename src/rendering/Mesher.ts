@@ -18,10 +18,10 @@ export interface MeshBuffers { pos: Int16Array; uv: Int16Array; light: Uint8Arra
 export const SECTIONS = Math.ceil(WORLD_HEIGHT / 16);
 export const POS_SCALE = 64;
 export const F_TINT = 1, F_WAVE = 2, F_FOLIAGE = 4, F_EMIT = 8, F_LEAF = 16, F_GLOW = 32, F_WATER = 64, F_FLOWV = 128;
-export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; cages?: Int32Array | null; vis?: Uint16Array; }
+export interface MeshResult { opaque: MeshBuffers | null; cutout: MeshBuffers | null; trans: MeshBuffers | null; chests?: Int32Array | null; signs?: Int32Array | null; cages?: Int32Array | null; vis?: Uint16Array; }
 
 const RENDER: number[] = [];
-const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20, cave: 21, wall: 22, gate: 23 };
+const RCODE: Record<string, number> = { none: 0, cube: 1, leaves: 2, glass: 3, translucent: 4, liquid: 5, cross: 6, crop: 7, torch: 8, door: 9, ladder: 10, cactus: 11, chest: 12, redstone: 13, rs6: 13, shape: 14, rail: 15, boxes: 16, portal: 17, fire: 18, bars: 19, fence: 20, cave: 21, wall: 22, gate: 23, sign: 24 };
 const CULLSELF = new Uint8Array(ID_LIMIT);
 for (const b of BLOCKS) if (b && isBaseId(b.id)) { RENDER[b.id] = RCODE[b.render]; CULLSELF[b.id] = b.cullSelf ? 1 : 0; }
 const ORIENT = new Uint8Array(ID_LIMIT);
@@ -438,7 +438,7 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (B
     }
   }
 
-  const chests: number[] = [], cages: number[] = [];
+  const chests: number[] = [], cages: number[] = [], signs: number[] = [];
   for (let y = 0; y < top; y++) for (let z = 0; z < 16; z++) for (let x = 0; x < 16; x++) {
     const rx = x + 16, rz = z + 16;
     const v = region[ridx(rx, y, rz)];
@@ -447,9 +447,10 @@ export function meshChunk(ctx: MesherContext, cx: number, cz: number, chunks: (B
     const code = RENDER[id];
     if (code < 5) continue;
     if (code === 12) { chests.push(x, y, z, (v >>> 8) & 3); continue; }
+    if (code === 24) { signs.push(x, y, z, v); continue; }
     special(ctx, code, id, v, x, y, z, rx, rz, smooth);
   }
-  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish(), chests: chests.length ? new Int32Array(chests) : null, cages: cages.length ? new Int32Array(cages) : null, vis: visGraph() };
+  return { opaque: builders[0].finish(), cutout: builders[1].finish(), trans: builders[2].finish(), chests: chests.length ? new Int32Array(chests) : null, signs: signs.length ? new Int32Array(signs) : null, cages: cages.length ? new Int32Array(cages) : null, vis: visGraph() };
 }
 
 const visSeen = new Uint8Array(4096);

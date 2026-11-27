@@ -31,6 +31,8 @@ export interface SessionEvents {
   trade?(info: TradeInfo): void;
   mobName?(id: string, name: string): void;
   chestLid?(x: number, y: number, z: number, n: number): void;
+  sign?(x: number, y: number, z: number): void;
+  signEdit?(x: number, y: number, z: number, back: boolean): void;
   hurt(amount: number, cause: string, fx: number, fz: number, kb?: number): void;
   playerHurt?(id: string): void;
   death(msg: string): void;
@@ -41,7 +43,7 @@ export interface SessionEvents {
   weather(w: Weather, ticksLeft?: number): void;
   lightning(x: number, y: number, z: number): void;
   pistonMove?(list: number[]): void;
-  ride?(id: number): void;
+  ride?(id: number, seat?: number): void;
   knock?(x: number, y: number, z: number, set?: boolean): void;
   effect?(k: string, ticks: number): void;
   dark?(ticks: number): void;
@@ -94,6 +96,7 @@ export interface GameSession {
   useEntity(entityId: string): void;
   enchant?(slot: number): void;
   anvil?(name: string | null): void;
+  editSign?(x: number, y: number, z: number, lines: string[]): void;
   shoot(power: number, yaw: number, pitch: number): void;
   swing?(): void;
   trade(entityId: string, index: number, times: number): void;

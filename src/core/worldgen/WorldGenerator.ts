@@ -1,13 +1,13 @@
 import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, CHUNK_VOLUME } from '../constants';
 import { Simplex, smoothstep, lerp } from '../noise';
 import { Rng, hash2, hash3, hashFloat2, mix32 } from '../rng';
-import { B, CB, makeBlock, X, XV, sp, SPECIES, terracottaId, bid, VINE_BODY, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, SHRIEK_SUMMON, FACING_DIRS } from '../blocks';
+import { B, CB, makeBlock, X, XV, sp, SPECIES, terracottaId, bid, VINE_BODY, DL_TILT_SHIFT, SMALL_UPPER, DRIP_DOWN, SHRIEK_SUMMON, FACING_DIRS, deepslateOreOf } from '../blocks';
 import { I, toolId } from '../items';
 import { BIOMES, Biome, BiomeId, biome } from './biomes';
 import type { ItemStack } from '../inventory';
 import { ArenaKind, arenaLayout, generateArenaChunk } from '../labs/minigames/arena';
 import { VillagePlan, VILLAGE_REGION, planVillage, stampVillage } from './village';
-import { GEN_LEVEL, LANDFORM_LEVEL, RIVER_LEVEL, BIOME_LEVEL, BIOME2_LEVEL, CAVE_LEVEL, STRUCT_LEVEL } from './genLevel';
+import { GEN_LEVEL, LANDFORM_LEVEL, RIVER_LEVEL, BIOME_LEVEL, BIOME2_LEVEL, CAVE_LEVEL, STRUCT_LEVEL, DEEP_LEVEL, DEEPSLATE_TOP, DEEPSLATE_SOLID } from './genLevel';
 import { NetherGen, type NetherBiome } from './nether';
 import { isNether, isEnd, END_X } from '../dimension';
 import { EndGen } from './end';
@@ -640,6 +640,7 @@ export class WorldGenerator {
     this.carveCaves(cx, cz, blocks, colAt);
     if (this.lv >= CAVE_LEVEL) this.decorateCaves(cx, cz, blocks, colAt);
     this.placeOres(rng, blocks, colAt, cx, cz);
+    if (this.lv >= DEEP_LEVEL) this.deepen(cx, cz, blocks);
     this.reserved = this.lv >= STRUCT_LEVEL ? this.landmarksNear(bx - 8, bz - 8, bx + S + 7, bz + S + 7, SURFACE_LANDMARKS).map((p) => ({ x0: p.bounds.x0 - 4, z0: p.bounds.z0 - 4, x1: p.bounds.x1 + 4, z1: p.bounds.z1 + 4 })) : null;
     this.placeFeatures(cx, cz, cols, set, get, entities);
     this.reserved = null;
@@ -652,6 +653,23 @@ export class WorldGenerator {
     this.placeVegetation(cx, cz, rng, set, get, colAt);
     this.placeWaterfalls(rng, set, get, colAt);
     return structs.length ? { blocks, entities, special: true } : { blocks, entities };
+  }
+
+  private deepen(cx: number, cz: number, blocks: Uint32Array): void {
+    const DS = makeBlock(CB.DEEPSLATE);
+    const G = X(XV.GRANITE), D = X(XV.DIORITE), A = X(XV.ANDESITE);
+    const bx = cx * S, bz = cz * S;
+    for (let y = 1; y < DEEPSLATE_TOP; y++) {
+      const full = y <= DEEPSLATE_SOLID;
+      const p = full ? 1 : (DEEPSLATE_TOP - y) / (DEEPSLATE_TOP - DEEPSLATE_SOLID);
+      for (let z = 0; z < S; z++) for (let x = 0; x < S; x++) {
+        const i = (y * S + z) * S + x, v = blocks[i];
+        const id = bid(v);
+        if (id !== B.STONE && v !== G && v !== D && v !== A && !deepslateOreOf(v)) continue;
+        if (!full && ((hash3(bx + x, y, bz + z, this.seed ^ 0x0de5a7e) & 0xffff) / 65536) >= p) continue;
+        blocks[i] = id === B.STONE || v === G || v === D || v === A ? DS : deepslateOreOf(v)!;
+      }
+    }
   }
 
   private carveCaves(cx: number, cz: number, blocks: Uint32Array, colAt: (x: number, z: number) => Column): void {

@@ -245,11 +245,12 @@ export class WorldRoom extends DurableObject<Env> {
       for (const row of this.sql.exec(`SELECT k, data FROM be`).toArray()) {
         try {
           const be = JSON.parse(row.data as string) as BlockEntity;
-          be.items = be.items.map((s) => (validStack(s) ? cloneStack(s) : null));
+          be.items = (be.items ?? []).map((s) => (validStack(s) ? cloneStack(s) : null));
           this.sim.blockEntities.set(row.k as string, be);
           if (be.type === 'furnace' || be.type === 'campfire') this.sim.activeFurnaces.add(row.k as string);
         } catch { /* skip corrupt */ }
       }
+      this.sim.reindexSigns();
       this.loadPersistentMobs();
       this.loadFixtures();
       this.loaded = true;
@@ -317,6 +318,12 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private sendChunk(s: Session, p: SimPlayer, cx: number, cz: number): boolean {
+    const ok = this.sendChunkBlocks(s, p, cx, cz);
+    if (ok && this.sim) { const l = this.sim.signsIn(cx, cz); if (l.length) this.send(s, { t: 'signs', l }); }
+    return ok;
+  }
+
+  private sendChunkBlocks(s: Session, p: SimPlayer, cx: number, cz: number): boolean {
     const k = chunkKey(cx, cz);
     const near = Math.max(Math.abs(cx - Math.floor(p.x / 16)), Math.abs(cz - Math.floor(p.z / 16))) <= ORE_REVEAL_RADIUS;
     if (near && !this.stepNeighbours(cx, cz)) return false;
@@ -1337,6 +1344,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'atk': if (isInt(msg.id, 0, 1e9)) sim.attack(p, msg.id); return;
       case 'ue': if (isInt(msg.id, 0, 1e9)) sim.useEntity(p, msg.id); return;
       case 'ench': if (isInt(msg.i, 0, 2)) sim.enchant(p, msg.i); return;
+      case 'sign': if (isInt(msg.x, -3e7, 3e7) && isInt(msg.y, -64, 512) && isInt(msg.z, -3e7, 3e7) && Array.isArray(msg.l) && msg.l.length <= 4) sim.editSign(p, msg.x, msg.y, msg.z, msg.l); return;
       case 'anvil': if (msg.n === null || (typeof msg.n === 'string' && msg.n.length <= 50)) sim.anvil(p, msg.n); return;
       case 'trd': if (isInt(msg.id, 0, 1e9) && isInt(msg.i, 0, 64) && isInt(msg.n, 1, 64)) sim.trade(p, msg.id, msg.i, msg.n); return;
       case 'pvp': if (typeof msg.pid === 'string') sim.attackPlayer(p, msg.pid); return;
@@ -1766,6 +1774,15 @@ export class WorldRoom extends DurableObject<Env> {
         }
         return;
       }
+      case 'sign':
+        this.dirtyBE.add(posKey(ev.x, ev.y, ev.z));
+        this.sendNear(ev.x + 0.5, ev.z + 0.5, 336, { t: 'signs', l: [[ev.x, ev.y, ev.z, ev.d]] });
+        return;
+      case 'signEdit': {
+        const s = this.sessionFor(ev.p.id);
+        if (s) this.send(s, { t: 'signEdit', x: ev.x, y: ev.y, z: ev.z, b: ev.b });
+        return;
+      }
       case 'chestLid':
         this.sendNear(ev.x + 0.5, ev.z + 0.5, 64, { t: 'lid', x: ev.x, y: ev.y, z: ev.z, n: ev.n });
         return;
@@ -1813,7 +1830,7 @@ export class WorldRoom extends DurableObject<Env> {
       case 'travel': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'trv', s: ev.phase === 'end' ? 1 : 0, n: ev.end ? 2 : ev.nether ? 1 : 0 }); return; }
       case 'effect': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'eff', k: ev.k, d: ev.t }); return; }
       case 'knock': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'knock', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), ...(ev.set ? { s: 1 } : {}) }); return; }
-      case 'ride': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'ride', id: ev.id }); return; }
+      case 'ride': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'ride', id: ev.id, s: ev.seat || undefined }); return; }
       case 'work': {
         const s = this.sessionFor(ev.p.id);
         if (!s) return;

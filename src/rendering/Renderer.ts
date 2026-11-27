@@ -19,6 +19,7 @@ import { Weather } from './Weather';
 import { EntityRenderer, LightProbe } from './EntityRenderer';
 import { MovingBlocks } from './MovingBlocks';
 import { ChestRenderer } from './ChestRenderer';
+import { SignRenderer } from './SignRenderer';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { getItem, I } from '../core/items';
 import { firstPersonArmMatrix } from './VanillaModels';
@@ -60,6 +61,7 @@ export class Renderer {
   readonly entities: EntityRenderer;
   readonly moving: MovingBlocks;
   readonly chests: ChestRenderer;
+  readonly signs: SignRenderer;
   atlas: TextureAtlas;
   private mats: { opaque: THREE.ShaderMaterial; cutout: THREE.ShaderMaterial; trans: THREE.ShaderMaterial };
   private chunks = new Map<string, ChunkMeshes>();
@@ -157,6 +159,7 @@ export class Renderer {
     this.weather = new Weather();
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
     this.chests = new ChestRenderer(this.uniforms, atlas, probe);
+    this.signs = new SignRenderer(this.uniforms, atlas, probe);
     this.moving = new MovingBlocks(this.mats);
     this.ghost = new BlueprintGhost(this.uniforms);
     this.entities.cull = (x, y, z) => this.sectionVisible(x, y, z);
@@ -167,7 +170,7 @@ export class Renderer {
       const c = tint === 3 ? [128, 167, 85] : tint === 4 ? [97, 153, 97] : tint ? [104, 168, 52] : [255, 255, 255];
       return { tile, r: c[0] / 255, g: c[1] / 255, b: c[2] / 255 };
     };
-    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.explosions.points, this.weather.group, this.entities.group, this.chests.group, this.moving.group, this.ghost.group);
+    this.scene.add(this.sky.group, this.terrain, this.sky.cloudMesh, this.particles.points, this.explosions.points, this.weather.group, this.entities.group, this.chests.group, this.signs.group, this.moving.group, this.ghost.group);
     const eg = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     this.outline = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false }));
     this.outline.visible = false;
@@ -318,6 +321,7 @@ export class Renderer {
     this.sky.setTextures(a);
     this.entities.setAtlas(a);
     this.chests.setAtlas(a);
+    this.signs.setAtlas(a);
     this.moving.clear();
     if (this.moving.ctx) this.moving.ctx = { ...this.moving.ctx, atlas: a.data };
     if (this.ghost.ctx) this.ghost.ctx = { ...this.ghost.ctx, atlas: a.data };
@@ -385,6 +389,7 @@ export class Renderer {
     this.chunks.set(key, cm);
     this.byNum.set(cnum(cx, cz), cm);
     this.chests.setChunk(key, cx, cz, r.chests);
+    this.signs.setChunk(key, cx, cz, r.signs);
     if (r.cages) { const a = new Int32Array(r.cages); for (let i = 0; i < a.length; i += 4) { a[i] += cx * 16; a[i + 2] += cz * 16; } this.cageLists.set(key, a); } else this.cageLists.delete(key);
     this.cageT = 0;
     this.visDirty = true;
@@ -520,6 +525,7 @@ export class Renderer {
   removeChunk(key: string): void {
     this.removeTerrain(key);
     this.chests.remove(key);
+    this.signs.remove(key);
     if (this.cageLists.delete(key)) this.cageT = 0;
   }
 

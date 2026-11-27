@@ -44,7 +44,8 @@ import type { ScreenType } from '../core/sim/WorldSim';
 import { getSettings, onSettings, updateSettings, Settings, isTouchDevice, getIdentity } from '../storage/Settings';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
 import { audio } from '../audio/AudioEngine';
-import { B, CB, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix, bid, WIDE_BASE, ID_LIMIT, isReplaceable } from '../core/blocks';
+import { B, CB, getBlock, blockId, LIGHT_EMIT, isWaterLike, tix, bid, WIDE_BASE, ID_LIMIT, isReplaceable, isSignId, signKind, signWood } from '../core/blocks';
+import { openSignEditor } from '../ui/SignEditor';
 import { heldStack, equipmentOf } from '../core/inventory';
 import { attackCharge, attackStats } from '../core/sim/combat';
 import { MODE_TITLES, TICKS_PER_DAY, WORLD_HEIGHT, timeRate } from '../core/constants';
@@ -361,6 +362,7 @@ export class Game {
       genOld: (cx, cz) => (this.session instanceof LocalSession ? this.session.chunkOld(cx, cz) : null),
     }, remote);
     this.renderer.chests.getBlock = (x, y, z) => this.chunks.getBlock(x, y, z);
+    this.renderer.signs.data = (k) => { const be = this.session?.getBlockEntity(k); return be && be.type === 'sign' ? { f: be.f, b: be.b } : null; };
     this.player.others = () => {
       const out: { x: number; y: number; z: number; hw: number; h: number }[] = [];
       const px = this.player.x, pz = this.player.z;
@@ -478,6 +480,8 @@ export class Game {
     crucible: (v) => { this.cru = v; this.hud?.setCrucible(v, this.session.me.id, () => this.session.chat('/crucible join')); },
     trade: (info) => this.inv?.setTrade(info),
     mobName: (id, name) => this.renderer?.entities.setMobName(id, name),
+    sign: (x, y, z) => this.renderer?.signs.refresh(x, y, z),
+    signEdit: (x, y, z, b) => this.openSign(x, y, z, b),
     chestLid: (x, y, z, n) => { this.renderer?.chests.setOpen(x, y, z, n); audio.play(n > 0 ? 'chest.open' : 'chest.close', x + 0.5, y + 0.5, z + 0.5); },
     hurt: (a, c, fx, fz, kb) => this.onHurt(a, c, fx, fz, kb),
     playerHurt: (id) => { const v = this.renderer?.entities.views.get(`p:${id}`); if (v) { v.hurtT = 0.4; v.swing = 0; } },
@@ -489,7 +493,7 @@ export class Game {
     weather: (w, d) => { this.weather = w; this.weatherEnd = d === undefined ? 0 : performance.now() / 1000 + d / 20; },
     lightning: (x, y, z) => this.onLightning(x, y, z),
     pistonMove: (l) => this.renderer?.moving.add(l, performance.now()),
-    ride: (id) => { this.riding = id >= 0 ? String(id) : null; },
+    ride: (id, seat) => { this.riding = id >= 0 ? String(id) : null; this.seat = seat ?? 0; },
     enchantOffers: (o) => { this.inv?.setOffers(o); },
     equipment: (id, eq) => { this.renderer?.entities.setEquipment(`p:${id}`, eq); },
     dark: (t) => { this.darkT = Math.max(this.darkT, t / 20); },
@@ -684,6 +688,36 @@ export class Game {
       return true;
     }
     return false;
+  }
+
+  private signUI: { close: () => void } | null = null;
+
+  private openSign(x: number, y: number, z: number, back: boolean): void {
+    const v = this.chunks.getBlock(x, y, z), id = bid(v);
+    if (!isSignId(id) || this.state === 'dead') return;
+    this.signUI?.close();
+    const be = this.session.getBlockEntity(`${x},${y},${z}`);
+    const side = be && be.type === 'sign' ? (back ? be.b : be.f) : { t: ['', '', '', ''], c: 15, g: false };
+    const k = signKind(id), hanging = k === 'hang' || k === 'wallhang', wood = signWood(id);
+    const src = this.atlas.entityCanvases.get(hanging ? `hanging_sign_${wood}` : `sign_${wood}`);
+    let board: HTMLCanvasElement | null = null;
+    if (src) {
+      const sc = src.width / 64, [u, vv, w, hh] = hanging ? [2, 14, 14, 10] : [2, 2, 24, 12];
+      board = document.createElement('canvas');
+      board.width = w * sc; board.height = hh * sc;
+      board.getContext('2d')!.drawImage(src, u * sc, vv * sc, w * sc, hh * sc, 0, 0, w * sc, hh * sc);
+    }
+    if (this.inv?.isOpen) this.inv.close();
+    this.desktop.unlock();
+    this.setState('inventory');
+    this.signUI = openSignEditor({
+      side, wood, hanging, board,
+      onDone: (lines) => {
+        this.signUI = null;
+        this.session.editSign?.(x, y, z, lines);
+        if (this.state === 'inventory') this.setState('playing');
+      },
+    });
   }
 
   private setState(s: State): void {
@@ -1203,6 +1237,7 @@ export class Game {
   private boomSndAt = 0;
   private boomSndN = 0;
   private riding: string | null = null;
+  private seat = 0;
 
   onLightning(x: number, y: number, z: number): void {
     this.renderer?.weather.lightning(x, y, z);
@@ -1305,7 +1340,8 @@ export class Game {
     const cartView = this.riding ? this.renderer.entities.views.get(this.riding) : undefined;
     if (this.riding && !cartView && !frozen) this.riding = null;
     if (cartView && !frozen) {
-      this.player.setPos(cartView.x, cartView.y + (cartView.kind === 'mob' ? 1.6 : cartView.kind === 'boat' ? 0.1 : 0.35), cartView.z);
+      const so = cartView.kind === 'boat' && (cartView.flags & 8) ? (this.seat === 0 ? 0.2 : -0.6) : 0;
+      this.player.setPos(cartView.x - Math.sin(cartView.yaw) * so, cartView.y + (cartView.kind === 'mob' ? 1.6 : cartView.kind === 'boat' ? 0.1 : 0.35), cartView.z - Math.cos(cartView.yaw) * so);
       if (playing && this.input.usePressed && heldStack(me.inv)?.id === I.FUNGUS_STICK) { s.useEntity(this.riding!); this.input.usePressed = false; }
       const rf = MF.RIDE | (playing && this.input.moveZ > 0.3 ? MF.FORWARD : 0) | (playing && this.input.moveZ < -0.3 ? MF.BACK : 0) | (playing && this.input.moveX < -0.3 ? MF.LEFT : 0) | (playing && this.input.moveX > 0.3 ? MF.RIGHT : 0) | (playing && this.input.crouch ? MF.CROUCH : 0) | (this.interaction?.charging ? MF.CHARGE : 0);
       if (!me.dead) s.move(this.player.x, this.player.y, this.player.z, this.player.yaw, this.player.pitch, rf);
@@ -1433,6 +1469,7 @@ export class Game {
     this.renderer.moving.update(performance.now(), (x, y, z) => this.chunks.getBlock(x, y, z));
     if (this.shake > 0) { this.shake = Math.max(0, this.shake - dt * 1.2); this.renderer.camera.position.x += (Math.random() - 0.5) * this.shake * 0.3; this.renderer.camera.position.y += (Math.random() - 0.5) * this.shake * 0.3; }
     this.renderer.chests.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(64, st.renderDistance * 16));
+    this.renderer.signs.update(dt, cam.position.x, cam.position.y, cam.position.z, Math.min(96, st.renderDistance * 16));
     this.renderer.particles.update(dt, this.chunks);
     if (!loading) this.renderer.particles.bubbles(dt, this.player.x, this.player.eyeY, this.player.z, this.chunks);
     if (!loading) this.renderer.particles.ambient(dt, this.player.x, this.player.eyeY, this.player.z, { night: this.renderer.skyState.night, cave: this.caveFx, rain: this.rain, underwater: blockId(this.chunks.getBlock(Math.floor(this.player.x), Math.floor(this.player.eyeY), Math.floor(this.player.z))) === 12, fx: dimOf(this.player.x) === 'nether' ? (this.nfBiome ? `n:${this.nfBiome}` : null) : dimOf(this.player.x) !== 'overworld' ? null : this.renderer.atmo.fx, fxAmt: this.renderer.atmo.fxAmt, day: this.renderer.skyState.day, dust: [this.renderer.atmo.dustColor.r, this.renderer.atmo.dustColor.g, this.renderer.atmo.dustColor.b] }, this.chunks);

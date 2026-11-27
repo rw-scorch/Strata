@@ -41,6 +41,14 @@ function villagerParts(prof: number): PartSpec[] {
 }
 
 const MOB_PARTS: Partial<Record<MobType, PartSpec[]>> = {
+  voidmite: [
+    { n: 'seg0', s: [0.25, 0.19, 0.12], p: [0, 0.1, -0.2], c: 0x2a1238 },
+    { n: 'seg1', s: [0.38, 0.25, 0.31], p: [0, 0.13, -0.02], c: 0x3a1a4e },
+    { n: 'seg2', s: [0.19, 0.19, 0.06], p: [0, 0.1, 0.17], c: 0x2a1238 },
+    { n: 'seg3', s: [0.06, 0.12, 0.06], p: [0, 0.06, 0.23], c: 0x24102f },
+    { n: 'eyeL', s: [0.04, 0.04, 0.02], p: [0, 0, 0], o: [-0.06, 0.03, -0.07], c: 0xc070ff, e: true, parent: 'seg0' },
+    { n: 'eyeR', s: [0.04, 0.04, 0.02], p: [0, 0, 0], o: [0.06, 0.03, -0.07], c: 0xc070ff, e: true, parent: 'seg0' },
+  ],
   woolhorn: [
     { n: 'body', s: [0.78, 0.66, 1.05], p: [0, 0.86, 0], c: 0xf0ead6 },
     { n: 'head', s: [0.42, 0.42, 0.48], p: [0, 1.05, -0.55], o: [0, 0.02, -0.18], c: 0xe8e0c8 },
@@ -906,6 +914,44 @@ export class EntityRenderer {
         }
         built = { obj: g, parts: new Map(), mats };
         hw = 0.49; h = 0.7;
+      } else if (kind === 'boat' && this.atlas.entityTextures.get(`${type >= 8 ? 'chest_boat' : 'boat'}_${type & 7}`)) {
+        const chest = type >= 8;
+        const tex = this.atlas.entityTextures.get(`${chest ? 'chest_boat' : 'boat'}_${type & 7}`)!;
+        const mat = this.material(tex);
+        const g = new THREE.Group();
+        const body = new THREE.Group();
+        body.scale.set(1 / 16, -1 / 16, 1 / 16);
+        body.position.y = 0.375;
+        body.rotation.y = Math.PI / 2;
+        const th = chest ? 128 : 64;
+        const parts = new Map<string, THREE.Object3D>();
+        const add = (n: string, cubes: VCube[], pv: [number, number, number], rot: [number, number, number] = [0, 0, 0], m: THREE.Material = mat) => {
+          const mesh = new THREE.Mesh(cubesGeometry(cubes, 128, th), m);
+          mesh.position.set(...pv);
+          mesh.rotation.set(rot[0], rot[1], rot[2], 'ZYX');
+          body.add(mesh);
+          parts.set(n, mesh);
+          return mesh;
+        };
+        const H = Math.PI / 2;
+        add('bottom', [{ o: [-14, -9, -3], s: [28, 16, 3], uv: [0, 0] }], [0, 3, 1], [H, 0, 0]);
+        add('back', [{ o: [-13, -7, -1], s: [18, 6, 2], uv: [0, 19] }], [-15, 4, 4], [0, H * 3, 0]);
+        add('front', [{ o: [-8, -7, -1], s: [16, 6, 2], uv: [0, 27] }], [15, 4, 0], [0, H, 0]);
+        add('right', [{ o: [-14, -7, -1], s: [28, 6, 2], uv: [0, 35] }], [0, 4, -9], [0, Math.PI, 0]);
+        add('left', [{ o: [-14, -7, -1], s: [28, 6, 2], uv: [0, 43] }], [0, 4, 9]);
+        add('left_paddle', [{ o: [-1, 0, -5], s: [2, 2, 18], uv: [62, 0] }, { o: [-1.001, -3, 8], s: [1, 6, 7], uv: [62, 0] }], [3, -5, 9], [0, 0, Math.PI / 16]);
+        add('right_paddle', [{ o: [-1, 0, -5], s: [2, 2, 18], uv: [62, 20] }, { o: [0.001, -3, 8], s: [1, 6, 7], uv: [62, 20] }], [3, -5, -9], [0, Math.PI, Math.PI / 16]);
+        if (chest) {
+          add('chest_bottom', [{ o: [0, 0, 0], s: [12, 8, 12], uv: [0, 76] }], [-2, -5, -6], [0, -H, 0]);
+          add('chest_lid', [{ o: [0, 0, 0], s: [12, 4, 12], uv: [0, 59] }], [-2, -9, -6], [0, -H, 0]);
+          add('chest_lock', [{ o: [0, 0, 0], s: [2, 4, 1], uv: [0, 59] }], [-1, -6, -1], [0, -H, 0]);
+        }
+        const patch = new THREE.Mesh(cubesGeometry([{ o: [-14, -9, -3], s: [28, 16, 3], uv: [0, 0] }], 128, th), new THREE.MeshBasicMaterial({ colorWrite: false }));
+        patch.position.set(0, -3, 1); patch.rotation.set(H, 0, 0, 'ZYX'); patch.renderOrder = 1;
+        body.add(patch);
+        g.add(body);
+        built = { obj: g, parts, mats: [mat] };
+        hw = 0.6875; h = 0.5625;
       } else if (kind === 'boat') {
         const g = new THREE.Group();
         const mats: THREE.ShaderMaterial[] = [];
@@ -926,6 +972,7 @@ export class EntityRenderer {
         part(0.9, 0.06, 0.32, 0, 0.32, 0.15);
         part(0.05, 0.05, 1.0, -0.7, 0.42, 0.05, 0.25, B.OAK_PLANKS);
         part(0.05, 0.05, 1.0, 0.7, 0.42, 0.05, -0.25, B.OAK_PLANKS);
+        if (type >= 8) part(0.6, 0.55, 0.6, 0, 0.45, 0.42, 0, B.CHEST);
         built = { obj: g, parts: new Map(), mats };
         hw = 0.68; h = 0.56;
       } else if (kind === 'frame') {
@@ -1156,10 +1203,30 @@ export class EntityRenderer {
       const hurt = v.hurtT > 0 || (v.kind === 'mob' && (v.flags & 1)) ? 1 : 0;
       for (const m of v.mats) { m.uniforms.uLight.value = Math.max(0.2, v.light); if (!v.dying) m.uniforms.uHurt.value = hurt; }
       if (v.kind === 'frame' && v.type === 1) for (const m of v.mats) m.uniforms.uLight.value = 1;
-      if (v.kind === 'tnt' || v.kind === 'cart' || v.kind === 'boat') for (const m of v.mats) if (m.uniforms.uWhite) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
+      if (v.kind === 'tnt' || v.kind === 'cart') for (const m of v.mats) if (m.uniforms.uWhite) m.uniforms.uWhite.value = v.flags & 1 ? 0.7 : 0;
+      if (v.kind === 'boat') this.animateBoat(v, dt);
       if (v.flags & 2 && v.kind === 'mob') for (const m of v.mats) m.uniforms.uLight.value = Math.max(v.light, 0.95);
     }
     this.drawTnt();
+  }
+
+  private animateBoat(v: EntityView, dt: number): void {
+    const b = v as EntityView & { rowL?: number; rowR?: number; wobT?: number };
+    if (v.flags & 2) b.rowL = (b.rowL ?? 0) + Math.PI / 8 * dt * 20;
+    if (v.flags & 4) b.rowR = (b.rowR ?? 0) + Math.PI / 8 * dt * 20;
+    const lerp = (a: number, c: number, t: number) => a + (c - a) * Math.max(0, Math.min(1, t));
+    for (const [n, side] of [['left_paddle', 0], ['right_paddle', 1]] as const) {
+      const pd = v.parts.get(n);
+      if (!pd) continue;
+      const f = (side ? b.rowR : b.rowL) ?? 0;
+      pd.rotation.x = lerp(-Math.PI / 3, -0.2617994, (Math.sin(-f) + 1) / 2);
+      let yr = lerp(-Math.PI / 4, Math.PI / 4, (Math.sin(-f + 1) + 1) / 2);
+      if (side) yr = Math.PI - yr;
+      pd.rotation.y = yr;
+    }
+    b.wobT = v.flags & 1 ? Math.min(1, (b.wobT ?? 0) + dt * 6) : Math.max(0, (b.wobT ?? 0) - dt * 3);
+    const body = v.obj.children[0];
+    if (body) body.rotation.x = Math.sin(performance.now() / 60) * 0.12 * (b.wobT ?? 0);
   }
 
   private tntMesh: THREE.InstancedMesh | null = null;

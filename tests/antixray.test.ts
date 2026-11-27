@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { WorldGenerator } from '../src/core/worldgen/WorldGenerator';
-import { maskChunk, exposedOres, isHiddenOre, publicValue } from '../src/core/antixray';
+import { maskChunk, exposedOres, isHiddenOre, publicValue, cover } from '../src/core/antixray';
 import { B } from '../src/core/blocks';
 
 describe('anti-xray', () => {
@@ -16,7 +16,7 @@ describe('anti-xray', () => {
       for (let i = 0; i < s.length; i++) {
         if (s[i] === c[i]) continue;
         expect(isHiddenOre(s[i])).toBe(true);
-        expect(c[i]).toBe(B.STONE);
+        expect(c[i]).toBe(cover(s[i]));
         ores++;
       }
       expect(client.generate(cx, cz).blocks.some((v) => isHiddenOre(v))).toBe(false);
@@ -45,7 +45,7 @@ describe('anti-xray', () => {
       for (let i = 0; i < blocks.length; i++) {
         if (!isHiddenOre(blocks[i])) { expect(masked[i]).toBe(blocks[i]); continue; }
         if (listed.has(i)) { expect(masked[i]).toBe(blocks[i]); exposedCount++; }
-        else { expect(masked[i]).toBe(B.STONE); hiddenCount++; }
+        else { expect(masked[i]).toBe(cover(blocks[i])); hiddenCount++; }
         const x = cx * 16 + (i & 15), z = cz * 16 + ((i >> 4) & 15), y = i >> 8;
         expect(publicValue(world, x, y, z)).toBe(masked[i]);
       }

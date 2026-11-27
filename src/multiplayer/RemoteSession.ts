@@ -1,3 +1,4 @@
+import { cleanSign } from '../core/signs';
 import { Blueprint, encodeBlueprint, BP_PART, BP_MAX_PARTS } from '../core/blueprint';
 import { loadCustomSkin } from '../resources/skins';
 import { PROTOCOL_VERSION, GameMode } from '../core/constants';
@@ -315,7 +316,7 @@ export class RemoteSession implements GameSession {
       case 'wx': this.sim.weather = m.w as Weather; ev.weather(m.w as Weather, m.d); return;
       case 'bolt': ev.lightning(m.x, m.y, m.z); return;
       case 'pmove': ev.pistonMove?.(m.l); return;
-      case 'ride': ev.ride?.(m.id); return;
+      case 'ride': ev.ride?.(m.id, m.s ?? 0); return;
       case 'knock': ev.knock?.(m.x, m.y, m.z, m.s === 1); return;
       case 'eff': ev.effect?.(String(m.k), Math.max(0, Math.min(2400, Number(m.d) || 0))); return;
       case 'dark': ev.dark?.(m.d); return;
@@ -339,6 +340,8 @@ export class RemoteSession implements GameSession {
       case 'recipes': this.sim.setDataPacks(cleanPackList(m.d)); ev.recipes?.(this.sim.dataPacks); return;
       case 'rtc': ev.rtc?.(m.from, m.d); return;
       case 'lid': ev.chestLid?.(m.x, m.y, m.z, m.n); return;
+      case 'signs': if (Array.isArray(m.l)) for (const r of m.l) { if (!Array.isArray(r) || !r.slice(0, 3).every(Number.isInteger)) continue; this.sim.setSignData(r[0], r[1], r[2], r[3] ? cleanSign(r[3]) : null); ev.sign?.(r[0], r[1], r[2]); } return;
+      case 'signEdit': if (Number.isInteger(m.x) && Number.isInteger(m.y) && Number.isInteger(m.z)) ev.signEdit?.(m.x, m.y, m.z, !!m.b); return;
       case 'mn': ev.mobName?.(String(m.id), m.n); return;
       case 'trade': ev.trade?.({ id: String(m.id), prof: m.prof, xp: m.xp, uses: m.uses, seed: m.seed ?? 0 }); return;
       case 'pong': this.rtt = Date.now() - m.c; return;
@@ -412,6 +415,7 @@ export class RemoteSession implements GameSession {
   useEntity(id: string): void { this.flushMove(); this.send({ t: 'ue', id: Number(id) }); }
   enchant(i: number): void { this.send({ t: 'ench', i }); }
   anvil(n: string | null): void { this.send({ t: 'anvil', n }); }
+  editSign(x: number, y: number, z: number, lines: string[]): void { this.send({ t: 'sign', x, y, z, l: lines.slice(0, 4) }); }
   private shared: { id: string; name: string; x: number; y: number; z: number }[] = [];
   private share = { all: false, to: [] as string[] };
   sharedPositions(): { id: string; name: string; x: number; y: number; z: number }[] { return this.shared; }

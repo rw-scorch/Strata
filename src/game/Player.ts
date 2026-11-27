@@ -1,5 +1,5 @@
 import { NETHER_EDGE } from '../core/dimension';
-import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium, bubbleColumn, bubbleSurface } from '../core/physics';
+import { Body, moveStep, sampleMedium, boxCollides, BlockReader, Medium, bubbleColumn, bubbleSurface, slipperiness } from '../core/physics';
 import { getBlock, blockId, B, isSoulSand, X, XV } from '../core/blocks';
 import { MF } from '../core/sim/WorldSim';
 import type { InputState } from '../controls/InputState';
@@ -10,11 +10,6 @@ const TICK = 0.05;
 const STEP_HEIGHT = 0.6;
 const GRAVITY = 0.08;
 
-function slipperiness(id: number): number {
-  if (id === B.ICE || id === B.PACKED_ICE) return 0.98;
-  if (id === B.SLIME_BLOCK) return 0.8;
-  return 0.6;
-}
 
 export class LocalPlayer {
   body: Body = { x: 0, y: 80, z: 0, vx: 0, vy: 0, vz: 0, hw: HW, h: 1.8, onGround: false, hitH: false, hitCeil: false };
@@ -299,7 +294,7 @@ export class LocalPlayer {
       b.vy -= GRAVITY / 4;
     } else {
       const under = world.getBlock(Math.floor(b.x), Math.floor(b.y - 0.5000001), Math.floor(b.z));
-      const slip = b.onGround ? slipperiness(blockId(under)) : 1;
+      const slip = b.onGround ? slipperiness(under) : 1;
       const f = slip * 0.91;
       const soulBlock = b.onGround && (isSoulSand(under) || under === X(XV.SOUL_SOIL));
       const base = 0.1 + (soulBlock && this.soulSpeed > 0 ? 0.03 * (1 + this.soulSpeed * 0.35) : 0);

@@ -1,4 +1,4 @@
-import { BLOCKS, B, CB, ToolType, COLORS, COLOR_NAMES, DyeColor, SHAPE_MATS, slabItem, stairsItem, SLAB2, STAIRS2 } from './blocks';
+import { BLOCKS, B, CB, ToolType, COLORS, COLOR_NAMES, DyeColor, SHAPE_MATS, slabItem, stairsItem, SLAB2, STAIRS2, SIGN_BASE, HANGING_SIGN_BASE, CHAIN } from './blocks';
 
 export type ItemKind = 'block' | 'tool' | 'food' | 'armor' | 'material' | 'bucket' | 'placer';
 export type CreativeTab = 'building' | 'nature' | 'functional' | 'tools' | 'combat' | 'food' | 'materials';
@@ -30,7 +30,7 @@ export interface ItemDef {
 export const I = {
   GLOW_BERRIES: 4096,
   SHIELD: 490, ENDER_PEARL: 491,
-  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, TOTEM: 508, SPLASH_HEALING: 509, BOAT_BASE: 510, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505, PRISMARINE_SHARD: 506, PRISMARINE_CRYSTALS: 507,
+  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, TOTEM: 508, SPLASH_HEALING: 509, BOAT_BASE: 510, CHEST_BOAT_BASE: 800, SIGN_BASE: 808, HANGING_SIGN_BASE: 816, CHAIN: 824, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505, PRISMARINE_SHARD: 506, PRISMARINE_CRYSTALS: 507,
   STICK: 256, APPLE: 258, COAL: 260, CHARCOAL: 261, IRON_INGOT: 262, FLINT: 263, AETHERITE: 264,
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
@@ -65,7 +65,7 @@ const TAB_FOR_CATEGORY: Record<string, CreativeTab> = {
 for (const b of BLOCKS) {
   if (!b || b.id === 0) continue;
   const flat = b.render === 'cross' || b.render === 'crop' || b.render === 'torch' || b.render === 'ladder' || b.render === 'door' || b.render === 'redstone' || b.render === 'rail' || b.render === 'fire' || b.render === 'portal' || b.render === 'bars' || b.render === 'cave';
-  if (b.key === 'slab2' || b.key === 'stairs2') continue;
+  if (b.key === 'slab2' || b.key === 'stairs2' || b.render === 'sign' || b.key === 'chain') continue;
   if (b.render === 'fence' && b.id === B.NETHER_BRICK_FENCE) { add({ id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.id, texture: 'nether_brick_fence_item', blockIcon: false, tab: 'building' }); continue; }
   add({
     id: b.id, key: b.key, name: b.name, desc: b.desc, kind: 'block', places: b.ext !== undefined ? 218 : b.species ? b.species.base : b.id, placeMeta: b.ext ?? (b.species ? b.species.s << 4 : undefined),
@@ -116,7 +116,15 @@ add({ id: I.SHULKER_SHELL, key: 'shulker_shell', name: 'Shulker Shell', desc: 'T
 add({ id: I.ELYTRA, key: 'elytra', name: 'Elytra', desc: 'Wear in the chest slot, then jump while falling to glide. Fireworks give a boost. Only found aboard End ships.', kind: 'armor', texture: 'elytra', maxStack: 1, durability: 432, armor: { slot: 1, points: 0, durability: 432 }, tab: 'combat' });
 add({ id: I.FIREWORK_ROCKET, key: 'firework_rocket', name: 'Firework Rocket', desc: 'Launch it for a show, or use it while gliding for a burst of speed.', kind: 'material', texture: 'firework_rocket', tab: 'tools' });
 for (const [i, k] of ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'cherry', 'mangrove'].entries()) add({ id: I.BOAT_BASE + i, key: `${k}_boat`, name: `${k.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')} Boat`, desc: 'Place it on water and climb in. Forward and back to row, left and right to turn. Crouch to get out. Flies across ice.', kind: 'material', texture: `${k}_boat`, maxStack: 1, tab: 'tools' });
-export function boatWood(id: number): number { return id >= I.BOAT_BASE && id < I.BOAT_BASE + 8 ? id - I.BOAT_BASE : -1; }
+for (const [i, k] of ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'cherry', 'mangrove'].entries()) add({ id: I.CHEST_BOAT_BASE + i, key: `${k}_chest_boat`, name: `${k.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')} Boat with Chest`, desc: 'A boat with a chest in the back: room for one rider and 27 stacks. Crouch and use it to open the chest.', kind: 'material', texture: `${k}_chest_boat`, maxStack: 1, tab: 'tools' });
+for (const [i, k] of ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'cherry', 'mangrove'].entries()) {
+  const n = k.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+  add({ id: I.SIGN_BASE + i, key: `${k}_sign`, name: `${n} Sign`, desc: 'Place on the ground or a wall, then write on it. Use it again to edit the side you face. Dye recolours the text, a Glow Ink Sac makes it shine.', kind: 'placer', places: SIGN_BASE + i, texture: `${k}_sign`, maxStack: 16, fuel: 10, tab: 'functional' });
+  add({ id: I.HANGING_SIGN_BASE + i, key: `${k}_hanging_sign`, name: `${n} Hanging Sign`, desc: 'Hang it under a block, or on the side of one for a bracket. Crouch while placing to angle it freely.', kind: 'placer', places: HANGING_SIGN_BASE + i, texture: `${k}_hanging_sign`, maxStack: 16, fuel: 10, tab: 'functional' });
+}
+add({ id: I.CHAIN, key: 'chain', name: 'Chain', desc: 'Iron links. Runs along whichever face you place it on, and holds hanging signs and lanterns.', kind: 'placer', places: CHAIN, texture: 'chain_item', tab: 'functional' });
+export function boatWood(id: number): number { return id >= I.BOAT_BASE && id < I.BOAT_BASE + 8 ? id - I.BOAT_BASE : id >= I.CHEST_BOAT_BASE && id < I.CHEST_BOAT_BASE + 8 ? id - I.CHEST_BOAT_BASE : -1; }
+export function isChestBoat(id: number): boolean { return id >= I.CHEST_BOAT_BASE && id < I.CHEST_BOAT_BASE + 8; }
 add({ id: I.TOTEM, key: 'totem_of_undying', name: 'Totem of Undying', desc: 'Hold it in either hand. When a blow would kill you, it shatters instead and pulls you back with regeneration and absorption.', kind: 'material', texture: 'totem_of_undying', maxStack: 1, tab: 'combat' });
 add({ id: I.SPLASH_HEALING, key: 'splash_potion_healing', name: 'Splash Potion of Healing', desc: 'Throw it to heal everyone in the splash by up to 4 hearts. Throw it at your feet to heal yourself mid-fight.', kind: 'material', texture: 'splash_potion_healing', maxStack: 1, tab: 'combat' });
 add({ id: I.EXPERIENCE_BOTTLE, key: 'experience_bottle', name: "Bottle o' Enchanting", desc: 'Throw it and it shatters into 3 to 11 experience for whoever is closest.', kind: 'material', texture: 'experience_bottle', tab: 'tools' });

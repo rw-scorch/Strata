@@ -148,7 +148,7 @@ const BEDROCK_BLOCK_FILES: Record<string, string[]> = {
   lava_still: ['lava_still'], oak_log: ['log_oak'], oak_log_top: ['log_oak_top'], birch_log: ['log_birch'], birch_log_top: ['log_birch_top'],
   spruce_log: ['log_spruce'], spruce_log_top: ['log_spruce_top'], jungle_log: ['log_jungle'], jungle_log_top: ['log_jungle_top'],
   oak_leaves: ['leaves_oak', 'leaves_oak_carried'], birch_leaves: ['leaves_birch', 'leaves_birch_carried'], spruce_leaves: ['leaves_spruce', 'leaves_spruce_carried'],
-  jungle_leaves: ['leaves_jungle', 'leaves_jungle_carried'], coal_ore: ['coal_ore'], iron_ore: ['iron_ore'], gold_ore: ['gold_ore'], aetherite_ore: ['diamond_ore'],
+  jungle_leaves: ['leaves_jungle', 'leaves_jungle_carried'], coal_ore: ['coal_ore'], iron_ore: ['iron_ore'], gold_ore: ['gold_ore'], aetherite_ore: ['diamond_ore'], deepslate_aetherite_ore: ['deepslate_diamond_ore'], deepslate_coal_ore: ['deepslate_coal_ore'], deepslate_iron_ore: ['deepslate_iron_ore'], deepslate_gold_ore: ['deepslate_gold_ore'], deepslate_copper_ore: ['deepslate_copper_ore'], deepslate_redstone_ore: ['deepslate_redstone_ore'], deepslate_lapis_ore: ['deepslate_lapis_ore'],
   sandstone: ['sandstone_normal'], sandstone_top: ['sandstone_top'], sandstone_bottom: ['sandstone_bottom'], cactus_side: ['cactus_side'], cactus_top: ['cactus_top'],
   cactus_bottom: ['cactus_bottom'], short_grass: ['tallgrass'], dandelion: ['flower_dandelion'], poppy: ['flower_rose'], dead_bush: ['deadbush'], fern: ['fern'],
   sugar_cane: ['reeds'], crafting_table_top: ['crafting_table_top'], crafting_table_side: ['crafting_table_side'], crafting_table_front: ['crafting_table_front'],
@@ -491,6 +491,12 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
       gui_crosshair: firstOf('gui/sprites/hud/crosshair'),
       gui_slot: firstOf('gui/sprites/container/slot'),
     };
+    ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'cherry', 'mangrove'].forEach((w, i) => {
+      ent[`ent_boat_${i}`] = firstOf(`entity/boat/${w}`);
+      ent[`ent_chest_boat_${i}`] = firstOf(`entity/chest_boat/${w}`);
+      ent[`ent_sign_${i}`] = firstOf(`entity/signs/${w}`);
+      ent[`ent_hanging_sign_${i}`] = firstOf(`entity/signs/hanging/${w}`);
+    });
     ['steve', 'alex', 'ari', 'efe', 'kai', 'makena', 'noor', 'sunny', 'zuri'].forEach((n, i) => { ent[`ent_player${i}`] = firstOf(`entity/player/wide/${n}`, i === 0 ? 'entity/steve' : `entity/player/wide/${n}`); });
     for (const pr of ['farmer', 'librarian', 'toolsmith', 'armorer', 'butcher', 'fletcher', 'cleric', 'mason', 'fisherman', 'cartographer', 'leatherworker', 'shepherd', 'weaponsmith']) ent[`ent_vprof_${pr}`] = firstOf(`entity/villager/profession/${pr}`);
     for (const [m, j] of [['leather', 'leather'], ['iron', 'iron'], ['gold', 'gold'], ['aetherite', 'diamond'], ['cinderite', 'netherite']]) {

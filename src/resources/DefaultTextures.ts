@@ -44,8 +44,8 @@ function speckle(p: Px, key: string, colors: RGBA[], count: number, size = 1): P
   return p;
 }
 
-function oreTex(key: string, ore: RGBA, dark: RGBA): Px {
-  const p = stone(key);
+function oreTex(key: string, ore: RGBA, dark: RGBA, deep = false): Px {
+  const p = deep ? deepBase(key) : stone(key);
   const r = rngFor(key);
   const clusters = 4 + r.int(2);
   for (let i = 0; i < clusters; i++) {
@@ -57,6 +57,13 @@ function oreTex(key: string, ore: RGBA, dark: RGBA): Px {
       p.set(x + 1, y + 1, dark);
     }
   }
+  return p;
+}
+
+function deepBase(key: string): Px {
+  const p = noise(key + 'ds', hex(0x4a4a50), 0.08);
+  const r = rngFor(key + 'dsl');
+  for (let y = 0; y < 16; y += 3 + r.int(2)) for (let x = 0; x < 16; x++) if (r.next() < 0.7) p.set(x, y, hex(0x3a3a40));
   return p;
 }
 
@@ -150,6 +157,39 @@ function boatIcon(base: RGBA): Px {
   }
   for (let x = 3; x < 13; x++) p.set(x, 9, shade(base, 0.5));
   for (let k = 0; k < 6; k++) { p.set(2 + k, 7 - Math.floor(k / 2), hex(0x6b4a2b)); p.set(13 - k, 7 - Math.floor(k / 2), hex(0x6b4a2b)); }
+  return p;
+}
+
+function signIcon(base: RGBA): Px {
+  const p = new Px();
+  for (let y = 2; y < 10; y++) for (let x = 1; x < 15; x++) p.set(x, y, y === 2 || y === 9 || x === 1 || x === 14 ? shade(base, 0.6) : shade(base, (x + y) % 5 === 0 ? 0.86 : 0.97));
+  for (const y of [4, 6]) for (let x = 3; x < 13; x++) if (x % 3 !== 2) p.set(x, y, shade(base, 0.45));
+  for (let y = 10; y < 16; y++) { p.set(7, y, hex(0x6b4a2b)); p.set(8, y, hex(0x8a6a3e)); }
+  return p;
+}
+
+function hangingSignIcon(base: RGBA): Px {
+  const p = new Px();
+  for (let y = 6; y < 15; y++) for (let x = 2; x < 14; x++) p.set(x, y, y === 6 || y === 14 || x === 2 || x === 13 ? shade(base, 0.6) : shade(base, (x * 3 + y) % 7 === 0 ? 0.86 : 0.97));
+  for (let y = 0; y < 6; y++) { p.set(4, y, hex(y % 2 ? 0x3c4250 : 0x6a7080)); p.set(11, y, hex(y % 2 ? 0x3c4250 : 0x6a7080)); }
+  for (const y of [9, 11]) for (let x = 4; x < 12; x++) if (x % 3 !== 1) p.set(x, y, shade(base, 0.45));
+  return p;
+}
+
+function chainTex(): Px {
+  const p = new Px();
+  for (let y = 0; y < 16; y++) {
+    const link = Math.floor(y / 4) % 2;
+    if (link === 0) { p.set(6, y, hex(0x3c4250)); p.set(9, y, hex(0x3c4250)); if (y % 4 === 0 || y % 4 === 3) { p.set(7, y, hex(0x5a6070)); p.set(8, y, hex(0x5a6070)); } }
+    else { p.set(7, y, hex(0x6a7080)); p.set(8, y, hex(0x4a5060)); }
+  }
+  return p;
+}
+
+function chestBoatIcon(base: RGBA): Px {
+  const p = boatIcon(base);
+  for (let y = 4; y < 9; y++) for (let x = 9; x < 14; x++) p.set(x, y, y === 4 || x === 9 || x === 13 ? hex(0x5a3a1a) : y === 6 ? hex(0x3a2410) : hex(0xa26a2c));
+  p.set(11, 6, hex(0xc8c8c8));
   return p;
 }
 
@@ -577,6 +617,7 @@ Object.assign(TEX, {
   loom_front: () => { const p = planks('lmf', OAKC); for (let x = 3; x < 13; x += 2) box(p, hex(0xe8e8e8), x, 2, x, 13); box(p, hex(0x6a4a2a), 2, 7, 13, 8); return p; },
   grindstone_side: () => rim(noise('gss', hex(0x9a9a9a), 0.05), hex(0x6a6a6a)), grindstone_round: () => noise('gsr', hex(0x8a8a8a), 0.05), grindstone_pivot: () => planks('gsp', SPRC),
   bell_side: () => noise('bls', hex(0xe8c040), 0.05), bell_top: () => noise('blt', hex(0xd0a830), 0.05), bell_bottom: () => box(noise('blb', hex(0xd0a830), 0.05), hex(0x5a4010), 5, 5, 10, 10),
+  chain: () => chainTex(),
   lantern: () => { const p = box(new Px(), hex(0x3a3a40), 4, 2, 11, 15); box(p, hex(0xffc860), 5, 5, 10, 12); return p; },
   pumpkin_side: () => { const p = noise('pks', hex(0xd08a1a), 0.06); for (let x = 1; x < 16; x += 4) box(p, hex(0xb06a10), x, 0, x, 15); return p; },
   pumpkin_top: () => { const p = noise('pkt', hex(0xc8821a), 0.06); box(p, hex(0x5a7a2a), 7, 7, 8, 8); return p; },
@@ -710,6 +751,13 @@ function cage(key: string, bar: RGBA, glow: RGBA | null): Px {
   TEX.honey_block_top = () => honey('ht', true);
   TEX.honey_block_bottom = () => honey('hb', false);
   TEX.lapis_ore = () => oreTex('lapis_ore', hex(0x3b6fd8), hex(0x1a3a8a));
+  TEX.deepslate_coal_ore = () => oreTex('dcoal', hex(0x1c1c1c), hex(0x0a0a0a), true);
+  TEX.deepslate_iron_ore = () => oreTex('diron', hex(0xd8af93), hex(0x8b6550), true);
+  TEX.deepslate_gold_ore = () => oreTex('dgold', hex(0xf5d94a), hex(0xb08a14), true);
+  TEX.deepslate_aetherite_ore = () => oreTex('daeth', hex(0x5ff3e6), hex(0x1d8f89), true);
+  TEX.deepslate_copper_ore = () => oreTex('dcopper', hex(0xd07a4a), hex(0x3e8a6a), true);
+  TEX.deepslate_redstone_ore = () => oreTex('dred', hex(0xd02010), hex(0x701008), true);
+  TEX.deepslate_lapis_ore = () => oreTex('dlapis', hex(0x3b6fd8), hex(0x1a3a8a), true);
   TEX.lapis_block = () => framed(speckle(noise('lapb', hex(0x2350b8), 0.1), 'lapb', [hex(0x4a7ae8), hex(0x173a8a), hex(0xd8c070)], 34), hex(0x5a8af0), hex(0x10286a));
   TEX.enchanting_table_bottom = () => speckle(noise('obs', hex(0x1b1426), 0.25), 'obs', [hex(0x3a2a55), hex(0x0c0812)], 30, 2);
   TEX.enchanting_table_side = () => {
@@ -1028,6 +1076,31 @@ const ITEM_MAP: Record<string, () => Px> = {
   dark_oak_boat: () => boatIcon(hex(0x4a3220)),
   cherry_boat: () => boatIcon(hex(0xe3b3ad)),
   mangrove_boat: () => boatIcon(hex(0x773631)),
+  oak_sign: () => signIcon(hex(0xa8834d)),
+  oak_hanging_sign: () => hangingSignIcon(hex(0xb08d57)),
+  birch_sign: () => signIcon(hex(0xd2bf88)),
+  birch_hanging_sign: () => hangingSignIcon(hex(0xc8b77a)),
+  spruce_sign: () => signIcon(hex(0x6e5134)),
+  spruce_hanging_sign: () => hangingSignIcon(hex(0x8a6a43)),
+  jungle_sign: () => signIcon(hex(0xa87656)),
+  jungle_hanging_sign: () => hangingSignIcon(hex(0xab8659)),
+  acacia_sign: () => signIcon(hex(0xb05d37)),
+  acacia_hanging_sign: () => hangingSignIcon(hex(0xaf5c3a)),
+  dark_oak_sign: () => signIcon(hex(0x4a3220)),
+  dark_oak_hanging_sign: () => hangingSignIcon(hex(0x6b4c31)),
+  cherry_sign: () => signIcon(hex(0xe3b3ad)),
+  cherry_hanging_sign: () => hangingSignIcon(hex(0xd8a8a0)),
+  mangrove_sign: () => signIcon(hex(0x773631)),
+  mangrove_hanging_sign: () => hangingSignIcon(hex(0x7a3a33)),
+  chain_item: () => chainTex(),
+  oak_chest_boat: () => chestBoatIcon(hex(0xa8834d)),
+  birch_chest_boat: () => chestBoatIcon(hex(0xd2bf88)),
+  spruce_chest_boat: () => chestBoatIcon(hex(0x6e5134)),
+  jungle_chest_boat: () => chestBoatIcon(hex(0xa87656)),
+  acacia_chest_boat: () => chestBoatIcon(hex(0xb05d37)),
+  dark_oak_chest_boat: () => chestBoatIcon(hex(0x4a3220)),
+  cherry_chest_boat: () => chestBoatIcon(hex(0xe3b3ad)),
+  mangrove_chest_boat: () => chestBoatIcon(hex(0x773631)),
   totem_of_undying: () => {
     const p = new Px();
     const g = hex(0xf2c94c), d = hex(0xb8862e), e = hex(0x2ecc71), l = hex(0xfff1a8);

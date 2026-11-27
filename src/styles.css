@@ -721,3 +721,8 @@ body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; mi
 @media (max-height: 600px) { .ad-banner { height: 50px; width: min(320px, 92vw); } }
 .kit-icons { flex-wrap: wrap; gap: 3px; }
 .slot.mc.static.kit-ico { position: relative; width: 30px; height: 30px; }
+.sign-editor { position: fixed; inset: 0; z-index: 260; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; background: rgba(0, 0, 0, 0.55); font-family: var(--mc-font); padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom); }
+.sign-title { color: #fff; font-size: 18px; text-shadow: 2px 2px 0 #3f3f3f; }
+.sign-board { display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2%; padding: 3% 4%; box-sizing: border-box; border: 3px solid rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.5); }
+.sign-line { flex: 1; min-height: 0; width: 100%; background: transparent; border: 0; outline: none; text-align: center; font-family: var(--mc-font); font-size: clamp(16px, 4.4vw, 30px); padding: 0; caret-color: #000; }
+.sign-line:focus { background: rgba(255, 255, 255, 0.1); }

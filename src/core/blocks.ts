@@ -1,6 +1,6 @@
 export type RenderType =
   | 'none' | 'cube' | 'leaves' | 'glass' | 'translucent' | 'liquid'
-  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars' | 'fence' | 'trapdoor' | 'cave' | 'wall' | 'gate';
+  | 'cross' | 'crop' | 'torch' | 'door' | 'ladder' | 'cactus' | 'chest' | 'redstone' | 'rs6' | 'shape' | 'rail' | 'boxes' | 'portal' | 'fire' | 'bars' | 'fence' | 'trapdoor' | 'cave' | 'wall' | 'gate' | 'sign';
 
 export type ToolType = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 export type SoundGroup = 'stone' | 'wood' | 'grass' | 'dirt' | 'sand' | 'gravel' | 'glass' | 'snow' | 'cloth' | 'metal' | 'water' | 'lava';
@@ -709,6 +709,52 @@ WOOD_KINDS.forEach((k, i) => {
   def(WOOD_BASE + i, `${k}_wood`, `${n} Wood`, 'Bark on every side, for pillars and beams.', { faces: ALL(`${k}_log`), ...LOG });
   def(STRIPPED_WOOD_BASE + i, `stripped_${k}_wood`, `Stripped ${n} Wood`, 'Smooth bare timber on every side.', { faces: ALL(`stripped_${k}_log`), ...LOG });
 });
+export const DEEPSLATE_ORE_BASE = 1186;
+export const DEEPSLATE_ORES: [number, string, string][] = [
+  [B.COAL_ORE, 'coal', 'Deepslate Coal Ore'], [B.IRON_ORE, 'iron', 'Deepslate Iron Ore'], [B.GOLD_ORE, 'gold', 'Deepslate Gold Ore'],
+  [B.AETHERITE_ORE, 'aetherite', 'Deepslate Diamond Ore'], [B.COPPER_ORE, 'copper', 'Deepslate Copper Ore'], [B.REDSTONE_ORE, 'redstone', 'Deepslate Ember Ore'], [B.LAPIS_ORE, 'lapis', 'Deepslate Lapis Ore'],
+];
+DEEPSLATE_ORES.forEach(([base, k, name], i) => {
+  const d = defs[base];
+  def(DEEPSLATE_ORE_BASE + i, `deepslate_${k}_ore`, name, `${d.desc} Found in the deepslate far below.`, { faces: ALL(`deepslate_${k}_ore`), hardness: 4.5, tool: 'pickaxe', tier: d.tier, drops: d.drops ? d.drops.map((x) => ({ ...x })) : [{ item: DEEPSLATE_ORE_BASE + i }], xp: d.xp, category: 'ore' });
+});
+export const SIGN_BASE = 1193, WALL_SIGN_BASE = 1201, HANGING_SIGN_BASE = 1209, WALL_HANGING_SIGN_BASE = 1217, CHAIN = 1225;
+export const SIGN_ATTACHED = 16;
+const SIGN_DEF: Partial<BlockDef> = { render: 'sign', solid: false, opaque: false, lightFilter: 0, hardness: 1, tool: 'axe', sound: 'wood', interactive: true, category: 'hidden' };
+WOOD_KINDS.forEach((k, i) => {
+  const n = k.split('_').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+  def(SIGN_BASE + i, `${k}_sign`, `${n} Sign`, 'Four lines of text on each side.', { faces: ALL(`${k}_planks`), ...SIGN_DEF, drops: [{ item: 808 + i }] });
+  def(WALL_SIGN_BASE + i, `${k}_wall_sign`, `${n} Wall Sign`, 'Four lines of text on each side.', { faces: ALL(`${k}_planks`), ...SIGN_DEF, drops: [{ item: 808 + i }] });
+  def(HANGING_SIGN_BASE + i, `${k}_hanging_sign`, `${n} Hanging Sign`, 'Hangs from a ceiling on two chains.', { faces: ALL(`stripped_${k}_log`), ...SIGN_DEF, drops: [{ item: 816 + i }] });
+  def(WALL_HANGING_SIGN_BASE + i, `${k}_wall_hanging_sign`, `${n} Wall Hanging Sign`, 'Hangs from a bracket on a wall.', { faces: ALL(`stripped_${k}_log`), ...SIGN_DEF, drops: [{ item: 816 + i }] });
+});
+def(CHAIN, 'chain', 'Chain', 'Iron links that hang lanterns and signs.', { faces: ALL('chain'), render: 'boxes', solid: false, opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', sound: 'metal', category: 'hidden', drops: [{ item: 824 }] });
+export type SignKind = 'stand' | 'wall' | 'hang' | 'wallhang';
+export function signKind(id: number): SignKind | null {
+  if (id < SIGN_BASE || id >= SIGN_BASE + 32) return null;
+  return (['stand', 'wall', 'hang', 'wallhang'] as const)[(id - SIGN_BASE) >> 3];
+}
+export function isSignId(id: number): boolean { return id >= SIGN_BASE && id < SIGN_BASE + 32; }
+export function signWood(id: number): number { return (id - SIGN_BASE) & 7; }
+export function signAngle(v: number): number {
+  const id = bid(v), m = (v >>> 8) & 0xff, k = signKind(id);
+  if (k === 'wall') return -(m & 3) * Math.PI / 2;
+  if (k === 'wallhang') return Math.PI - (m & 3) * Math.PI / 2;
+  return -(m & 15) * Math.PI / 8;
+}
+export function signBox(v: number): Box | null {
+  const k = signKind(bid(v)), m = (v >>> 8) & 3;
+  const p = (a: number[]): Box => a.map((n) => n / 16) as Box;
+  if (k === 'stand') return p([4, 0, 4, 12, 16, 12]);
+  if (k === 'hang') return p([3, 0, 3, 13, 16, 13]);
+  if (k === 'wallhang') return m === 0 || m === 2 ? p([0, 0, 6, 16, 16, 10]) : p([6, 0, 0, 10, 16, 16]);
+  if (k === 'wall') { const b = edgeBox(m, 2 / 16); return [b[0], 4.5 / 16, b[2], b[3], 12.5 / 16, b[5]]; }
+  return null;
+}
+export function deepslateOreOf(v: number): number | null {
+  const i = DEEPSLATE_ORES.findIndex(([b]) => b === bid(v));
+  return i < 0 ? null : makeBlock(DEEPSLATE_ORE_BASE + i);
+}
 export function strippedOf(v: number): number | null {
   const id = bid(v), ax = logAxis(v);
   const li = LOG_VALUES.findIndex((lv) => bid(lv) === id && (lv >>> 12) === (v >>> 12));
@@ -718,13 +764,13 @@ export function strippedOf(v: number): number | null {
 }
 export function isLogLike(v: number): boolean {
   const id = bid(v);
-  return id === 14 || id === 16 || id === 18 || id === 20 || (id >= STRIPPED_LOG_BASE && id < STRIPPED_WOOD_BASE + 8);
+  return id === 14 || id === 16 || id === 18 || id === 20 || id === CB.DEEPSLATE || id === CHAIN || (id >= STRIPPED_LOG_BASE && id < STRIPPED_WOOD_BASE + 8);
 }
 export const AXIS_X = 1, AXIS_Z = 2;
 export function logAxis(v: number): number {
   const id = bid(v);
   if (id >= STRIPPED_LOG_BASE && id < STRIPPED_WOOD_BASE + 8) return (v >>> 8) & 3;
-  if (id === 14 || id === 16 || id === 18 || id === 20) return (v >>> 8) & 3;
+  if (id === 14 || id === 16 || id === 18 || id === 20 || id === CB.DEEPSLATE || id === CHAIN) return (v >>> 8) & 3;
   return 0;
 }
 
@@ -816,6 +862,7 @@ const BLAST: Record<string, number> = {
   enchanting_table: 1200, anvil: 1200, lapis_block: 3, ext_block: 0.4, nether_portal: 0, fire: 0, crying_obsidian: 1200, magma_block: 0.5, iron_bars: 6, nether_brick_fence: 6, blast_furnace: 3.5, smoker: 3.5, stonecutter: 3.5, lantern: 3.5, bell: 5, grindstone: 6, cauldron: 2, nether_wart: 0, ancient_debris: 1200, cinderite_block: 1200, gilded_blackstone: 6, cracked_polished_blackstone_bricks: 6, chiseled_polished_blackstone: 6, smithing_table: 2.5,
   netherrack: 0.4, nether_quartz_ore: 3, nether_gold_ore: 3, blackstone: 6, soul_sand: 0.5, soul_soil: 0.5, nether_bricks: 6, basalt: 4.2, polished_blackstone: 6, polished_blackstone_bricks: 6, quartz_block: 0.8,
   coal_ore: 3, iron_ore: 3, gold_ore: 3, aetherite_ore: 3, copper_ore: 3, redstone_ore: 3, emerald_ore: 3, lapis_ore: 3,
+  deepslate_coal_ore: 3, deepslate_iron_ore: 3, deepslate_gold_ore: 3, deepslate_aetherite_ore: 3, deepslate_copper_ore: 3, deepslate_redstone_ore: 3, deepslate_lapis_ore: 3, deepslate: 6, cobbled_deepslate: 6,
   sandstone: 0.8, cut_sandstone: 0.8, chiseled_sandstone: 0.8, smooth_sandstone: 6, cactus: 0.4, crafting_table: 2.5, furnace: 3.5, furnace_lit: 3.5,
   chest: 2.5, glass: 0.3, bricks: 6, stone_bricks: 6, mossy_stone_bricks: 6, cracked_stone_bricks: 6, chiseled_stone_bricks: 6, oak_door: 3, ladder: 0.4,
   iron_block: 6, gold_block: 6, aetherite_block: 6, emerald_block: 6, coal_block: 6, copper_block: 6, cut_copper: 6, copper_lamp: 6,
@@ -916,6 +963,7 @@ export function customBoxes(v: number): Box[] {
     case B.BELL: return [p(4, 3, 4, 12, 10, 12), p(5, 10, 5, 11, 12, 11), p(3, 2, 3, 13, 3, 13), p(7, 12, 7, 9, 16, 9)];
     case B.LANTERN: case CB.SOUL_LANTERN: return ((v >>> 8) & LANTERN_HANGING) ? [p(5, 1, 5, 11, 8, 11), p(6, 8, 6, 10, 10, 10), p(7, 10, 7, 9, 16, 9)] : [p(5, 0, 5, 11, 7, 11), p(6, 7, 6, 10, 9, 10), p(7, 9, 7, 9, 11, 9)];
     case CB.CAMPFIRE: case CB.SOUL_CAMPFIRE: return [p(0, 0, 0, 16, 7, 16)];
+    case CHAIN: { const ax = (v >>> 8) & 3; return ax === AXIS_X ? [p(0, 6.5, 6.5, 16, 9.5, 9.5)] : ax === AXIS_Z ? [p(6.5, 6.5, 0, 9.5, 9.5, 16)] : [p(6.5, 0, 6.5, 9.5, 16, 9.5)]; }
     case CB.RESPAWN_ANCHOR: return [p(0, 0, 0, 16, 16, 16)];
     case B.CAKE: { const b = Math.min(6, (v >>> 8) & 7); return [p(1 + b * 2, 0, 1, 15, 8, 15)]; }
     case CB.MOSS_CARPET: return [p(0, 0, 0, 16, 1, 16)];
@@ -1009,6 +1057,7 @@ export function selectionBox(v: number): [number, number, number, number, number
   if (id === CB.SCULK_VEIN) return [0, 0, 0, 1, 1 / 16, 1];
   if (id === B.MUD || isSoulSand(v)) return [0, 0, 0, 1, 1, 1];
   if (isGate(id)) return gateRot([0, 0, 6, 16, 16, 10], (v >>> 8) & 3);
+  if (isSignId(id)) return signBox(v);
   const solid = blockBox(v);
   if (solid) return solid;
   switch (d.render) {
@@ -1024,7 +1073,7 @@ export function selectionBox(v: number): [number, number, number, number, number
   }
 }
 
-for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE, CB.END_ROD, CB.CHORUS_PLANT, CB.CHORUS_FLOWER, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.DRAGON_EGG, CB.DRAGON_HEAD, CB.SOUL_LANTERN, CB.CAMPFIRE, CB.SOUL_CAMPFIRE, CB.RESPAWN_ANCHOR, NB.ENDER_CHEST]) CUSTOM_BOX[id] = 1;
+for (const id of [B.ENCHANTING_TABLE, B.ANVIL, B.COMPOSTER, B.LECTERN, B.BREWING_STAND, B.STONECUTTER, B.CAULDRON, B.GRINDSTONE, B.BELL, B.LANTERN, B.CAKE, CB.MOSS_CARPET, CB.SCULK_SENSOR, CB.SCULK_SHRIEKER, CB.BIG_DRIPLEAF, CB.POINTED_DRIPSTONE, CB.END_ROD, CB.CHORUS_PLANT, CB.CHORUS_FLOWER, CB.END_PORTAL_FRAME, CB.END_PORTAL, CB.DRAGON_EGG, CB.DRAGON_HEAD, CB.SOUL_LANTERN, CB.CAMPFIRE, CB.SOUL_CAMPFIRE, CB.RESPAWN_ANCHOR, NB.ENDER_CHEST, CHAIN]) CUSTOM_BOX[id] = 1;
 export const CROPS: Record<number, { max: number; tex: string; stages: number[] }> = {
   [B.WHEAT]: { max: 7, tex: 'wheat', stages: [0, 1, 2, 3, 4, 5, 6, 7] },
   [B.CARROTS]: { max: 7, tex: 'carrots', stages: [0, 0, 1, 1, 2, 2, 2, 3] },

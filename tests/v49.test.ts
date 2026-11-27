@@ -220,6 +220,8 @@ describe('v49 boats', () => {
     w.sim.move(p, p.x, p.y, p.z, 0, 0, MF.RIDE | MF.CROUCH);
     expect(p.riding).toBeUndefined();
     for (let i = 0; i < 4; i++) { p.lastAttack = -1e9; w.sim.attack(p, boat.id); }
+    expect(w.sim.entities.has(boat.id)).toBe(true);
+    p.lastAttack = -1e9; w.sim.attack(p, boat.id);
     expect(w.sim.entities.has(boat.id)).toBe(false);
     expect([...w.sim.entities.values()].some((e) => e.kind === 'item' && e.item?.id === I.BOAT_BASE + 6)).toBe(true);
   });

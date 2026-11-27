@@ -1,7 +1,7 @@
 import { I } from '../items';
 import { B } from '../blocks';
 
-export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider' | 'flarewisp' | 'witherbone' | 'piglin' | 'piglin_brute' | 'hoglin' | 'voidstalker' | 'voidwyrm' | 'riftcore' | 'shellward' | 'zoglin';
+export type MobType = 'woolhorn' | 'mudsnout' | 'fernhen' | 'hollowed' | 'rattlebone' | 'duskweaver' | 'rival' | 'quartermaster' | 'villager' | 'cinderhusk' | 'wailer' | 'emberslime' | 'lavastrider' | 'flarewisp' | 'witherbone' | 'piglin' | 'piglin_brute' | 'hoglin' | 'voidstalker' | 'voidwyrm' | 'riftcore' | 'shellward' | 'zoglin' | 'voidmite';
 
 export interface MobDrop { item: number; min: number; max: number; chance?: number; }
 
@@ -166,6 +166,11 @@ export const MOBS: Record<MobType, MobDef> = {
     type: 'zoglin', code: 22, name: 'Zoglin', hostile: true, health: 40, speed: 2.1, hw: 0.7, h: 1.4, damage: 6,
     drops: [{ item: I.ROTTEN_FLESH, min: 1, max: 3 }], xp: 5,
     desc: 'A hoglin that rotted away outside the Nether. It fears nothing, not even Warped Fungus, and tosses anything it can reach.',
+  },
+  voidmite: {
+    type: 'voidmite', code: 23, name: 'Endermite', hostile: true, health: 8, speed: 2.4, hw: 0.2, h: 0.3, damage: 2,
+    drops: [], xp: 3,
+    desc: 'A tiny purple pest that sometimes hatches where an ender pearl lands. It crumbles away after two minutes.',
   },
 };
 

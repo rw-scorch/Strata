@@ -1,5 +1,5 @@
 import type { BlockArray } from './chunk';
-import { B, OPAQUE, blockId, bid, ID_LIMIT } from './blocks';
+import { B, CB, OPAQUE, blockId, bid, ID_LIMIT, DEEPSLATE_ORE_BASE, makeBlock } from './blocks';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './constants';
 
 export const ORE_REVEAL_RADIUS = 5;
@@ -7,8 +7,11 @@ export const ORE_REVEAL_RADIUS = 5;
 const HIDDEN = new Uint8Array(ID_LIMIT);
 for (const id of [B.COAL_ORE, B.IRON_ORE, B.GOLD_ORE, B.AETHERITE_ORE, B.COPPER_ORE, B.REDSTONE_ORE, B.LAPIS_ORE]) HIDDEN[id] = 1;
 
+for (let i = 0; i < 7; i++) HIDDEN[DEEPSLATE_ORE_BASE + i] = 2;
+const DEEP = makeBlock(CB.DEEPSLATE);
+
 const RACK = 218;
-function cover(v: number): number { const id = bid(v); if (HIDDEN[id]) return B.STONE; if (id === 218 && ((v >>> 8) === 1 || (v >>> 8) === 2 || (v >>> 8) === 21)) return RACK; return 0; }
+export function cover(v: number): number { const id = bid(v); if (HIDDEN[id]) return HIDDEN[id] === 2 ? DEEP : B.STONE; if (id === 218 && ((v >>> 8) === 1 || (v >>> 8) === 2 || (v >>> 8) === 21)) return RACK; return 0; }
 export function isHiddenOre(v: number): boolean { return cover(v) !== 0; }
 
 export type BlockGetter = (x: number, y: number, z: number) => number | null;

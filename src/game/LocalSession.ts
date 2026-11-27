@@ -61,6 +61,7 @@ export class LocalSession implements GameSession {
         this.sim.blockEntities.set(k, be);
         if (be.type === 'furnace' || be.type === 'campfire') this.sim.activeFurnaces.add(k);
       }
+      this.sim.reindexSigns();
     }
     const p = newPlayer('local', name, meta.mode, this.sim.spawn);
     p.appearance = appearance;
@@ -145,6 +146,8 @@ export class LocalSession implements GameSession {
         return;
       }
       case 'chestLid': ev.chestLid?.(e.x, e.y, e.z, e.n); return;
+      case 'sign': ev.sign?.(e.x, e.y, e.z); return;
+      case 'signEdit': if (e.p === this.me) ev.signEdit?.(e.x, e.y, e.z, e.b); return;
       case 'screen': {
         const sc = e.p.screen;
         ev.screen(sc.type, sc.x, sc.y, sc.z, e.p.screenTitle);
@@ -158,7 +161,7 @@ export class LocalSession implements GameSession {
       case 'msg': if (e.to && e.to !== this.me.id) return; ev.chat(null, e.text, e.kind === 'death' ? 'death' : e.kind === 'error' ? 'error' : 'info', Date.now()); return;
       case 'lightning': ev.lightning(e.x, e.y, e.z); return;
       case 'pmove': ev.pistonMove?.(e.l); return;
-      case 'ride': if (e.p === this.me) ev.ride?.(e.id); return;
+      case 'ride': if (e.p === this.me) ev.ride?.(e.id, e.seat ?? 0); return;
       case 'work': if (e.p === this.me) { ev.container('work', 'chest', e.items.map((s) => s ? cloneStack(s) : null)); if (e.offers) ev.enchantOffers?.(e.offers); } return;
       case 'knock': if (e.p === this.me) ev.knock?.(e.x, e.y, e.z, !!e.set); return;
       case 'effect': if (e.p === this.me) ev.effect?.(e.k, e.t); return;
@@ -216,6 +219,7 @@ export class LocalSession implements GameSession {
   useEntity(id: string): void { this.sim.setNow(performance.now()); this.sim.useEntity(this.me, Number(id)); }
   enchant(i: number): void { this.sim.enchant(this.me, i); }
   anvil(n: string | null): void { this.sim.anvil(this.me, n); }
+  editSign(x: number, y: number, z: number, lines: string[]): void { this.sim.editSign(this.me, x, y, z, lines); }
   attack(id: string): void { this.sim.setNow(performance.now()); this.sim.attack(this.me, Number(id)); }
   attackPlayer(): void { /* single player */ }
   invOp(op: InvOp): void { this.sim.invOp(this.me, op); this.ev.inventory(this.me.inv); }

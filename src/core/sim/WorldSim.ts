@@ -5,6 +5,8 @@ import { smithResult } from '../smithing';
 import { LandmarkKind, LANDMARK_KINDS, LANDMARK_NAMES } from '../worldgen/landmarks';
 import { WardCfg, WardState, WardFlag, Check, CHECK_NAMES, LEVEL, newWardState, sanitizeWard, totalVl, decay as wardDecay, windowSpeed, speedBudget, aimAngle, clickRate, placeRate, wardClock, legacyRate } from './anticheat';
 import { LootCfg, LOOT_DEFAULTS, parseLootArgs, lootArgs, sanitizeLootCfg, palette as lootPalette, pick as lootPick, chestLoot as lootChest, frameLoot as lootFrame } from './lootdrop';
+import { isSignId, signKind, signAngle, SIGN_BASE, WALL_SIGN_BASE, HANGING_SIGN_BASE, WALL_HANGING_SIGN_BASE, SIGN_ATTACHED, CHAIN, isConnecting } from '../blocks';
+import { blankSign, cleanSide, sideEmpty, signFacesFront, type SignData } from '../signs';
 import { isSlabId, isStairsId, shapeMatIndex, SLAB2, isGate, isWoodFence, GATE_OPEN, NB, isLogLike, AXIS_X, AXIS_Z, strippedOf, STRIPPED_LOG_BASE, WOOD_BASE, STRIPPED_WOOD_BASE, LOG_VALUES } from '../blocks';
 import { FRAME_EYE, CHORUS_DEAD, isFluid, CROPS, sp, SPECIES, speciesOf, tix, SB, isTrapdoor, isDoorBlock, TD_OPEN, TD_SPECIES_MIN, trapdoorMeta, ID_LIMIT, CB, DRIP_DOWN, SMALL_UPPER, DL_TILT_SHIFT, SHRIEK_ON, SHRIEK_SUMMON, isLantern, isCampfire, isSoulLight, LANTERN_HANGING, CAMPFIRE_LIT, ANCHOR_LIGHT, isSoulSand } from '../blocks';
 import { isRail, railShape, railPowered, railHeight, railLine, RAIL_EXITS, shapeFor, reshapeNeighbor, neighborRails } from '../rails';
@@ -14,7 +16,9 @@ import {
   FACING_DIRS, DOOR_OPEN, DOOR_UPPER, doorMeta, doorFacing, LIGHT_EMIT, OPAQUE, isWaterPlant, isWaterLike,
   SHAPE_MATS, SLAB_TOP, STAIRS_UP, slabItem, stairsItem, BLAST_RES, X, XV, isFullCube,
 } from '../blocks';
-import { boatWood, getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorId, toolId } from '../items';
+import { dyeId } from '../items';
+import { COLORS } from '../blocks';
+import { boatWood, isChestBoat, getItem, I, fuelSeconds, spearIndex, maxDurability, ITEM_BY_KEY, armorId, toolId } from '../items';
 import { catOf, lvl, tableOffers, tableList, anvilResult, JavaRandom, ENCH, ENCHANTS, supports, compatible, enchantLabel, type TableOffer } from '../enchants';
 import {
   PlayerInv, ItemStack, InvOp, applyInvOp, emptyInv, giveItem, heldStack, damageHeld, consumeHeld,
@@ -28,7 +32,7 @@ import { Redstone, isButton, isPlate, isTorch, isDiode, attachOut, DIR6, LEVER_O
 import { TreeSet, megaJungle, megaSpruce, jungleVines, acacia, darkOak, cherry, mangrove } from '../worldgen/trees';
 import { enchantBonus, WIND_BURST, attackStats, attackCharge, scaledDamage, armorReduce, armorToughness, knockResist, difficultyDamage, maceBonus, arrowDamage, attackRange, SPEAR_STATS, SPEAR_MIN, SPEAR_MARGIN, CHARGE_HURT_SPEED, CHARGE_KNOCK_SPEED, chargeDamage, SMASH_RANGE, SMASH_PUSH, SMASH_HEAVY, type AttackStats } from './combat';
 import { JOB_SITES, JOB_BLOCK, PROFESSIONS, villagerOffers, unlocked, performTrade, tradeXp, levelFor, Profession } from '../trades';
-import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium, fluidFlow, bubbleColumn, bubbleSurface } from '../physics';
+import { BlockReader, Body, moveBody, raycast, boxCollides, sampleMedium, fluidFlow, bubbleColumn, bubbleSurface, slipperiness } from '../physics';
 import { Rng } from '../rng';
 import { WorldGenerator } from '../worldgen/WorldGenerator';
 import { MOBS, MobType, MobDef, PASSIVE_TYPES, HOSTILE_TYPES, MOB_BY_CODE } from './mobs';
@@ -72,7 +76,7 @@ export function entTypeCode(e: Entity): number {
   if (e.kind === 'mob') return MOBS[e.type as MobType].code;
   if (e.kind === 'item') return e.item!.id;
   if (e.kind === 'cart') return e.type === 'tntcart' ? 1 : e.type === 'hoppercart' ? 2 : e.type === 'chestcart' ? 3 : 0;
-  if (e.kind === 'boat') return e.wood ?? 0;
+  if (e.kind === 'boat') return (e.wood ?? 0) + (e.chest ? 8 : 0);
   if (e.kind === 'frame') return e.type === 'glowframe' ? 1 : 0;
   if (e.kind === 'fireball') return e.type === 'dfire' ? 1 : 0;
   if (e.kind === 'arrow' && e.type === 'bullet') return 60001;
@@ -156,7 +160,7 @@ export interface SimPlayer {
 export type EntityKind = 'mob' | 'item' | 'arrow' | 'tnt' | 'cart' | 'fireball' | 'frame' | 'boat';
 export type CartType = 'cart' | 'tntcart' | 'hoppercart' | 'chestcart';
 export const CARGO_X = 3_000_000;
-export interface Fixture { k: string; x: number; y: number; z: number; yaw?: number; f?: number; r?: number; item?: ItemStack | null; cargo?: (ItemStack | null)[]; off?: boolean }
+export interface Fixture { k: string; x: number; y: number; z: number; yaw?: number; f?: number; r?: number; item?: ItemStack | null; cargo?: (ItemStack | null)[]; off?: boolean; w?: number; ch?: boolean }
 export type ScreenType = 'chest' | 'furnace' | 'workbench' | 'shop' | 'trade' | 'enchant' | 'anvil' | 'smith';
 
 export interface SimBank {
@@ -215,6 +219,13 @@ export interface Entity extends Body {
   scared?: [number, number] | null;
   goal?: [number, number, number];
   rider?: string;
+  rider2?: string;
+  crew?: number[];
+  inBoat?: number;
+  chest?: boolean;
+  drot?: number;
+  bdmg?: number;
+  sunk?: number;
   fall?: number;
   wob?: number;
   wood?: number;
@@ -293,7 +304,8 @@ export type BlockEntity =
   | { type: 'trial'; items: (ItemStack | null)[]; mob: string; state: 'idle' | 'active' | 'cooldown'; left: number; wave: number[]; until: number }
   | { type: 'vault'; items: (ItemStack | null)[]; opened: string[] }
   | { type: 'portal'; items: (ItemStack | null)[]; axis: number; link?: string }
-  | { type: 'campfire'; items: (ItemStack | null)[]; cook: number[] };
+  | { type: 'campfire'; items: (ItemStack | null)[]; cook: number[] }
+  | { type: 'sign'; items: (ItemStack | null)[]; f: SignData['f']; b: SignData['b'] };
 
 export type Weather = 'clear' | 'rain' | 'thunder';
 
@@ -316,7 +328,7 @@ export type SimEvent =
   | { e: 'msg'; text: string; kind: 'system' | 'death' | 'info' | 'error'; to?: string }
   | { e: 'lightning'; x: number; y: number; z: number }
   | { e: 'pmove'; l: number[] }
-  | { e: 'ride'; p: SimPlayer; id: number }
+  | { e: 'ride'; p: SimPlayer; id: number; seat?: number }
   | { e: 'knock'; p: SimPlayer; x: number; y: number; z: number; set?: boolean }
   | { e: 'dark'; p: SimPlayer; t: number }
   | { e: 'travel'; p: SimPlayer; phase: 'start' | 'end'; nether: boolean; end?: boolean }
@@ -334,6 +346,8 @@ export type SimEvent =
   | { e: 'trade'; p: SimPlayer; v: Entity }
   | { e: 'mobname'; id: number; name: string }
   | { e: 'chestLid'; x: number; y: number; z: number; n: number }
+  | { e: 'sign'; x: number; y: number; z: number; d: SignData | null }
+  | { e: 'signEdit'; p: SimPlayer; x: number; y: number; z: number; b: boolean }
   | { e: 'effect'; p: SimPlayer; k: 'levitation'; t: number };
 
 export interface SimOptions {
@@ -355,6 +369,10 @@ export interface SimSettings {
   tpDelay?: number; combatTime?: number;
 }
 
+const WOOD_NAMES = ['Oak', 'Birch', 'Spruce', 'Jungle', 'Acacia', 'Dark Oak', 'Cherry', 'Mangrove'];
+const PLANK_ITEMS = [B.OAK_PLANKS, B.BIRCH_PLANKS, B.SPRUCE_PLANKS, B.JUNGLE_PLANKS, SB.ACACIA_PLANKS, SB.DARK_OAK_PLANKS, SB.CHERRY_PLANKS, SB.MANGROVE_PLANKS];
+const PEARL_SPEED = 30;
+const PEARL_GRAVITY = 0.6;
 const DT = 1 / 20;
 export const RULE_KEYS = ['simDistance', 'randomTickSpeed', 'mobSpawning', 'mobCap', 'maxHomes', 'tpa', 'allowMinimap', 'allowCoords', 'dayLength', 'nightLength', 'allowBlueprints', 'fireTick', 'tpDelay', 'combatTime', 'lootdrop', 'anticheat', 'crucible', 'kits'] as const;
 export type RuleSet = Partial<Pick<SimSettings, (typeof RULE_KEYS)[number]>>;
@@ -716,6 +734,7 @@ export class WorldSim {
     if ((oid === B.HOPPER || oid === B.DROPPER || oid === B.DISPENSER) && nid !== oid) this.removeBlockEntity(x, y, z, true);
     if (oid === CB.SHULKER_BOX && nid !== oid) this.sealShulker(x, y, z);
     if (isCampfire(oid) && !isCampfire(nid)) this.removeBlockEntity(x, y, z, true);
+    if (isSignId(oid) && !isSignId(nid)) this.dropSign(x, y, z);
     if (nid === B.SPAWNER && this.authoritative && !this.blockEntities.has(posKey(x, y, z))) {
       const m = blockMeta(v), def = m ? MOB_BY_CODE[m - 1] : undefined;
       this.blockEntities.set(posKey(x, y, z), { type: 'spawner', items: [], mob: def && def.code === m - 1 ? def.type : 'hollowed', delay: 200 });
@@ -843,6 +862,7 @@ export class WorldSim {
     if (e?.kind === 'cart' && !p.dead && (e.type === 'hoppercart' || e.type === 'chestcart') && Math.hypot(e.x - p.x, e.z - p.z) <= 6) { this.openCargo(p, e); return true; }
     if (e?.kind === 'boat' && !p.dead && Math.hypot(e.x - p.x, e.z - p.z) <= 6) {
       if (p.riding === e.id) { this.dismount(p); return true; }
+      if (e.chest && (p.flags & MF.CROUCH)) { this.openBoatCargo(p, e); return true; }
       return this.mount(p, e);
     }
     if (e?.kind === 'cart' && !p.dead && Math.hypot(e.x - p.x, e.z - p.z) <= 6) {
@@ -1208,7 +1228,9 @@ export class WorldSim {
       const [dx, dy, dz] = DIR6[o ^ 1];
       return isSolid(this.get(x + dx, y + dy, z + dz));
     }
-    if (isLantern(id)) return blockMeta(v) & LANTERN_HANGING ? isSolid(this.get(x, y + 1, z)) : isSolid(this.get(x, y - 1, z));
+    if (isLantern(id)) return blockMeta(v) & LANTERN_HANGING ? isSolid(this.get(x, y + 1, z)) || blockId(this.get(x, y + 1, z)) === CHAIN : isSolid(this.get(x, y - 1, z));
+    if (isSignId(id)) return this.signHeld(x, y, z, v);
+    if (id === CHAIN) return true;
     if (id === B.TORCH || isTorch(id) || id === CB.SOUL_TORCH) {
       const m = blockMeta(v) & 7;
       if (m === 0) return isSolid(this.get(x, y - 1, z));
@@ -1277,6 +1299,7 @@ export class WorldSim {
     const id = blockId(v);
     if (id === 0 || id === B.WATER || id === B.LAVA) return;
     if (this.supported(x, y, z, v)) return;
+    if (isSignId(id)) this.dropSign(x, y, z);
     const rest = isWaterPlant(id) ? B.WATER : 0;
     this.store.setBlock(x, y, z, rest);
     this.emit({ e: 'block', x, y, z, v: rest, old: v });
@@ -1367,6 +1390,135 @@ export class WorldSim {
   }
 
   private breaker: SimPlayer | null = null;
+  private signIdx = new Map<string, Set<string>>();
+  private signLocks = new Map<string, { pid: string; b: boolean; until: number }>();
+
+  private signHeld(x: number, y: number, z: number, v: number): boolean {
+    const k = signKind(blockId(v)), m = blockMeta(v);
+    const holds = (w: number) => isSolid(w) || isConnecting(blockId(w));
+    if (k === 'stand') return holds(this.get(x, y - 1, z));
+    if (k === 'wall') { const [dx, dz] = FACING_DIRS[m & 3]; return isSolid(this.get(x + dx, y, z + dz)); }
+    if (k === 'hang') { const a = this.get(x, y + 1, z); return holds(a) || blockId(a) === CHAIN; }
+    if (k === 'wallhang') {
+      for (const r of [1, 3]) {
+        const [dx, dz] = FACING_DIRS[(m + r) & 3];
+        const w = this.get(x + dx, y, z + dz);
+        if (isSolid(w) || (signKind(blockId(w)) === 'wallhang' && ((blockMeta(w) ^ m) & 1) === 0)) return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  private signKey(k: string): string { const [x, , z] = k.split(',').map(Number); return `${Math.floor(x / 16)},${Math.floor(z / 16)}`; }
+
+  reindexSigns(): void {
+    this.signIdx.clear();
+    for (const [k, be] of this.blockEntities) if (be.type === 'sign') this.noteSign(k);
+  }
+
+  private noteSign(k: string): void {
+    const c = this.signKey(k);
+    let s = this.signIdx.get(c);
+    if (!s) this.signIdx.set(c, (s = new Set()));
+    s.add(k);
+  }
+
+  signsIn(cx: number, cz: number): [number, number, number, SignData][] {
+    const s = this.signIdx.get(`${cx},${cz}`);
+    if (!s) return [];
+    const out: [number, number, number, SignData][] = [];
+    for (const k of [...s]) {
+      const be = this.blockEntities.get(k);
+      if (!be || be.type !== 'sign') { s.delete(k); continue; }
+      const [x, y, z] = k.split(',').map(Number);
+      out.push([x, y, z, { f: be.f, b: be.b }]);
+    }
+    return out;
+  }
+
+  signAt(x: number, y: number, z: number): SignData | null {
+    const be = this.blockEntities.get(posKey(x, y, z));
+    return be && be.type === 'sign' ? { f: be.f, b: be.b } : null;
+  }
+
+  setSignData(x: number, y: number, z: number, d: SignData | null): void {
+    const k = posKey(x, y, z);
+    if (!d) { if (this.blockEntities.get(k)?.type === 'sign') this.blockEntities.delete(k); return; }
+    this.blockEntities.set(k, { type: 'sign', items: [], f: cleanSide(d.f), b: cleanSide(d.b) });
+    this.noteSign(k);
+  }
+
+  private signEntity(x: number, y: number, z: number): Extract<BlockEntity, { type: 'sign' }> {
+    const k = posKey(x, y, z);
+    const be = this.blockEntities.get(k);
+    if (be && be.type === 'sign') return be;
+    const n = { type: 'sign' as const, items: [], ...blankSign() };
+    this.blockEntities.set(k, n);
+    this.noteSign(k);
+    return n;
+  }
+
+  private dropSign(x: number, y: number, z: number): void {
+    const k = posKey(x, y, z);
+    this.signLocks.delete(k);
+    if (this.blockEntities.get(k)?.type !== 'sign') return;
+    this.blockEntities.delete(k);
+    this.emit({ e: 'sign', x, y, z, d: null });
+  }
+
+  private signEditable(p: SimPlayer, x: number, y: number, z: number): boolean {
+    if (p.dead || !this.canBuild(p)) return false;
+    if (this.game && !this.game.canPlace(p, x, y, z)) return false;
+    if (this.crucible.locked(p, x, y, z)) return false;
+    const dx = x + 0.5 - p.x, dy = y + 0.5 - (p.y + 1.62), dz = z + 0.5 - p.z;
+    return dx * dx + dy * dy + dz * dz <= 64;
+  }
+
+  private openSignEditor(p: SimPlayer, x: number, y: number, z: number, back: boolean): void {
+    const k = posKey(x, y, z);
+    const lock = this.signLocks.get(k);
+    if (lock && lock.pid !== p.id && lock.until > this.tickCount && this.players.has(lock.pid)) return;
+    this.signLocks.set(k, { pid: p.id, b: back, until: this.tickCount + 6000 });
+    this.emit({ e: 'signEdit', p, x, y, z, b: back });
+  }
+
+  private useSign(p: SimPlayer, x: number, y: number, z: number, v: number, stack: ItemStack | null): boolean {
+    if (!this.signEditable(p, x, y, z)) return true;
+    if (!this.authoritative) return true;
+    const be = this.signEntity(x, y, z);
+    const back = !signFacesFront(signAngle(v), x + 0.5, z + 0.5, p.x, p.z);
+    const side = back ? be.b : be.f;
+    const dye = stack ? COLORS.findIndex((c) => dyeId(c) === stack.id) : -1;
+    if (!sideEmpty(side) && stack && (dye >= 0 || stack.id === I.GLOW_INK_SAC || stack.id === I.INK_SAC)) {
+      let snd = '';
+      if (dye >= 0 && side.c !== dye) { side.c = dye; snd = 'sign.dye'; }
+      else if (stack.id === I.GLOW_INK_SAC && !side.g) { side.g = true; snd = 'sign.glow'; }
+      else if (stack.id === I.INK_SAC && side.g) { side.g = false; snd = 'sign.dye'; }
+      if (snd) {
+        if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
+        this.emit({ e: 'sound', s: snd, x: x + 0.5, y: y + 0.5, z: z + 0.5, src: p.id });
+        this.emit({ e: 'sign', x, y, z, d: { f: be.f, b: be.b } });
+        return true;
+      }
+    }
+    this.openSignEditor(p, x, y, z, back);
+    return true;
+  }
+
+  editSign(p: SimPlayer, x: number, y: number, z: number, lines: unknown): boolean {
+    const k = posKey(x, y, z);
+    const lock = this.signLocks.get(k);
+    if (!lock || lock.pid !== p.id) return false;
+    this.signLocks.delete(k);
+    if (!isSignId(blockId(this.get(x, y, z))) || !this.signEditable(p, x, y, z)) return false;
+    const be = this.signEntity(x, y, z);
+    const side = lock.b ? be.b : be.f;
+    side.t = cleanSide({ t: lines, c: side.c, g: side.g }).t;
+    this.emit({ e: 'sign', x, y, z, d: { f: be.f, b: be.b } });
+    return true;
+  }
+
 
   private useCampfire(p: SimPlayer, x: number, y: number, z: number, v: number, stack: ItemStack | null): boolean {
     if (!stack) return false;
@@ -2922,6 +3074,7 @@ export class WorldSim {
     const stack = heldStack(p.inv);
     const item = stack ? getItem(stack.id) : undefined;
     if (d.interactive && !(crouch && stack) && !(forcePlace && stack && getItem(stack.id)?.places !== undefined)) {
+      if (isSignId(id)) return this.useSign(p, x, y, z, v, stack);
       if (id === B.WORKBENCH) { this.openScreen(p, 'workbench', x, y, z); return true; }
       if (id === B.ENCHANTING_TABLE) { this.openScreen(p, 'enchant', x, y, z); return true; }
       if (id === B.ANVIL) { this.openScreen(p, 'anvil', x, y, z); return true; }
@@ -3050,7 +3203,8 @@ export class WorldSim {
     const bw = boatWood(stack?.id ?? 0);
     if (bw >= 0) {
       const water = blockId(this.get(x, y, z)) === B.WATER;
-      const ok = water ? this.placeBoat(p, x, y, z, bw) : this.placeBoat(p, x + nx, y + ny, z + nz, bw);
+      const ch = isChestBoat(stack!.id);
+      const ok = water ? this.placeBoat(p, x, y, z, bw, ch) : this.placeBoat(p, x + nx, y + ny, z + nz, bw, ch);
       if (ok && p.mode !== 'creative') { p.inv.slots[p.inv.selected] = null; this.emit({ e: 'inv', p }); }
       return ok;
     }
@@ -3299,6 +3453,26 @@ export class WorldSim {
     if (isSlabId(bid)) meta = (item.placeMeta ?? 0) | (ny === -1 || (ny === 0 && hy > 0.5) ? SLAB_TOP : 0);
     if (isStairsId(bid)) meta = (item.placeMeta ?? 0) | (look << 5) | (ny === -1 || (ny === 0 && hy > 0.5) ? STAIRS_UP : 0);
     if (isGate(bid)) meta = look;
+    if (isSignId(bid)) {
+      const w = (bid - SIGN_BASE) & 7, rot16 = Math.round(-p.yaw / (Math.PI / 8)) & 15;
+      if (bid < HANGING_SIGN_BASE) {
+        if (ny === -1) return fail();
+        if (ny === 1) { bid = SIGN_BASE + w; meta = rot16; }
+        else { bid = WALL_SIGN_BASE + w; meta = FACING_DIRS.findIndex(([dx, dz]) => dx === -nx && dz === -nz); }
+      } else {
+        const ceiling = () => {
+          const a = this.get(tx, ty + 1, tz);
+          bid = HANGING_SIGN_BASE + w;
+          meta = !isFullCube(a) || (p.flags & MF.CROUCH) ? rot16 | SIGN_ATTACHED : (Math.round(rot16 / 4) * 4) & 15;
+        };
+        if (ny === 0) {
+          const px = Math.sin(p.yaw), pz = Math.cos(p.yaw);
+          bid = WALL_HANGING_SIGN_BASE + w;
+          meta = nx !== 0 ? (pz >= 0 ? 2 : 0) : (px >= 0 ? 1 : 3);
+          if (!this.signHeld(tx, ty, tz, makeBlock(bid, meta))) ceiling();
+        } else ceiling();
+      }
+    }
     const def = BLOCKS[bid];
     if (bid === B.LILY_PAD) {
       if (blockId(clicked) !== B.WATER) return fail();
@@ -3347,7 +3521,8 @@ export class WorldSim {
     if (bid === CB.BIG_DRIPLEAF) meta = (look + 2) & 3;
     if (bid === CB.DRAGON_HEAD) { const [dx, dz] = FACING_DIRS[(look + 2) & 3]; meta = dx > 0 ? 0 : dz > 0 ? 1 : dx < 0 ? 2 : 3; }
     if (isLantern(bid)) {
-      const hang = ny === -1 ? isSolid(this.get(tx, ty + 1, tz)) : !isSolid(this.get(tx, ty - 1, tz)) && isSolid(this.get(tx, ty + 1, tz));
+      const up = this.get(tx, ty + 1, tz), upOk = isSolid(up) || blockId(up) === CHAIN;
+      const hang = ny === -1 ? upOk : !isSolid(this.get(tx, ty - 1, tz)) && upOk;
       if (!hang && !isSolid(this.get(tx, ty - 1, tz))) return fail();
       meta = hang ? LANTERN_HANGING : 0;
     }
@@ -3395,6 +3570,7 @@ export class WorldSim {
       const be = this.ensureBlockEntity(tx, ty, tz);
       if (be) for (let i = 0; i < be.items.length; i++) be.items[i] = cloneStack(stack.box[i] ?? null);
     }
+    if (isSignId(bid) && this.authoritative) { this.dropSign(tx, ty, tz); this.signEntity(tx, ty, tz); this.emit({ e: 'sign', x: tx, y: ty, z: tz, d: blankSign() }); this.openSignEditor(p, tx, ty, tz, false); }
     if (this.authoritative) this.vibrate(tx, ty, tz, p.id);
     this.emit({ e: 'sound', s: `place.${def.sound}`, x: tx + 0.5, y: ty + 0.5, z: tz + 0.5, src: p.id });
     if (p.mode === 'survival') { consumeHeld(p.inv); this.emit({ e: 'inv', p }); }
@@ -3590,14 +3766,7 @@ export class WorldSim {
     if (p.dead) return false;
     const e = this.entities.get(entityId);
     if (e?.kind === 'frame') return this.hitFrame(p, e);
-    if (e?.kind === 'boat') {
-      if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || this.now - p.lastAttack < 200) return false;
-      p.lastAttack = this.now;
-      e.hurt = 10; e.health -= p.mode === 'creative' ? 9 : 1;
-      this.emit({ e: 'sound', s: 'place.wood', x: e.x, y: e.y, z: e.z });
-      if (e.health <= 0) this.removeBoat(e, p.mode !== 'creative');
-      return true;
-    }
+    if (e?.kind === 'boat') return this.hitBoat(p, e);
     if (e?.kind === 'cart') {
       if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || this.now - p.lastAttack < 45) return false;
       if (attackStats(heldStack(p.inv)).mace) { p.lastAttack = this.now; p.strengthAt = this.now; if (e.type === 'tntcart' && p.mode !== 'creative') this.hitCart(p, e, 100); else this.removeCart(e, p.mode !== 'creative'); return true; }
@@ -3743,12 +3912,10 @@ export class WorldSim {
   private tickPearl(e: Entity): void {
     e.age++;
     const owner = e.shooterP ? this.players.get(e.shooterP) : undefined;
-    if (!owner || owner.dead || e.age > 400 || e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
-    e.vy -= 20 * DT;
+    if (!owner || owner.dead || e.age > 1200 || e.y < -16) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
     const sp = Math.hypot(e.vx, e.vy, e.vz) || 1e-6;
     const step = sp * DT;
     const dx = e.vx / sp, dy = e.vy / sp, dz = e.vz / sp;
-    e.vx *= 0.99; e.vy *= 0.99; e.vz *= 0.99;
     const wall = raycast(this.store, e.x, e.y, e.z, dx, dy, dz, step);
     let hit: [number, number, number] | null = wall && isSolid(wall.value) ? [e.x + dx * wall.dist, e.y + dy * wall.dist, e.z + dz * wall.dist] : null;
     const reach = hit ? wall!.dist : step;
@@ -3764,6 +3931,17 @@ export class WorldSim {
         }
       }
     }
+    if (!mobHit && e.age > 2) outer2: for (const t of this.players.values()) {
+      if (t === owner || t.dead) continue;
+      for (let k = 0; k <= 4; k++) {
+        const u = (reach * k) / 4, px = e.x + dx * u, py = e.y + dy * u, pz = e.z + dz * u;
+        if (Math.abs(px - t.x) < 0.42 && py > t.y - 0.1 && py < t.y + 1.9 && Math.abs(pz - t.z) < 0.42) {
+          if (this.pvpOk(owner, t)) this.emit({ e: 'knock', p: t, x: dx * 2.4, y: 2, z: dz * 2.4 });
+          hit = [px, py, pz]; mobHit = true;
+          break outer2;
+        }
+      }
+    }
     if (isEnd(e.x) && !owner.portalLock) for (let k = 1; k <= 4; k++) {
       const t = (reach * k) / 4;
       if (blockId(this.get(Math.floor(e.x + dx * t), Math.floor(e.y + dy * t), Math.floor(e.z + dz * t))) !== CB.END_GATEWAY) continue;
@@ -3772,15 +3950,24 @@ export class WorldSim {
       this.gatewayJump(owner);
       return;
     }
-    if (!hit) { e.x += dx * step; e.y += dy * step; e.z += dz * step; e.yaw = Math.atan2(-dx, -dz); return; }
+    if (!hit) {
+      e.x += dx * step; e.y += dy * step; e.z += dz * step; e.yaw = Math.atan2(-dx, -dz);
+      const inWater = blockId(this.get(Math.floor(e.x), Math.floor(e.y), Math.floor(e.z))) === B.WATER;
+      const drag = inWater ? 0.8 : 0.99;
+      e.vx *= drag; e.vy *= drag; e.vz *= drag;
+      e.vy -= PEARL_GRAVITY;
+      return;
+    }
     this.entities.delete(e.id);
     this.emit({ e: 'remove', id: e.id, why: 'hit' });
-    this.emit({ e: 'particles', k: 'smoke', x: hit[0], y: hit[1], z: hit[2] });
+    for (let i = 0; i < 6; i++) this.emit({ e: 'particles', k: 'portal', x: hit[0], y: hit[1], z: hit[2] });
     let tx = hit[0] - dx * 0.3, ty = hit[1] - dy * 0.3, tz = hit[2] - dz * 0.3;
     if (!mobHit && wall && isSolid(wall.value) && wall.ny === 1) ty = wall.y + 1;
     else ty = Math.floor(ty);
     for (let n = 0; n < 3 && (this.solidAt(tx, ty, tz) || this.solidAt(tx, ty + 1, tz)); n++) ty++;
     if (owner.travel || (isNether(owner.x) !== isNether(tx))) return;
+    if (owner.riding !== undefined) this.dismount(owner);
+    if (this.rng.chance(0.05) && this.difficulty !== 'peaceful' && this.settings.mobSpawning !== false && !this.game) this.spawnMob('voidmite', tx, ty, tz);
     owner.x = tx; owner.y = ty; owner.z = tz; owner.peakY = ty;
     this.emit({ e: 'tp', p: owner });
     this.emit({ e: 'sound', s: 'pearl.land', x: owner.x, y: owner.y + 1, z: owner.z });
@@ -3863,10 +4050,15 @@ export class WorldSim {
     if (!st || st.id !== I.ENDER_PEARL) return false;
     p.pearlCd = this.now + 1000;
     if (p.mode !== 'creative' && --st.count <= 0) p.inv.slots[p.inv.selected] = null;
-    const cy = Math.cos(pitch), sp = 30;
+    const cy = Math.cos(pitch), sp = PEARL_SPEED;
+    const jit = () => (this.rng.next() + this.rng.next() - 1) * 0.0075;
+    let ux = -Math.sin(yaw) * cy + jit(), uy = Math.sin(pitch) + jit(), uz = -Math.cos(yaw) * cy + jit();
+    const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+    const pv = p.vel ?? { x: 0, y: 0, z: 0 };
+    const grounded = (p.flags & MF.GROUND) !== 0;
     const e: Entity = {
-      id: this.allocId(), kind: 'arrow', type: 'pearl', x: p.x - Math.sin(yaw) * 0.3, y: p.y + 1.5, z: p.z - Math.cos(yaw) * 0.3,
-      vx: -Math.sin(yaw) * cy * sp, vy: Math.sin(pitch) * sp, vz: -Math.cos(yaw) * cy * sp,
+      id: this.allocId(), kind: 'arrow', type: 'pearl', x: p.x, y: p.y + 1.52, z: p.z,
+      vx: ux * sp + pv.x, vy: uy * sp + (grounded ? 0 : pv.y), vz: uz * sp + pv.z,
       hw: 0.12, h: 0.24, onGround: false, hitH: false, hitCeil: false, yaw, health: 1, maxHealth: 1, hurt: 0, age: 0, fire: 0, flags: 0,
       shooterP: p.id, dmg: 0,
     };
@@ -4255,21 +4447,50 @@ export class WorldSim {
     return e;
   }
 
+  boatCap(e: Entity): number { return e.chest ? 1 : 2; }
+  boatLoad(e: Entity): number { return (e.rider ? 1 : 0) + (e.rider2 ? 1 : 0) + (e.crew?.length ?? 0); }
+
   mount(p: SimPlayer, e: Entity): boolean {
     const strider = e.type === 'lavastrider' && !!e.saddled;
-    if ((!strider && e.kind !== 'boat' && (e.kind !== 'cart' || e.type !== 'cart')) || e.rider || p.riding !== undefined || p.dead) return false;
-    e.rider = p.id;
+    if (p.riding !== undefined || p.dead) return false;
+    if (e.kind === 'boat') {
+      if (this.boatLoad(e) >= this.boatCap(e)) return false;
+      if (!e.rider) e.rider = p.id; else e.rider2 = p.id;
+    } else {
+      if ((!strider && (e.kind !== 'cart' || e.type !== 'cart')) || e.rider) return false;
+      e.rider = p.id;
+    }
     p.riding = e.id;
     p.x = e.x; p.y = e.y + rideOffset(e); p.z = e.z; p.peakY = p.y;
-    this.emit({ e: 'ride', p, id: e.id });
+    this.emit({ e: 'ride', p, id: e.id, seat: e.rider2 === p.id ? 1 : 0 });
     return true;
+  }
+
+  private dismountSpot(e: Entity): [number, number, number] {
+    const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
+    const tries: [number, number][] = [[-fz, fx], [fz, -fx], [fx * 1.2, fz * 1.2], [-fx * 1.2, -fz * 1.2], [-fz + fx, fx + fz], [fz + fx, -fx + fz], [-fz - fx, fx - fz], [fz - fx, -fx - fz]];
+    for (const [ox, oz] of tries) for (const dy of [0, 1, -1]) {
+      const x = e.x + ox * 1.1, z = e.z + oz * 1.1, y = Math.floor(e.y) + dy;
+      const bx = Math.floor(x), bz = Math.floor(z);
+      const floor = this.get(bx, y - 1, bz);
+      if (!isSolid(floor) || isSolid(this.get(bx, y, bz)) || isSolid(this.get(bx, y + 1, bz))) continue;
+      if (blockId(this.get(bx, y, bz)) === B.LAVA) continue;
+      return [x, y + 0.01, z];
+    }
+    return [e.x, e.y + 0.75, e.z];
   }
 
   dismount(p: SimPlayer): void {
     if (p.riding === undefined) return;
     const e = this.entities.get(p.riding);
     p.riding = undefined;
-    if (e) { e.rider = undefined; p.x = e.x; p.y = e.y + 0.75; p.z = e.z; }
+    if (e) {
+      if (e.rider === p.id) { e.rider = e.rider2; e.rider2 = undefined; }
+      else if (e.rider2 === p.id) e.rider2 = undefined;
+      if (e.kind === 'boat') { const [x, y, z] = this.dismountSpot(e); p.x = x; p.y = y; p.z = z; }
+      else { p.x = e.x; p.y = e.y + 0.75; p.z = e.z; }
+      if (e.rider) { const d = this.players.get(e.rider); if (d) this.emit({ e: 'ride', p: d, id: e.id, seat: 0 }); }
+    }
     p.peakY = p.y;
     this.emit({ e: 'ride', p, id: -1 });
     this.emit({ e: 'tp', p });
@@ -4287,14 +4508,14 @@ export class WorldSim {
     this.blasts.push({ x: e.x, y: e.y + 0.35, z: e.z, power: 4 + this.rng.next() * 1.5 * Math.min(5, bonus) });
   }
 
-  placeBoat(p: SimPlayer, x: number, y: number, z: number, wood: number): boolean {
+  placeBoat(p: SimPlayer, x: number, y: number, z: number, wood: number, chest = false): boolean {
     const v = this.get(x, y, z), here = blockId(v);
     const onWater = here === B.WATER;
     if (!onWater && !isReplaceable(v)) return false;
     if (!onWater && !isSolid(this.get(x, y - 1, z)) && blockId(this.get(x, y - 1, z)) !== B.WATER) return false;
     const e: Entity = {
-      id: this.allocId(), kind: 'boat', type: 'boat', wood, x: x + 0.5, y: onWater ? y + 0.6 : y, z: z + 0.5, vx: 0, vy: 0, vz: 0,
-      hw: 0.68, h: 0.5625, onGround: false, hitH: false, hitCeil: false, yaw: p.yaw, health: 4, maxHealth: 4, hurt: 0, age: 0, fire: 0, flags: 0,
+      id: this.allocId(), kind: 'boat', type: 'boat', wood, chest: chest || undefined, x: x + 0.5, y: onWater ? y + 0.6 : y, z: z + 0.5, vx: 0, vy: 0, vz: 0, drot: 0, bdmg: 0,
+      hw: 0.6875, h: 0.5625, onGround: false, hitH: false, hitCeil: false, yaw: p.yaw, health: 4, maxHealth: 4, hurt: 0, age: 0, fire: 0, flags: 0,
     };
     this.entities.set(e.id, e);
     this.emit({ e: 'spawn', ent: e });
@@ -4302,11 +4523,57 @@ export class WorldSim {
     return true;
   }
 
-  private removeBoat(e: Entity, drop: boolean): void {
-    if (e.rider) { const r = this.players.get(e.rider); if (r) this.dismount(r); }
+  private removeBoat(e: Entity, drop: boolean, wreck = false): void {
+    for (const id of [e.rider, e.rider2]) if (id) { const r = this.players.get(id); if (r && r.riding === e.id) this.dismount(r); }
+    for (const mid of e.crew ?? []) { const m = this.entities.get(mid); if (m) { m.inBoat = undefined; m.y += 0.4; } }
+    e.crew = undefined;
     this.entities.delete(e.id);
     this.emit({ e: 'remove', id: e.id, why: 'despawn' });
-    if (drop) this.spawnItem(e.x, e.y + 0.4, e.z, { id: I.BOAT_BASE + (e.wood ?? 0), count: 1 });
+    const ck = posKey(CARGO_X + e.id, -64, 0), cargo = this.blockEntities.get(ck);
+    if (cargo) {
+      for (const p of this.players.values()) if (p.screen.type === 'chest' && p.screen.x === CARGO_X + e.id && p.screen.y === -64) this.closeScreen(p);
+      this.blockEntities.delete(ck);
+      if (drop || wreck) for (const s of cargo.items) if (s) this.spawnItem(e.x, e.y + 0.3, e.z, s);
+    }
+    if (wreck) {
+      const plank = PLANK_ITEMS[e.wood ?? 0] ?? B.OAK_PLANKS;
+      this.spawnItem(e.x, e.y + 0.4, e.z, { id: plank, count: 3 });
+      this.spawnItem(e.x, e.y + 0.4, e.z, { id: I.STICK, count: 2 });
+      if (e.chest) this.spawnItem(e.x, e.y + 0.4, e.z, { id: B.CHEST, count: 1 });
+      return;
+    }
+    if (drop) this.spawnItem(e.x, e.y + 0.4, e.z, { id: (e.chest ? I.CHEST_BOAT_BASE : I.BOAT_BASE) + (e.wood ?? 0), count: 1 });
+  }
+
+  boatCargo(e: Entity): (ItemStack | null)[] | null {
+    if (e.kind !== 'boat' || !e.chest) return null;
+    const k = posKey(CARGO_X + e.id, -64, 0);
+    let be = this.blockEntities.get(k);
+    if (!be) { be = { type: 'chest', items: new Array(27).fill(null) }; this.blockEntities.set(k, be); }
+    return be.items;
+  }
+
+  private openBoatCargo(p: SimPlayer, e: Entity): void {
+    if (p.screen.type) this.closeScreen(p);
+    this.boatCargo(e);
+    p.screen = { type: 'chest', x: CARGO_X + e.id, y: -64, z: 0 };
+    p.screenTitle = `${WOOD_NAMES[e.wood ?? 0]} Boat with Chest`;
+    p.inv.craftSize = 2;
+    this.emit({ e: 'screen', p });
+    this.emit({ e: 'inv', p });
+  }
+
+  private hitBoat(p: SimPlayer, e: Entity): boolean {
+    if (Math.hypot(e.x - p.x, e.y - p.y, e.z - p.z) > 6 || this.now - p.lastAttack < 100) return false;
+    if (p.riding === e.id) return false;
+    p.lastAttack = this.now;
+    const dmg = Math.max(1, this.strike(p).dmg);
+    e.hurt = 10;
+    e.wob = -(e.wob ?? 1) || 1;
+    e.bdmg = (e.bdmg ?? 0) + dmg * 10;
+    this.emit({ e: 'sound', s: 'place.wood', x: e.x, y: e.y, z: e.z });
+    if (p.mode === 'creative' || e.bdmg > 40) this.removeBoat(e, p.mode !== 'creative');
+    return true;
   }
 
   private boatWater(x: number, y: number, z: number): number | null {
@@ -4317,35 +4584,104 @@ export class WorldSim {
     return null;
   }
 
+  private boatFriction(e: Entity): number {
+    let sum = 0, n = 0;
+    const y = Math.floor(e.y - 0.05);
+    for (const [ox, oz] of [[0, 0], [-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) {
+      const v = this.get(Math.floor(e.x + ox), y, Math.floor(e.z + oz));
+      if (!isSolid(v)) continue;
+      sum += slipperiness(v); n++;
+    }
+    return n ? sum / n : 0.6;
+  }
+
   private tickBoat(e: Entity): void {
     e.age++;
     if (e.hurt > 0) e.hurt--;
-    if (e.health < e.maxHealth && e.age % 100 === 0) e.health++;
+    if ((e.bdmg ?? 0) > 0) e.bdmg = Math.max(0, e.bdmg! - 1);
+    for (const k of ['rider', 'rider2'] as const) {
+      const id = e[k];
+      if (!id) continue;
+      const pl = this.players.get(id);
+      if (!pl || pl.riding !== e.id || pl.dead) e[k] = undefined;
+    }
+    if (!e.rider && e.rider2) { e.rider = e.rider2; e.rider2 = undefined; }
+    if (e.crew) e.crew = e.crew.filter((id) => { const m = this.entities.get(id); return !!m && m.health > 0 && m.inBoat === e.id; });
     const r = e.rider ? this.players.get(e.rider) : undefined;
-    if (e.rider && (!r || r.riding !== e.id || r.dead)) e.rider = undefined;
     const f = r?.flags ?? 0;
     const surf = this.boatWater(e.x, e.y, e.z);
-    const below = this.get(Math.floor(e.x), Math.floor(e.y - 0.1), Math.floor(e.z));
-    const key = getBlock(below).key;
-    const ice = blockId(below) === B.ICE || /ice$/.test(key);
-    if (r) {
-      if (f & MF.LEFT) e.yaw += 0.07;
-      if (f & MF.RIGHT) e.yaw -= 0.07;
-      const thrust = f & MF.FORWARD ? 0.8 : f & MF.BACK ? -0.16 : 0;
-      e.vx += -Math.sin(e.yaw) * thrust; e.vz += -Math.cos(e.yaw) * thrust;
+    const topV = this.get(Math.floor(e.x), Math.floor(e.y + e.h + 0.05), Math.floor(e.z));
+    const under = blockId(topV) === B.WATER && surf !== null && surf > e.y + e.h + 0.05;
+    const inWater = !under && surf !== null && e.y < surf + 0.05;
+    let inv: number;
+    if (under) { inv = 0.45; e.sunk = (e.sunk ?? 0) + 1; }
+    else { e.sunk = 0; inv = inWater ? 0.9 : e.onGround ? this.boatFriction(e) : 0.9; }
+    if (under && (e.sunk ?? 0) >= 60) {
+      for (const id of [e.rider, e.rider2]) if (id) { const pl = this.players.get(id); if (pl) this.dismount(pl); }
+      for (const mid of e.crew ?? []) { const m = this.entities.get(mid); if (m) m.inBoat = undefined; }
+      e.crew = undefined;
     }
-    let fr: number;
-    if (surf !== null && e.y < surf + 0.05) { fr = 0.9; e.vy += (surf - 0.1 - e.y) * 6 - e.vy * 0.25; }
-    else { e.vy -= 20 * DT; fr = e.onGround ? (ice ? (key === 'blue_ice' ? 0.989 : 0.98) : 0.45) : 0.95; }
-    e.vx *= fr; e.vz *= fr;
-    const sp = Math.hypot(e.vx, e.vz);
-    if (sp > 40) { e.vx *= 40 / sp; e.vz *= 40 / sp; }
-    if (Math.abs(e.vx) < 0.01) e.vx = 0;
-    if (Math.abs(e.vz) < 0.01) e.vz = 0;
+    e.vx *= inv; e.vz *= inv;
+    e.drot = (e.drot ?? 0) * inv;
+    if (inWater) { e.vy += (surf! - 0.1 - e.y) * 6 - e.vy * 0.25; }
+    else if (under) { e.vy = Math.min(e.vy + 0.8, 2); }
+    else e.vy -= 0.8;
+    const bc = bubbleColumn(this.store, e.x, e.y + 0.2, e.z);
+    if (bc) e.vy = bc > 0 ? Math.min(14, e.vy + 1.4) : Math.max(-6, e.vy - 0.6);
+    let paddles = 0;
+    if (r) {
+      const L = (f & MF.LEFT) !== 0, R = (f & MF.RIGHT) !== 0, U = (f & MF.FORWARD) !== 0, D = (f & MF.BACK) !== 0;
+      let acc = 0;
+      if (L) e.drot! += 1;
+      if (R) e.drot! -= 1;
+      if (R !== L && !U && !D) acc += 0.005;
+      if (U) acc += 0.04;
+      if (D) acc -= 0.005;
+      e.vx += -Math.sin(e.yaw) * acc * 20; e.vz += -Math.cos(e.yaw) * acc * 20;
+      if ((R && !L) || U) paddles |= 2;
+      if ((L && !R) || U) paddles |= 4;
+    }
+    e.yaw += (e.drot ?? 0) * Math.PI / 180;
+    if (Math.abs(e.vx) < 0.003) e.vx = 0;
+    if (Math.abs(e.vz) < 0.003) e.vz = 0;
+    const wasGround = e.onGround;
+    const y0 = e.y;
     moveBody(e, e.vx * DT, e.vy * DT, e.vz * DT, this.store);
-    if (e.hitH) { e.vx *= 0.5; e.vz *= 0.5; }
+    if (e.hitH) { e.vx *= 0.3; e.vz *= 0.3; }
+    if (!inWater && !under && !e.onGround && e.y < y0) e.fall = (e.fall ?? 0) + (y0 - e.y);
+    else if (inWater || under) e.fall = 0;
+    if (e.onGround && !wasGround) {
+      const fell = e.fall ?? 0;
+      e.fall = 0;
+      if (fell > 3 && this.boatWater(e.x, e.y, e.z) === null) {
+        for (const id of [e.rider, e.rider2]) if (id) { const pl = this.players.get(id); if (pl) this.damage(pl, Math.ceil(fell - 3), 'fall', pl.x, pl.z, false, true); }
+        this.removeBoat(e, false, true);
+        return;
+      }
+    }
     if (e.y < -64) { this.removeBoat(e, false); return; }
-    if (r) { r.x = e.x; r.y = e.y + rideOffset(e); r.z = e.z; r.peakY = r.y; r.vel = { x: e.vx, y: e.vy, z: e.vz }; }
+    if (this.boatLoad(e) < this.boatCap(e) && e.age % 2 === 0) {
+      for (const m of this.entities.values()) {
+        if (m.kind !== 'mob' || m.inBoat !== undefined || m.health <= 0 || m.rider) continue;
+        if (m.hw * 2 >= e.hw * 2 || m.type === 'voidwyrm' || m.type === 'riftcore' || m.type === 'shellward' || m.type === 'wailer' || m.type === 'quartermaster' || m.type === 'rival') continue;
+        if (Math.abs(m.x - e.x) > e.hw + m.hw + 0.2 || Math.abs(m.z - e.z) > e.hw + m.hw + 0.2 || m.y > e.y + e.h || m.y + m.h < e.y) continue;
+        (e.crew ??= []).push(m.id);
+        m.inBoat = e.id;
+        if (this.boatLoad(e) >= this.boatCap(e)) break;
+      }
+    }
+    const seats: ({ p: SimPlayer } | { m: Entity })[] = [];
+    if (r) seats.push({ p: r });
+    if (e.rider2) { const p2 = this.players.get(e.rider2); if (p2) seats.push({ p: p2 }); }
+    for (const id of e.crew ?? []) { const m = this.entities.get(id); if (m) seats.push({ m }); }
+    const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
+    seats.forEach((s, i) => {
+      const off = seats.length > 1 ? (i === 0 ? 0.2 : -0.6) : 0;
+      const x = e.x + fx * off, z = e.z + fz * off;
+      if ('p' in s) { s.p.x = x; s.p.y = e.y + rideOffset(e); s.p.z = z; s.p.peakY = s.p.y; s.p.vel = { x: e.vx, y: e.vy, z: e.vz }; }
+      else { s.m.x = x; s.m.y = e.y + 0.2; s.m.z = z; s.m.yaw = e.yaw; }
+    });
+    e.flags = (e.hurt > 0 ? 1 : 0) | paddles | (seats.length > 1 ? 8 : 0) | (e.chest ? 16 : 0);
   }
 
   private removeCart(e: Entity, drop: boolean): void {
@@ -4509,6 +4845,10 @@ export class WorldSim {
         const c = this.blockEntities.get(posKey(CARGO_X + e.id, -64, 0));
         out.push({ k: e.type, x: Math.round(e.x * 100) / 100, y: Math.round(e.y * 100) / 100, z: Math.round(e.z * 100) / 100, yaw: Math.round(e.yaw * 100) / 100, cargo: c?.items, off: e.off || undefined });
       }
+      else if (e.kind === 'boat') {
+        const c = e.chest ? this.blockEntities.get(posKey(CARGO_X + e.id, -64, 0)) : undefined;
+        out.push({ k: 'boat', x: Math.round(e.x * 100) / 100, y: Math.round(e.y * 100) / 100, z: Math.round(e.z * 100) / 100, yaw: Math.round(e.yaw * 100) / 100, w: e.wood ?? 0, ch: e.chest || undefined, cargo: c?.items });
+      }
       if (out.length >= 20000) break;
     }
     return out;
@@ -4531,6 +4871,16 @@ export class WorldSim {
         this.entities.set(e.id, e);
         this.emit({ e: 'spawn', ent: e });
         const items = this.cargo(e);
+        if (items && Array.isArray(r.cargo)) r.cargo.slice(0, items.length).forEach((s, i) => { items[i] = validStack(s) ? cloneStack(s) : null; });
+      } else if (r.k === 'boat') {
+        const w = Number(r.w ?? 0);
+        const e: Entity = {
+          id: this.allocId(), kind: 'boat', type: 'boat', wood: Number.isInteger(w) && w >= 0 && w < 8 ? w : 0, chest: r.ch === true || undefined, x: r.x, y: r.y, z: r.z, vx: 0, vy: 0, vz: 0, drot: 0, bdmg: 0,
+          hw: 0.6875, h: 0.5625, onGround: false, hitH: false, hitCeil: false, yaw: n(r.yaw, 10) ? r.yaw! : 0, health: 4, maxHealth: 4, hurt: 0, age: 0, fire: 0, flags: r.ch === true ? 16 : 0,
+        };
+        this.entities.set(e.id, e);
+        this.emit({ e: 'spawn', ent: e });
+        const items = this.boatCargo(e);
         if (items && Array.isArray(r.cargo)) r.cargo.slice(0, items.length).forEach((s, i) => { items[i] = validStack(s) ? cloneStack(s) : null; });
       }
     }
@@ -5605,7 +5955,7 @@ export class WorldSim {
 
   private tickEntity(e: Entity): void {
     const loaded = this.store.isLoaded(Math.floor(e.x), Math.floor(e.z));
-    if (e.kind === 'mob' && !this.game && (this.tickCount + e.id) % 20 === 0) {
+    if (e.kind === 'mob' && !this.game && e.inBoat === undefined && (this.tickCount + e.id) % 20 === 0) {
       if (!loaded || this.checkDespawn(e)) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); return; }
     }
     if (!loaded || !this.isTicking(e.x, e.z)) return;
@@ -5625,6 +5975,11 @@ export class WorldSim {
     if (e.kind === 'frame') return this.tickFrame(e);
     if (e.kind === 'fireball' && e.type === 'dfire') return this.tickDragonFire(e);
     if (e.kind === 'fireball') return this.tickFireball(e);
+    if (e.kind === 'mob' && e.inBoat !== undefined) {
+      const b = this.entities.get(e.inBoat);
+      if (b && b.kind === 'boat' && b.crew?.includes(e.id)) { e.vx = 0; e.vz = 0; e.vy = 0; if (e.health <= 0) return; return; }
+      e.inBoat = undefined;
+    }
     this.tickMob(e);
   }
 
@@ -5818,6 +6173,7 @@ export class WorldSim {
       if (e.admire === 0) this.barter(e);
     }
     if (e.type === 'voidstalker') { this.tickEnderman(e, med.water); if (!this.entities.has(e.id)) return; }
+    if (e.type === 'voidmite' && e.age > 2400 && !e.persistent) { this.entities.delete(e.id); this.emit({ e: 'remove', id: e.id, why: 'despawn' }); this.emit({ e: 'particles', k: 'smoke', x: e.x, y: e.y + 0.2, z: e.z }); return; }
     const angry = !e.admire && (def.hostile || (def.neutral && e.provoked! > 0 && !!e.target));
     if (def.neutral && !angry) e.target = null;
     if (angry) {

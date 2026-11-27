@@ -360,7 +360,7 @@ export class TextureAtlas {
     if (key.includes('/')) return key;
     const bedrock = this.pack.special.get(`tex:${key}`);
     if (bedrock) return bedrock;
-    const alias: Record<string, string> = { aetherite_ore: 'diamond_ore', aetherite_block: 'diamond_block', cinderite_block: 'netherite_block' };
+    const alias: Record<string, string> = { aetherite_ore: 'diamond_ore', deepslate_aetherite_ore: 'deepslate_diamond_ore', aetherite_block: 'diamond_block', cinderite_block: 'netherite_block' };
     return `block/${alias[key] ?? key}`;
   }
 

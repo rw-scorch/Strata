@@ -1,3 +1,4 @@
+import type { SignData } from './signs';
 import type { HostView } from './hosting';
 import type { RuleSet } from './sim/WorldSim';
 import type { CrucibleView } from './sim/crucible';
@@ -91,6 +92,7 @@ export type C2S =
   | { t: 'ue'; id: number }
   | { t: 'ench'; i: number }
   | { t: 'anvil'; n: string | null }
+  | { t: 'sign'; x: number; y: number; z: number; l: string[] }
   | { t: 'rtc'; to: string; d: unknown }
   | { t: 'skin'; skin: SkinRef | null }
   | { t: 'datapacks'; d: DataRecipes[] }
@@ -122,7 +124,7 @@ export type S2C =
   | { t: 'hurt'; a: number; c: string; fx: number; fz: number; k?: number }
   | { t: 'phurt'; id: string }
   | { t: 'pmove'; l: number[] }
-  | { t: 'ride'; id: number }
+  | { t: 'ride'; id: number; s?: number }
   | { t: 'knock'; x: number; y: number; z: number; s?: number }
   | { t: 'dark'; d: number }
   | { t: 'trv'; s: 0 | 1; n: 0 | 1 | 2 }
@@ -148,7 +150,9 @@ export type S2C =
   | { t: 'cru'; s: CrucibleView | null }
   | { t: 'mn'; id: number; n: string }
   | { t: 'trade'; id: number; prof: number; xp: number; uses: number[]; seed?: number }
-  | { t: 'lid'; x: number; y: number; z: number; n: number };
+  | { t: 'lid'; x: number; y: number; z: number; n: number }
+  | { t: 'signs'; l: [number, number, number, SignData | null][] }
+  | { t: 'signEdit'; x: number; y: number; z: number; b: boolean };
 
 export const ENT_KIND = { mob: 0, item: 1, arrow: 2, tnt: 3, cart: 4, fireball: 5, frame: 6, boat: 7 } as const;
 

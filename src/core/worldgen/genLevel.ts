@@ -1,4 +1,7 @@
-export const GEN_LEVEL = 16;
+export const GEN_LEVEL = 17;
+export const DEEP_LEVEL = 17;
+export const DEEPSLATE_TOP = 24;
+export const DEEPSLATE_SOLID = 16;
 export const STRUCT_LEVEL = 16;
 export const NETHER_DEPTH_LEVEL = 15;
 export const LANDFORM_LEVEL = 9;
