@@ -475,7 +475,7 @@ export function showSovereign(run: (cmd: string) => void, held: () => SovereignH
           h('div', { class: 'meta' }, h('div', { class: 'name' }, n), h('div', { class: 'sub' }, `${kitSummary(k)}${k.by ? ` · made by ${k.by}` : ''}`)),
           h('div', { class: 'actions' },
             h('button', { class: 'btn small teal', onclick: () => run(`/kit ${n}`) }, 'Claim'),
-            h('button', { class: `btn small ${k.ops ? 'gold' : ''}`, onclick: () => run2(`/kit ops ${n} ${k.ops ? 'off' : 'on'}`) }, k.ops ? 'Operators only' : 'Everyone'),
+            h('button', { class: `btn small ${k.pub ? '' : 'gold'}`, onclick: () => run2(`/kit public ${n} ${k.pub ? 'off' : 'on'}`) }, k.pub ? 'Everyone' : 'Operators only'),
             h('button', { class: 'btn small danger', onclick: () => run2(`/kit delete ${n}`) }, 'Delete'))),
         icons,
         h('div', { class: 'row', style: 'gap:6px;align-items:center' }, h('span', { class: 'small' }, 'Cooldown (seconds)'), cd, h('button', { class: 'btn small', onclick: () => run2(`/kit cooldown ${n} ${Math.max(0, Math.floor(Number(cd.value) || 0))}`) }, 'Set'))));

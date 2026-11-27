@@ -7251,8 +7251,8 @@ export class WorldSim {
     const need = 'Only operators can change kits.';
     const names = Object.keys(book);
     if (sub === '' || sub === 'list') {
-      const mine = names.filter((n) => !book[n].ops || allowed);
-      return mine.length ? `Kits: ${mine.map((n) => `${n} (${kitSummary(book[n])})`).join(', ')}. Use /kit <name>.${allowed ? ' Operators: /kit save|delete|preset|cooldown|ops|give.' : ''}` : allowed ? 'No custom kits yet. Arrange your inventory and use /kit save <name>, or /kit preset <name> to start from a popular PvP kit.' : 'This world has no kits.';
+      const mine = names.filter((n) => book[n].pub === true || allowed);
+      return mine.length ? `Kits: ${mine.map((n) => `${n} (${kitSummary(book[n])})`).join(', ')}. Use /kit <name>.${allowed ? ' Operators: /kit save|delete|preset|cooldown|public|give. New kits are operator-only until you run /kit public <name> on.' : ''}` : allowed ? 'No custom kits yet. Arrange your inventory and use /kit save <name>, or /kit preset <name> to start from a popular PvP kit.' : 'This world has no kits.';
     }
     if (sub === 'presets') return `Presets: ${Object.entries(KIT_PRESETS).map(([k, v]) => `${k} (${v.blurb})`).join(' | ')}`;
     if (sub === 'save') {
@@ -7261,16 +7261,17 @@ export class WorldSim {
       if (!n) return 'Usage: /kit save <name> (letters, numbers, - and _). Saves your whole inventory, armour and offhand.';
       if (!book[n] && names.length >= 40) return 'This world already has 40 kits.';
       const k = kitFromInv(p.inv);
-      this.saveKits({ ...book, [n]: { ...k, cd: book[n]?.cd ?? 0, ops: book[n]?.ops ?? false, by: p.name } });
-      return `Saved your inventory as kit ${n} (${kitSummary(k)}).`;
+      const pub = book[n]?.pub === true;
+      this.saveKits({ ...book, [n]: { ...k, cd: book[n]?.cd ?? 0, ops: !pub, pub, by: p.name } });
+      return `Saved your inventory as kit ${n} (${kitSummary({ ...k, pub })}).${pub ? '' : ` Only operators can claim it. Use /kit public ${n} on to let everyone claim it.`}`;
     }
     if (sub === 'preset') {
       if (!allowed) return need;
       const pre = (args[0] ?? '').toLowerCase(), n = kitName(args[1] ?? pre);
       const k = presetKit(pre);
       if (!k || !n) return `Usage: /kit preset <${Object.keys(KIT_PRESETS).join('|')}> [name]`;
-      this.saveKits({ ...book, [n]: { ...k, by: p.name } });
-      return `Added the ${KIT_PRESETS[pre].label} kit as ${n} (${kitSummary(k)}).`;
+      this.saveKits({ ...book, [n]: { ...k, ops: true, pub: false, by: p.name } });
+      return `Added the ${KIT_PRESETS[pre].label} kit as ${n} (${kitSummary({ ...k, pub: false })}). Only operators can claim it. Use /kit public ${n} on to let everyone claim it.`;
     }
     if (sub === 'delete' || sub === 'remove') {
       if (!allowed) return need;
@@ -7286,13 +7287,16 @@ export class WorldSim {
       this.saveKits({ ...book, [n]: { ...book[n], cd: s } });
       return s ? `Kit ${n} can be claimed once every ${s}s.` : `Kit ${n} has no cooldown.`;
     }
-    if (sub === 'ops') {
+    if (sub === 'ops' || sub === 'public' || sub === 'open') {
       if (!allowed) return need;
       const n = kitName(args[0] ?? '');
-      if (!n || !book[n]) return 'Usage: /kit ops <name> on|off';
-      const on = (args[1] ?? 'on').toLowerCase() !== 'off';
-      this.saveKits({ ...book, [n]: { ...book[n], ops: on } });
-      return on ? `Only operators can claim ${n}.` : `Everyone can claim ${n}.`;
+      if (!n || !book[n]) return `Usage: /kit ${sub === 'ops' ? 'ops' : 'public'} <name> on|off`;
+      const flag = (args[1] ?? 'on').toLowerCase() !== 'off';
+      const pub = sub === 'ops' ? !flag : flag;
+      const cd = pub && !book[n].cd ? 600 : book[n].cd;
+      this.saveKits({ ...book, [n]: { ...book[n], ops: !pub, pub, cd } });
+      if (!pub) return `Only operators can claim ${n}.`;
+      return `Everyone can now claim ${n}${cd ? `, once every ${cd}s` : ''}.${!book[n].cd ? ` It had no cooldown, so it now has a 10 minute one. Change it with /kit cooldown ${n} <seconds>.` : ''}`;
     }
     if (sub === 'give') {
       if (!allowed) return need;
@@ -7305,7 +7309,7 @@ export class WorldSim {
     const n = kitName(sub);
     if (!n || !book[n]) return null;
     const k = book[n];
-    if (k.ops && !allowed) return 'That kit is for operators only.';
+    if (k.pub !== true && !allowed) return 'That kit is for operators only.';
     if (p.dead) return 'You cannot do that while dead.';
     const key = `${p.id}:${n}`, wait = (this.kitAt.get(key) ?? -1e12) + k.cd * 20 - this.tickCount;
     if (k.cd && wait > 0 && !allowed) return `You can claim ${n} again in ${Math.ceil(wait / 20)}s.`;

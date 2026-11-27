@@ -345,6 +345,9 @@ WASD move · Space jump (double-tap to fly in Architect) · Shift crouch · Ctrl
   - 23 new slab and stair sets: granite, polished granite, diorite, polished diorite, andesite, polished andesite, cobbled deepslate, polished deepslate, deepslate brick, deepslate tile, red sandstone, smooth red sandstone, cut red sandstone, quartz, smooth quartz, prismarine, prismarine brick, dark prismarine, mud brick, red nether brick, crimson, warped and polished blackstone.
   - Everything has Java crafting recipes, and cracked and smooth versions are smelted. Prismarine shards and crystals are sold in the Rare shop until ocean monuments arrive. With a Minecraft pack, the new blocks use the pack's textures. Litematica schematics import the new fences, gates, walls, panes, slabs and stairs.
   - Protocol 37: older clients are asked to reload.
+- **v51.1 Lockdown (kit permissions hotfix):**
+  - Kits are now operator-only unless an operator deliberately opens one with `/kit public <name> on` (or the Everyone toggle in the Armoury). This includes kits saved before this version, so an open kit can no longer be claimed by everyone without anyone choosing that.
+  - Opening a kit with no cooldown gives it a 10 minute cooldown, which `/kit cooldown <name> <seconds>` can change. Players only see open kits in `/kit list`.
 - **v51 Ember and Fortune (Hearthfall and Fortune Spires rebuilt):**
   - Rivals rebuilt from scratch. They now carry real blocks and money: they collect iron and gold from their forge, buy wool, swords, greaves, pickaxes, golden apples and team upgrades from the Quartermaster, and every block they bridge or tower with comes out of what they bought. When they run low they head home (retracing their own bridge) to earn more.
   - They play roles: one guards and walls in the hearth, the other raids once it has enough blocks to reach the target. They only start a bridge they can finish.

@@ -2,7 +2,7 @@ import { emptyInv, type ItemStack, type PlayerInv } from '../inventory';
 import { getItem } from '../items';
 import { prizeId } from './crucible';
 
-export interface KitDef { items: (ItemStack | null)[]; armor: (ItemStack | null)[]; off: ItemStack | null; cd: number; ops: boolean; by?: string }
+export interface KitDef { items: (ItemStack | null)[]; armor: (ItemStack | null)[]; off: ItemStack | null; cd: number; ops: boolean; pub?: boolean; by?: string }
 export type KitBook = Record<string, KitDef>;
 
 type Spec = [string, number?, Record<string, number>?];
@@ -62,12 +62,12 @@ export function presetKit(name: string): KitDef | null {
   const items: (ItemStack | null)[] = Array(36).fill(null);
   let i = 0;
   for (const s of p.items) { const st = stack(s); if (st && i < 36) items[i++] = st; }
-  return { items, armor: p.armor.map((a) => (a ? stack(a) : null)), off: p.off ? stack(p.off) : null, cd: 0, ops: false };
+  return { items, armor: p.armor.map((a) => (a ? stack(a) : null)), off: p.off ? stack(p.off) : null, cd: 0, ops: true, pub: false };
 }
 
 export function kitFromInv(inv: PlayerInv): KitDef {
   const c = (s: ItemStack | null | undefined): ItemStack | null => (s ? { ...s, en: s.en ? { ...s.en } : undefined, box: undefined } : null);
-  return { items: inv.slots.slice(0, 36).map(c), armor: [0, 1, 2, 3].map((k) => c(inv.armor[k])), off: c(inv.off?.[0]), cd: 0, ops: false };
+  return { items: inv.slots.slice(0, 36).map(c), armor: [0, 1, 2, 3].map((k) => c(inv.armor[k])), off: c(inv.off?.[0]), cd: 0, ops: true, pub: false };
 }
 
 export function kitInvOf(k: KitDef): PlayerInv {
@@ -105,7 +105,8 @@ export function sanitizeKits(raw: unknown): KitBook {
       armor: [0, 1, 2, 3].map((i) => cleanStack(d.armor?.[i])),
       off: cleanStack(d.off),
       cd: Math.max(0, Math.min(86400, Math.floor(Number(d.cd) || 0))),
-      ops: !!d.ops,
+      ops: d.pub !== true,
+      pub: d.pub === true,
       by: typeof d.by === 'string' ? d.by.slice(0, 24) : undefined,
     };
   }
@@ -114,5 +115,5 @@ export function sanitizeKits(raw: unknown): KitBook {
 
 export function kitSummary(k: KitDef): string {
   const n = k.items.filter(Boolean).length + k.armor.filter(Boolean).length + (k.off ? 1 : 0);
-  return `${n} stack${n === 1 ? '' : 's'}${k.cd ? `, ${k.cd}s cooldown` : ''}${k.ops ? ', operators only' : ''}`;
+  return `${n} stack${n === 1 ? '' : 's'}${k.cd ? `, ${k.cd}s cooldown` : ''}${k.pub ? ', everyone' : ', operators only'}`;
 }
