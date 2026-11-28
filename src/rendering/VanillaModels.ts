@@ -439,6 +439,48 @@ export function firstPersonArmMatrix(swing: number, out: THREE.Matrix4): THREE.M
   return out;
 }
 
+export type HeldKind = 'item' | 'handheld' | 'block' | 'shield' | 'shieldBlock' | 'rod' | 'crossbow';
+interface HeldDisp { r: V3; t: V3; s: number }
+const GEN: HeldDisp = { r: [0, -90, 25], t: [1.13, 3.2, 1.13], s: 0.68 };
+const HELD_DISP: Record<HeldKind, { right: HeldDisp; left: HeldDisp }> = {
+  item: { right: GEN, left: GEN },
+  handheld: { right: GEN, left: { r: [0, 90, -25], t: [1.13, 3.2, 1.13], s: 0.68 } },
+  rod: { right: { r: [0, 90, 25], t: [0, 1.6, 0.8], s: 0.68 }, left: { r: [0, -90, -25], t: [0, 1.6, 0.8], s: 0.68 } },
+  block: { right: { r: [0, 45, 0], t: [0, 0, 0], s: 0.4 }, left: { r: [0, 225, 0], t: [0, 0, 0], s: 0.4 } },
+  shield: { right: { r: [0, 180, 5], t: [-10, 1.75, -10], s: 1.25 }, left: { r: [0, 180, 5], t: [10, 0, -10], s: 1.25 } },
+  shieldBlock: { right: { r: [0, 180, -5], t: [-15, 3.25, -11], s: 1.25 }, left: { r: [0, 180, -5], t: [5, 5, -11], s: 1.25 } },
+  crossbow: { right: { r: [-90, 0, -55], t: [1.13, 3.2, 1.13], s: 0.68 }, left: { r: [-90, 0, 35], t: [1.13, 3.2, 1.13], s: 0.68 } },
+};
+
+export const SHIELD_CUBES: VCube[] = [{ o: [-6, -11, -2], s: [12, 22, 1], uv: [0, 0] }, { o: [-1, -3, -1], s: [2, 6, 6], uv: [26, 0] }];
+
+export function heldItemMatrix(kind: HeldKind, left: boolean, swing: number, eat: number, out: THREE.Matrix4): THREE.Matrix4 {
+  const i = left ? -1 : 1;
+  const m = new THREE.Matrix4();
+  out.identity();
+  if (eat > 0) {
+    const rem = Math.max(0, 1.6 - eat) * 20, f1 = rem / 32;
+    if (f1 < 0.8) out.multiply(m.makeTranslation(0, Math.abs(Math.cos((rem / 4) * Math.PI) * 0.1), 0));
+    const f3 = 1 - Math.pow(f1, 27);
+    out.multiply(m.makeTranslation(f3 * 0.6 * i, f3 * -0.5, 0));
+    out.multiply(m.makeRotationY(i * f3 * 90 * D)).multiply(m.makeRotationX(f3 * 10 * D)).multiply(m.makeRotationZ(i * f3 * 30 * D));
+  } else if (swing > 0 && kind !== 'shieldBlock') {
+    const sq = Math.sqrt(swing);
+    out.multiply(m.makeTranslation(i * -0.4 * Math.sin(sq * Math.PI), 0.2 * Math.sin(sq * Math.PI * 2), -0.2 * Math.sin(swing * Math.PI)));
+  }
+  out.multiply(m.makeTranslation(i * 0.56, -0.52, -0.72));
+  if (eat <= 0 && kind !== 'shieldBlock') {
+    const f = Math.sin(swing * swing * Math.PI), f1 = Math.sin(Math.sqrt(swing) * Math.PI);
+    out.multiply(m.makeRotationY(i * (45 - f * 20) * D)).multiply(m.makeRotationZ(i * f1 * -20 * D)).multiply(m.makeRotationX(f1 * -80 * D)).multiply(m.makeRotationY(i * -45 * D));
+  }
+  const d = left ? HELD_DISP[kind].left : HELD_DISP[kind].right;
+  const ry = left ? -d.r[1] : d.r[1], rz = left ? -d.r[2] : d.r[2];
+  out.multiply(m.makeTranslation((i * d.t[0]) / 16, d.t[1] / 16, d.t[2] / 16));
+  out.multiply(m.makeRotationFromEuler(new THREE.Euler(d.r[0] * D, ry * D, rz * D, 'XYZ')));
+  out.multiply(m.makeScale(d.s, d.s, d.s));
+  return out;
+}
+
 export const PLAYER_ARM_CUBES: VCube[] = [{ o: [-3, -2, -2], s: [4, 12, 4], uv: [40, 16] }, { o: [-3, -2, -2], s: [4, 12, 4], uv: [40, 32], inf: 0.25 }];
 
 VANILLA.zoglin = { ...VANILLA.hoglin!, key: 'zoglin', main: 'zoglin' };

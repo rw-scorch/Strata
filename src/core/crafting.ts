@@ -1,4 +1,4 @@
-import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB, NB, WOODS, WALL_MATS, FENCE_BASE, GATE_BASE, WALL_BASE, GLASS_PANE, STAINED_PANE_BASE, WOOD_KINDS, STRIPPED_LOG_BASE, WOOD_BASE, STRIPPED_WOOD_BASE, DEEPSLATE_ORE_BASE } from './blocks';
+import { XB, XV, SB, B, BLOCKS, COLORS, DyeColor, woolId, terracottaId, powderId, stainedGlassId, SHAPE_MATS, slabItem, stairsItem, TRAPDOOR_WOODS, CB, NB, WOODS, WALL_MATS, FENCE_BASE, GATE_BASE, WALL_BASE, GLASS_PANE, STAINED_PANE_BASE, WOOD_KINDS, STRIPPED_LOG_BASE, WOOD_BASE, STRIPPED_WOOD_BASE, DEEPSLATE_ORE_BASE, STARSHARD_BLOCK } from './blocks';
 import { I, toolId, armorId, dyeId, SPEAR_MATS, getItem } from './items';
 import type { ItemStack } from './inventory';
 
@@ -276,6 +276,8 @@ shaped('aetherite_block', 'building', B.AETHERITE_BLOCK, 1, ['III', 'III', 'III'
 shapeless('iron_from_block', 'basics', I.IRON_INGOT, 9, [B.IRON_BLOCK]);
 shapeless('gold_from_block', 'basics', I.GOLD_INGOT, 9, [B.GOLD_BLOCK]);
 shapeless('aetherite_from_block', 'basics', I.AETHERITE, 9, [B.AETHERITE_BLOCK]);
+shaped('starshard_block', 'building', STARSHARD_BLOCK, 1, ['III', 'III', 'III'], { I: I.STARSHARD });
+shapeless('starshard_from_block', 'basics', I.STARSHARD, 9, [STARSHARD_BLOCK]);
 shaped('coal_block', 'building', B.COAL_BLOCK, 1, ['CCC', 'CCC', 'CCC'], { C: I.COAL });
 shapeless('coal_from_block', 'basics', I.COAL, 9, [B.COAL_BLOCK]);
 shaped('emerald_block', 'building', B.EMERALD_BLOCK, 1, ['EEE', 'EEE', 'EEE'], { E: I.EMERALD });

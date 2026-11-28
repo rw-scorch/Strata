@@ -1,3 +1,4 @@
+import { Duels } from '../../src/core/labs/duels/Duels';
 import { cleanEquipped, type Equipped } from '../../src/core/shop';
 import type { BlockArray } from '../../src/core/chunk';
 import { decodeBlueprint, BP_PART, BP_MAX_PARTS } from '../../src/core/blueprint';
@@ -25,6 +26,11 @@ import {
 
 const SUPPORTER_GOLD = '#ffcc33';
 
+function outranks(target: string | undefined, actor: string | undefined): boolean {
+  const lv = (r: string | undefined) => (r === 'owner' ? 3 : r === 'admin' ? 2 : r === 'mod' ? 1 : 0);
+  return lv(target) >= 2 && lv(target) > lv(actor);
+}
+
 export interface Env {
   WORLD_ROOMS: DurableObjectNamespace<WorldRoom>;
   ASSETS: Fetcher;
@@ -40,9 +46,11 @@ export interface Env {
   SUPPORTER_AMOUNT?: string;
   HOSTING_PRICE_ID?: string;
   HOSTING_TRIAL_DAYS?: string;
+  SHARD_PACKS?: string;
+  OWNER_ACCOUNTS?: string;
 }
 
-interface StoredMeta extends RoomMeta { end?: EndState; peak?: number; genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; banInfo?: Record<string, BanInfo>; host?: HostState; }
+interface StoredMeta extends RoomMeta { end?: EndState; peak?: number; genBase?: number; pvpV6?: boolean; capV10?: boolean; rules?: RuleSet; ops?: { id: string; hash: string }[]; ownerHash: string; time: number; weather: string; dayCycle: boolean; muted: string[]; bans: Record<string, number>; banInfo?: Record<string, BanInfo>; host?: HostState; official?: 'smp' | 'pvp'; staffOwned?: boolean; }
 
 interface Session {
   ws: WebSocket;
@@ -255,13 +263,15 @@ export class WorldRoom extends DurableObject<Env> {
       this.loadPersistentMobs();
       this.loadFixtures();
       this.loaded = true;
+      this.sim.starfallOn = m.official === 'smp';
     }
     const cx = Math.floor(spawn.x / 16), cz = Math.floor(spawn.z / 16);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) this.getChunk(cx + dx, cz + dz);
     if (m.arena && !this.sim.game) {
       for (const e of [...this.sim.entities.values()]) this.sim.entities.delete(e.id);
-      this.sim.game = new Minigame(this.sim, m.arena);
+      this.sim.game = m.arena === 'duels' ? new Duels(this.sim) : new Minigame(this.sim, m.arena);
       for (let cz = -5; cz <= 4; cz++) for (let cx = -5; cx <= 4; cx++) this.getChunk(cx, cz);
+      if (m.arena === 'duels') for (let cz = -4; cz <= 5; cz++) for (let cx = 6; cx <= 21; cx++) this.getChunk(cx, cz);
     }
     return this.sim;
   }
@@ -600,6 +610,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private savePlayer(p: SimPlayer): void {
+    if (p.bot) return;
     if (p.vanished) return;
     const st = p.cru;
     const data = {
@@ -687,6 +698,7 @@ export class WorldRoom extends DurableObject<Env> {
       ownerHash: await sha256(ownerSecret), time: 1000, weather: 'clear', dayCycle: true, muted: [], bans: {},
       ...(this.hostingOn() && !arena ? { host: freshHost(Date.now(), this.trialDays()) } : {}),
     };
+    if ((await this.verifiedRole(ownerId, ownerSecret)) === 'owner') { this.meta.staffOwned = true; if (this.meta.host) this.meta.host.comp = true; }
     this.saveMeta();
     if (this.meta.host) this.armHostAlarm();
     return Response.json({ room: this.publicMeta() });
@@ -736,6 +748,7 @@ export class WorldRoom extends DurableObject<Env> {
   async alarm(): Promise<void> {
     const m = this.loadMeta();
     if (!m?.host) return;
+    if (!m.host.comp && hostView(m.host, Date.now()).phase !== 'active' && (m.official || m.staffOwned)) { m.host.comp = true; this.saveMeta(); return; }
     const v = this.hostNow();
     if (v.phase === 'purge') { await this.purge(); return; }
     if (v.phase === 'locked' && this.sessions.size) this.freeze();
@@ -889,7 +902,7 @@ export class WorldRoom extends DurableObject<Env> {
     const now = Date.now();
     if (!force && now - this.lastReport < 60000) return;
     this.lastReport = now;
-    const players = this.sim ? [...this.sim.players.values()].map((p) => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), z: Math.round(p.z), op: p.op, mode: p.mode, health: Math.round(p.health), dead: p.dead, vanished: p.vanished })) : [];
+    const players = this.sim ? [...this.sim.players.values()].filter((p) => !p.bot).map((p) => ({ id: p.id, name: p.name, x: Math.round(p.x), y: Math.round(p.y), z: Math.round(p.z), op: p.op, mode: p.mode, health: Math.round(p.health), dead: p.dead, vanished: p.vanished })) : [];
     const body = { code: m.code, name: m.name, owner: m.ownerName, mode: m.mode, difficulty: m.difficulty, maxPlayers: m.maxPlayers, createdAt: m.createdAt, arena: m.arena ?? null, players, voice: m.settings.voice !== false };
     const stub = reg.get(reg.idFromName('global'));
     this.ctx.waitUntil(stub.fetch('https://registry/report', { method: 'POST', body: JSON.stringify(body) }).then(() => undefined).catch(() => undefined));
@@ -1059,7 +1072,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private publicPlayer(p: SimPlayer): PublicPlayer {
-    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id), skin: p.skin ?? null, sup: p.supporter, cos: p.cos };
+    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id), skin: p.skin ?? null, sup: p.supporter, cos: p.cos, staff: p.staff };
   }
 
   private systemChat(text: string, kind: Extract<S2C, { t: 'chat' }>['kind'] = 'system', to?: Session): void {
@@ -1209,17 +1222,21 @@ export class WorldRoom extends DurableObject<Env> {
     let name = cleanName(msg.name);
     let supColor: string | undefined;
     let cos: Equipped | undefined;
+    let staff: SimPlayer['staff'];
     if (this.env.ACCOUNTS) {
       try {
         const acc = this.env.ACCOUNTS.get(this.env.ACCOUNTS.idFromName('global'));
-        const r = (await (await acc.fetch(`https://accounts/check?name=${encodeURIComponent(name)}&pid=${encodeURIComponent(id)}`)).json()) as { registered: boolean; owner: boolean; name: string | null };
-        if (r.registered && !r.owner) name = `~${name}`.slice(0, 16);
-        else if (r.owner && r.name) name = r.name;
-        if (r.owner) {
+        const v = (await (await acc.fetch('https://accounts/staff/verify', { method: 'POST', body: JSON.stringify({ id, secret }) })).json()) as { ok?: boolean; name?: string; role?: string | null };
+        if (v.ok && v.name) {
+          name = v.name;
           const sup = (await (await acc.fetch(`https://accounts/supporter?pid=${encodeURIComponent(id)}`)).json()) as { active: boolean; color: string | null };
           if (sup.active) supColor = sup.color ?? SUPPORTER_GOLD;
           const c = cleanEquipped(await (await acc.fetch(`https://accounts/cosmetics?pid=${encodeURIComponent(id)}`)).json());
           if (c.title || c.trail || c.cape) cos = c;
+          if (v.role === 'owner' || v.role === 'admin' || v.role === 'mod') staff = v.role;
+        } else {
+          const r = (await (await acc.fetch(`https://accounts/check?name=${encodeURIComponent(name)}&pid=`)).json()) as { registered: boolean };
+          if (r.registered) name = `~${name}`.slice(0, 16);
         }
       } catch { /* accounts unavailable: keep the requested name */ }
     }
@@ -1239,8 +1256,10 @@ export class WorldRoom extends DurableObject<Env> {
     p.appearance = cleanAppearance(msg.appearance);
     p.supporter = supColor;
     p.cos = cos;
+    p.staff = staff;
     p.skin = cleanSkin(msg.skin);
-    p.op = (id === m.ownerId && hash === m.ownerHash) || !!m.ops?.some((o) => o.id === id && o.hash === hash);
+    p.op = (id === m.ownerId && hash === m.ownerHash) || !!m.ops?.some((o) => o.id === id && o.hash === hash) || staff === 'owner' || staff === 'admin' || (staff === 'mod' && !!m.official);
+    if (staff === 'owner' && id === m.ownerId && hash === m.ownerHash && (!m.staffOwned || (m.host && !m.host.comp))) { m.staffOwned = true; if (m.host) m.host.comp = true; this.saveMeta(); }
     if (spectate) {
       p.op = true; p.mode = 'creative'; p.vanished = true;
       const at = this.sim?.players.get(String((msg as { at?: string }).at ?? ''));
@@ -1436,11 +1455,15 @@ export class WorldRoom extends DurableObject<Env> {
       const [cmd, arg] = text.slice(1).split(/\s+/, 2);
       const lc = cmd.toLowerCase();
       if (lc === 'admin') { void this.claimAdmin(s, p, text.slice(1 + cmd.length).trim()); return; }
+      if (lc === 'rank' || lc === 'ranks') { void this.rankCommand(s, p, text.slice(1 + cmd.length).trim().split(/\s+/).filter(Boolean), sim); return; }
+      if (lc === 'official') { void this.officialCommand(s, p, (arg ?? '').toLowerCase()); return; }
+      if (lc === 'keepalive') { this.keepAlive(s, p, (arg ?? '').toLowerCase() !== 'off'); return; }
       if (lc === 'op' || lc === 'deop') { this.setOp(s, p, arg ?? '', lc === 'op', sim); return; }
       if (lc === 'list') { this.systemChat(`Online: ${[...sim.players.values()].map((x) => x.name).join(', ')}`, 'info', s); return; }
       if (lc === 'kick' || lc === 'mute' || lc === 'unmute') {
         const target = [...sim.players.values()].find((x) => x.name.toLowerCase() === (arg ?? '').toLowerCase());
         if (!target) { this.systemChat(`No player named ${arg}.`, 'error', s); return; }
+        if (outranks(target.staff, p.staff)) { this.systemChat(`${target.name} is server staff and cannot be ${lc === 'kick' ? 'kicked' : 'muted'} here.`, 'error', s); return; }
         if (lc === 'kick') this.kick(s, target.id, 'kicked'); else this.mute(s, target.id, lc === 'mute');
         return;
       }
@@ -1456,7 +1479,76 @@ export class WorldRoom extends DurableObject<Env> {
     if (this.meta!.muted.includes(p.id)) { this.systemChat('You are muted in this world.', 'error', s); return; }
     if (text === s.lastChat && now - s.chatT < 3000) return;
     s.lastChat = text;
-    this.broadcast({ t: 'chat', from: { id: p.id, name: p.name, sup: p.supporter, cos: p.cos?.title ? { title: p.cos.title } : undefined }, text, kind: 'chat', ts: now });
+    this.broadcast({ t: 'chat', from: { id: p.id, name: p.name, sup: p.supporter, cos: p.cos?.title ? { title: p.cos.title } : undefined, staff: p.staff }, text, kind: 'chat', ts: now });
+  }
+
+  private async rankCommand(s: Session, p: SimPlayer, args: string[], sim: WorldSim): Promise<void> {
+    const acc = this.env.ACCOUNTS;
+    if (!acc) { this.systemChat('Accounts are not enabled on this server.', 'error', s); return; }
+    const stub = acc.get(acc.idFromName('global'));
+    if (!args.length || args[0].toLowerCase() === 'list') {
+      const r = (await (await stub.fetch('https://accounts/staff/list')).json()) as { staff: { name: string; role: string }[] };
+      this.systemChat(r.staff.length ? `Server staff: ${r.staff.map((x) => `${x.name} (${x.role})`).join(', ')}` : 'There is no server staff yet.', 'info', s);
+      return;
+    }
+    if (p.staff !== 'owner') { this.systemChat('Only the server owner can hand out ranks.', 'error', s); return; }
+    const [name, role] = args;
+    if (!name || !['admin', 'mod', 'none'].includes((role ?? '').toLowerCase())) { this.systemChat('Usage: /rank <name> admin|mod|none, or /rank list', 'error', s); return; }
+    const r = (await (await stub.fetch('https://accounts/staff/set', { method: 'POST', body: JSON.stringify({ by: p.id, name, role: role.toLowerCase() }) })).json()) as { ok?: boolean; error?: string; name?: string; pid?: string; role?: string | null };
+    if (!r.ok) { this.systemChat(r.error ?? 'Could not change that rank.', 'error', s); return; }
+    const online = r.pid ? sim.players.get(r.pid) : undefined;
+    if (online) {
+      online.staff = (r.role ?? undefined) as SimPlayer['staff'];
+      const ts = this.sessionFor(online.id);
+      const shouldOp = online.staff === 'admin' || (online.staff === 'mod' && !!this.meta?.official);
+      if (ts && shouldOp && !online.op) this.grantOp(online, ts, true);
+      else this.broadcast({ t: 'pj', p: this.publicPlayer(online) });
+    }
+    this.systemChat(r.role ? `${r.name} is now a server ${r.role}. The rank applies in every world.` : `${r.name} no longer has a server rank.`, 'info', s);
+  }
+
+  private async officialCommand(s: Session, p: SimPlayer, kind: string): Promise<void> {
+    const m = this.meta!;
+    if (p.staff !== 'owner') { this.systemChat('Only the server owner can mark official worlds.', 'error', s); return; }
+    if (kind !== 'smp' && kind !== 'pvp' && kind !== 'off') { this.systemChat(`This world is ${m.official ? `the official ${m.official.toUpperCase()} world` : 'not an official world'}. Usage: /official smp|pvp|off`, 'info', s); return; }
+    if (kind === 'pvp' && m.arena !== 'duels') { this.systemChat('The official PvP world has to be a Proving Grounds world. Create one from Multiplayer with the Proving Grounds game mode.', 'error', s); return; }
+    if (kind === 'smp' && m.arena) { this.systemChat('The official SMP has to be a normal world, not a game mode world.', 'error', s); return; }
+    const reg = this.env.REGISTRY;
+    const prev = m.official;
+    m.official = kind === 'off' ? undefined : kind;
+    if (m.official && m.host) m.host.comp = true;
+    this.saveMeta();
+    if (reg) {
+      const stub = reg.get(reg.idFromName('global'));
+      if (prev && prev !== m.official) await stub.fetch('https://registry/official', { method: 'POST', body: JSON.stringify({ kind: prev, code: null }) }).catch(() => undefined);
+      if (m.official) await stub.fetch('https://registry/official', { method: 'POST', body: JSON.stringify({ kind: m.official, code: m.code }) }).catch(() => undefined);
+    }
+    this.applyOfficial();
+    this.systemChat(m.official ? `${m.name} is now the official Strata ${m.official === 'smp' ? 'SMP' : 'PvP'} world. It has a button on the title screen and never expires.${m.official === 'smp' ? ' Starfall is now active here.' : ''}` : `${m.name} is no longer an official world.`);
+  }
+
+  private applyOfficial(): void {
+    if (this.sim) this.sim.starfallOn = this.meta?.official === 'smp';
+  }
+
+  private keepAlive(s: Session, p: SimPlayer, on: boolean): void {
+    const m = this.meta!;
+    if (p.staff !== 'owner' && p.staff !== 'admin') { this.systemChat('Only server staff can keep worlds alive.', 'error', s); return; }
+    if (m.arena) { this.systemChat('Game mode worlds never expire.', 'info', s); return; }
+    m.host ??= freshHost(Date.now(), HOST_FREE_DAYS);
+    m.host.comp = on;
+    this.saveMeta();
+    this.armHostAlarm();
+    this.systemChat(on ? `${m.name} is kept alive by the server staff and will not expire.` : `${m.name} is back on normal hosting.`, 'info', s);
+  }
+
+  private async verifiedRole(id: string, secret: string): Promise<string | null> {
+    const acc = this.env.ACCOUNTS;
+    if (!acc) return null;
+    try {
+      const v = (await (await acc.get(acc.idFromName('global')).fetch('https://accounts/staff/verify', { method: 'POST', body: JSON.stringify({ id, secret }) })).json()) as { ok?: boolean; role?: string | null };
+      return v.ok ? v.role ?? null : null;
+    } catch { return null; }
   }
 
   private async claimAdmin(s: Session, p: SimPlayer, keyIn: string): Promise<void> {
@@ -1755,7 +1847,7 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       }
       case 'particles':
-        this.sendNear(ev.x, ev.z, 48, { t: 'fx', k: ev.k, x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), d: ev.d }, ev.src);
+        this.sendNear(ev.x, ev.z, ev.k === 'star' ? 240 : 48, { t: 'fx', k: ev.k, x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), d: ev.d }, ev.src);
         return;
       case 'vitals': {
         const s = this.sessionFor(ev.p.id);
@@ -1808,7 +1900,7 @@ export class WorldRoom extends DurableObject<Env> {
       }
       case 'death': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'death', msg: ev.msg }); return; }
       case 'respawn': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'respawn', x: ev.p.x, y: ev.p.y, z: ev.p.z }); return; }
-      case 'tp': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'tp', x: ev.p.x, y: ev.p.y, z: ev.p.z }); return; }
+      case 'tp': { const s = this.sessionFor(ev.p.id); if (s) this.send(s, { t: 'tp', x: ev.p.x, y: ev.p.y, z: ev.p.z, ...(ev.yaw === undefined ? {} : { yaw: ev.yaw }) }); return; }
       case 'kick': {
         const pid = ev.p.id, reason = ev.reason, banMs = ev.banMs;
         setTimeout(() => {
@@ -1844,6 +1936,8 @@ export class WorldRoom extends DurableObject<Env> {
         return;
       }
       case 'pmove': this.sendNear(ev.l[0], ev.l[2], 96, { t: 'pmove', l: ev.l }); return;
+      case 'pjoin': this.broadcast({ t: 'pj', p: this.publicPlayer(ev.p) }); return;
+      case 'pquit': this.broadcast({ t: 'pq', id: ev.p.id, name: ev.p.name }); return;
       case 'boom': this.sendNear(ev.x, ev.z, 128, { t: 'boom', x: q2(ev.x), y: q2(ev.y), z: q2(ev.z), r: ev.r }); return;
       case 'weather': this.broadcast({ t: 'wx', w: ev.w, d: ev.d }); return;
       case 'time': this.broadcast({ t: 'time', time: this.sim!.time, cycle: this.sim!.settings.dayCycle }); return;
@@ -1889,7 +1983,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (this.ticks % 20 === 7) this.sendSharedPositions(sim);
     if (this.hasWork()) this.schedulePump();
     if (this.ticks % 200 === 0) this.eco.tick(now);
-    if (this.ticks % 1200 === 600) for (const pp of sim.players.values()) if (!pp.vanished) this.eco.stats(pp);
+    if (this.ticks % 1200 === 600) for (const pp of sim.players.values()) if (!pp.vanished && !pp.bot) this.eco.stats(pp);
     sim.setNow(now);
     sim.tick();
     this.flushBlocks();

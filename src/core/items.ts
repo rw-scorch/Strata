@@ -30,7 +30,7 @@ export interface ItemDef {
 export const I = {
   GLOW_BERRIES: 4096,
   SHIELD: 490, ENDER_PEARL: 491,
-  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, TOTEM: 508, SPLASH_HEALING: 509, BOAT_BASE: 510, CHEST_BOAT_BASE: 800, SIGN_BASE: 808, HANGING_SIGN_BASE: 816, CHAIN: 824, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505, PRISMARINE_SHARD: 506, PRISMARINE_CRYSTALS: 507,
+  EYE_OF_ENDER: 492, END_CRYSTAL: 493, CHORUS_FRUIT: 494, POPPED_CHORUS_FRUIT: 495, SHULKER_SHELL: 496, ELYTRA: 497, FIREWORK_ROCKET: 498, DRAGON_BREATH: 499, EXPERIENCE_BOTTLE: 500, TOTEM: 508, SPLASH_HEALING: 509, BOAT_BASE: 510, CHEST_BOAT_BASE: 800, SIGN_BASE: 808, HANGING_SIGN_BASE: 816, CHAIN: 824, STARSHARD: 825, ITEM_FRAME: 501, GLOW_ITEM_FRAME: 502, HOPPER_MINECART: 503, CHEST_MINECART: 504, GLOW_INK_SAC: 505, PRISMARINE_SHARD: 506, PRISMARINE_CRYSTALS: 507,
   STICK: 256, APPLE: 258, COAL: 260, CHARCOAL: 261, IRON_INGOT: 262, FLINT: 263, AETHERITE: 264,
   GOLD_INGOT: 265, FEATHER: 266, STRING: 267, BONE: 268, LEATHER: 269, RAW_PORK: 270, COOKED_PORK: 271,
   RAW_MUTTON: 272, COOKED_MUTTON: 273, RAW_POULTRY: 274, COOKED_POULTRY: 275, SEEDS: 276, WHEAT: 277,
@@ -133,6 +133,7 @@ add({ id: I.GLOW_ITEM_FRAME, key: 'glow_item_frame', name: 'Glow Item Frame', de
 add({ id: I.HOPPER_MINECART, key: 'hopper_minecart', name: 'Minecart with Hopper', desc: 'Rolls along rails, drawing items from containers above and gathering items it passes. Hoppers below can empty it. Powered Activator Rails switch it off.', kind: 'material', texture: 'hopper_minecart', maxStack: 1, tab: 'tools' });
 add({ id: I.CHEST_MINECART, key: 'chest_minecart', name: 'Minecart with Chest', desc: 'A rolling chest. Open it to load cargo; hoppers can fill and empty it.', kind: 'material', texture: 'chest_minecart', maxStack: 1, tab: 'tools' });
 add({ id: I.GLOW_INK_SAC, key: 'glow_ink_sac', name: 'Glow Ink Sac', desc: 'Faintly luminous ink. Combine with an Item Frame to make it glow.', kind: 'material', texture: 'glow_ink_sac', tab: 'materials' });
+add({ id: I.STARSHARD, key: 'starshard', name: 'Starshard', desc: 'A splinter of a fallen star. Only found where one has landed.', kind: 'material', texture: 'starshard', tab: 'materials' });
 add({ id: I.PRISMARINE_SHARD, key: 'prismarine_shard', name: 'Prismarine Shard', desc: 'A sharp sea-green shard. Builds prismarine blocks.', kind: 'material', texture: 'prismarine_shard', tab: 'materials' });
 add({ id: I.PRISMARINE_CRYSTALS, key: 'prismarine_crystals', name: 'Prismarine Crystals', desc: 'Glowing crystals. Four shards and five crystals make a Sea Lantern.', kind: 'material', texture: 'prismarine_crystals', tab: 'materials' });
 add({ id: I.DRAGON_BREATH, key: 'dragon_breath', name: "Dragon's Breath", desc: 'Bottled from the purple cloud the Ender Dragon breathes.', kind: 'material', texture: 'dragon_breath', tab: 'materials' });
@@ -293,7 +294,7 @@ export function fuelSeconds(id: number): number {
   return 0;
 }
 
-export const CREATIVE_HIDDEN = new Set<number>([...BLOCKS.filter((b) => b && b.category === 'hidden').map((b) => b.id), B.WATER, B.LAVA, B.FURNACE_LIT, B.OAK_DOOR, B.WHEAT, B.CARROTS, B.POTATOES, B.BEETROOTS, B.NETHER_WART, B.FARMLAND, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2, I.CROSSBOW_PULL0, I.CROSSBOW_PULL1, I.CROSSBOW_PULL2, I.CROSSBOW_LOADED]);
+export const CREATIVE_HIDDEN = new Set<number>([...BLOCKS.filter((b) => b && b.category === 'hidden').map((b) => b.id), B.WATER, B.LAVA, B.FURNACE_LIT, B.OAK_DOOR, B.WHEAT, B.CARROTS, B.POTATOES, B.BEETROOTS, B.NETHER_WART, B.FARMLAND, I.BOW_PULL0, I.BOW_PULL1, I.BOW_PULL2, I.CROSSBOW_PULL0, I.CROSSBOW_PULL1, I.CROSSBOW_PULL2, I.CROSSBOW_LOADED, I.STARSHARD]);
 
 const baseNames = new Map<string, string>();
 let packNames: Map<string, string> | null = null;

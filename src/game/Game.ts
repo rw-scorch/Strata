@@ -38,6 +38,8 @@ import type { GameSession, SessionEvents, Vitals } from './Session';
 import { LocalSession } from './LocalSession';
 import { RemoteSession } from '../multiplayer/RemoteSession';
 import { ArenaUI } from '../ui/labs/ArenaUI';
+import { DuelsUI } from '../ui/labs/DuelsUI';
+import type { DuelsState } from '../core/labs/duels/Duels';
 import { Minimap } from '../ui/Minimap';
 import type { ArenaKind } from '../core/labs/minigames/arena';
 import type { ScreenType } from '../core/sim/WorldSim';
@@ -300,6 +302,7 @@ export class Game {
   private lastPlace = 0;
 
   private arena!: ArenaUI;
+  private duels!: DuelsUI;
   private caveFx = 0;
   private nfBiome: NetherBiome | null = null;
   private minimap: Minimap | null = null;
@@ -393,6 +396,11 @@ export class Game {
     this.eco.onClose = () => { if (this.state === 'inventory') this.setState('playing'); };
     this.disposers.push(() => this.hud?.setSidebar(null, []));
     this.arena = new ArenaUI(hudRoot, this.screens, this.atlas);
+    this.duels = new DuelsUI(hudRoot, this.screens);
+    this.duels.onAction = (k) => this.session.buy?.(k);
+    this.duels.onClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
+    const dOpen = this.duels.open.bind(this.duels);
+    this.duels.open = () => { if (this.state !== 'playing' && this.state !== 'inventory') return; this.desktop.unlock(); this.setState('inventory'); dOpen(); };
     this.arena.onShopClose = () => { this.session.invOp({ t: 'close' }); if (this.state === 'inventory') this.setState('playing'); };
     this.chatUI = new ChatUI(this.hud.chatBox, hudRoot);
     this.chatUI.onSend = (t) => this.sendChat(t);
@@ -474,7 +482,7 @@ export class Game {
     container: (k, t, items, b, bm, c) => this.onContainer(k, t, items, b, bm, c),
     screen: (t, x, y, z, title) => this.onScreen(t, title ?? (t === 'chest' ? ({ 202: 'Hopper', 203: 'Dropper', 204: 'Dispenser', [CB.SHULKER_BOX]: 'Shulker Box' } as Record<number, string>)[blockId(this.chunks.getBlock(x, y, z))] : undefined)),
     eco: (m) => this.onEco(m),
-    game: (st) => { this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
+    game: (st) => { if ((st as unknown as DuelsState).kind === 'duels') { const d = st as unknown as DuelsState; this.duels?.setState(d, this.session.me.id); this.renderer?.entities.setTags(new Map(d.tags.map(([id, name, color]) => [String(id), { name, color }]))); return; } this.arena?.setState(st, this.session.me.id); this.renderer?.entities.setTags(new Map(st.players.filter((p) => p.ent).map((p) => [String(p.ent), { name: p.name, color: st.teams[p.team]?.color ?? '#ffffff' }]))); },
     title: (t, s) => this.arena?.title(t, s),
     countdown: (ms, l) => this.hud?.setCountdown(ms, l),
     crucible: (v) => { this.cru = v; this.hud?.setCrucible(v, this.session.me.id, () => this.session.chat('/crucible join')); },
@@ -487,7 +495,7 @@ export class Game {
     playerHurt: (id) => { const v = this.renderer?.entities.views.get(`p:${id}`); if (v) { v.hurtT = 0.4; v.swing = 0; } },
     death: (m) => this.onDeath(m),
     respawn: (x, y, z) => this.onRespawn(x, y, z),
-    teleport: (x, y, z) => this.onTeleport(x, y, z),
+    teleport: (x, y, z, yaw) => this.onTeleport(x, y, z, yaw),
     chat: (from, text, kind, ts) => this.chatUI?.add(from, text, kind, ts),
     time: (t, cycle) => { this.time = t; this.dayCycle = cycle; },
     weather: (w, d) => { this.weather = w; this.weatherEnd = d === undefined ? 0 : performance.now() / 1000 + d / 20; },
@@ -896,6 +904,7 @@ export class Game {
   private toggleInventory(): void {
     if (this.state === 'inventory') {
       if (this.arena?.shopOpen) { this.arena.closeShop(); return; }
+      if (this.duels?.menuOpen) { this.duels.close(); return; }
       if (this.eco?.isOpen) { this.eco.close(); return; }
       this.inv.close(); return;
     }
@@ -1059,6 +1068,7 @@ export class Game {
       case 'breath': p.puff(x, y, z, 0.85, 0.3, 0.75, 16, 1.6, -0.4, 0.14, 1.6); break;
       case 'firework': { const c = [[1, 0.3, 0.3], [0.3, 0.8, 1], [1, 0.85, 0.3], [0.6, 1, 0.4]][Math.floor(Math.random() * 4)]; p.puff(x, y, z, c[0], c[1], c[2], 40, 9, 3, 0.09, 1.3); break; }
       case 'dragon': p.puff(x, y, z, 0.95, 0.75, 1, 60, 6, -3, 0.18, 2.4); break;
+      case 'star': p.puff(x, y, z, 1, 0.95, 0.75, 26, 1.2, 0.4, 0.32, 2.2); p.puff(x, y, z, 0.7, 0.6, 1, 14, 2.2, 0.2, 0.2, 1.4); break;
     }
   }
 
@@ -1164,6 +1174,7 @@ export class Game {
   onScreen(type: ScreenType | null, title?: string): void {
     if (!this.inv) return;
     this.inv.title = title ?? null;
+    if (type === 'shop' && this.duels?.state) { this.duels.open(); return; }
     if (type === 'shop') {
       this.desktop.unlock();
       this.setState('inventory');
@@ -1176,6 +1187,7 @@ export class Game {
       this.inv.openTrade(this.session, (id, i, n) => this.session.trade(id, i, n));
       return;
     }
+    if (!type && this.duels?.menuOpen) { this.duels.close(); return; }
     if (!type && this.arena?.shopOpen) { this.arena.closeShop(true); if (this.state === 'inventory') this.setState('playing'); return; }
     if (type) {
       this.desktop.unlock();
@@ -1212,7 +1224,7 @@ export class Game {
     if (!this.input.touchMode) this.desktop.lock();
   }
 
-  onTeleport(x: number, y: number, z: number): void { this.player.setPos(x, y, z); }
+  onTeleport(x: number, y: number, z: number, yaw?: number): void { this.player.setPos(x, y, z); if (yaw !== undefined && Number.isFinite(yaw)) { this.player.yaw = yaw; this.player.pitch = 0; } }
 
 
 
@@ -1251,7 +1263,7 @@ export class Game {
     this.players.set(p.id, p);
     if (known) {
       const v = this.renderer?.entities.views.get(`p:${p.id}`);
-      if (v) this.renderer.entities.upsert(`p:${p.id}`, 'player', 0, v.x, v.y, v.z, v.yaw, v.pitch, v.flags, 0, performance.now(), { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup, cos: p.cos });
+      if (v) this.renderer.entities.upsert(`p:${p.id}`, 'player', 0, v.x, v.y, v.z, v.yaw, v.pitch, v.flags, 0, performance.now(), { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup, cos: p.cos, staff: p.staff });
     }
   }
 
@@ -1261,7 +1273,7 @@ export class Game {
     const p = this.players.get(id);
     const prev = this.renderer?.entities.views.get(`p:${id}`);
     const extra = hp >= 0 ? hp | (creative ? 1 << 8 : 0) : prev?.extra ?? 20;
-    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, extra, performance.now(), p ? { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup, cos: p.cos } : undefined);
+    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, extra, performance.now(), p ? { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup, cos: p.cos, staff: p.staff } : undefined);
   }
 
   onRoom(meta: RoomMeta, players: PublicPlayer[]): void {

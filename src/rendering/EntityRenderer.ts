@@ -11,7 +11,7 @@ import type { Particles } from './Particles';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { WorldUniforms } from './ChunkMaterial';
-import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, PLAYER_ARM_CUBES_SLIM, playerSpec, VanillaSpec, RigPart, MAGMA_OLD, type VCube } from './VanillaModels';
+import { VANILLA, buildVanilla, animateVanilla, cubesGeometry, PLAYER_ARM_CUBES, PLAYER_ARM_CUBES_SLIM, playerSpec, VanillaSpec, RigPart, MAGMA_OLD, SHIELD_CUBES, type HeldKind, type VCube } from './VanillaModels';
 
 const armorGeoCache = new Map<string, THREE.BufferGeometry>();
 function armorGeo(key: string, cubes: VCube[]): THREE.BufferGeometry {
@@ -482,6 +482,71 @@ export class EntityRenderer {
     return { obj, mats: [m], vanilla: false };
   }
 
+  private shieldTex: THREE.Texture | null = null;
+
+  private shieldTexture(): THREE.Texture {
+    const t = this.atlas.entityTextures.get('shield');
+    if (t) return t;
+    if (this.shieldTex) return this.shieldTex;
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 64;
+    const g = c.getContext('2d')!;
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const wood = (x0: number, y0: number, w: number, h: number, base: [number, number, number]) => {
+      for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+        const k = (x - x0) % 4 === 3 ? 0.78 : 0.9 + rnd() * 0.18;
+        g.fillStyle = `rgb(${base[0] * k | 0},${base[1] * k | 0},${base[2] * k | 0})`;
+        g.fillRect(x, y, 1, 1);
+      }
+    };
+    wood(0, 0, 64, 64, [118, 84, 50]);
+    wood(14, 1, 12, 22, [96, 68, 40]);
+    g.fillStyle = '#7d8088';
+    for (const [x0, y0] of [[1, 1], [14, 1]]) { g.fillRect(x0, y0, 12, 1); g.fillRect(x0, y0 + 21, 12, 1); g.fillRect(x0, y0, 1, 22); g.fillRect(x0 + 11, y0, 1, 22); }
+    g.fillRect(0, 1, 1, 22); g.fillRect(13, 1, 1, 22); g.fillRect(1, 0, 24, 1);
+    g.fillStyle = '#9a9ea8'; g.fillRect(6, 10, 2, 4);
+    g.fillStyle = '#4a3220'; g.fillRect(26, 0, 16, 12);
+    g.fillStyle = '#5c4029'; g.fillRect(32, 6, 2, 6); g.fillRect(40, 6, 2, 6);
+    const tex = new THREE.CanvasTexture(c);
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.flipY = false; tex.colorSpace = THREE.NoColorSpace;
+    this.shieldTex = tex;
+    return tex;
+  }
+
+  heldKind(itemId: number, blocking: boolean): HeldKind {
+    const it = getItem(itemId);
+    if (itemId === I.SHIELD) return blocking ? 'shieldBlock' : 'shield';
+    if (it?.kind === 'block' && it.blockIcon) return 'block';
+    if (itemId === I.FUNGUS_STICK) return 'rod';
+    if (itemId === I.CROSSBOW || itemId === I.CROSSBOW_PULL0 || itemId === I.CROSSBOW_PULL1 || itemId === I.CROSSBOW_PULL2 || itemId === I.CROSSBOW_LOADED) return 'crossbow';
+    if (it?.kind === 'tool' || itemId === I.BOW || itemId === I.BOW_PULL0 || itemId === I.BOW_PULL1 || itemId === I.BOW_PULL2 || itemId === I.STICK || itemId === I.BLAZE_ROD || itemId === I.BONE || itemId === I.MACE || itemId === I.SPEAR) return 'handheld';
+    return 'item';
+  }
+
+  firstPersonModel(itemId: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[] } {
+    const obj = new THREE.Group();
+    const it = getItem(itemId);
+    if (itemId === I.SHIELD) {
+      const m = this.material(this.shieldTexture());
+      const mesh = new THREE.Mesh(cubesGeometry(SHIELD_CUBES, 64, 64), m);
+      mesh.scale.set(1 / 16, -1 / 16, -1 / 16);
+      mesh.position.set(-0.5, -0.5, -0.5);
+      obj.add(mesh);
+      return { obj, mats: [m] };
+    }
+    if (it?.kind === 'block' && it.blockIcon) {
+      const inner = this.itemModel(itemId);
+      inner.obj.scale.setScalar(1 / 0.26);
+      obj.add(inner.obj);
+      return { obj, mats: inner.mats };
+    }
+    const held = this.heldModel(itemId);
+    held.obj.scale.setScalar(1 / 0.42);
+    obj.add(held.obj);
+    return { obj, mats: held.mats };
+  }
+
   itemModel(itemId: number): { obj: THREE.Group; mats: THREE.ShaderMaterial[] } {
     const obj = new THREE.Group();
     const it = getItem(itemId);
@@ -809,7 +874,9 @@ export class EntityRenderer {
     }
   }
 
-  private nameTag(name: string, color = '#fff', badge = false, title?: TitleLook): THREE.Sprite {
+  private nameTag(name: string, color = '#fff', badge = false, title?: TitleLook, staff?: string): THREE.Sprite {
+    const sl = staff === 'owner' ? ['Owner', '#c0392b'] : staff === 'admin' ? ['Admin', '#d68910'] : staff === 'mod' ? ['Mod', '#2471a3'] : null;
+    if (sl) title = { text: sl[0], color: sl[1] === '#c0392b' ? '#ff6b5b' : sl[1] === '#d68910' ? '#ffb347' : '#6fb7ff' };
     const c = document.createElement('canvas');
     const g = c.getContext('2d')!;
     g.font = 'bold 28px system-ui, sans-serif';
@@ -839,9 +906,9 @@ export class EntityRenderer {
     return s;
   }
 
-  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance; skin?: { png: string; slim: boolean } | null; sup?: string; cos?: Equipped }): EntityView {
+  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance; skin?: { png: string; slim: boolean } | null; sup?: string; cos?: Equipped; staff?: string }): EntityView {
     let v = this.views.get(id);
-    if (v && v.kind === 'player' && opts?.appearance && (JSON.stringify(opts.appearance) !== JSON.stringify((v as EntityView & { app?: Appearance }).app) || (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : '') !== (v as EntityView & { skinKey?: string }).skinKey || JSON.stringify(cleanEquipped(opts.cos)) !== JSON.stringify(v.cos ?? {}))) {
+    if (v && v.kind === 'player' && opts?.appearance && (JSON.stringify(opts.appearance) !== JSON.stringify((v as EntityView & { app?: Appearance }).app) || (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : '') !== (v as EntityView & { skinKey?: string }).skinKey || JSON.stringify(cleanEquipped(opts.cos)) !== JSON.stringify(v.cos ?? {}) || (opts.staff ?? '') !== ((v as EntityView & { staff?: string }).staff ?? ''))) {
       this.removeNow(id);
       v = undefined;
     }
@@ -1087,7 +1154,7 @@ export class EntityRenderer {
         age: Math.random() * 100, spd: 0, spec: built.spec, rig: built.rig,
         limbs: [...built.parts].filter(([n]) => /^leg([0-3LR])$/.test(n)).map(([n, o]) => { const c = n.slice(3); return [o, c === 'L' ? 0 : c === 'R' ? 1 : Number(c)] as [THREE.Object3D, number]; }),
       };
-      if (kind === 'player' && opts?.name) { v.cos = cleanEquipped(opts.cos); v.name = opts.name; v.tag = this.nameTag(opts.name, opts.sup ?? '#fff', !!opts.sup, v.cos.title ? COS_BY_ID.get(v.cos.title)!.look as TitleLook : undefined); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; (v as EntityView & { skinKey?: string }).skinKey = (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : ''); (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin = opts.skin ?? null; }
+      if (kind === 'player' && opts?.name) { v.cos = cleanEquipped(opts.cos); v.name = opts.name; v.tag = this.nameTag(opts.name, opts.sup ?? '#fff', !!opts.sup, v.cos.title ? COS_BY_ID.get(v.cos.title)!.look as TitleLook : undefined, opts.staff); (v as EntityView & { staff?: string }).staff = opts.staff; v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; (v as EntityView & { skinKey?: string }).skinKey = (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : ''); (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin = opts.skin ?? null; }
       if (kind === 'mob') {
         const def = MOB_BY_CODE[type];
         const tg = this.tags.get(id) ?? (def?.type === 'quartermaster' ? { name: 'Quartermaster', color: '#f3d27a' } : undefined);

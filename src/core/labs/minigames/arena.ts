@@ -1,11 +1,13 @@
 import { CHUNK_SIZE, CHUNK_VOLUME } from '../../constants';
+import { duelsLayout } from '../duels/layout';
 import { B, DyeColor, woolId, terracottaId, stainedGlassId, concreteId } from '../../blocks';
 
-export type ArenaKind = 'spires' | 'hearthfall';
-export const ARENA_KINDS: ArenaKind[] = ['spires', 'hearthfall'];
+export type ArenaKind = 'spires' | 'hearthfall' | 'duels';
+export const ARENA_KINDS: ArenaKind[] = ['spires', 'hearthfall', 'duels'];
 export const ARENA_INFO: Record<ArenaKind, { name: string; alt: string; desc: string }> = {
   spires: { name: 'Fortune Spires', alt: 'Pillars of Fortune', desc: 'Everyone starts on a lonely pillar over the void. Every five seconds Fortune hands out a random item from anywhere in the game. Bridge, brawl, be the last one standing.' },
   hearthfall: { name: 'Hearthfall', alt: 'Bedwars', desc: 'Four teams, four island hearths. Forges pour out iron and gold, diamonds and emeralds wait on the outer islands. Buy gear and team upgrades from the Quartermaster. While your hearth burns you respawn. Snuff out the rest.' },
+  duels: { name: 'Proving Grounds', alt: 'PvP Duels', desc: 'Pick a kit and fight one on one: queue for another player, challenge a friend, or spar against a bot from Squire to Warlord. Bots crit, strafe, W-tap, block with shields and throw pearls.' },
 };
 
 export type V3 = [number, number, number];
@@ -151,7 +153,7 @@ function hearthfall(): ArenaLayout {
 const cache = new Map<ArenaKind, ArenaLayout>();
 export function arenaLayout(kind: ArenaKind): ArenaLayout {
   let l = cache.get(kind);
-  if (!l) { l = kind === 'spires' ? spires() : hearthfall(); cache.set(kind, l); }
+  if (!l) { l = kind === 'spires' ? spires() : kind === 'duels' ? duelsLayout() : hearthfall(); cache.set(kind, l); }
   return l;
 }
 
@@ -178,5 +180,5 @@ export function generateArenaChunk(kind: ArenaKind, cx: number, cz: number): Uin
 }
 
 export function isArenaKind(v: unknown): v is ArenaKind {
-  return v === 'spires' || v === 'hearthfall';
+  return v === 'spires' || v === 'hearthfall' || v === 'duels';
 }

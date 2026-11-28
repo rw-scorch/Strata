@@ -85,6 +85,14 @@ export class Menus {
     const packBtn = h('div', { class: 'mc-title-row' });
     const featBtn = h('div', { class: 'mc-title-row' });
     const shopBtn = h('div', { class: 'mc-title-row' });
+    const officialRow = h('div', { class: 'mc-title-row' });
+    void fetch(apiURL('/api/official')).then((r) => r.json() as Promise<Record<string, { code: string; name: string; online: number } | null>>).then((o) => {
+      if (!officialRow.isConnected) return;
+      const b: HTMLElement[] = [];
+      if (o.smp) b.push(mcButton(`${o.smp.name}${o.smp.online ? ` (${o.smp.online})` : ''}`, () => void this.joinPreview(o.smp!.code), o.pvp ? 98 : 200, { tip: 'The official Strata SMP' }));
+      if (o.pvp) b.push(mcButton(`PvP Duels${o.pvp.online ? ` (${o.pvp.online})` : ''}`, () => void this.joinPreview(o.pvp!.code), o.smp ? 98 : 200, { tip: 'The official Proving Grounds: kits, duels and sparring bots' }));
+      officialRow.append(...b);
+    }).catch(() => { /* offline */ });
     void shopEnabled().then((on) => { if (on && shopBtn.isConnected) shopBtn.appendChild(mcButton('Shard Shop', () => (getAccount() ? this.shop() : this.login(() => this.shop())), 200, { tip: 'Capes, trails and titles' })); });
     void fetchFeatured().then((ws) => { const w = ws[0]; if (w && featBtn.isConnected) featBtn.appendChild(mcButton(`Featured: ${w.name}${w.online ? ` (${w.online} online)` : ''}`, () => void this.joinPreview(w.code), 200, { tip: w.blurb || 'A world picked by the server admins' })); });
     void ResourcePackManager.list().then((packs) => {
@@ -95,6 +103,7 @@ export class Menus {
       h('div', { class: 'mc-title-buttons' },
         mcButton('Singleplayer', () => this.worlds(), 200),
         mcButton('Multiplayer', () => this.multiplayer(), 200),
+        officialRow,
         featBtn,
         shopBtn,
         getSettings().labs ? mcButton('Arena Games (Labs)', () => this.createWorld(false, 'spires'), 200) : packBtn,
@@ -315,7 +324,7 @@ export class Menus {
       clear(types);
       const opts: [ArenaKind | null, string, string, string][] = [
         [null, 'Open World', 'Endless', 'The full seeded world. Explore, build and survive.'],
-        ...(getSettings().labs || arena ? ARENA_KINDS : []).map((k) => [k, ARENA_INFO[k].name, ARENA_INFO[k].alt, ARENA_INFO[k].desc] as [ArenaKind, string, string, string]),
+        ...((getSettings().labs || arena ? ARENA_KINDS : multi ? ['duels'] : []) as ArenaKind[]).filter((k) => multi || k !== 'duels').map((k) => [k, ARENA_INFO[k].name, ARENA_INFO[k].alt, ARENA_INFO[k].desc] as [ArenaKind, string, string, string]),
       ];
       for (const [k, title, sub, desc] of opts) {
         types.appendChild(h('button', { class: `mode-card${arena === k && !studio ? ' on' : ''}`, onclick: () => { arena = k; studio = false; if (k) { mode = 'survival'; pvp = true; } renderTypes(); } },
@@ -449,8 +458,14 @@ export class Menus {
     const keyIn = h('input', { class: 'input', type: 'password', placeholder: 'ADMIN_KEY', autocomplete: 'off', value: sessionStorage.getItem('strata.adminKey') ?? '' }) as HTMLInputElement;
     const list = h('div', { class: 'stack' });
     const status = h('div', { class: 'small muted' });
+    const acc = getAccount();
+    let staff = false;
+    if (acc) {
+      try { const r = await (await fetch(apiURL('/api/staff/me'), { method: 'POST', body: JSON.stringify({ id: acc.id, secret: acc.secret }) })).json() as { role: string | null }; staff = r.role === 'owner' || r.role === 'admin'; } catch { /* offline */ }
+    }
+    const authHeaders = (): Record<string, string> => (staff && acc && !keyIn.value.trim() ? { 'x-staff-id': acc.id, 'x-staff-secret': acc.secret } : { 'x-admin-key': encodeURIComponent(keyIn.value.trim()) });
     const api = async (path: string, body?: unknown) => {
-      const res = await fetch(apiURL(path), { method: body ? 'POST' : 'GET', headers: { 'x-admin-key': encodeURIComponent(keyIn.value.trim()), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      const res = await fetch(apiURL(path), { method: body ? 'POST' : 'GET', headers: { ...authHeaders(), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
       const j = await res.json().catch(() => ({})) as Record<string, unknown>;
       if (!res.ok) throw new Error(String(j.error ?? res.status));
       return j;
@@ -507,7 +522,7 @@ export class Menus {
           h('button', { class: 'btn small', onclick: async (e: Event) => {
             const b = e.currentTarget as HTMLButtonElement; b.disabled = true;
             try {
-              const res = await fetch(apiURL(`/api/admin/rooms/${code}/export`), { method: 'POST', headers: { 'x-admin-key': encodeURIComponent(keyIn.value.trim()) } });
+              const res = await fetch(apiURL(`/api/admin/rooms/${code}/export`), { method: 'POST', headers: authHeaders() });
               if (!res.ok) throw new Error((await res.json().catch(() => ({})) as { error?: string }).error ?? String(res.status));
               download(await res.blob(), `${name.replace(/[^a-z0-9]+/gi, '_') || code}.strata.json`);
             } catch (err) { toast(`Export failed: ${(err as Error).message}`, 'error'); }
@@ -647,11 +662,11 @@ export class Menus {
       } catch (e) { status.textContent = `Could not load: ${(e as Error).message}`; }
     };
     this.show(card('Server admin console', () => this.multiplayer(),
-      h('div', { class: 'small muted' }, 'Enter the ADMIN_KEY secret set on your Cloudflare Worker. It is only kept for this browser tab.'),
+      h('div', { class: 'small muted' }, staff ? `Signed in as server staff (${acc!.name}). No key needed; leave the box empty. Spectating still needs the ADMIN_KEY.` : 'Enter the ADMIN_KEY secret set on your Cloudflare Worker. It is only kept for this browser tab.'),
       h('div', { class: 'row' }, h('div', { class: 'grow' }, keyIn), h('button', { class: 'btn primary', onclick: () => void load() }, 'Open')),
       status, list,
     ));
-    if (keyIn.value) void load();
+    if (keyIn.value || staff) void load();
   }
 
   private roomRow(r: RoomRecord, kind: 'recent' | 'hosted', refresh: () => void): HTMLElement {

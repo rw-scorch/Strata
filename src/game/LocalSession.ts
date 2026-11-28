@@ -157,7 +157,7 @@ export class LocalSession implements GameSession {
       case 'hurt': ev.hurt(e.amount, e.cause, e.fx, e.fz, e.kb); return;
       case 'death': ev.death(e.msg); return;
       case 'respawn': ev.respawn(e.p.x, e.p.y, e.p.z); return;
-      case 'tp': ev.teleport(e.p.x, e.p.y, e.p.z); return;
+      case 'tp': ev.teleport(e.p.x, e.p.y, e.p.z, e.yaw); return;
       case 'msg': if (e.to && e.to !== this.me.id) return; ev.chat(null, e.text, e.kind === 'death' ? 'death' : e.kind === 'error' ? 'error' : 'info', Date.now()); return;
       case 'lightning': ev.lightning(e.x, e.y, e.z); return;
       case 'pmove': ev.pistonMove?.(e.l); return;

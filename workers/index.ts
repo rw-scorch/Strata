@@ -86,7 +86,25 @@ function safeEqual(a: string, b: string): boolean {
   return d === 0;
 }
 
-function adminAuth(req: Request, env: Env): Response | null {
+async function staffOf(env: Env, id: string, secret: string): Promise<{ ok?: boolean; pid?: string; name?: string; role?: string | null; error?: string }> {
+  if (!env.ACCOUNTS || !id || !secret) return { error: 'Sign in first.' };
+  const r = await env.ACCOUNTS.get(env.ACCOUNTS.idFromName('global')).fetch('https://accounts/staff/verify', { method: 'POST', body: JSON.stringify({ id, secret }) });
+  return (await r.json()) as { ok?: boolean; pid?: string; name?: string; role?: string | null; error?: string };
+}
+
+async function adminAuth(req: Request, env: Env): Promise<Response | null> {
+  const sid = req.headers.get('x-staff-id') ?? '', ssec = req.headers.get('x-staff-secret') ?? '';
+  if (sid || ssec) {
+    const ip = req.headers.get('cf-connecting-ip') ?? 'local';
+    const f = adminFails.get(ip), now = Date.now();
+    if (f && now - f.t < 60000 && f.n >= 5) return json({ error: 'Too many failed attempts. Wait a minute.' }, 429);
+    const st = await staffOf(env, sid, ssec);
+    if (st.ok && (st.role === 'owner' || st.role === 'admin')) return null;
+    const g = f && now - f.t < 60000 ? f : { n: 0, t: now };
+    g.n++;
+    adminFails.set(ip, g);
+    return json({ error: st.ok ? 'Your account is not a server admin.' : (st.error ?? 'Sign in again.') }, st.ok ? 403 : 401);
+  }
   if (!cleanKey(env.ADMIN_KEY)) return json({ error: 'This server has no ADMIN_KEY secret set. Add one in the Cloudflare dashboard to use the admin console.' }, 503);
   const ip = req.headers.get('cf-connecting-ip') ?? 'local';
   const now = Date.now();
@@ -105,7 +123,7 @@ function adminAuth(req: Request, env: Env): Response | null {
 }
 
 async function admin(req: Request, env: Env, path: string): Promise<Response> {
-  const bad = adminAuth(req, env);
+  const bad = await adminAuth(req, env);
   if (bad) return bad;
   if (path === '/api/admin/rooms' && req.method === 'GET') {
     if (!env.REGISTRY) return json({ rooms: [], now: Date.now() });
@@ -155,6 +173,10 @@ async function admin(req: Request, env: Env, path: string): Promise<Response> {
     return found.stub.fetch('https://room/export', { method: 'POST', headers: { 'x-strata-admin': '1' }, body: '{}' });
   }
   if (path === '/api/admin/check') return json({ ok: true });
+  if (path === '/api/admin/staff' && req.method === 'GET') {
+    if (!env.ACCOUNTS) return json({ staff: [] });
+    return new Response((await env.ACCOUNTS.get(env.ACCOUNTS.idFromName('global')).fetch('https://accounts/staff/list')).body, { headers: { 'content-type': 'application/json' } });
+  }
   return json({ error: 'Not found' }, 404);
 }
 
@@ -208,6 +230,18 @@ async function route(req: Request, env: Env): Promise<Response> {
     if (path === '/api/turn') return turnServers(env);
 
     if (path.startsWith('/api/admin/')) return admin(req, env, path);
+
+    if (path === '/api/staff/me' && req.method === 'POST') {
+      const b = (await req.json().catch(() => ({}))) as { id?: string; secret?: string };
+      const st = await staffOf(env, String(b.id ?? ''), String(b.secret ?? ''));
+      return json({ role: st.ok ? st.role ?? null : null });
+    }
+
+    if (path === '/api/official') {
+      if (!env.REGISTRY) return json({ smp: null, pvp: null });
+      const r = await env.REGISTRY.get(env.REGISTRY.idFromName('global')).fetch('https://registry/official');
+      return new Response(r.body, { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=20' } });
+    }
 
     if (path === '/api/rooms' && req.method === 'POST') return createRoom(req, env);
 

@@ -310,7 +310,7 @@ export class RemoteSession implements GameSession {
       case 'phurt': ev.playerHurt?.(m.id); return;
       case 'death': this.me.dead = true; ev.death(m.msg); return;
       case 'respawn': Object.assign(this.me, { x: m.x, y: m.y, z: m.z, dead: false }); ev.respawn(m.x, m.y, m.z); return;
-      case 'tp': Object.assign(this.me, { x: m.x, y: m.y, z: m.z }); ev.teleport(m.x, m.y, m.z); return;
+      case 'tp': Object.assign(this.me, { x: m.x, y: m.y, z: m.z }); ev.teleport(m.x, m.y, m.z, m.yaw); return;
       case 'chat': ev.chat(m.from, m.text, m.kind, m.ts); return;
       case 'time': this.sim.time = m.time; this.sim.settings.dayCycle = m.cycle; ev.time(m.time, m.cycle); return;
       case 'wx': this.sim.weather = m.w as Weather; ev.weather(m.w as Weather, m.d); return;

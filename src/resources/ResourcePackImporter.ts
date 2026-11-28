@@ -455,6 +455,7 @@ export async function importPack(fileName: string, data: Uint8Array): Promise<Im
     const ent: Record<string, string | undefined> = {
       ent_pig: firstOf('entity/pig/pig_temperate', 'entity/pig/temperate_pig', 'entity/pig/pig'),
       ent_sheep: firstOf('entity/sheep/sheep'),
+      ent_shield: firstOf('entity/shield/shield_base_nopattern', 'entity/shield_base_nopattern'),
       ent_sheep_wool: firstOf('entity/sheep/sheep_wool', 'entity/sheep/sheep_fur'),
       ent_chicken: firstOf('entity/chicken/chicken_temperate', 'entity/chicken/temperate_chicken', 'entity/chicken'),
       ent_zombie: firstOf('entity/zombie/zombie'),

@@ -42,6 +42,7 @@ import { dragonParts, rayPart, partDistance, pointPart, type DragonPart } from '
 import { tickFluid, fluidDelay, FluidWorld } from './fluids';
 import { ChunkInfo, chunkNum } from './light';
 import { Mischief } from './mischief';
+import { Starfall } from './starfall';
 import { Crucible, type CrucibleCfg, type CrucibleView, type CrucibleStash } from './crucible';
 import { KIT_PRESETS, presetKit, kitFromInv, kitInvOf, kitName, sanitizeKits, kitSummary, type KitBook, type KitDef } from './kits';
 import { Blueprint, bpCosts, bpItem } from '../blueprint';
@@ -143,6 +144,8 @@ export interface SimPlayer {
   homes?: Record<string, { x: number; y: number; z: number }>;
   supporter?: string;
   cos?: import('../shop').Equipped;
+  staff?: 'owner' | 'admin' | 'mod';
+  bot?: boolean;
   back?: { x: number; y: number; z: number };
   tpWarm?: { x: number; y: number; z: number; safe: boolean; at: number; ox: number; oy: number; oz: number; done: string; after?: () => void };
   combatT?: number;
@@ -313,7 +316,7 @@ export type Weather = 'clear' | 'rain' | 'thunder';
 export type SimEvent =
   | { e: 'block'; x: number; y: number; z: number; v: number; old: number; src?: string }
   | { e: 'sound'; s: string; x: number; y: number; z: number; vol?: number; pitch?: number; src?: string; to?: string }
-  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit' | 'heart' | 'sweep' | 'shriek' | 'portal' | 'breath' | 'firework' | 'dragon'; x: number; y: number; z: number; d?: number; src?: string }
+  | { e: 'particles'; k: 'break' | 'hurt' | 'smoke' | 'splash' | 'xp' | 'crit' | 'heart' | 'sweep' | 'shriek' | 'portal' | 'breath' | 'firework' | 'dragon' | 'star'; x: number; y: number; z: number; d?: number; src?: string }
   | { e: 'spawn'; ent: Entity }
   | { e: 'remove'; id: number; why: 'death' | 'pickup' | 'despawn' | 'hit'; by?: string }
   | { e: 'vitals'; p: SimPlayer }
@@ -323,12 +326,14 @@ export type SimEvent =
   | { e: 'hurt'; p: SimPlayer; amount: number; cause: string; fx: number; fz: number; kb?: number }
   | { e: 'death'; p: SimPlayer; msg: string }
   | { e: 'respawn'; p: SimPlayer }
-  | { e: 'tp'; p: SimPlayer }
+  | { e: 'tp'; p: SimPlayer; yaw?: number }
   | { e: 'kick'; p: SimPlayer; reason: string; banMs: number }
   | { e: 'crucible'; v: CrucibleView | null }
   | { e: 'msg'; text: string; kind: 'system' | 'death' | 'info' | 'error'; to?: string }
   | { e: 'lightning'; x: number; y: number; z: number }
   | { e: 'pmove'; l: number[] }
+  | { e: 'pjoin'; p: SimPlayer }
+  | { e: 'pquit'; p: SimPlayer }
   | { e: 'ride'; p: SimPlayer; id: number; seat?: number }
   | { e: 'knock'; p: SimPlayer; x: number; y: number; z: number; set?: boolean }
   | { e: 'dark'; p: SimPlayer; t: number }
@@ -533,6 +538,8 @@ export class WorldSim {
   readonly gen: WorldGenerator;
   difficulty: Difficulty;
   readonly emit: (ev: SimEvent) => void;
+  onBotEvent?: (ev: SimEvent) => void;
+  starfallOn = false;
   readonly validateMoves: boolean;
   readonly authoritative: boolean;
   settings: SimSettings = { pvp: true, cheats: true, guestsBuild: true, dayCycle: true, weatherCycle: true };
@@ -548,6 +555,7 @@ export class WorldSim {
   players = new Map<string, SimPlayer>();
   readonly mischief = new Mischief(this);
   readonly crucible = new Crucible(this);
+  readonly starfall = new Starfall(this);
   bank: SimBank | null = null;
   entities = new Map<number, Entity>();
   blockEntities = new Map<string, BlockEntity>();
@@ -655,6 +663,7 @@ export class WorldSim {
       if (ev.e === 'container' && this.authoritative) { const [x, y, z] = parsePosKey(ev.key); this.rs.containerChanged(x, y, z); }
       if (ev.e === 'tp') this.wardReset(ev.p, this.wardQuiet ? 0 : 1500);
       if (ev.e === 'knock') this.wardKnock(ev.p, 1500 + Math.hypot(ev.x, ev.y, ev.z) * 800);
+      if ((ev.e === 'hurt' || ev.e === 'knock' || ev.e === 'tp' || ev.e === 'respawn') && ev.p.bot) this.onBotEvent?.(ev);
       o.emit(ev);
     };
     this.rs = new Redstone({
@@ -696,6 +705,7 @@ export class WorldSim {
 
   nowMs(): number { return this.now; }
   setNow(ms: number): void { this.now = ms; }
+  get clock(): number { return this.now; }
 
   get(x: number, y: number, z: number): number { return this.store.getBlock(x, y, z); }
 
@@ -2276,7 +2286,7 @@ export class WorldSim {
       p.x = cart.x; p.y = cart.y + rideOffset(cart); p.z = cart.z; p.peakY = p.y;
       return true;
     }
-    if (this.validateMoves) {
+    if (this.validateMoves && !p.bot) {
       const dtMs = Math.max(50, this.now - p.lastMove);
       const dist = Math.hypot(x - p.x, z - p.z);
       const glide = !!(flags & MF.GLIDE) && this.wearsElytra(p);
@@ -2287,7 +2297,7 @@ export class WorldSim {
         return false;
       }
     }
-    if (this.validateMoves) {
+    if (this.validateMoves && !p.bot) {
       const w = this.wardMove(p, x, y, z, flags, ct);
       if (!w.ok) return false;
       flags = w.flags;
@@ -4077,7 +4087,7 @@ export class WorldSim {
     if (!this.pvpOk(p, t)) return false;
     const dx = t.x - p.x, dy = t.y + 0.9 - (p.y + 1.62), dz = t.z - p.z;
     const ws = attackStats(heldStack(p.inv));
-    if (!this.wardHit(p, `p${t.id}`, dx, dy, dz, attackRange(ws, p.mode === 'creative') + 0.3, 1.8)) return false;
+    if (!p.bot && !this.wardHit(p, `p${t.id}`, dx, dy, dz, attackRange(ws, p.mode === 'creative') + 0.3, 1.8)) return false;
     if (Math.hypot(dx, dy, dz) > attackRange(ws, p.mode === 'creative') + 0.3 + 1.5) return false;
     if (this.now - p.lastAttack < 45) return false;
     if (ws.spear) return this.jab(p, { pl: t });
@@ -4219,6 +4229,7 @@ export class WorldSim {
     this.tickFurnaces();
     this.mischief.tick();
     if (this.authoritative) this.crucible.tick();
+    this.starfall.tick();
     this.tickBlueprints();
     this.tickFire();
     if (this.game) this.game.tick();
@@ -7435,7 +7446,7 @@ export class WorldSim {
     if (left > 0) this.spawnItem(p.x, p.y + 1, p.z, { ...st, count: left }, 0, 2, 0, 20);
   }
 
-  private enchantSome(st: ItemStack): void {
+  enchantSome(st: ItemStack): void {
     const r = this.rng;
     const book = st.id === I.ENCHANTED_BOOK;
     const opts = ENCHANTS.filter((e) => !e.curse && (book || supports(e.key, st.id)));
@@ -7796,6 +7807,8 @@ export class WorldSim {
     if (caged) return caged;
     if (this.game) { const r = this.game.command(p, [cmd, ...parts.slice(1)]); if (r !== null) return r; }
     switch (cmd) {
+      case 'starfall': case 'star':
+        return this.starfall.command(p, parts.slice(1));
       case 'crucible': case 'pvpevent':
         return this.crucible.command(p, parts, allowed);
       case 'sethome': case 'home': case 'delhome': case 'homes':

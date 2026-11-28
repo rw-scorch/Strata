@@ -23,6 +23,8 @@ function out(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 }
 
+export type StaffRole = 'owner' | 'admin' | 'mod';
+
 interface UserRow { name_lc: string; name: string; salt: string; hash: string; pid: string; psecret: string; created: number; [k: string]: SqlStorageValue; }
 
 /** One global instance. Stores accounts and hands back the player identity used by world rooms. */
@@ -39,6 +41,7 @@ export class Accounts extends DurableObject<Record<string, unknown>> {
     this.sql.exec('CREATE TABLE IF NOT EXISTS wallet (pid TEXT PRIMARY KEY, shards INTEGER NOT NULL DEFAULT 0, keys INTEGER NOT NULL DEFAULT 0, daily INTEGER NOT NULL DEFAULT -1, equipped TEXT NOT NULL DEFAULT \'{}\')');
     this.sql.exec('CREATE TABLE IF NOT EXISTS owned (pid TEXT NOT NULL, item TEXT NOT NULL, at INTEGER NOT NULL, how TEXT, PRIMARY KEY (pid, item))');
     this.sql.exec('CREATE TABLE IF NOT EXISTS crates (pid TEXT NOT NULL, crate TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (pid, crate))');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS staff (pid TEXT PRIMARY KEY, role TEXT NOT NULL, by TEXT, at INTEGER NOT NULL)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS shard_orders (session TEXT PRIMARY KEY, pid TEXT NOT NULL, shards INTEGER NOT NULL, at INTEGER NOT NULL)');
   }
 
@@ -66,9 +69,12 @@ export class Accounts extends DurableObject<Record<string, unknown>> {
     }
     if (url.pathname === '/supporter') return out(this.supporter(url.searchParams.get('pid') ?? ''));
     if (url.pathname === '/cosmetics') return out(this.equippedOf(url.searchParams.get('pid') ?? ''));
+    if (url.pathname === '/staff') return out({ role: this.roleOf(url.searchParams.get('pid') ?? '') });
+    if (url.pathname === '/staff/list') return out({ staff: this.staffList() });
     if (req.method !== 'POST') return out({ error: 'Method not allowed' }, 405);
     if (url.pathname.startsWith('/sup/')) return this.supporterOp(url.pathname, req);
     if (url.pathname.startsWith('/shop/')) return this.shopOp(url.pathname, req);
+    if (url.pathname.startsWith('/staff/')) return this.staffOp(url.pathname, req);
     let body: { name?: unknown; password?: unknown };
     try { body = JSON.parse((await req.text()).slice(0, 2048)); } catch { return out({ error: 'Invalid request' }, 400); }
     const name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -99,6 +105,52 @@ export class Accounts extends DurableObject<Record<string, unknown>> {
       const salt = rand(16);
       this.sql.exec('UPDATE users SET salt = ?, hash = ? WHERE name_lc = ?', salt, await hashPw(next, salt), u.name_lc);
       return out({ ok: true });
+    }
+    return out({ error: 'Not found' }, 404);
+  }
+
+  private ownerNames(): Set<string> {
+    const raw = typeof this.env.OWNER_ACCOUNTS === 'string' ? this.env.OWNER_ACCOUNTS : '';
+    return new Set(raw.split(',').map((n) => n.trim().toLowerCase()).filter((n) => NAME_RE.test(n)));
+  }
+
+  roleOf(pid: string): StaffRole | null {
+    if (!pid) return null;
+    const u = this.sql.exec<{ name_lc: string; [k: string]: SqlStorageValue }>('SELECT name_lc FROM users WHERE pid = ?', pid).toArray()[0];
+    if (!u) return null;
+    if (this.ownerNames().has(u.name_lc)) return 'owner';
+    const r = this.sql.exec<{ role: string; [k: string]: SqlStorageValue }>('SELECT role FROM staff WHERE pid = ?', pid).toArray()[0]?.role;
+    return r === 'admin' || r === 'mod' ? r : null;
+  }
+
+  private staffList(): { name: string; role: StaffRole }[] {
+    const list: { name: string; role: StaffRole }[] = [];
+    for (const n of this.ownerNames()) { const u = this.user(n); if (u) list.push({ name: u.name, role: 'owner' }); }
+    for (const r of this.sql.exec<{ name: string; role: string; [k: string]: SqlStorageValue }>('SELECT u.name AS name, s.role AS role FROM staff s JOIN users u ON u.pid = s.pid ORDER BY s.role, u.name_lc').toArray()) {
+      if (!this.ownerNames().has(r.name.toLowerCase())) list.push({ name: r.name, role: r.role as StaffRole });
+    }
+    return list;
+  }
+
+  private async staffOp(path: string, req: Request): Promise<Response> {
+    let b: Record<string, unknown>;
+    try { b = JSON.parse((await req.text()).slice(0, 2048)); } catch { return out({ error: 'Invalid request' }, 400); }
+    const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).slice(0, 200) : '');
+    if (path === '/staff/verify') {
+      const u = this.sql.exec<UserRow>('SELECT * FROM users WHERE pid = ?', str('id')).toArray()[0];
+      if (!u || !same(u.psecret, str('secret'))) return out({ error: 'Sign in again.' }, 401);
+      return out({ ok: true, pid: u.pid, name: u.name, role: this.roleOf(u.pid) });
+    }
+    if (path === '/staff/set') {
+      if (this.roleOf(str('by')) !== 'owner') return out({ error: 'Only the server owner can hand out ranks.' }, 403);
+      const target = this.user(str('name'));
+      if (!target) return out({ error: 'No registered account has that name.' }, 404);
+      if (this.ownerNames().has(target.name_lc)) return out({ error: 'Owner accounts are set in the server config and cannot be changed here.' }, 400);
+      const role = str('role');
+      if (role === 'none') this.sql.exec('DELETE FROM staff WHERE pid = ?', target.pid);
+      else if (role === 'admin' || role === 'mod') this.sql.exec('INSERT INTO staff (pid, role, by, at) VALUES (?, ?, ?, ?) ON CONFLICT (pid) DO UPDATE SET role = excluded.role, by = excluded.by, at = excluded.at', target.pid, role, str('by'), Date.now());
+      else return out({ error: 'Ranks are admin, mod or none.' }, 400);
+      return out({ ok: true, name: target.name, pid: target.pid, role: role === 'none' ? null : role });
     }
     return out({ error: 'Not found' }, 404);
   }

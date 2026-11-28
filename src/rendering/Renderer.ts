@@ -22,7 +22,7 @@ import { ChestRenderer } from './ChestRenderer';
 import { SignRenderer } from './SignRenderer';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { getItem, I } from '../core/items';
-import { firstPersonArmMatrix } from './VanillaModels';
+import { firstPersonArmMatrix, heldItemMatrix } from './VanillaModels';
 
 interface ChunkMeshes { cx: number; cz: number; meshes: THREE.Mesh[]; secs: (BlockArray | null)[]; vis: Uint16Array | null; mask: number; }
 
@@ -607,12 +607,8 @@ export class Renderer {
     this.offItemId = id;
     if (this.offItem) { this.offHand.remove(this.offItem); this.offItem.traverse((o) => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); }); this.offItem = null; }
     if (id < 0) return;
-    const m = this.entities.itemModel(id);
-    const it = getItem(id);
-    const isBlock = it?.kind === 'block' && it.blockIcon;
-    m.obj.scale.setScalar(isBlock ? 0.4 : 0.62);
-    m.obj.position.set(isBlock ? -0.5 : -0.52, isBlock ? -0.42 : -0.38, isBlock ? -0.78 : -0.72);
-    m.obj.rotation.set(isBlock ? 0.1 : -0.2, isBlock ? -0.75 : 1.2, isBlock ? 0 : -0.35);
+    const m = this.entities.firstPersonModel(id);
+    m.obj.matrixAutoUpdate = false;
     for (const mat of m.mats) { mat.uniforms.uFogFar = { value: 1e9 }; mat.uniforms.uFogNear = { value: 1e9 }; }
     this.offItem = m.obj;
     (this.offItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] }).mats = m.mats;
@@ -636,12 +632,8 @@ export class Renderer {
       (this.handItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] }).mats = m.mats;
     } else {
       this.armVanilla = false;
-      const m = this.entities.itemModel(id);
-      const it = getItem(id);
-      const isBlock = it?.kind === 'block' && it.blockIcon;
-      m.obj.scale.setScalar(isBlock ? 0.4 : 0.62);
-      m.obj.position.set(isBlock ? 0.5 : 0.52, isBlock ? -0.42 : -0.38, isBlock ? -0.78 : -0.72);
-      m.obj.rotation.set(isBlock ? 0.1 : -0.2, isBlock ? 0.75 : -1.2, isBlock ? 0 : 0.35);
+      const m = this.entities.firstPersonModel(id);
+      m.obj.matrixAutoUpdate = false;
       for (const mat of m.mats) { mat.uniforms.uFogFar = { value: 1e9 }; mat.uniforms.uFogNear = { value: 1e9 }; }
       this.handItem = m.obj;
       (this.handItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] }).mats = m.mats;
@@ -651,27 +643,25 @@ export class Renderer {
 
   private updateHand(dt: number, light: number): void {
     const bob = Math.sin(this.handBob) * 0.012, bobY = -Math.abs(Math.cos(this.handBob)) * 0.015;
-    const offBlock = this.blocking && this.offItemId === I.SHIELD && this.mainId !== I.SHIELD;
-    this.offHand.position.set(-bob + (offBlock ? 0.3 : 0), bobY + (offBlock ? 0.12 : 0), offBlock ? 0.1 : 0);
-    this.offHand.rotation.set(offBlock ? 0.15 : 0, offBlock ? -0.9 : 0, 0);
+    const mainBlock = this.blocking && this.mainId === I.SHIELD;
+    const offBlock = this.blocking && this.offItemId === I.SHIELD && !mainBlock;
+    this.offHand.position.set(-bob, bobY, 0);
+    this.offHand.rotation.set(0, 0, 0);
+    if (this.offItem) heldItemMatrix(this.entities.heldKind(this.offItemId, offBlock), true, 0, 0, this.offItem.matrix);
     const om = (this.offItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] } | null)?.mats;
     if (om) for (const m of om) m.uniforms.uLight.value = Math.max(0.12, light);
     const swing = this.handSwing;
-    if (this.armVanilla && this.handItem) {
-      const prog = swing > 0 ? 1 - swing : 0;
-      firstPersonArmMatrix(prog, this.handItem.matrix);
-      this.hand.position.set(Math.sin(this.handBob) * 0.012, -Math.abs(Math.cos(this.handBob)) * 0.015, 0);
-      this.hand.rotation.set(0, 0, 0);
-      if (this.handSwing > 0) this.handSwing = Math.max(0, this.handSwing - dt * 3.6);
-      const mats = (this.handItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] }).mats;
-      if (mats) for (const m of mats) m.uniforms.uLight.value = Math.max(0.12, light);
-      return;
+    const prog = swing > 0 ? 1 - swing : 0;
+    this.hand.position.set(bob, bobY, 0);
+    this.hand.rotation.set(0, 0, 0);
+    if (this.armVanilla && this.handItem) firstPersonArmMatrix(prog, this.handItem.matrix);
+    else if (this.handItem && this.mainId >= 0) heldItemMatrix(this.entities.heldKind(this.mainId, mainBlock), false, prog, this.handEat > 0 ? this.handEat : 0, this.handItem.matrix);
+    else if (this.handItem) {
+      const s = Math.sin(swing * Math.PI);
+      this.hand.position.set(-s * 0.18 + bob, -s * 0.12 + bobY, -s * 0.05);
+      this.hand.rotation.set(-s * 0.9, -s * 0.25, s * 0.15);
     }
-    const s = Math.sin(swing * Math.PI);
-    this.hand.position.set(-s * 0.18 + Math.sin(this.handBob) * 0.012, -s * 0.12 - Math.abs(Math.cos(this.handBob)) * 0.015 + (this.handEat > 0 ? Math.sin(this.handEat * 30) * 0.03 - 0.06 : 0), -s * 0.05);
-    this.hand.rotation.set(-s * 0.9, -s * 0.25, s * 0.15);
-    if (this.blocking && this.mainId === I.SHIELD) { this.hand.position.x -= 0.3; this.hand.position.y += 0.12; this.hand.position.z += 0.1; this.hand.rotation.y += 0.9; }
-    if (this.handSwing > 0) this.handSwing = Math.max(0, this.handSwing - dt * 4.2);
+    if (this.handSwing > 0) this.handSwing = Math.max(0, this.handSwing - dt * 3.6);
     const mats = (this.handItem as THREE.Object3D & { mats?: THREE.ShaderMaterial[] } | null)?.mats;
     if (mats) for (const m of mats) m.uniforms.uLight.value = Math.max(0.12, light);
   }

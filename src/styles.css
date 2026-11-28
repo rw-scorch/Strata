@@ -750,3 +750,14 @@ body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; mi
 canvas.cos-prev { width: 40px; height: 64px; image-rendering: pixelated; }
 .chat-title { font-weight: bold; }
 .cos-tile .btn { width: 100%; min-height: 0; height: auto; padding: 4px 6px; font-size: 13px; line-height: 1.2; white-space: nowrap; margin-top: auto; }
+.mc-title-row:empty { display: none; }
+.duels-hud { position: absolute; top: calc(env(safe-area-inset-top) + 44px); left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.55); color: #fff; padding: 6px 12px; font-size: 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; pointer-events: auto; max-width: 92vw; z-index: 5; }
+.duels-challenge { width: 100%; text-align: center; color: #f3d27a; }
+.duels-box { max-width: 640px; width: 94vw; max-height: 88vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.duels-head { display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
+.duels-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.duels-pick { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 8px; background: rgba(0, 0, 0, 0.35); border: 2px solid #555; color: #fff; cursor: pointer; font: inherit; font-size: 12px; }
+.duels-pick b { font-size: 14px; }
+.duels-pick.on { border-color: #f3d27a; background: rgba(243, 210, 122, 0.12); }
+.duels-board > div { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.staff-tag { color: #fff; font-size: 0.8em; font-weight: bold; padding: 0 4px; margin-right: 4px; border-radius: 2px; }

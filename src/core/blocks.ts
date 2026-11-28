@@ -729,6 +729,9 @@ WOOD_KINDS.forEach((k, i) => {
   def(WALL_HANGING_SIGN_BASE + i, `${k}_wall_hanging_sign`, `${n} Wall Hanging Sign`, 'Hangs from a bracket on a wall.', { faces: ALL(`stripped_${k}_log`), ...SIGN_DEF, drops: [{ item: 816 + i }] });
 });
 def(CHAIN, 'chain', 'Chain', 'Iron links that hang lanterns and signs.', { faces: ALL('chain'), render: 'boxes', solid: false, opaque: false, lightFilter: 0, hardness: 5, tool: 'pickaxe', sound: 'metal', category: 'hidden', drops: [{ item: 824 }] });
+export const STARFALL_ORE = 1226, STARSHARD_BLOCK = 1227;
+def(STARFALL_ORE, 'starfall_ore', 'Starfall Ore', 'Stone fused by a falling star. Glows faintly.', { faces: ALL('starfall_ore'), lightEmit: 7, hardness: 4, tool: 'pickaxe', tier: 2, sound: 'stone', drops: [{ item: 825, min: 1, max: 2 }], xp: [3, 7], category: 'hidden' });
+def(STARSHARD_BLOCK, 'starshard_block', 'Block of Starshard', 'Nine starshards packed into a glowing block.', { faces: ALL('starshard_block'), lightEmit: 12, hardness: 5, tool: 'pickaxe', tier: 2, sound: 'glass', category: 'hidden' });
 export type SignKind = 'stand' | 'wall' | 'hang' | 'wallhang';
 export function signKind(id: number): SignKind | null {
   if (id < SIGN_BASE || id >= SIGN_BASE + 32) return null;
@@ -866,7 +869,7 @@ const BLAST: Record<string, number> = {
   sandstone: 0.8, cut_sandstone: 0.8, chiseled_sandstone: 0.8, smooth_sandstone: 6, cactus: 0.4, crafting_table: 2.5, furnace: 3.5, furnace_lit: 3.5,
   chest: 2.5, glass: 0.3, bricks: 6, stone_bricks: 6, mossy_stone_bricks: 6, cracked_stone_bricks: 6, chiseled_stone_bricks: 6, oak_door: 3, ladder: 0.4,
   iron_block: 6, gold_block: 6, aetherite_block: 6, emerald_block: 6, coal_block: 6, copper_block: 6, cut_copper: 6, copper_lamp: 6,
-  mossy_cobblestone: 6, obsidian: 1200, snowy_grass: 0.6, glowstone: 0.3, mud: 0.5, farmland: 0.6, bookshelf: 1.5, lily_pad: 0,
+  mossy_cobblestone: 6, obsidian: 1200, snowy_grass: 0.6, glowstone: 0.3, starfall_ore: 3, starshard_block: 6, mud: 0.5, farmland: 0.6, bookshelf: 1.5, lily_pad: 0,
   smooth_stone: 6, terracotta: 4.2, bone_block: 2, hay_block: 0.5, tuff: 6, tuff_bricks: 6, chiseled_tuff: 6, polished_tuff: 6,
   spawner: 5, trial_spawner: 50, vault: 50, kelp: 0, kelp_plant: 0, seagrass: 0, vine: 0.2, torch: 0, redstone_wire: 0, redstone_torch: 0,
   unlit_redstone_torch: 0, lever: 0.5, stone_button: 0.5, oak_button: 0.5, stone_pressure_plate: 0.5, oak_pressure_plate: 0.5,

@@ -37,8 +37,8 @@ export interface SessionEvents {
   playerHurt?(id: string): void;
   death(msg: string): void;
   respawn(x: number, y: number, z: number): void;
-  teleport(x: number, y: number, z: number): void;
-  chat(from: { id: string; name: string; sup?: string; cos?: import('../core/shop').Equipped } | null, text: string, kind: ChatKind, ts: number): void;
+  teleport(x: number, y: number, z: number, yaw?: number): void;
+  chat(from: { id: string; name: string; sup?: string; cos?: import('../core/shop').Equipped; staff?: string } | null, text: string, kind: ChatKind, ts: number): void;
   time(time: number, cycle: boolean): void;
   weather(w: Weather, ticksLeft?: number): void;
   lightning(x: number, y: number, z: number): void;

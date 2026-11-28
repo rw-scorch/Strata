@@ -37,7 +37,7 @@ describe('v51 Fortune Spires', () => {
     const { sim, game, p, last } = arena('spires', 2);
     expect(game.phase).toBe('playing');
     for (let i = 0; i < 20 * 11; i++) sim.tick();
-    expect(p.inv.slots.filter(Boolean).length).toBeGreaterThanOrEqual(2);
+    expect([...p.inv.slots, ...p.inv.armor, ...p.inv.off].filter(Boolean).length).toBeGreaterThanOrEqual(2);
     expect(last()!.state.event?.name).toBe('Time limit');
   });
 });
