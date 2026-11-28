@@ -158,6 +158,7 @@ export class Renderer {
     this.explosions = new Explosions(this.uniforms);
     this.weather = new Weather();
     this.entities = new EntityRenderer(this.uniforms, atlas, probe);
+    this.entities.particles = this.particles;
     this.chests = new ChestRenderer(this.uniforms, atlas, probe);
     this.signs = new SignRenderer(this.uniforms, atlas, probe);
     this.moving = new MovingBlocks(this.mats);

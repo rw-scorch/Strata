@@ -7,7 +7,10 @@ export interface StripeEnv {
   SUPPORTER_AMOUNT?: string;
   HOSTING_PRICE_ID?: string;
   HOSTING_LABEL?: string;
+  SHARD_PACKS?: string;
 }
+
+import { grantShards, shardPacks } from './shop';
 
 export type RoomLookup = (code: string) => Promise<{ target: string; stub: { fetch(input: string | Request, init?: RequestInit): Promise<Response> } } | null>;
 
@@ -132,7 +135,16 @@ async function webhook(req: Request, env: StripeEnv, rooms?: RoomLookup): Promis
   const obj = evt.data.object;
   try {
     const md = (obj.metadata ?? {}) as Record<string, string>;
-    if (evt.type === 'checkout.session.completed' && obj.mode === 'subscription' && typeof obj.subscription === 'string' && md.kind === 'hosting') {
+    if (evt.type === 'checkout.session.completed' && obj.mode === 'payment' && md.kind === 'shards') {
+      if (obj.payment_status !== 'paid') return json({ received: true, pending: true });
+      const items = await stripe<{ data: { price?: { id: string }; quantity?: number }[] }>(env, 'GET', `/checkout/sessions/${obj.id as string}/line_items`);
+      const packs = shardPacks(env);
+      let total = 0;
+      for (const li of items.data) { const pk = packs.find((p) => p.price === li.price?.id); if (pk) total += pk.shards * (li.quantity ?? 1); }
+      const pid = (obj.client_reference_id as string | null) ?? md.pid ?? '';
+      if (total > 0 && pid) await grantShards(env, obj.id as string, pid, total);
+      else console.warn('shard checkout with no known pack', obj.id);
+    } else if (evt.type === 'checkout.session.completed' && obj.mode === 'subscription' && typeof obj.subscription === 'string' && md.kind === 'hosting') {
       const sub = await stripe<Sub>(env, 'GET', `/subscriptions/${obj.subscription}`);
       await hostEvent(rooms, md.room ?? sub.metadata?.room ?? '', { event: evt.id, sub: sub.id, status: sub.status, until: periodEnd(sub), customer: typeof obj.customer === 'string' ? obj.customer : null });
     } else if (evt.type.startsWith('customer.subscription.') && md.kind === 'hosting') {

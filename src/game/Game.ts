@@ -1251,7 +1251,7 @@ export class Game {
     this.players.set(p.id, p);
     if (known) {
       const v = this.renderer?.entities.views.get(`p:${p.id}`);
-      if (v) this.renderer.entities.upsert(`p:${p.id}`, 'player', 0, v.x, v.y, v.z, v.yaw, v.pitch, v.flags, 0, performance.now(), { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup });
+      if (v) this.renderer.entities.upsert(`p:${p.id}`, 'player', 0, v.x, v.y, v.z, v.yaw, v.pitch, v.flags, 0, performance.now(), { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup, cos: p.cos });
     }
   }
 
@@ -1261,7 +1261,7 @@ export class Game {
     const p = this.players.get(id);
     const prev = this.renderer?.entities.views.get(`p:${id}`);
     const extra = hp >= 0 ? hp | (creative ? 1 << 8 : 0) : prev?.extra ?? 20;
-    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, extra, performance.now(), p ? { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup } : undefined);
+    this.renderer?.entities.upsert(`p:${id}`, 'player', 0, x, y, z, yaw, pitch, flags, extra, performance.now(), p ? { name: p.name, appearance: p.appearance, skin: p.skin ?? null, sup: p.sup, cos: p.cos } : undefined);
   }
 
   onRoom(meta: RoomMeta, players: PublicPlayer[]): void {

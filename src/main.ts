@@ -59,6 +59,12 @@ class App {
       if (sup === 'thanks') toast('Thank you for supporting Strata! Your perks switch on as soon as the payment is confirmed.', 'info', 8000);
       else toast('Checkout cancelled. Nothing was charged.', 'info');
     }
+    const shardRet = new URLSearchParams(location.search).get('shards');
+    if (shardRet) {
+      history.replaceState(null, '', location.pathname);
+      if (shardRet === 'thanks') toast('Thank you! Your shards arrive as soon as Stripe confirms the payment. Open the Shard Shop to spend them.', 'info', 8000);
+      else toast('Checkout cancelled. Nothing was charged.', 'info');
+    }
     const hostRet = new URLSearchParams(location.search).get('hosting');
     if (hostRet) {
       const world = new URLSearchParams(location.search).get('world') ?? '';

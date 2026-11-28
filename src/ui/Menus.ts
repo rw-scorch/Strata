@@ -2,7 +2,8 @@ import { adBanner } from './Ads';
 import { ARENA_KINDS, ARENA_INFO, ArenaKind } from '../core/labs/minigames/arena';
 import { h, clear, toast, modal, confirmDialog, promptDialog, toggle, segmented, slider, select, copyText, fmtDate, fmtTime, download } from './dom';
 import { WorldStorage, WorldMeta } from '../storage/WorldStorage';
-import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord, getAccount, setAccount, accountRequest, markLoginSeen, supporterRequest } from '../storage/Settings';
+import { getSettings, updateSettings, getIdentity, getRooms, rememberRoom, forgetRoom, RoomRecord, getAccount, setAccount, accountRequest, markLoginSeen, supporterRequest, shopEnabled } from '../storage/Settings';
+import { buildShop } from './ShopUI';
 import { GAME_VERSION, MODE_TITLES, GameMode, Difficulty, DIFFICULTIES, DEFAULT_MAX_PLAYERS, MAX_PLAYERS_LIMIT, isValidRoomCode, normalizeRoomCode, PROTOCOL_VERSION, ROOM_CODE_LENGTH } from '../core/constants';
 import { seedFromInput } from '../core/rng';
 import { drawAvatar } from './avatar';
@@ -83,6 +84,8 @@ export class Menus {
     const creditsBtn = mcButton('i', () => this.credits(), 20, { cls: 'square', tip: 'Credits and attribution' });
     const packBtn = h('div', { class: 'mc-title-row' });
     const featBtn = h('div', { class: 'mc-title-row' });
+    const shopBtn = h('div', { class: 'mc-title-row' });
+    void shopEnabled().then((on) => { if (on && shopBtn.isConnected) shopBtn.appendChild(mcButton('Shard Shop', () => (getAccount() ? this.shop() : this.login(() => this.shop())), 200, { tip: 'Capes, trails and titles' })); });
     void fetchFeatured().then((ws) => { const w = ws[0]; if (w && featBtn.isConnected) featBtn.appendChild(mcButton(`Featured: ${w.name}${w.online ? ` (${w.online} online)` : ''}`, () => void this.joinPreview(w.code), 200, { tip: w.blurb || 'A world picked by the server admins' })); });
     void ResourcePackManager.list().then((packs) => {
       if (!packs.length) packBtn.appendChild(mcButton('Use Your Minecraft Textures', () => this.app.openPacks(true), 200, { tip: 'Import your own Minecraft resource pack. It stays on this device.' }));
@@ -93,6 +96,7 @@ export class Menus {
         mcButton('Singleplayer', () => this.worlds(), 200),
         mcButton('Multiplayer', () => this.multiplayer(), 200),
         featBtn,
+        shopBtn,
         getSettings().labs ? mcButton('Arena Games (Labs)', () => this.createWorld(false, 'spires'), 200) : packBtn,
         h('div', { class: 'mc-title-row last' }, profileBtn, mcButton('Options...', () => this.app.openSettings(), 98), mcButton(this.app.canInstall() ? 'Install App' : 'Resource Packs...', () => (this.app.canInstall() ? this.app.install() : this.app.openPacks()), 98), creditsBtn),
       ),
@@ -180,6 +184,10 @@ export class Menus {
       h('div', { class: 'row', style: 'align-items:flex-start;gap:18px' }, prev, h('div', { class: 'stack' }, pick('Skin', 'skin', 8), pick('Hair', 'hair', 8), pick('Shirt', 'shirt', 12), pick('Trousers', 'pants', 12))),
       h('button', { class: 'btn primary', onclick: () => { if (!acc) updateSettings({ playerName: name.value.replace(/[<>~]/g, '').trim().slice(0, 16) }); this.title(); } }, 'Save'),
     ));
+  }
+
+  shop(): void {
+    this.show(card('Shard Shop', () => this.title(), buildShop()));
   }
 
   private supporterBox(): HTMLElement {

@@ -1,3 +1,4 @@
+import { cleanEquipped, type Equipped } from '../../src/core/shop';
 import type { BlockArray } from '../../src/core/chunk';
 import { decodeBlueprint, BP_PART, BP_MAX_PARTS } from '../../src/core/blueprint';
 import { cleanKey, keyHint } from '../adminKey';
@@ -1058,7 +1059,7 @@ export class WorldRoom extends DurableObject<Env> {
   }
 
   private publicPlayer(p: SimPlayer): PublicPlayer {
-    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id), skin: p.skin ?? null, sup: p.supporter };
+    return { id: p.id, name: p.name, appearance: p.appearance, op: p.op, mode: p.mode, muted: this.meta?.muted.includes(p.id), skin: p.skin ?? null, sup: p.supporter, cos: p.cos };
   }
 
   private systemChat(text: string, kind: Extract<S2C, { t: 'chat' }>['kind'] = 'system', to?: Session): void {
@@ -1207,6 +1208,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (first && first.secret !== hash) { this.sendErr(s, 'auth', 'That player identity belongs to someone else.'); return; }
     let name = cleanName(msg.name);
     let supColor: string | undefined;
+    let cos: Equipped | undefined;
     if (this.env.ACCOUNTS) {
       try {
         const acc = this.env.ACCOUNTS.get(this.env.ACCOUNTS.idFromName('global'));
@@ -1216,6 +1218,8 @@ export class WorldRoom extends DurableObject<Env> {
         if (r.owner) {
           const sup = (await (await acc.fetch(`https://accounts/supporter?pid=${encodeURIComponent(id)}`)).json()) as { active: boolean; color: string | null };
           if (sup.active) supColor = sup.color ?? SUPPORTER_GOLD;
+          const c = cleanEquipped(await (await acc.fetch(`https://accounts/cosmetics?pid=${encodeURIComponent(id)}`)).json());
+          if (c.title || c.trail || c.cape) cos = c;
         }
       } catch { /* accounts unavailable: keep the requested name */ }
     }
@@ -1234,6 +1238,7 @@ export class WorldRoom extends DurableObject<Env> {
     const p = this.playerFromData(id, name, row && row.data ? JSON.parse(row.data as string) : null);
     p.appearance = cleanAppearance(msg.appearance);
     p.supporter = supColor;
+    p.cos = cos;
     p.skin = cleanSkin(msg.skin);
     p.op = (id === m.ownerId && hash === m.ownerHash) || !!m.ops?.some((o) => o.id === id && o.hash === hash);
     if (spectate) {
@@ -1451,7 +1456,7 @@ export class WorldRoom extends DurableObject<Env> {
     if (this.meta!.muted.includes(p.id)) { this.systemChat('You are muted in this world.', 'error', s); return; }
     if (text === s.lastChat && now - s.chatT < 3000) return;
     s.lastChat = text;
-    this.broadcast({ t: 'chat', from: { id: p.id, name: p.name, sup: p.supporter }, text, kind: 'chat', ts: now });
+    this.broadcast({ t: 'chat', from: { id: p.id, name: p.name, sup: p.supporter, cos: p.cos?.title ? { title: p.cos.title } : undefined }, text, kind: 'chat', ts: now });
   }
 
   private async claimAdmin(s: Session, p: SimPlayer, keyIn: string): Promise<void> {

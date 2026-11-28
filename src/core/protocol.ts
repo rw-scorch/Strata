@@ -1,4 +1,5 @@
 import type { SignData } from './signs';
+import type { Equipped } from './shop';
 import type { HostView } from './hosting';
 import type { RuleSet } from './sim/WorldSim';
 import type { CrucibleView } from './sim/crucible';
@@ -57,7 +58,7 @@ export interface RoomInfo {
 }
 
 export interface SkinRef { png: string; slim: boolean }
-export interface PublicPlayer { id: string; name: string; appearance: Appearance; op: boolean; mode: GameMode; muted?: boolean; skin?: SkinRef | null; sup?: string }
+export interface PublicPlayer { id: string; name: string; appearance: Appearance; op: boolean; mode: GameMode; muted?: boolean; skin?: SkinRef | null; sup?: string; cos?: Equipped }
 
 export interface YouState {
   id: string; x: number; y: number; z: number; yaw: number; pitch: number;
@@ -133,7 +134,7 @@ export type S2C =
   | { t: 'death'; msg: string }
   | { t: 'respawn'; x: number; y: number; z: number }
   | { t: 'tp'; x: number; y: number; z: number }
-  | { t: 'chat'; from: { id: string; name: string; sup?: string } | null; text: string; kind: 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error'; ts: number }
+  | { t: 'chat'; from: { id: string; name: string; sup?: string; cos?: Equipped } | null; text: string; kind: 'chat' | 'system' | 'death' | 'join' | 'leave' | 'info' | 'error'; ts: number }
   | { t: 'time'; time: number; cycle: boolean }
   | { t: 'wx'; w: string; d?: number }
   | { t: 'bolt'; x: number; y: number; z: number }

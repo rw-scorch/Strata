@@ -726,3 +726,27 @@ body.touch-active .mc-sidebar { top: 30%; font-size: 13px; line-height: 16px; mi
 .sign-board { display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2%; padding: 3% 4%; box-sizing: border-box; border: 3px solid rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.5); }
 .sign-line { flex: 1; min-height: 0; width: 100%; background: transparent; border: 0; outline: none; text-align: center; font-family: var(--mc-font); font-size: clamp(16px, 4.4vw, 30px); padding: 0; caret-color: #000; }
 .sign-line:focus { background: rgba(255, 255, 255, 0.1); }
+.shop { display: flex; flex-direction: column; gap: 10px; }
+.shop-wallet { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 10px; border: 1px solid #8e5bd8; background: rgba(142, 91, 216, 0.12); }
+.shard-ico, .key-ico { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+.shard-ico { background: linear-gradient(135deg, #e6c8ff, #9a5cf0 55%, #5a2a9a); clip-path: polygon(50% 0, 100% 40%, 75% 100%, 25% 100%, 0 40%); }
+.shard-ico.big { width: 22px; height: 22px; margin: 0 0 4px; }
+.key-ico { background: #e8c228; clip-path: polygon(0 30%, 45% 30%, 45% 0, 100% 0, 100% 70%, 45% 70%, 45% 100%, 0 100%); }
+.pack-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.pack { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; background: rgba(0, 0, 0, 0.35); border: 2px solid #6a3fb0; color: #fff; cursor: pointer; font: inherit; }
+.pack:hover { border-color: #c58bff; }
+.crate-box { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid rgba(255, 255, 255, 0.15); background: rgba(0, 0, 0, 0.25); }
+.cos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.cos-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px; border: 2px solid var(--rar); background: rgba(0, 0, 0, 0.35); text-align: center; }
+.cos-tile.pick { cursor: pointer; }
+.cos-tile.pick:hover { background: rgba(255, 255, 255, 0.08); }
+.cos-name { font-weight: bold; font-size: 13px; }
+.cos-rar { font-size: 11px; color: var(--rar); }
+.cos-foot { font-size: 12px; color: #fff; opacity: 0.8; }
+.cos-prev { height: 64px; display: flex; align-items: center; justify-content: center; }
+.cos-prev.title { font-weight: bold; font-size: 15px; text-shadow: 1px 1px 0 #000; }
+.cos-prev.trail { gap: 4px; }
+.cos-prev.trail span { width: 9px; height: 9px; box-shadow: 0 0 6px currentColor; }
+canvas.cos-prev { width: 40px; height: 64px; image-rendering: pixelated; }
+.chat-title { font-weight: bold; }
+.cos-tile .btn { width: 100%; min-height: 0; height: auto; padding: 4px 6px; font-size: 13px; line-height: 1.2; white-space: nowrap; margin-top: auto; }

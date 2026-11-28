@@ -5,6 +5,9 @@ import { PROFESSIONS } from '../core/trades';
 import { I, getItem, toolId, armorId } from '../core/items';
 import { BLOCKS, B, SB, customBoxes, CUSTOM_BOX, makeBlock } from '../core/blocks';
 import type { Appearance } from '../core/sim/WorldSim';
+import { COS_BY_ID, cleanEquipped, type CapeLook, type Equipped, type TitleLook, type TrailLook } from '../core/shop';
+import { capeCanvas } from './CapeArt';
+import type { Particles } from './Particles';
 import type { TextureAtlas } from '../resources/TextureAtlas';
 import { FACE_SLOTS } from '../resources/TextureAtlas';
 import type { WorldUniforms } from './ChunkMaterial';
@@ -310,6 +313,10 @@ function boxGeo(s: [number, number, number], c: number): THREE.BufferGeometry {
 interface Snap { t: number; x: number; y: number; z: number; yaw: number; pitch: number; }
 
 export interface EntityView {
+  cos?: Equipped;
+  cape?: THREE.Object3D | null;
+  capeT?: number;
+  trailT?: number;
   squish?: number;
   wings?: [THREE.Object3D, THREE.Object3D] | null;
   peekS?: number;
@@ -570,6 +577,8 @@ export class EntityRenderer {
   }
 
   private equip = new Map<string, number[]>();
+  particles: Particles | null = null;
+  private capeTex = new Map<string, THREE.Texture>();
 
   setEquipment(id: string, e: number[] | null): void {
     const prev = this.equip.get(id);
@@ -592,7 +601,39 @@ export class EntityRenderer {
     for (const o of ex.eqObjs ?? []) o.parent?.remove(o);
     if (ex.eqMats?.length) { const drop = new Set(ex.eqMats); v.mats = v.mats.filter((m) => !drop.has(m)); for (const m of ex.eqMats) m.dispose(); }
     ex.eqObjs = []; ex.eqMats = [];
+    v.cape = null;
     const e = this.equip.get(v.id);
+    const capeLook = v.cos?.cape ? COS_BY_ID.get(v.cos.cape)?.look as CapeLook | undefined : undefined;
+    if (capeLook && e?.[3] !== I.ELYTRA) {
+      const vanillaRig = !!v.rig;
+      const root = vanillaRig ? v.parts.get('body')?.parent ?? undefined : v.parts.get('body');
+      if (root) {
+        let tex = this.capeTex.get(v.cos!.cape!);
+        if (!tex) {
+          tex = new THREE.CanvasTexture(capeCanvas(capeLook));
+          tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.flipY = false; tex.colorSpace = THREE.NoColorSpace;
+          this.capeTex.set(v.cos!.cape!, tex);
+        }
+        const m = this.material(tex);
+        const pivot = new THREE.Group();
+        pivot.rotation.order = 'XYZ';
+        if (vanillaRig) {
+          pivot.position.set(0, 0, 2);
+          pivot.rotation.y = Math.PI;
+          pivot.add(new THREE.Mesh(armorGeo('cape', [{ o: [-5, 0, -1], s: [10, 16, 1], uv: [0, 0] }]), m));
+        } else {
+          pivot.position.set(0, 0.36, 0.16);
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.0, 0.05), m);
+          const uv = mesh.geometry.getAttribute('uv') as THREE.BufferAttribute;
+          for (let i = 0; i < uv.count; i++) uv.setXY(i, (1 + uv.getX(i) * 10) / 64, (1 + (1 - uv.getY(i)) * 16) / 32);
+          mesh.position.set(0, -0.5, 0.03);
+          pivot.add(mesh);
+        }
+        root.add(pivot);
+        ex.eqObjs.push(pivot); ex.eqMats.push(m); v.mats.push(m);
+        v.cape = pivot;
+      }
+    }
     if (!e) return;
     const glint = e[6] ?? 0;
     const add = (parent: THREE.Object3D | undefined, obj: THREE.Object3D, mats: THREE.ShaderMaterial[], g: boolean) => {
@@ -768,12 +809,14 @@ export class EntityRenderer {
     }
   }
 
-  private nameTag(name: string, color = '#fff', badge = false): THREE.Sprite {
+  private nameTag(name: string, color = '#fff', badge = false, title?: TitleLook): THREE.Sprite {
     const c = document.createElement('canvas');
     const g = c.getContext('2d')!;
     g.font = 'bold 28px system-ui, sans-serif';
     const bw = badge ? 30 : 0;
-    const w = Math.ceil(g.measureText(name).width) + 20 + bw;
+    const tt = title ? `[${title.text}] ` : '';
+    const tw = tt ? Math.ceil(g.measureText(tt).width) : 0;
+    const w = Math.ceil(g.measureText(name).width) + 20 + bw + tw;
     c.width = w; c.height = 40;
     g.font = 'bold 28px system-ui, sans-serif';
     g.fillStyle = 'rgba(0,0,0,0.45)';
@@ -784,9 +827,10 @@ export class EntityRenderer {
       for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 5 : 12; g.lineTo(22 + Math.cos(a) * r, 20 + Math.sin(a) * r); }
       g.closePath(); g.fill();
     }
-    g.fillStyle = color;
     g.textBaseline = 'middle';
-    g.fillText(name, 10 + bw, 21);
+    if (title) { g.fillStyle = title.color; g.fillText(tt, 10 + bw, 21); }
+    g.fillStyle = color;
+    g.fillText(name, 10 + bw + tw, 21);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.NoColorSpace;
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: true, transparent: true }));
@@ -795,9 +839,9 @@ export class EntityRenderer {
     return s;
   }
 
-  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance; skin?: { png: string; slim: boolean } | null; sup?: string }): EntityView {
+  upsert(id: string, kind: EntityView['kind'], type: number, x: number, y: number, z: number, yaw: number, pitch: number, flags: number, extra: number, now: number, opts?: { name?: string; appearance?: Appearance; skin?: { png: string; slim: boolean } | null; sup?: string; cos?: Equipped }): EntityView {
     let v = this.views.get(id);
-    if (v && v.kind === 'player' && opts?.appearance && (JSON.stringify(opts.appearance) !== JSON.stringify((v as EntityView & { app?: Appearance }).app) || (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : '') !== (v as EntityView & { skinKey?: string }).skinKey)) {
+    if (v && v.kind === 'player' && opts?.appearance && (JSON.stringify(opts.appearance) !== JSON.stringify((v as EntityView & { app?: Appearance }).app) || (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : '') !== (v as EntityView & { skinKey?: string }).skinKey || JSON.stringify(cleanEquipped(opts.cos)) !== JSON.stringify(v.cos ?? {}))) {
       this.removeNow(id);
       v = undefined;
     }
@@ -1043,7 +1087,7 @@ export class EntityRenderer {
         age: Math.random() * 100, spd: 0, spec: built.spec, rig: built.rig,
         limbs: [...built.parts].filter(([n]) => /^leg([0-3LR])$/.test(n)).map(([n, o]) => { const c = n.slice(3); return [o, c === 'L' ? 0 : c === 'R' ? 1 : Number(c)] as [THREE.Object3D, number]; }),
       };
-      if (kind === 'player' && opts?.name) { v.name = opts.name; v.tag = this.nameTag(opts.name, opts.sup ?? '#fff', !!opts.sup); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; (v as EntityView & { skinKey?: string }).skinKey = (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : ''); (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin = opts.skin ?? null; }
+      if (kind === 'player' && opts?.name) { v.cos = cleanEquipped(opts.cos); v.name = opts.name; v.tag = this.nameTag(opts.name, opts.sup ?? '#fff', !!opts.sup, v.cos.title ? COS_BY_ID.get(v.cos.title)!.look as TitleLook : undefined); v.obj.add(v.tag); (v as EntityView & { app?: Appearance }).app = opts.appearance; (v as EntityView & { skinKey?: string }).skinKey = (opts.skin?.png ?? '') + (opts.skin?.slim ? 's' : ''); (v as EntityView & { skin?: { png: string; slim: boolean } | null }).skin = opts.skin ?? null; }
       if (kind === 'mob') {
         const def = MOB_BY_CODE[type];
         const tg = this.tags.get(id) ?? (def?.type === 'quartermaster' ? { name: 'Quartermaster', color: '#f3d27a' } : undefined);
@@ -1174,6 +1218,21 @@ export class EntityRenderer {
           if (v.swimT) { v.obj.position.y += v.swimT * 0.35; v.obj.position.x += Math.sin(v.yaw) * 0.9 * v.swimT; v.obj.position.z += Math.cos(v.yaw) * 0.9 * v.swimT; }
           const crouch = (v.flags & 2) !== 0 && !v.swimT;
           if (v.wings) this.animateWings(v, crouch);
+          if (v.cape) {
+            const sway = Math.min(1, speed / 5.5) * 0.9 + (crouch ? 0.4 : 0) + Math.sin(v.age * 2.2) * 0.03;
+            v.capeT = (v.capeT ?? 0) + (sway - (v.capeT ?? 0)) * Math.min(1, dt * 6);
+            v.cape.rotation.x = (v.rig ? 1 : -1) * (0.1 + v.capeT);
+          }
+          const trail = v.cos?.trail ? COS_BY_ID.get(v.cos.trail)?.look as TrailLook | undefined : undefined;
+          if (trail && this.particles && !(v.flags & (1 << 14))) {
+            v.trailT = (v.trailT ?? 0) + dt * trail.rate * (speed > 0.6 ? 1 : 0.25);
+            while (v.trailT >= 1) {
+              v.trailT -= 1;
+              const col = trail.cycle ? trail.colors[Math.floor(v.age * 4) % trail.colors.length] : trail.colors[Math.floor(Math.random() * trail.colors.length)];
+              const n = parseInt(col.slice(1), 16);
+              this.particles.puff(v.x + (Math.random() - 0.5) * 0.5, v.y + 0.1 + Math.random() * 0.4, v.z + (Math.random() - 0.5) * 0.5, ((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255, 1, 0.25, -trail.rise, trail.size, 1.1);
+            }
+          }
           if (!v.rig) {
             const body = v.parts.get('body'), head = v.parts.get('head');
             if (body) body.rotation.x = crouch ? -0.35 : 0;

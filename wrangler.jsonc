@@ -7,7 +7,8 @@
   "observability": { "enabled": true },
   "vars": {
     "STRIPE_PRICE_ID": "price_1Ug8PCAARygIHEjFEpARKYs8",
-    "HOSTING_PRICE_ID": "price_1Ug8RyAARygIHEjFCEhLYNY5"
+    "HOSTING_PRICE_ID": "price_1Ug8RyAARygIHEjFCEhLYNY5",
+    "SHARD_PACKS": "[{\"price\":\"price_1UgePOAARygIHEjFPu3mpDa8\",\"shards\":500,\"label\":\"$1.99 USD\"},{\"price\":\"price_1UgePOAARygIHEjF1EycLU02\",\"shards\":1300,\"label\":\"$4.99 USD\"},{\"price\":\"price_1UgePPAARygIHEjFS8HMTNvR\",\"shards\":2800,\"label\":\"$9.99 USD\"}]"
   },
   "assets": {
     "directory": "./dist",

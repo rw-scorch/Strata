@@ -3,6 +3,7 @@ import { WorldRoom, Env } from './rooms/WorldRoom';
 import { Accounts } from './accounts/Accounts';
 import { Registry } from './registry/Registry';
 import { supporterRoute, hostingRoute, RoomLookup } from './stripe';
+import { shopRoute, adminShards } from './shop';
 import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, isValidRoomCode, PROTOCOL_VERSION, GAME_VERSION } from '../src/core/constants';
 
 function stamped(stub: DurableObjectStub) {
@@ -111,6 +112,7 @@ async function admin(req: Request, env: Env, path: string): Promise<Response> {
     const stub = env.REGISTRY.get(env.REGISTRY.idFromName('global'));
     return json(await (await stub.fetch('https://registry/list')).json());
   }
+  if (path === '/api/admin/shards' && req.method === 'POST') return adminShards(env, (await req.json().catch(() => ({}))) as Record<string, unknown>);
   if (path === '/api/admin/featured' && req.method === 'POST') {
     if (!env.REGISTRY) return json({ error: 'No registry' }, 503);
     const b = (await req.json().catch(() => ({}))) as { code?: string; on?: boolean; blurb?: string };
@@ -218,6 +220,8 @@ async function route(req: Request, env: Env): Promise<Response> {
     if (path.startsWith('/api/supporter/') || path === '/api/stripe/webhook') return supporterRoute(req, env, path, roomsFor(env));
 
     if (path.startsWith('/api/hosting/')) return hostingRoute(req, env, path, roomsFor(env));
+
+    if (path.startsWith('/api/shop/')) return shopRoute(req, env, path);
 
     const auth = path.match(/^\/api\/auth\/(register|login|password)$/);
     if (auth) {

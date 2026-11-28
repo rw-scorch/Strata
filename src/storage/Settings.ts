@@ -264,6 +264,35 @@ export async function supporterRequest(kind: 'status' | 'checkout' | 'portal' | 
   return { ok: true, data };
 }
 
+export interface ShopState {
+  ok?: boolean; error?: string; shards: number; keys: number; canClaim: boolean; owned: string[]; equipped: { title?: string; trail?: string; cape?: string };
+  offers: Record<string, string[]>; packs?: { i: number; shards: number; label: string }[]; got?: string; url?: string;
+}
+
+let shopOpen: boolean | null = null;
+export async function shopEnabled(): Promise<boolean> {
+  if (shopOpen !== null) return shopOpen;
+  try {
+    const base = ((import.meta.env.VITE_SERVER_URL as string | undefined) ?? '').replace(/\/$/, '');
+    const r = await fetch(`${base}/api/shop/config`);
+    shopOpen = r.ok && !!((await r.json()) as { enabled?: boolean }).enabled;
+  } catch { shopOpen = false; }
+  return shopOpen;
+}
+
+export async function shopRequest(op: 'state' | 'daily' | 'buy' | 'crate' | 'equip' | 'checkout', extra: Record<string, unknown> = {}): Promise<{ ok: true; data: ShopState } | { ok: false; error: string }> {
+  const acc = getAccount();
+  if (!acc) return { ok: false, error: 'Sign in to an account first.' };
+  let res: Response;
+  try {
+    const base = ((import.meta.env.VITE_SERVER_URL as string | undefined) ?? '').replace(/\/$/, '');
+    res = await fetch(`${base}/api/shop/${op}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: acc.id, secret: acc.secret, ...extra }) });
+  } catch { return { ok: false, error: 'Could not reach the server.' }; }
+  const data = await res.json().catch(() => null) as ShopState | null;
+  if (!data || !res.ok || data.error) return { ok: false, error: data?.error ?? `Request failed (${res.status}).` };
+  return { ok: true, data };
+}
+
 export function getIdentity(): Identity {
   const acc = getAccount();
   if (acc) return { id: acc.id, secret: acc.secret };

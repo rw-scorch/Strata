@@ -142,6 +142,7 @@ export interface SimPlayer {
   sel: [number[] | null, number[] | null];
   homes?: Record<string, { x: number; y: number; z: number }>;
   supporter?: string;
+  cos?: import('../shop').Equipped;
   back?: { x: number; y: number; z: number };
   tpWarm?: { x: number; y: number; z: number; safe: boolean; at: number; ox: number; oy: number; oz: number; done: string; after?: () => void };
   combatT?: number;
